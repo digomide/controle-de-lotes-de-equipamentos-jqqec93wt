@@ -24,6 +24,7 @@ import {
   AlertCircle,
   FileSpreadsheet,
   Laptop,
+  Boxes,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -383,6 +384,13 @@ export default function Catalogo() {
         </div>
 
         <div className="flex items-center gap-2">
+          <Link to="/lotes-entrada">
+            <Button className="bg-[#d9532f] hover:bg-[#c24624] text-white text-xs h-9 font-medium shadow-xs gap-1.5">
+              <Boxes className="w-4 h-4" />
+              Lotes de Entrada
+            </Button>
+          </Link>
+
           <div className="inline-flex rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
             <button
               onClick={() => setViewMode('cards')}

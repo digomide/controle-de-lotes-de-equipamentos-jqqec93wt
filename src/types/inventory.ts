@@ -20,6 +20,20 @@ export interface EquipmentHistoryEvent {
   date: string
 }
 
+export type PurchaseBatchStatus = 'em_processamento' | 'concluido'
+
+export interface PurchaseBatch extends RecordModel {
+  supplier: string
+  invoice_number?: string
+  purchase_date?: string
+  total_cost: number
+  expected_quantity: number
+  status: PurchaseBatchStatus
+  expand?: {
+    products_via_purchase_batch_id?: Product[]
+  }
+}
+
 export interface Product extends RecordModel {
   name: string
   sku: string
@@ -42,6 +56,13 @@ export interface Product extends RecordModel {
   photos?: string[]
   technical_checklist?: TechnicalChecklistItem[]
   history_events?: EquipmentHistoryEvent[]
+  purchase_batch_id?: string
+  serial_number?: string
+  includes_charger?: boolean
+  bench_notes?: string
+  expand?: {
+    purchase_batch_id?: PurchaseBatch
+  }
 }
 
 export interface EquipmentPart extends RecordModel {

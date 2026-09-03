@@ -13,6 +13,9 @@ import CatalogoDetalhe from './pages/CatalogoDetalhe'
 import Estoque from './pages/Estoque'
 import Ajustes from './pages/Ajustes'
 import Configuracoes from './pages/Configuracoes'
+import LotesEntrada from './pages/LotesEntrada'
+import LoteEntradaDetalhe from './pages/LoteEntradaDetalhe'
+import LoteInventariar from './pages/LoteInventariar'
 import { AuthProvider } from './contexts/AuthContext'
 import { ProtectedRoute } from './components/ProtectedRoute'
 
@@ -42,6 +45,9 @@ const App = () => (
             <Route path="/catalogo/:id" element={<CatalogoDetalhe />} />
             <Route path="/estoque" element={<Estoque />} />
             <Route path="/estoque/:id" element={<CatalogoDetalhe />} />
+            <Route path="/lotes-entrada" element={<LotesEntrada />} />
+            <Route path="/lotes-entrada/:id" element={<LoteEntradaDetalhe />} />
+            <Route path="/lotes-entrada/:id/inventariar" element={<LoteInventariar />} />
             <Route path="/lotes/:id" element={<CatalogoDetalhe />} />
             <Route path="/ajustes" element={<Ajustes />} />
             <Route path="/configuracoes" element={<Configuracoes />} />

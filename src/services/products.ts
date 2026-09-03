@@ -5,11 +5,14 @@ export const productsService = {
   async getAll(): Promise<Product[]> {
     return await pb.collection('products').getFullList<Product>({
       sort: '-created',
+      expand: 'purchase_batch_id',
     })
   },
 
   async getById(id: string): Promise<Product> {
-    return await pb.collection('products').getOne<Product>(id)
+    return await pb.collection('products').getOne<Product>(id, {
+      expand: 'purchase_batch_id',
+    })
   },
 
   async getByCodeOrSku(identifier: string): Promise<Product | null> {
@@ -42,7 +45,7 @@ export const productsService = {
     }
   },
 
-  async create(data: Partial<Product>): Promise<Product> {
+  async create(data: Partial<Product> | FormData): Promise<Product> {
     return await pb.collection('products').create<Product>(data)
   },
 

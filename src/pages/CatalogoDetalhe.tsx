@@ -33,6 +33,7 @@ import {
   MapPin,
   X,
   ExternalLink,
+  Boxes,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -1029,10 +1030,24 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
             <CardContent className="p-6 space-y-5">
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-mono text-xs font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
                       {product.sku}
                     </span>
+                    {product.serial_number && (
+                      <span className="font-mono text-xs text-slate-600 bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
+                        S/N: {product.serial_number}
+                      </span>
+                    )}
+                    {product.purchase_batch_id && (
+                      <Link
+                        to={`/lotes-entrada/${product.purchase_batch_id}`}
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-orange-700 bg-orange-50 hover:bg-orange-100 px-2 py-0.5 rounded border border-orange-200 transition-colors"
+                      >
+                        <Boxes className="w-3 h-3" />
+                        Lote de Origem
+                      </Link>
+                    )}
                     <Badge variant="outline" className="text-xs bg-slate-50">
                       {product.category || 'Notebooks'}
                     </Badge>
@@ -1237,7 +1252,34 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
                       {product.aesthetic_grade || 'A - Excelente'}
                     </span>
                   </div>
+
+                  <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                    <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-semibold">
+                      Carregador
+                    </span>
+                    <span className="font-medium text-slate-800 block">
+                      {product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
+                    </span>
+                  </div>
+
+                  {product.serial_number && (
+                    <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                      <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-semibold">
+                        Número de Série
+                      </span>
+                      <span className="font-medium font-mono text-slate-800 block truncate">
+                        {product.serial_number}
+                      </span>
+                    </div>
+                  )}
                 </div>
+
+                {product.bench_notes && (
+                  <div className="bg-amber-50/70 border border-amber-200/80 rounded-lg p-3 text-xs mt-2">
+                    <span className="font-bold text-amber-800 block mb-1">Notas da Bancada:</span>
+                    <p className="text-slate-700 whitespace-pre-wrap">{product.bench_notes}</p>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-03T15:37:11.704Z",
+  "generatedAt": "2026-09-03T15:58:46.053Z",
   "collections": [
     {
       "name": "users",
@@ -200,6 +200,31 @@
         {
           "name": "photos",
           "type": "file",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "purchase_batch_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "purchase_batches"
+        },
+        {
+          "name": "serial_number",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "includes_charger",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "bench_notes",
+          "type": "text",
           "required": false,
           "system": false
         }
@@ -573,6 +598,71 @@
           "type": "text",
           "required": false,
           "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "purchase_batches",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "supplier",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "invoice_number",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "purchase_date",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "total_cost",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "expected_quantity",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["em_processamento", "concluido"]
         },
         {
           "name": "created",

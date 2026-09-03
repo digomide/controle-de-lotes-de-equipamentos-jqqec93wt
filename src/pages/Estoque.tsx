@@ -23,6 +23,7 @@ import {
   DollarSign,
   Tag,
   Laptop,
+  Boxes,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -376,6 +377,12 @@ export default function Estoque() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Link to="/lotes-entrada">
+            <Button className="bg-[#d9532f] hover:bg-[#c24624] text-white text-xs h-9 font-medium shadow-xs gap-1.5">
+              <Boxes className="w-4 h-4" />
+              Lotes de Entrada
+            </Button>
+          </Link>
           <Link to="/ajustes">
             <Button variant="outline" className="gap-2 border-slate-300 text-xs h-9">
               <SlidersHorizontal className="w-3.5 h-3.5" />
@@ -394,7 +401,7 @@ export default function Estoque() {
               className="bg-slate-900 hover:bg-slate-800 text-white shadow gap-2 text-xs h-9"
             >
               <Plus className="w-4 h-4" />
-              Novo Lote
+              Novo Lote Interno
             </Button>
           )}
         </div>

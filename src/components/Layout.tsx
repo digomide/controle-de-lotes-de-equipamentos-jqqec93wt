@@ -41,6 +41,7 @@ export default function Layout() {
 
   const navItems = [
     { title: 'Dashboard', path: '/', icon: LayoutDashboard },
+    { title: 'Lotes de Entrada', path: '/lotes-entrada', icon: Boxes },
     { title: 'Catálogo de Notebooks', path: '/produtos', icon: Package },
     { title: 'Vendas', path: '/vendas', icon: ShoppingCart },
     { title: 'Estoque / Lotes', path: '/estoque', icon: Layers },
@@ -51,6 +52,9 @@ export default function Layout() {
   const getPageTitle = () => {
     const p = location.pathname
     if (p === '/') return 'Dashboard Geral'
+    if (p.includes('/inventariar')) return 'Ficha de Inventário'
+    if (p.startsWith('/lotes-entrada/')) return 'Detalhes do Lote de Entrada'
+    if (p.startsWith('/lotes-entrada')) return 'Lotes de Entrada'
     if (p.startsWith('/vendas')) return 'Gestão de Vendas'
     if (p.startsWith('/catalogo/')) return 'Detalhes do Equipamento'
     if (p.startsWith('/produtos') || p.startsWith('/catalogo')) return 'Catálogo de Equipamentos'
@@ -227,6 +231,14 @@ export default function Layout() {
               />
             </form>
 
+            <NavLink to="/lotes-entrada" className="hidden sm:flex">
+              <Button
+                size="sm"
+                className="bg-[#d9532f] hover:bg-[#c24624] text-white text-xs h-9 font-medium shadow-xs gap-1.5"
+              >
+                <Boxes className="w-4 h-4" />+ Lote de Entrada
+              </Button>
+            </NavLink>
             {/* Profile Dropdown */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -296,6 +308,18 @@ export default function Layout() {
           >
             <LayoutDashboard className="w-4 h-4" />
             Início
+          </NavLink>
+          <NavLink
+            to="/lotes-entrada"
+            className={({ isActive }) =>
+              cn(
+                'flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-2 rounded',
+                isActive ? 'text-orange-600 font-bold' : 'text-slate-500',
+              )
+            }
+          >
+            <Boxes className="w-4 h-4" />
+            Lotes
           </NavLink>
           <NavLink
             to="/produtos"
