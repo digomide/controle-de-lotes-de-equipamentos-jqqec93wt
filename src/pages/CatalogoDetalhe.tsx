@@ -63,6 +63,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { productsService } from '@/services/products'
 import { batchesService } from '@/services/batches'
 import { equipmentService } from '@/services/equipment'
+import { salesService } from '@/services/sales'
 import { EtiquetaModal, type EtiquetaData } from '@/components/EtiquetaModal'
 import type {
   Product,
@@ -117,17 +118,31 @@ export default function CatalogoDetalhe() {
 
   // Modais de Peças e Pendências
   const [partModalOpen, setPartModalOpen] = useState(false)
+  const [editingPart, setEditingPart] = useState<EquipmentPart | null>(null)
   const [partName, setPartName] = useState('')
   const [partCost, setPartCost] = useState<number>(0)
+  const [partSupplier, setPartSupplier] = useState('')
+  const [partPurchaseDate, setPartPurchaseDate] = useState('')
   const [partStatus, setPartStatus] = useState<'Pendente' | 'Trocado' | 'Instalado' | 'Danificado'>(
     'Instalado',
   )
   const [partNotes, setPartNotes] = useState('')
+  const [partToDelete, setPartToDelete] = useState<EquipmentPart | null>(null)
+  const [deletingPart, setDeletingPart] = useState(false)
 
   const [deliverableModalOpen, setDeliverableModalOpen] = useState(false)
   const [delivName, setDelivName] = useState('')
   const [delivStatus, setDelivStatus] = useState<'Pendente' | 'Resolvido'>('Pendente')
   const [delivNotes, setDelivNotes] = useState('')
+
+  // Modal Venda Rápida
+  const [quickSaleModalOpen, setQuickSaleModalOpen] = useState(false)
+  const [quickSaleCustomer, setQuickSaleCustomer] = useState('')
+  const [quickSaleContact, setQuickSaleContact] = useState('')
+  const [quickSalePrice, setQuickSalePrice] = useState<number>(0)
+  const [quickSalePaymentMethod, setQuickSalePaymentMethod] = useState('PIX')
+  const [quickSaleNotes, setQuickSaleNotes] = useState('')
+  const [submittingQuickSale, setSubmittingQuickSale] = useState(false)
 
   const [savingAction, setSavingAction] = useState(false)
 
@@ -509,33 +524,65 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
   }
 
   // Part actions
-  const handleAddPart = async (e: React.FormEvent) => {
+  const handleOpenAddPartModal = () => {
+    setEditingPart(null)
+    setPartName('')
+    setPartCost(0)
+    setPartSupplier('')
+    setPartPurchaseDate(new Date().toISOString().split('T')[0])
+    setPartStatus('Instalado')
+    setPartNotes('')
+    setPartModalOpen(true)
+  }
+
+  const handleOpenEditPartModal = (p: EquipmentPart) => {
+    setEditingPart(p)
+    setPartName(p.name || '')
+    setPartCost(Number(p.cost) || 0)
+    setPartSupplier(p.supplier || '')
+    setPartPurchaseDate(p.purchase_date ? p.purchase_date.split(' ')[0].split('T')[0] : '')
+    setPartStatus(p.status || 'Instalado')
+    setPartNotes(p.notes || '')
+    setPartModalOpen(true)
+  }
+
+  const handleSavePart = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!product || !partName.trim()) return
 
     setSavingAction(true)
     try {
-      await equipmentService.createPart({
-        product_id: product.id,
+      const payload: any = {
         name: partName.trim(),
         cost: Number(partCost) || 0,
         status: partStatus,
         notes: partNotes.trim(),
-      })
-      toast({
-        title: 'Peça adicionada',
-        description: 'A peça e seu custo foram vinculados ao equipamento.',
-      })
+        supplier: partSupplier.trim(),
+        purchase_date: partPurchaseDate ? new Date(partPurchaseDate).toISOString() : undefined,
+        product_id: product.id,
+        purchase_batch_id: product.purchase_batch_id || undefined,
+      }
+
+      if (editingPart) {
+        await equipmentService.updatePart(editingPart.id, payload)
+        toast({
+          title: 'Peça atualizada',
+          description: 'A peça e seu custo foram alterados com sucesso.',
+        })
+      } else {
+        await equipmentService.createPart(payload)
+        toast({
+          title: 'Peça adicionada',
+          description: 'A peça e seu custo foram vinculados ao equipamento e ao lote.',
+        })
+      }
       setPartModalOpen(false)
-      setPartName('')
-      setPartCost(0)
-      setPartNotes('')
       const updatedParts = await equipmentService.getPartsByProduct(product.id)
       setParts(updatedParts)
     } catch (err) {
       console.error(err)
       toast({
-        title: 'Erro ao adicionar peça',
+        title: 'Erro ao salvar peça',
         variant: 'destructive',
       })
     } finally {
@@ -543,13 +590,105 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
     }
   }
 
-  const handleDeletePart = async (partId: string) => {
+  const handleConfirmDeletePart = async () => {
+    if (!partToDelete) return
+    setDeletingPart(true)
     try {
-      await equipmentService.deletePart(partId)
-      setParts(parts.filter((p) => p.id !== partId))
-      toast({ title: 'Peça removida' })
+      await equipmentService.deletePart(partToDelete.id)
+      setParts(parts.filter((p) => p.id !== partToDelete.id))
+      toast({ title: 'Peça removida com sucesso' })
+      setPartToDelete(null)
     } catch (err) {
       console.error(err)
+      toast({
+        title: 'Erro ao remover peça',
+        variant: 'destructive',
+      })
+    } finally {
+      setDeletingPart(false)
+    }
+  }
+
+  // Quick Sale Actions
+  const handleOpenQuickSaleModal = () => {
+    if (!product) return
+    if (product.status !== 'Disponível') {
+      toast({
+        title: 'Equipamento indisponível para venda',
+        description: `O status atual deste item é "${product.status}". Apenas equipamentos "Disponível" podem ser vendidos.`,
+        variant: 'destructive',
+      })
+      return
+    }
+    setQuickSaleCustomer('')
+    setQuickSaleContact('')
+    setQuickSalePrice(Number(product.unit_price) || 0)
+    setQuickSalePaymentMethod('PIX')
+    setQuickSaleNotes('')
+    setQuickSaleModalOpen(true)
+  }
+
+  const handleConfirmQuickSale = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!product || !quickSaleCustomer.trim()) return
+
+    setSubmittingQuickSale(true)
+    try {
+      // Find batch or create fallback batch if needed
+      let targetBatch = primaryBatch
+      if (!targetBatch) {
+        // Create an inventory batch for tracking
+        targetBatch = await batchesService.create({
+          product_id: product.id,
+          batch_number: `LOTE-${product.sku || 'UN'}`,
+          location: 'Venda Direta',
+          quantity: 1,
+        })
+      }
+
+      // Combine payment method into notes if provided
+      const fullNotes = [
+        quickSaleNotes.trim(),
+        quickSalePaymentMethod ? `Forma de pagamento: ${quickSalePaymentMethod}` : '',
+        `Venda rápida direta da ficha (${product.sku})`,
+      ]
+        .filter(Boolean)
+        .join(' | ')
+
+      // Call salesService.createSale (same logic used in Vendas 4-step wizard)
+      await salesService.createSale({
+        customer_name: quickSaleCustomer.trim(),
+        customer_contact: quickSaleContact.trim(),
+        notes: fullNotes,
+        items: [
+          {
+            product_id: product.id,
+            batch_id: targetBatch.id,
+            quantity: 1,
+            unit_price: Number(quickSalePrice) || 0,
+          },
+        ],
+      })
+
+      // Also ensure status is explicitly 'Vendido' in case batches logic was bypassed
+      await productsService.updateStatus(product.id, 'Vendido')
+
+      toast({
+        title: 'Venda rápida realizada com sucesso!',
+        description: `O equipamento ${product.name} foi marcado como Vendido e baixado do estoque.`,
+      })
+
+      setQuickSaleModalOpen(false)
+      await loadData()
+    } catch (err: any) {
+      console.error(err)
+      toast({
+        title: 'Erro ao registrar venda rápida',
+        description: err?.message || 'Falha ao salvar a venda no sistema.',
+        variant: 'destructive',
+      })
+    } finally {
+      setSubmittingQuickSale(false)
     }
   }
 
@@ -884,7 +1023,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => setPartModalOpen(true)}
+                onClick={handleOpenAddPartModal}
                 className="text-xs h-8 gap-1.5"
               >
                 <Plus className="w-3.5 h-3.5" />
@@ -916,10 +1055,17 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
                             {p.status}
                           </Badge>
                         </div>
-                        {p.notes && <p className="text-slate-500 text-[11px] mt-0.5">{p.notes}</p>}
+                        <div className="flex items-center gap-2 mt-0.5 text-slate-500 text-[11px]">
+                          {p.supplier && <span>Forn: {p.supplier}</span>}
+                          {p.supplier && p.purchase_date && <span>•</span>}
+                          {p.purchase_date && (
+                            <span>{new Date(p.purchase_date).toLocaleDateString('pt-BR')}</span>
+                          )}
+                          {p.notes && <span>({p.notes})</span>}
+                        </div>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <span className="font-mono font-bold text-slate-700">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-bold text-slate-700 mr-1">
                           R${' '}
                           {Number(p.cost || 0).toLocaleString('pt-BR', {
                             minimumFractionDigits: 2,
@@ -927,7 +1073,15 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
                         </span>
                         <button
                           type="button"
-                          onClick={() => handleDeletePart(p.id)}
+                          onClick={() => handleOpenEditPartModal(p)}
+                          className="text-slate-400 hover:text-orange-600 p-1"
+                          title="Editar peça"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPartToDelete(p)}
                           className="text-slate-400 hover:text-rose-600 p-1"
                           title="Remover peça"
                         >
@@ -1140,15 +1294,36 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
               {/* Ações de Venda */}
               <div className="space-y-2">
                 <Button
-                  onClick={() => navigate(`/vendas?nova=true&produto=${product.id}`)}
-                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold h-11 shadow-sm gap-2 text-sm"
+                  onClick={handleOpenQuickSaleModal}
+                  disabled={statusVal !== 'Disponível'}
+                  className={`w-full font-bold h-11 shadow-sm gap-2 text-sm transition-all ${
+                    statusVal === 'Disponível'
+                      ? 'bg-[#d9532f] hover:bg-[#c24624] text-white shadow-orange-500/20'
+                      : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                  }`}
+                  title={
+                    statusVal === 'Disponível'
+                      ? 'Venda rápida imediata com baixa de estoque'
+                      : `Indisponível para venda (${statusVal})`
+                  }
                 >
-                  <Send className="w-4 h-4" />
-                  Adicionar à proposta / Vender
+                  <DollarSign className="w-4 h-4" />
+                  {statusVal === 'Disponível' ? '⚡ Venda Rápida' : `Equipamento ${statusVal}`}
                 </Button>
+
+                <Button
+                  variant="outline"
+                  onClick={() => navigate(`/vendas?nova=true&produto=${product.id}`)}
+                  className="w-full border-slate-300 text-slate-700 hover:bg-slate-50 font-medium h-9 text-xs gap-1.5"
+                >
+                  <Send className="w-3.5 h-3.5 text-emerald-600" />
+                  Abrir Proposta Completa (Vendas)
+                </Button>
+
                 <p className="text-[11px] text-center text-slate-400">
-                  Sem compromisso de compra imediata. Baixa automática no estoque deste lote ao
-                  finalizar.
+                  {statusVal === 'Disponível'
+                    ? 'A Venda Rápida dá baixa imediata no lote físico e atualiza o status para Vendido.'
+                    : 'Este equipamento já não está disponível em estoque físico.'}
                 </p>
               </div>
 
@@ -1772,21 +1947,21 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
         </DialogContent>
       </Dialog>
 
-      {/* MODAL: Adicionar Peça */}
+      {/* MODAL: Adicionar / Editar Peça */}
       <Dialog open={partModalOpen} onOpenChange={setPartModalOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="text-base font-bold text-slate-900 flex items-center gap-2">
               <Wrench className="w-4 h-4 text-amber-600" />
-              Adicionar Peça ou Troca
+              {editingPart ? 'Editar Peça / Troca' : 'Adicionar Peça ou Troca'}
             </DialogTitle>
             <DialogDescription>
               Vincule peças trocadas (ex: tela nova, bateria, expansão de SSD) com o respectivo
-              custo.
+              custo, compondo o custo deste equipamento e do lote de origem.
             </DialogDescription>
           </DialogHeader>
 
-          <form onSubmit={handleAddPart} className="space-y-3">
+          <form onSubmit={handleSavePart} className="space-y-3">
             <div className="space-y-1">
               <Label className="text-xs font-semibold text-slate-700">Nome da Peça *</Label>
               <Input
@@ -1825,6 +2000,28 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
               </div>
             </div>
 
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-slate-700">
+                  Fornecedor (Opcional)
+                </Label>
+                <Input
+                  placeholder="Ex: KaBuM!, Mercado Livre"
+                  value={partSupplier}
+                  onChange={(e) => setPartSupplier(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-slate-700">Data da Compra</Label>
+                <Input
+                  type="date"
+                  value={partPurchaseDate}
+                  onChange={(e) => setPartPurchaseDate(e.target.value)}
+                />
+              </div>
+            </div>
+
             <div className="space-y-1">
               <Label className="text-xs font-semibold text-slate-700">Observações / Detalhes</Label>
               <Input
@@ -1843,12 +2040,42 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
                 disabled={savingAction}
                 className="bg-slate-900 text-white hover:bg-slate-800"
               >
-                {savingAction ? 'Salvando...' : 'Salvar Peça'}
+                {savingAction ? 'Salvando...' : editingPart ? 'Atualizar Peça' : 'Salvar Peça'}
               </Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Confirmação de Exclusão de Peça */}
+      <AlertDialog open={!!partToDelete} onOpenChange={(open) => !open && setPartToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remover peça vinculada?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza de que deseja remover a peça &quot;{partToDelete?.name}&quot; no valor de{' '}
+              {(Number(partToDelete?.cost) || 0).toLocaleString('pt-BR', {
+                style: 'currency',
+                currency: 'BRL',
+              })}
+              ? Esta alteração deduzirá o custo deste equipamento e do lote.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingPart}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                handleConfirmDeletePart()
+              }}
+              className="bg-rose-600 hover:bg-rose-700 text-white font-semibold"
+              disabled={deletingPart}
+            >
+              {deletingPart ? 'Removendo...' : 'Sim, remover peça'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* MODAL: Adicionar Pendência de Entrega */}
       <Dialog open={deliverableModalOpen} onOpenChange={setDeliverableModalOpen}>
@@ -1906,6 +2133,131 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
                 className="bg-emerald-600 text-white hover:bg-emerald-700"
               >
                 {savingAction ? 'Salvando...' : 'Salvar Item'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* MODAL: Venda Rápida */}
+      <Dialog open={quickSaleModalOpen} onOpenChange={setQuickSaleModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold text-slate-900 flex items-center gap-2">
+              <DollarSign className="w-5 h-5 text-[#d9532f]" />
+              Venda Rápida de Equipamento
+            </DialogTitle>
+            <DialogDescription>
+              Emita a venda deste equipamento imediatamente. O status será marcado como{' '}
+              <strong>Vendido</strong> e a baixa no estoque do lote será concluída automaticamente.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleConfirmQuickSale} className="space-y-4 py-2">
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-1">
+              <div className="font-bold text-slate-800">{product.name}</div>
+              <div className="text-slate-500 font-mono">
+                SKU: {product.sku} {product.serial_number ? `• S/N: ${product.serial_number}` : ''}
+              </div>
+              <div className="text-slate-500">
+                Lote de estoque:{' '}
+                <strong>{primaryBatch?.batch_number || `LOTE-${product.sku}`}</strong>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold text-slate-700">Nome do Cliente *</Label>
+              <Input
+                placeholder="Ex: João da Silva / Tech Soluções"
+                value={quickSaleCustomer}
+                onChange={(e) => setQuickSaleCustomer(e.target.value)}
+                required
+                className="text-sm"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold text-slate-700">
+                Contato (WhatsApp / Telefone / E-mail)
+              </Label>
+              <Input
+                placeholder="Ex: (11) 98765-4321 / cliente@email.com"
+                value={quickSaleContact}
+                onChange={(e) => setQuickSaleContact(e.target.value)}
+                className="text-sm"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-slate-700">
+                  Preço Praticado (R$) *
+                </Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  required
+                  value={quickSalePrice}
+                  onChange={(e) => setQuickSalePrice(parseFloat(e.target.value) || 0)}
+                  className="font-mono text-sm font-semibold"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-slate-700">Forma de Pagamento</Label>
+                <Select
+                  value={quickSalePaymentMethod}
+                  onValueChange={(val) => setQuickSalePaymentMethod(val)}
+                >
+                  <SelectTrigger className="text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PIX">PIX</SelectItem>
+                    <SelectItem value="Cartão de Crédito">Cartão de Crédito</SelectItem>
+                    <SelectItem value="Cartão de Débito">Cartão de Débito</SelectItem>
+                    <SelectItem value="Transferência Bancária">Transferência Bancária</SelectItem>
+                    <SelectItem value="Boleto">Boleto</SelectItem>
+                    <SelectItem value="Dinheiro">Dinheiro</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold text-slate-700">Observações da Venda</Label>
+              <Textarea
+                rows={2}
+                placeholder="Ex: Garantia de balcão 90 dias, entregue em mãos"
+                value={quickSaleNotes}
+                onChange={(e) => setQuickSaleNotes(e.target.value)}
+                className="text-xs"
+              />
+            </div>
+
+            <DialogFooter className="pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setQuickSaleModalOpen(false)}
+                disabled={submittingQuickSale}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                disabled={submittingQuickSale}
+                className="bg-[#d9532f] hover:bg-[#c24624] text-white font-semibold"
+              >
+                {submittingQuickSale ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Finalizando Venda...
+                  </>
+                ) : (
+                  'Confirmar e Dar Baixa'
+                )}
               </Button>
             </DialogFooter>
           </form>

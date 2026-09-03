@@ -6,16 +6,35 @@ export const equipmentService = {
   async getPartsByProduct(productId: string): Promise<EquipmentPart[]> {
     return await pb.collection('equipment_parts').getFullList<EquipmentPart>({
       filter: `product_id = "${productId}"`,
+      expand: 'product_id,purchase_batch_id',
+      sort: '-created',
+    })
+  },
+
+  async getPartsByBatch(batchId: string): Promise<EquipmentPart[]> {
+    return await pb.collection('equipment_parts').getFullList<EquipmentPart>({
+      filter: `purchase_batch_id = "${batchId}"`,
+      expand: 'product_id,purchase_batch_id',
+      sort: '-created',
+    })
+  },
+
+  async getAllParts(): Promise<EquipmentPart[]> {
+    return await pb.collection('equipment_parts').getFullList<EquipmentPart>({
+      expand: 'product_id,purchase_batch_id',
       sort: '-created',
     })
   },
 
   async createPart(data: {
-    product_id: string
+    product_id?: string
+    purchase_batch_id?: string
     name: string
     cost?: number
     status: 'Pendente' | 'Trocado' | 'Instalado' | 'Danificado'
     notes?: string
+    supplier?: string
+    purchase_date?: string
   }): Promise<EquipmentPart> {
     return await pb.collection('equipment_parts').create<EquipmentPart>(data)
   },

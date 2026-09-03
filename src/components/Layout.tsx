@@ -42,6 +42,7 @@ export default function Layout() {
   const navItems = [
     { title: 'Dashboard', path: '/', icon: LayoutDashboard },
     { title: 'Lotes de Entrada', path: '/lotes-entrada', icon: Boxes },
+    { title: 'Lucratividade Lotes', path: '/lucratividade', icon: SlidersHorizontal },
     { title: 'Catálogo de Notebooks', path: '/produtos', icon: Package },
     { title: 'Vendas', path: '/vendas', icon: ShoppingCart },
     { title: 'Estoque / Lotes', path: '/estoque', icon: Layers },
@@ -53,6 +54,7 @@ export default function Layout() {
     const p = location.pathname
     if (p === '/') return 'Dashboard Geral'
     if (p.includes('/inventariar')) return 'Ficha de Inventário'
+    if (p.startsWith('/lucratividade')) return 'Relatório de Lucratividade por Lote'
     if (p.startsWith('/lotes-entrada/')) return 'Detalhes do Lote de Entrada'
     if (p.startsWith('/lotes-entrada')) return 'Lotes de Entrada'
     if (p.startsWith('/vendas')) return 'Gestão de Vendas'

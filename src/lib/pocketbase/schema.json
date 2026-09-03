@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-03T16:41:40.334Z",
+  "generatedAt": "2026-09-03T18:20:00.342Z",
   "collections": [
     {
       "name": "users",
@@ -516,7 +516,7 @@
         {
           "name": "product_id",
           "type": "relation",
-          "required": true,
+          "required": false,
           "system": false,
           "collectionRef": "products"
         },
@@ -558,6 +558,25 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "purchase_batch_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "purchase_batches"
+        },
+        {
+          "name": "supplier",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "purchase_date",
+          "type": "date",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": []

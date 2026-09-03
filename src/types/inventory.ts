@@ -66,11 +66,18 @@ export interface Product extends RecordModel {
 }
 
 export interface EquipmentPart extends RecordModel {
-  product_id: string
+  product_id?: string
+  purchase_batch_id?: string
+  supplier?: string
+  purchase_date?: string
   name: string
   cost?: number
   status: 'Pendente' | 'Trocado' | 'Instalado' | 'Danificado'
   notes?: string
+  expand?: {
+    product_id?: Product
+    purchase_batch_id?: PurchaseBatch
+  }
 }
 
 export interface EquipmentDeliverable extends RecordModel {
