@@ -39,6 +39,7 @@ export interface Product extends RecordModel {
   screen_size?: string
   status?: ProductStatus
   images?: string[]
+  photos?: string[]
   technical_checklist?: TechnicalChecklistItem[]
   history_events?: EquipmentHistoryEvent[]
 }

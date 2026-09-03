@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-03T12:11:53.977Z",
+  "generatedAt": "2026-09-03T15:37:11.704Z",
   "collections": [
     {
       "name": "users",
@@ -194,6 +194,12 @@
         {
           "name": "code",
           "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "photos",
+          "type": "file",
           "required": false,
           "system": false
         }

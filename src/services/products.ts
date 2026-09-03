@@ -1,5 +1,5 @@
 import pb from '@/lib/pocketbase/client'
-import type { Product } from '@/types/inventory'
+import type { Product, Batch } from '@/types/inventory'
 
 export const productsService = {
   async getAll(): Promise<Product[]> {
@@ -14,10 +14,29 @@ export const productsService = {
 
   async getByCodeOrSku(identifier: string): Promise<Product | null> {
     try {
+      // 1. Direct match on product code, sku or id
       const records = await pb.collection('products').getFullList<Product>({
         filter: `code = "${identifier}" || sku = "${identifier}" || id = "${identifier}"`,
       })
-      return records[0] || null
+      if (records[0]) return records[0]
+
+      // 2. Check if identifier matches a batch_number or batch id
+      try {
+        const batchRecords = await pb.collection('batches').getFullList<Batch>({
+          filter: `batch_number = "${identifier}" || id = "${identifier}"`,
+          expand: 'product_id',
+        })
+        if (batchRecords[0]?.expand?.product_id) {
+          return batchRecords[0].expand.product_id
+        }
+        if (batchRecords[0]?.product_id) {
+          return await pb.collection('products').getOne<Product>(batchRecords[0].product_id)
+        }
+      } catch {
+        // ignore and fallback
+      }
+
+      return null
     } catch {
       return null
     }
@@ -27,8 +46,12 @@ export const productsService = {
     return await pb.collection('products').create<Product>(data)
   },
 
-  async update(id: string, data: Partial<Product>): Promise<Product> {
+  async update(id: string, data: Partial<Product> | FormData): Promise<Product> {
     return await pb.collection('products').update<Product>(id, data)
+  },
+
+  getFileUrl(record: Product, filename: string): string {
+    return pb.files.getURL(record, filename)
   },
 
   async updateStatus(id: string, status: 'Disponível' | 'Reservado' | 'Vendido'): Promise<Product> {

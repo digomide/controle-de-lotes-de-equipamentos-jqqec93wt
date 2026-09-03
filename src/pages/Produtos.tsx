@@ -794,9 +794,11 @@ export default function Catalogo() {
                           <Button
                             variant="outline"
                             size="sm"
-                            className="text-xs h-9 border-slate-300 text-slate-700 hover:bg-slate-100"
+                            className="text-xs h-9 border-slate-300 text-slate-700 hover:bg-slate-100 gap-1"
+                            title="Abrir lote e detalhes do notebook"
                           >
-                            Ver detalhes
+                            <Eye className="w-3.5 h-3.5" />
+                            Abrir Lote
                           </Button>
                         </Link>
                         <Button
@@ -956,12 +958,13 @@ export default function Catalogo() {
                         <td className="py-3 px-4 text-right whitespace-nowrap space-x-1">
                           <Link to={detailPath}>
                             <Button
-                              variant="ghost"
+                              variant="outline"
                               size="sm"
-                              className="h-8 text-xs text-slate-600 hover:text-slate-900"
-                              title="Ver detalhes"
+                              className="h-8 text-xs text-slate-700 hover:text-slate-900 gap-1 border-slate-300"
+                              title="Abrir este lote separadamente"
                             >
                               <Eye className="w-3.5 h-3.5" />
+                              Abrir Lote
                             </Button>
                           </Link>
                           {isAdmin && (

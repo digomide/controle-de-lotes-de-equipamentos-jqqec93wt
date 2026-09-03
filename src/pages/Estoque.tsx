@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react'
-import { useLocation, Link } from 'react-router-dom'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
+import { useLocation, Link, useNavigate } from 'react-router-dom'
 import {
   Layers,
   Plus,
@@ -16,6 +16,13 @@ import {
   CheckCircle2,
   SlidersHorizontal,
   Loader2,
+  ExternalLink,
+  Eye,
+  Camera,
+  Upload,
+  DollarSign,
+  Tag,
+  Laptop,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -43,7 +50,7 @@ import { useRealtime } from '@/hooks/use-realtime'
 import { batchesService } from '@/services/batches'
 import { productsService } from '@/services/products'
 import { adjustmentsService } from '@/services/adjustments'
-import type { Batch, Product } from '@/types/inventory'
+import type { Batch, Product, ProductStatus } from '@/types/inventory'
 
 export default function Estoque() {
   const [batches, setBatches] = useState<Batch[]>([])
@@ -66,6 +73,20 @@ export default function Estoque() {
   const [expDate, setExpDate] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
+  // Quick Edit Lote & Equipamento Modal (Acesso direto para editar, precificar e status)
+  const [quickEditOpen, setQuickEditOpen] = useState(false)
+  const [targetBatchForEdit, setTargetBatchForEdit] = useState<Batch | null>(null)
+  const [targetProductForEdit, setTargetProductForEdit] = useState<Product | null>(null)
+  const [qeName, setQeName] = useState('')
+  const [qeSku, setQeSku] = useState('')
+  const [qeUnitPrice, setQeUnitPrice] = useState<number>(0)
+  const [qeCostPrice, setQeCostPrice] = useState<number>(0)
+  const [qeStatus, setQeStatus] = useState<ProductStatus>('Disponível')
+  const [qeLocation, setQeLocation] = useState('')
+  const [qeQuantity, setQeQuantity] = useState<number>(1)
+  const [qeBatchNumber, setQeBatchNumber] = useState('')
+  const [isSubmittingQuickEdit, setIsSubmittingQuickEdit] = useState(false)
+
   // Quick Counting Modal (Inventário Direto)
   const [countModalOpen, setCountModalOpen] = useState(false)
   const [targetBatch, setTargetBatch] = useState<Batch | null>(null)
@@ -76,6 +97,7 @@ export default function Estoque() {
   const { toast } = useToast()
   const { isAdmin } = useAuth()
   const locationHook = useLocation()
+  const navigate = useNavigate()
 
   const loadData = async () => {
     try {
@@ -162,6 +184,64 @@ export default function Estoque() {
     setMfgDate(b.manufacturing_date ? b.manufacturing_date.split('T')[0] : '')
     setExpDate(b.expiry_date ? b.expiry_date.split('T')[0] : '')
     setBatchModalOpen(true)
+  }
+
+  // Abre modal rápido para editar lote e equipamento (preço, status, localização)
+  const handleOpenQuickEdit = (b: Batch) => {
+    const prod = b.expand?.product_id || products.find((p) => p.id === b.product_id)
+    setTargetBatchForEdit(b)
+    setTargetProductForEdit(prod || null)
+    setQeBatchNumber(b.batch_number)
+    setQeLocation(b.location || '')
+    setQeQuantity(b.quantity)
+    setQeName(prod?.name || '')
+    setQeSku(prod?.sku || '')
+    setQeUnitPrice(Number(prod?.unit_price) || 0)
+    setQeCostPrice(Number(prod?.cost_price) || 0)
+    setQeStatus(prod?.status || 'Disponível')
+    setQuickEditOpen(true)
+  }
+
+  const handleSaveQuickEdit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!targetBatchForEdit) return
+
+    setIsSubmittingQuickEdit(true)
+    try {
+      // 1. Update batch
+      await batchesService.update(targetBatchForEdit.id, {
+        batch_number: qeBatchNumber.trim().toUpperCase(),
+        location: qeLocation.trim(),
+        quantity: Math.max(0, qeQuantity),
+      })
+
+      // 2. Update product if present
+      if (targetProductForEdit) {
+        await productsService.update(targetProductForEdit.id, {
+          name: qeName,
+          sku: qeSku.toUpperCase(),
+          unit_price: Number(qeUnitPrice) || 0,
+          cost_price: Number(qeCostPrice) || 0,
+          status: qeStatus,
+        })
+      }
+
+      toast({
+        title: 'Lote e equipamento atualizados!',
+        description: `Alterações salvas com sucesso para ${qeBatchNumber}.`,
+      })
+      setQuickEditOpen(false)
+      await loadData()
+    } catch (err: any) {
+      console.error(err)
+      toast({
+        title: 'Erro ao salvar',
+        description: err?.message || 'Falha ao atualizar dados.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsSubmittingQuickEdit(false)
+    }
   }
 
   const handleSaveBatch = async (e: React.FormEvent) => {
@@ -279,29 +359,39 @@ export default function Estoque() {
   }
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
+    <div className="space-y-6 max-w-7xl mx-auto pb-16">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200 pb-5">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight text-slate-900">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 mb-2">
+            <Layers className="w-3.5 h-3.5" />
+            Lotes e Equipamentos Individuais
+          </div>
+          <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">
             Controle de Lotes & Estoque
-          </h2>
-          <p className="text-sm text-slate-500">
-            Rastreabilidade detalhada por lote com identificador, datas de fabricação/validade e
-            localização.
+          </h1>
+          <p className="text-sm text-slate-500 mt-1">
+            Abra cada lote separadamente para editar especificações, gerenciar fotos, precificar e
+            acompanhar o status de venda.
           </p>
         </div>
         <div className="flex items-center gap-2">
           <Link to="/ajustes">
-            <Button variant="outline" className="gap-2 border-slate-300">
-              <SlidersHorizontal className="w-4 h-4" />
+            <Button variant="outline" className="gap-2 border-slate-300 text-xs h-9">
+              <SlidersHorizontal className="w-3.5 h-3.5" />
               Contagem Geral
+            </Button>
+          </Link>
+          <Link to="/produtos">
+            <Button variant="outline" className="gap-2 border-slate-300 text-xs h-9">
+              <Laptop className="w-3.5 h-3.5" />
+              Ver Catálogo
             </Button>
           </Link>
           {isAdmin && (
             <Button
               onClick={handleOpenCreateBatch}
-              className="bg-slate-900 hover:bg-slate-800 text-white shadow gap-2"
+              className="bg-slate-900 hover:bg-slate-800 text-white shadow gap-2 text-xs h-9"
             >
               <Plus className="w-4 h-4" />
               Novo Lote
@@ -311,24 +401,24 @@ export default function Estoque() {
       </div>
 
       {/* Filter Toolbar */}
-      <Card className="border-slate-200 shadow-sm">
+      <Card className="border-slate-200 shadow-sm bg-white">
         <CardContent className="p-4">
           <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-4 gap-3">
             {/* Search */}
             <div className="relative sm:col-span-2">
               <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
               <Input
-                placeholder="Buscar por lote, produto, SKU ou prateleira..."
+                placeholder="Buscar por identificador do lote, notebook, SKU ou prateleira..."
                 value={searchFilter}
                 onChange={(e) => setSearchFilter(e.target.value)}
-                className="pl-9 bg-slate-50 border-slate-200"
+                className="pl-9 bg-slate-50 border-slate-200 text-xs h-10"
               />
             </div>
 
             {/* Product Filter */}
             <div>
               <Select value={productFilter} onValueChange={setProductFilter}>
-                <SelectTrigger className="bg-slate-50 border-slate-200">
+                <SelectTrigger className="bg-slate-50 border-slate-200 text-xs h-10">
                   <SelectValue placeholder="Filtrar por Equipamento" />
                 </SelectTrigger>
                 <SelectContent>
@@ -345,7 +435,7 @@ export default function Estoque() {
             {/* Stock Level Filter */}
             <div>
               <Select value={stockLevelFilter} onValueChange={setStockLevelFilter}>
-                <SelectTrigger className="bg-slate-50 border-slate-200">
+                <SelectTrigger className="bg-slate-50 border-slate-200 text-xs h-10">
                   <SelectValue placeholder="Nível de Estoque" />
                 </SelectTrigger>
                 <SelectContent>
@@ -360,19 +450,19 @@ export default function Estoque() {
         </CardContent>
       </Card>
 
-      {/* High-density Batches Table */}
-      <Card className="border-slate-200 shadow-sm">
+      {/* High-density Batches Table com acesso individual para abrir, editar, precificar e gerenciar fotos */}
+      <Card className="border-slate-200 shadow-sm overflow-hidden">
         <CardContent className="p-0 overflow-x-auto">
           <table className="w-full text-left text-sm border-collapse">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                <th className="py-3 px-4">Identificador do Lote</th>
-                <th className="py-3 px-4">Equipamento Vinculado</th>
+                <th className="py-3 px-4">Lote / Equipamento</th>
+                <th className="py-3 px-4">Notebook Vinculado</th>
                 <th className="py-3 px-4">Localização</th>
-                <th className="py-3 px-4">Fabricação</th>
-                <th className="py-3 px-4">Validade / Garantia</th>
-                <th className="py-3 px-4 text-center">Quantidade Atual</th>
-                <th className="py-3 px-4 text-right">Ações Operacionais</th>
+                <th className="py-3 px-4 text-center">Status Venda</th>
+                <th className="py-3 px-4 text-right">Preço Venda</th>
+                <th className="py-3 px-4 text-center">Saldo Atual</th>
+                <th className="py-3 px-4 text-right">Ações no Lote</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 font-sans">
@@ -386,56 +476,73 @@ export default function Estoque() {
                 filteredBatches.map((b) => {
                   const isLow = b.quantity <= 5 && b.quantity > 0
                   const isZero = b.quantity === 0
+                  const prod = b.expand?.product_id || products.find((p) => p.id === b.product_id)
+                  const detailHref = `/lotes/${b.batch_number || prod?.code || prod?.sku || b.id}`
+                  const statusVal = prod?.status || 'Disponível'
+                  const price = Number(prod?.unit_price) || 0
 
                   return (
                     <tr
                       key={b.id}
-                      className={`hover:bg-slate-50/70 transition-colors ${
-                        isLow ? 'bg-rose-50/30' : ''
+                      className={`hover:bg-slate-50/80 transition-colors ${
+                        isLow ? 'bg-rose-50/20' : ''
                       }`}
                     >
-                      {/* Batch Identifier */}
+                      {/* Batch Identifier clickable to open lote */}
                       <td className="py-3 px-4 font-mono font-bold text-slate-900 whitespace-nowrap text-xs">
-                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-slate-100 border border-slate-200">
-                          <Layers className="w-3 h-3 text-slate-500" />
-                          {b.batch_number}
-                        </span>
+                        <Link
+                          to={detailHref}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-slate-100 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-300 border border-slate-200 transition-colors group"
+                          title="Clique para abrir e gerenciar este lote"
+                        >
+                          <Layers className="w-3.5 h-3.5 text-slate-500 group-hover:text-emerald-600" />
+                          <span>{b.batch_number}</span>
+                          <ExternalLink className="w-3 h-3 opacity-40 group-hover:opacity-100 ml-0.5" />
+                        </Link>
                       </td>
 
                       {/* Product Name */}
-                      <td className="py-3 px-4 whitespace-nowrap">
-                        <div className="font-semibold text-slate-900 text-xs">
-                          {b.expand?.product_id?.name || 'Equipamento'}
+                      <td className="py-3 px-4 min-w-[240px]">
+                        <Link
+                          to={detailHref}
+                          className="font-semibold text-slate-900 hover:text-emerald-700 text-xs block line-clamp-1"
+                        >
+                          {prod?.name || 'Equipamento'}
+                        </Link>
+                        <div className="flex items-center gap-2 mt-0.5 text-[11px] font-mono text-slate-400">
+                          <span>SKU: {prod?.sku || '—'}</span>
+                          {prod?.processor && <span>· {prod.processor}</span>}
                         </div>
-                        <span className="text-[11px] font-mono text-slate-400">
-                          SKU: {b.expand?.product_id?.sku || '—'}
-                        </span>
                       </td>
 
                       {/* Location */}
                       <td className="py-3 px-4 whitespace-nowrap text-xs text-slate-600">
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 font-medium">
                           <MapPin className="w-3.5 h-3.5 text-slate-400" />
                           {b.location || 'Depósito Central'}
                         </div>
                       </td>
 
-                      {/* Manufacturing Date */}
-                      <td className="py-3 px-4 whitespace-nowrap text-xs text-slate-500 font-mono">
-                        {b.manufacturing_date
-                          ? new Date(b.manufacturing_date).toLocaleDateString('pt-BR')
-                          : '—'}
+                      {/* Status */}
+                      <td className="py-3 px-4 text-center whitespace-nowrap">
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold ${
+                            statusVal === 'Disponível'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : statusVal === 'Reservado'
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-slate-200 text-slate-700'
+                          }`}
+                        >
+                          {statusVal}
+                        </span>
                       </td>
 
-                      {/* Expiry / Warranty Date */}
-                      <td className="py-3 px-4 whitespace-nowrap text-xs font-mono">
-                        {b.expiry_date ? (
-                          <span className="text-slate-700">
-                            {new Date(b.expiry_date).toLocaleDateString('pt-BR')}
-                          </span>
-                        ) : (
-                          <span className="text-slate-400">—</span>
-                        )}
+                      {/* Unit Price */}
+                      <td className="py-3 px-4 text-right font-mono font-bold text-slate-900 whitespace-nowrap text-xs">
+                        {price > 0
+                          ? `R$ ${price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+                          : '—'}
                       </td>
 
                       {/* Quantity with badge */}
@@ -445,7 +552,7 @@ export default function Estoque() {
                             isZero
                               ? 'bg-slate-200 text-slate-600'
                               : isLow
-                                ? 'bg-rose-100 text-rose-800 animate-pulse'
+                                ? 'bg-rose-100 text-rose-800'
                                 : 'bg-emerald-100 text-emerald-800'
                           }`}
                         >
@@ -455,38 +562,54 @@ export default function Estoque() {
 
                       {/* Actions */}
                       <td className="py-3 px-4 text-right whitespace-nowrap space-x-1">
+                        {/* Abrir Lote Separado */}
+                        <Link to={detailHref}>
+                          <Button
+                            variant="default"
+                            size="sm"
+                            className="h-8 text-xs gap-1.5 bg-slate-900 hover:bg-slate-800 text-white shadow-xs"
+                            title="Abrir este lote separadamente"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            Abrir Lote
+                          </Button>
+                        </Link>
+
+                        {/* Editar rápido / Precificar */}
+                        {isAdmin && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleOpenQuickEdit(b)}
+                            className="h-8 text-xs gap-1 border-slate-300 text-slate-700 hover:bg-slate-100"
+                            title="Editar lote, preço e status"
+                          >
+                            <Edit2 className="w-3.5 h-3.5 text-blue-600" />
+                            Editar
+                          </Button>
+                        )}
+
+                        {/* Contagem rápida */}
                         <Button
-                          variant="outline"
+                          variant="ghost"
                           size="sm"
                           onClick={() => handleOpenQuickCount(b)}
-                          className="h-8 text-xs gap-1 border-slate-200 text-slate-700 hover:bg-slate-100"
+                          className="h-8 text-xs text-slate-600 hover:text-slate-900"
                           title="Realizar contagem de inventário deste lote"
                         >
-                          <TrendingUp className="w-3.5 h-3.5 text-blue-600" />
-                          Contagem
+                          <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
                         </Button>
 
                         {isAdmin && (
-                          <>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleOpenEditBatch(b)}
-                              className="h-8 w-8 p-0 text-slate-500 hover:text-slate-900"
-                              title="Editar lote"
-                            >
-                              <Edit2 className="w-3.5 h-3.5" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleDeleteBatch(b.id, b.batch_number)}
-                              className="h-8 w-8 p-0 text-slate-400 hover:text-rose-600"
-                              title="Excluir lote"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </Button>
-                          </>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteBatch(b.id, b.batch_number)}
+                            className="h-8 w-8 p-0 text-slate-400 hover:text-rose-600"
+                            title="Excluir lote"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
                         )}
                       </td>
                     </tr>
@@ -497,6 +620,140 @@ export default function Estoque() {
           </table>
         </CardContent>
       </Card>
+
+      {/* QUICK EDIT LOTE & EQUIPAMENTO DIALOG */}
+      <Dialog open={quickEditOpen} onOpenChange={setQuickEditOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold text-slate-900 flex items-center gap-2">
+              <Edit2 className="w-4 h-4 text-blue-600" />
+              Editar Lote & Precificação
+            </DialogTitle>
+            <DialogDescription>
+              Edite diretamente o identificador do lote, localização física, preço de venda e
+              status.
+            </DialogDescription>
+          </DialogHeader>
+
+          {targetBatchForEdit && (
+            <form onSubmit={handleSaveQuickEdit} className="space-y-3.5 py-1">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs font-semibold text-slate-700">
+                    Identificador do Lote *
+                  </Label>
+                  <Input
+                    value={qeBatchNumber}
+                    onChange={(e) => setQeBatchNumber(e.target.value.toUpperCase())}
+                    className="font-mono text-xs"
+                    required
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs font-semibold text-slate-700">
+                    Quantidade Físico *
+                  </Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={qeQuantity}
+                    onChange={(e) => setQeQuantity(parseInt(e.target.value) || 0)}
+                    className="font-mono text-xs"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-slate-700">
+                  Localização no Estoque
+                </Label>
+                <Input
+                  placeholder="Ex: Prateleira N-01"
+                  value={qeLocation}
+                  onChange={(e) => setQeLocation(e.target.value)}
+                  className="text-xs"
+                />
+              </div>
+
+              {targetProductForEdit && (
+                <>
+                  <div className="space-y-1">
+                    <Label className="text-xs font-semibold text-slate-700">Nome do Notebook</Label>
+                    <Input
+                      value={qeName}
+                      onChange={(e) => setQeName(e.target.value)}
+                      className="text-xs"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs font-semibold text-slate-700">
+                        Preço de Venda (R$) *
+                      </Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={qeUnitPrice}
+                        onChange={(e) => setQeUnitPrice(parseFloat(e.target.value) || 0)}
+                        className="font-mono font-bold text-xs"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs font-semibold text-slate-700">
+                        Custo Aquisição (R$)
+                      </Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={qeCostPrice}
+                        onChange={(e) => setQeCostPrice(parseFloat(e.target.value) || 0)}
+                        className="font-mono text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label className="text-xs font-semibold text-slate-700">Status de Venda</Label>
+                    <Select value={qeStatus} onValueChange={(val: any) => setQeStatus(val)}>
+                      <SelectTrigger className="h-9 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Disponível">Disponível</SelectItem>
+                        <SelectItem value="Reservado">Reservado</SelectItem>
+                        <SelectItem value="Vendido">Vendido</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </>
+              )}
+
+              <DialogFooter className="pt-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setQuickEditOpen(false)}
+                  disabled={isSubmittingQuickEdit}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={isSubmittingQuickEdit}
+                  className="bg-slate-900 text-white hover:bg-slate-800"
+                >
+                  {isSubmittingQuickEdit ? 'Salvando...' : 'Salvar Alterações'}
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* CREATE / EDIT BATCH DIALOG */}
       <Dialog open={batchModalOpen} onOpenChange={setBatchModalOpen}>

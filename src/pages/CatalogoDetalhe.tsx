@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -26,6 +26,13 @@ import {
   TrendingUp,
   PackageCheck,
   AlertCircle,
+  Edit2,
+  Camera,
+  Upload,
+  Image as ImageIcon,
+  MapPin,
+  X,
+  ExternalLink,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -59,6 +66,7 @@ import type {
   EquipmentPart,
   EquipmentDeliverable,
   TechnicalChecklistItem,
+  ProductStatus,
 } from '@/types/inventory'
 
 export default function CatalogoDetalhe() {
@@ -69,6 +77,36 @@ export default function CatalogoDetalhe() {
   const [deliverables, setDeliverables] = useState<EquipmentDeliverable[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0)
+
+  // Edit Equipment / Lote Modal
+  const [editModalOpen, setEditModalOpen] = useState(false)
+  const [editName, setEditName] = useState('')
+  const [editSku, setEditSku] = useState('')
+  const [editCode, setEditCode] = useState('')
+  const [editBrand, setEditBrand] = useState('')
+  const [editModel, setEditModel] = useState('')
+  const [editCategory, setEditCategory] = useState('Notebooks')
+  const [editProcessor, setEditProcessor] = useState('')
+  const [editRam, setEditRam] = useState('')
+  const [editStorage, setEditStorage] = useState('')
+  const [editCondition, setEditCondition] = useState('Excelente')
+  const [editAestheticGrade, setEditAestheticGrade] = useState('A - Excelente')
+  const [editBatteryHealth, setEditBatteryHealth] = useState('100%')
+  const [editScreenSize, setEditScreenSize] = useState('14"')
+  const [editUnitPrice, setEditUnitPrice] = useState<number>(0)
+  const [editCostPrice, setEditCostPrice] = useState<number>(0)
+  const [editStatus, setEditStatus] = useState<ProductStatus>('Disponível')
+  const [editDescription, setEditDescription] = useState('')
+  const [editBatchLocation, setEditBatchLocation] = useState('')
+  const [editBatchQuantity, setEditBatchQuantity] = useState<number>(1)
+  const [editBatchNumber, setEditBatchNumber] = useState('')
+  const [savingEdit, setSavingEdit] = useState(false)
+
+  // Photo Management Modal
+  const [photoModalOpen, setPhotoModalOpen] = useState(false)
+  const [photoUrlInput, setPhotoUrlInput] = useState('')
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Modais de Peças e Pendências
   const [partModalOpen, setPartModalOpen] = useState(false)
@@ -106,7 +144,8 @@ export default function CatalogoDetalhe() {
         equipmentService.getDeliverablesByProduct(prod.id),
       ])
 
-      setBatches(batchList.filter((b) => b.product_id === prod.id))
+      const linkedBatches = batchList.filter((b) => b.product_id === prod.id)
+      setBatches(linkedBatches)
       setParts(partList)
       setDeliverables(delivList)
     } catch (err) {
@@ -120,17 +159,249 @@ export default function CatalogoDetalhe() {
     loadData()
   }, [id])
 
-  // Photos
+  // Photos calculation (combination of direct file uploads via PB + external image URLs)
   const photos = useMemo(() => {
-    if (product?.images && product.images.length > 0) {
-      return product.images
+    const list: string[] = []
+
+    // 1. Files uploaded directly to PB 'photos' field
+    if (product?.photos && Array.isArray(product.photos)) {
+      for (const fn of product.photos) {
+        if (fn) {
+          list.push(productsService.getFileUrl(product, fn))
+        }
+      }
     }
+
+    // 2. Images stored in json 'images' array
+    if (product?.images && Array.isArray(product.images)) {
+      for (const url of product.images) {
+        if (url && typeof url === 'string' && url.trim().length > 0) {
+          list.push(url.trim())
+        }
+      }
+    }
+
+    if (list.length > 0) {
+      return list
+    }
+
     return [
       'https://img.usecurling.com/p/800/600?q=laptop',
       'https://img.usecurling.com/p/800/600?q=keyboard',
       'https://img.usecurling.com/p/800/600?q=ports',
     ]
   }, [product])
+
+  // Primary Batch
+  const primaryBatch = batches[0] || null
+
+  // Open Edit Modal with pre-filled state
+  const handleOpenEditModal = () => {
+    if (!product) return
+    setEditName(product.name || '')
+    setEditSku(product.sku || '')
+    setEditCode(product.code || '')
+    setEditBrand(product.brand || 'Dell')
+    setEditModel(product.model || '')
+    setEditCategory(product.category || 'Notebooks')
+    setEditProcessor(product.processor || '')
+    setEditRam(product.ram || '')
+    setEditStorage(product.storage || '')
+    setEditCondition(product.condition || 'Excelente')
+    setEditAestheticGrade(product.aesthetic_grade || 'A - Excelente')
+    setEditBatteryHealth(product.battery_health || '100%')
+    setEditScreenSize(product.screen_size || '14"')
+    setEditUnitPrice(Number(product.unit_price) || 0)
+    setEditCostPrice(Number(product.cost_price) || 0)
+    setEditStatus(product.status || 'Disponível')
+    setEditDescription(product.description || '')
+
+    if (primaryBatch) {
+      setEditBatchNumber(primaryBatch.batch_number)
+      setEditBatchLocation(primaryBatch.location || '')
+      setEditBatchQuantity(primaryBatch.quantity ?? 1)
+    } else {
+      setEditBatchNumber(`LOTE-${product.sku || 'UN'}`)
+      setEditBatchLocation('Prateleira A-1')
+      setEditBatchQuantity(1)
+    }
+
+    setEditModalOpen(true)
+  }
+
+  // Save Edit (Equipamento / Lote)
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!product) return
+
+    setSavingEdit(true)
+    try {
+      // 1. Update product
+      const updatedProd = await productsService.update(product.id, {
+        name: editName,
+        sku: editSku,
+        code: editCode || editSku,
+        brand: editBrand,
+        model: editModel,
+        category: editCategory,
+        processor: editProcessor,
+        ram: editRam,
+        storage: editStorage,
+        condition: editCondition,
+        aesthetic_grade: editAestheticGrade,
+        battery_health: editBatteryHealth,
+        screen_size: editScreenSize,
+        unit_price: Number(editUnitPrice) || 0,
+        cost_price: Number(editCostPrice) || 0,
+        status: editStatus,
+        description: editDescription,
+      })
+
+      // 2. Update or create batch
+      if (primaryBatch) {
+        await batchesService.update(primaryBatch.id, {
+          batch_number: editBatchNumber.trim(),
+          location: editBatchLocation.trim(),
+          quantity: Math.max(0, editBatchQuantity),
+        })
+      } else {
+        await batchesService.create({
+          product_id: product.id,
+          batch_number: editBatchNumber.trim() || `LOTE-${product.sku}`,
+          location: editBatchLocation.trim(),
+          quantity: Math.max(0, editBatchQuantity),
+        })
+      }
+
+      setProduct(updatedProd)
+      toast({
+        title: 'Equipamento e lote atualizados!',
+        description: 'Todas as alterações foram salvas com sucesso.',
+      })
+      setEditModalOpen(false)
+      await loadData()
+    } catch (err: any) {
+      console.error(err)
+      toast({
+        title: 'Erro ao salvar alterações',
+        description: err?.message || 'Verifique os dados informados.',
+        variant: 'destructive',
+      })
+    } finally {
+      setSavingEdit(false)
+    }
+  }
+
+  // Handle Photo File Upload
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0 || !product) return
+
+    setIsUploadingPhoto(true)
+    try {
+      const formData = new FormData()
+      for (let i = 0; i < files.length; i++) {
+        formData.append('photos', files[i])
+      }
+
+      const updated = await productsService.update(product.id, formData)
+      setProduct(updated)
+      toast({
+        title: 'Foto(s) adicionada(s)!',
+        description: `${files.length} imagem(ns) enviada(s) para o equipamento.`,
+      })
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    } catch (err: any) {
+      console.error(err)
+      toast({
+        title: 'Falha no upload da imagem',
+        description: err?.message || 'Verifique o formato da imagem (PNG, JPG, WebP).',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsUploadingPhoto(false)
+    }
+  }
+
+  // Handle Adding Photo by URL
+  const handleAddPhotoUrl = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!product || !photoUrlInput.trim()) return
+
+    setIsUploadingPhoto(true)
+    try {
+      const currentImages = Array.isArray(product.images) ? [...product.images] : []
+      currentImages.push(photoUrlInput.trim())
+
+      const updated = await productsService.update(product.id, {
+        images: currentImages,
+      })
+      setProduct(updated)
+      setPhotoUrlInput('')
+      toast({
+        title: 'URL de foto adicionada!',
+        description: 'A imagem foi vinculada à galeria do equipamento.',
+      })
+    } catch (err: any) {
+      console.error(err)
+      toast({
+        title: 'Erro ao adicionar imagem',
+        description: err?.message || 'Não foi possível salvar a URL da imagem.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsUploadingPhoto(false)
+    }
+  }
+
+  // Remove Photo (File or URL)
+  const handleRemovePhoto = async (index: number) => {
+    if (!product) return
+
+    setIsUploadingPhoto(true)
+    try {
+      const totalUploadedPhotos = Array.isArray(product.photos) ? product.photos.length : 0
+
+      if (index < totalUploadedPhotos) {
+        // It's a file in photos
+        const targetFilename = product.photos![index]
+        const remaining = product.photos!.filter((fn) => fn !== targetFilename)
+        const updated = await productsService.update(product.id, {
+          photos: remaining,
+        })
+        setProduct(updated)
+      } else {
+        // It's a URL in images
+        const imgIndex = index - totalUploadedPhotos
+        const currentImages = Array.isArray(product.images) ? [...product.images] : []
+        currentImages.splice(imgIndex, 1)
+        const updated = await productsService.update(product.id, {
+          images: currentImages,
+        })
+        setProduct(updated)
+      }
+
+      if (selectedPhotoIndex >= photos.length - 1) {
+        setSelectedPhotoIndex(Math.max(0, photos.length - 2))
+      }
+
+      toast({
+        title: 'Foto removida',
+        description: 'A foto foi excluída da galeria.',
+      })
+    } catch (err: any) {
+      console.error(err)
+      toast({
+        title: 'Erro ao remover foto',
+        description: err?.message || 'Falha ao atualizar o equipamento.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsUploadingPhoto(false)
+    }
+  }
 
   // Checklist counts
   const checklist = product?.technical_checklist || []
@@ -181,7 +452,8 @@ LoteEquip Gestão de Equipamentos
 =====================================================
 Equipamento: ${product.name}
 Código / SKU: ${product.sku}
-Código do Sistema: ${product.code || 'N/A'}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
 Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
 Condição Geral: ${product.condition || 'Excelente'}
 Nota Estética: ${product.aesthetic_grade || 'A'}
@@ -332,7 +604,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
     }
   }
 
-  // Status Change
+  // Quick Status Change
   const handleChangeStatus = async (newStatus: 'Disponível' | 'Reservado' | 'Vendido') => {
     if (!product) return
     try {
@@ -351,7 +623,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
     return (
       <div className="py-24 text-center">
         <Loader2 className="w-8 h-8 animate-spin text-slate-400 mx-auto mb-3" />
-        <p className="text-sm text-slate-500">Carregando detalhes do equipamento...</p>
+        <p className="text-sm text-slate-500">Carregando lote e detalhes do equipamento...</p>
       </div>
     )
   }
@@ -360,16 +632,21 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
     return (
       <div className="max-w-2xl mx-auto py-16 text-center space-y-4">
         <AlertCircle className="w-12 h-12 text-slate-300 mx-auto" />
-        <h2 className="text-xl font-bold text-slate-800">Equipamento não encontrado</h2>
+        <h2 className="text-xl font-bold text-slate-800">Lote ou equipamento não encontrado</h2>
         <p className="text-sm text-slate-500">
-          O código ou identificador informado não corresponde a nenhum notebook cadastrado.
+          O código ou identificador informado não corresponde a nenhum lote ou notebook cadastrado.
         </p>
-        <Link to="/produtos">
-          <Button variant="outline" className="gap-2">
-            <ArrowLeft className="w-4 h-4" />
-            Voltar ao catálogo
-          </Button>
-        </Link>
+        <div className="flex justify-center gap-3">
+          <Link to="/estoque">
+            <Button variant="outline" className="gap-2">
+              <ArrowLeft className="w-4 h-4" />
+              Ver Estoque / Lotes
+            </Button>
+          </Link>
+          <Link to="/produtos">
+            <Button className="bg-slate-900 text-white">Ver Catálogo</Button>
+          </Link>
+        </div>
       </div>
     )
   }
@@ -378,22 +655,55 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-16">
-      {/* Top back navigation */}
-      <div>
-        <Link
-          to="/produtos"
-          className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Voltar ao catálogo
-        </Link>
+      {/* Top action and navigation bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-200 pb-4">
+        <div className="flex items-center gap-3">
+          <Link
+            to="/estoque"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Voltar aos Lotes
+          </Link>
+          <span className="text-slate-300">|</span>
+          <Link
+            to="/produtos"
+            className="text-xs text-slate-500 hover:text-slate-900 transition-colors"
+          >
+            Catálogo Geral
+          </Link>
+        </div>
+
+        {/* Operational buttons: Editar Lote/Equipamento, Gerenciar Fotos */}
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setPhotoModalOpen(true)}
+            className="text-xs h-9 gap-1.5 border-slate-300 text-slate-700 hover:bg-slate-50"
+          >
+            <Camera className="w-3.5 h-3.5 text-blue-600" />
+            Adicionar / Gerenciar Fotos ({photos.length})
+          </Button>
+
+          {isAdmin && (
+            <Button
+              onClick={handleOpenEditModal}
+              size="sm"
+              className="bg-slate-900 hover:bg-slate-800 text-white text-xs h-9 gap-1.5 shadow-sm"
+            >
+              <Edit2 className="w-3.5 h-3.5" />
+              Editar Lote & Equipamento
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Main Grid: Gallery & Main Info (Replicando o visual do Replit com detalhes de ponta) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         {/* Left: Photos & History (7 cols) */}
         <div className="lg:col-span-7 space-y-6">
-          {/* Main Photo Display */}
+          {/* Main Photo Display with Photo Manager Action */}
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
             <div className="aspect-16/10 bg-slate-100 relative group overflow-hidden flex items-center justify-center">
               <img
@@ -405,9 +715,20 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
                     'https://img.usecurling.com/p/800/600?q=laptop'
                 }}
               />
-              <div className="absolute top-3 left-3 bg-slate-900/80 backdrop-blur-xs text-white text-xs px-2.5 py-1 rounded-md font-mono font-semibold">
+              <div className="absolute top-3 left-3 bg-slate-900/80 backdrop-blur-xs text-white text-xs px-2.5 py-1 rounded-md font-mono font-semibold flex items-center gap-2">
+                <ImageIcon className="w-3.5 h-3.5 text-slate-300" />
                 Foto {selectedPhotoIndex + 1} de {photos.length}
               </div>
+
+              {/* Floating button to manage photos */}
+              <button
+                type="button"
+                onClick={() => setPhotoModalOpen(true)}
+                className="absolute top-3 right-3 bg-white/90 hover:bg-white text-slate-800 text-xs px-2.5 py-1 rounded-md font-semibold shadow flex items-center gap-1.5 transition-all opacity-90 group-hover:opacity-100"
+              >
+                <Camera className="w-3.5 h-3.5 text-blue-600" />
+                Gerenciar fotos
+              </button>
             </div>
 
             {/* Thumbnail Gallery Strip */}
@@ -434,6 +755,60 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
               </div>
             )}
           </div>
+
+          {/* Lote e Rastreabilidade Física (Destaque do Lote individual) */}
+          <Card className="border-slate-200 shadow-sm bg-gradient-to-r from-slate-50/50 to-white">
+            <CardHeader className="pb-3 flex flex-row items-center justify-between">
+              <div>
+                <CardTitle className="text-base font-bold text-slate-900 flex items-center gap-2">
+                  <Layers className="w-4 h-4 text-emerald-600" />
+                  Rastreabilidade do Lote Físico
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Dados de armazenagem e identificação individual deste equipamento.
+                </CardDescription>
+              </div>
+              {primaryBatch && (
+                <Badge variant="outline" className="font-mono bg-white text-slate-800 font-bold">
+                  {primaryBatch.batch_number}
+                </Badge>
+              )}
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                <div className="p-2.5 bg-white rounded-lg border border-slate-200/80">
+                  <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-semibold">
+                    Identificador do Lote
+                  </span>
+                  <span className="font-mono font-bold text-slate-900 block mt-0.5">
+                    {primaryBatch?.batch_number || 'Sem lote'}
+                  </span>
+                </div>
+
+                <div className="p-2.5 bg-white rounded-lg border border-slate-200/80">
+                  <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-semibold flex items-center gap-1">
+                    <MapPin className="w-3 h-3 text-slate-400" /> Localização Física
+                  </span>
+                  <span className="font-semibold text-slate-800 block mt-0.5 truncate">
+                    {primaryBatch?.location || 'Depósito Central'}
+                  </span>
+                </div>
+
+                <div className="p-2.5 bg-white rounded-lg border border-slate-200/80">
+                  <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-semibold">
+                    Saldo no Lote
+                  </span>
+                  <span
+                    className={`font-mono font-bold block mt-0.5 ${
+                      (primaryBatch?.quantity ?? 0) > 0 ? 'text-emerald-700' : 'text-slate-500'
+                    }`}
+                  >
+                    {primaryBatch?.quantity ?? 0} unidade(s)
+                  </span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
 
           {/* Histórico do Equipamento (igual ao Replit) */}
           <Card className="border-slate-200 shadow-sm">
@@ -475,7 +850,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
             </CardContent>
           </Card>
 
-          {/* Peças e Manutenções Vinculadas (NOVO - foco do pedido) */}
+          {/* Peças e Manutenções Vinculadas */}
           <Card className="border-slate-200 shadow-sm">
             <CardHeader className="pb-3 flex flex-row items-center justify-between">
               <div>
@@ -554,7 +929,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
             </CardContent>
           </Card>
 
-          {/* Pendências de Entrega (NOVO - foco do pedido) */}
+          {/* Pendências de Entrega */}
           <Card className="border-slate-200 shadow-sm">
             <CardHeader className="pb-3 flex flex-row items-center justify-between">
               <div>
@@ -681,9 +1056,23 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
                   </Select>
                 </div>
 
-                <h1 className="text-xl font-extrabold text-slate-900 tracking-tight leading-snug">
-                  {product.name}
-                </h1>
+                <div className="flex items-start justify-between gap-2">
+                  <h1 className="text-xl font-extrabold text-slate-900 tracking-tight leading-snug">
+                    {product.name}
+                  </h1>
+                  {isAdmin && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleOpenEditModal}
+                      className="h-7 px-2 text-xs text-slate-600 hover:text-slate-900 shrink-0"
+                    >
+                      <Edit2 className="w-3.5 h-3.5 mr-1" />
+                      Editar
+                    </Button>
+                  )}
+                </div>
+
                 <p className="text-xs text-slate-500 mt-1">
                   {product.brand} · {product.model || product.category}
                 </p>
@@ -700,7 +1089,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
                 <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
                   <span className="flex items-center gap-1">
                     <Layers className="w-3.5 h-3.5 text-slate-400" />
-                    Estoque em lote: <strong className="text-slate-800">{totalStock} un</strong>
+                    Estoque no lote: <strong className="text-slate-800">{totalStock} un</strong>
                   </span>
                   <span
                     className={`font-semibold px-2 py-0.5 rounded text-[11px] ${
@@ -719,14 +1108,15 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
               {/* Ações de Venda */}
               <div className="space-y-2">
                 <Button
-                  onClick={() => navigate('/vendas?nova=true')}
+                  onClick={() => navigate(`/vendas?nova=true&produto=${product.id}`)}
                   className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold h-11 shadow-sm gap-2 text-sm"
                 >
                   <Send className="w-4 h-4" />
                   Adicionar à proposta / Vender
                 </Button>
                 <p className="text-[11px] text-center text-slate-400">
-                  Sem compromisso de compra imediata. Baixa automática no estoque ao finalizar.
+                  Sem compromisso de compra imediata. Baixa automática no estoque deste lote ao
+                  finalizar.
                 </p>
               </div>
 
@@ -738,9 +1128,13 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
                       <DollarSign className="w-4 h-4 text-emerald-400" />
                       Controle Financeiro (Admin)
                     </span>
-                    <span className="text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-400">
-                      Custo × Venda
-                    </span>
+                    <button
+                      type="button"
+                      onClick={handleOpenEditModal}
+                      className="text-[10px] text-emerald-400 hover:underline"
+                    >
+                      Editar preços
+                    </button>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3 text-xs">
@@ -777,7 +1171,18 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
 
               {/* Especificações Técnicas (igual ao Replit) */}
               <div className="space-y-3 pt-2 border-t border-slate-100">
-                <h3 className="text-sm font-bold text-slate-900">Especificações</h3>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-slate-900">Especificações</h3>
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={handleOpenEditModal}
+                      className="text-xs text-blue-600 hover:underline flex items-center gap-1"
+                    >
+                      <Edit2 className="w-3 h-3" /> Alterar specs
+                    </button>
+                  )}
+                </div>
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100">
                     <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-semibold">
@@ -847,7 +1252,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
                     Checklist de Revisão
                   </CardTitle>
                   <CardDescription className="text-xs">
-                    Inspecionado · Última inspeção em 02/09/2026
+                    Inspecionado · Revisão do equipamento
                   </CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
@@ -901,6 +1306,383 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
           </Card>
         </div>
       </div>
+
+      {/* MODAL: EDITAR LOTE & EQUIPAMENTO COMPLETO */}
+      <Dialog open={editModalOpen} onOpenChange={setEditModalOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold text-slate-900 flex items-center gap-2">
+              <Edit2 className="w-5 h-5 text-slate-700" />
+              Editar Lote & Equipamento
+            </DialogTitle>
+            <DialogDescription>
+              Altere identificador do lote, localização física, preços, fotos e especificações do
+              notebook.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleSaveEdit} className="space-y-4">
+            {/* Seção 1: Dados do Lote Físico */}
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-3">
+              <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5 uppercase tracking-wide">
+                <Layers className="w-4 h-4 text-emerald-600" />
+                Dados do Lote Físico
+              </span>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs font-semibold text-slate-700">
+                    Identificador do Lote *
+                  </Label>
+                  <Input
+                    placeholder="Ex: LOTE-NOT-2026-01"
+                    value={editBatchNumber}
+                    onChange={(e) => setEditBatchNumber(e.target.value.toUpperCase())}
+                    className="font-mono text-xs"
+                    required
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs font-semibold text-slate-700">Localização Físico</Label>
+                  <Input
+                    placeholder="Ex: Prateleira N-01"
+                    value={editBatchLocation}
+                    onChange={(e) => setEditBatchLocation(e.target.value)}
+                    className="text-xs"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs font-semibold text-slate-700">Quantidade Físico</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={editBatchQuantity}
+                    onChange={(e) => setEditBatchQuantity(parseInt(e.target.value) || 0)}
+                    className="text-xs font-mono"
+                    required
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Seção 2: Especificações do Equipamento */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1 sm:col-span-2">
+                <Label className="text-xs font-semibold text-slate-700">
+                  Nome do Equipamento *
+                </Label>
+                <Input
+                  placeholder="Nome completo do notebook..."
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-slate-700">Código Único / SKU *</Label>
+                <Input
+                  placeholder="Ex: FS0V6K3"
+                  value={editSku}
+                  onChange={(e) => setEditSku(e.target.value.toUpperCase())}
+                  required
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-slate-700">Código Sistema</Label>
+                <Input
+                  placeholder="EQ-2026-..."
+                  value={editCode}
+                  onChange={(e) => setEditCode(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-slate-700">Marca</Label>
+                <Input
+                  placeholder="Dell, Lenovo, HP..."
+                  value={editBrand}
+                  onChange={(e) => setEditBrand(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-slate-700">Modelo</Label>
+                <Input
+                  placeholder="Latitude 5320..."
+                  value={editModel}
+                  onChange={(e) => setEditModel(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-slate-700">Processador</Label>
+                <Input
+                  placeholder="Core I7 11ª Geração"
+                  value={editProcessor}
+                  onChange={(e) => setEditProcessor(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-slate-700">Memória RAM</Label>
+                <Input
+                  placeholder="16GB DDR4"
+                  value={editRam}
+                  onChange={(e) => setEditRam(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-slate-700">Armazenamento</Label>
+                <Input
+                  placeholder="SSD 256GB"
+                  value={editStorage}
+                  onChange={(e) => setEditStorage(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-slate-700">Tela / Display</Label>
+                <Input
+                  placeholder='14", 15.6"'
+                  value={editScreenSize}
+                  onChange={(e) => setEditScreenSize(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-slate-700">Condição</Label>
+                <Select value={editCondition} onValueChange={setEditCondition}>
+                  <SelectTrigger className="h-10 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Excelente">Excelente</SelectItem>
+                    <SelectItem value="Bom">Bom</SelectItem>
+                    <SelectItem value="Regular">Regular</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-slate-700">Nota Estética</Label>
+                <Input
+                  placeholder="A - Excelente, B - Bom"
+                  value={editAestheticGrade}
+                  onChange={(e) => setEditAestheticGrade(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-slate-700">Saúde Bateria</Label>
+                <Input
+                  placeholder="100%, 92%"
+                  value={editBatteryHealth}
+                  onChange={(e) => setEditBatteryHealth(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-slate-700">Status</Label>
+                <Select
+                  value={editStatus}
+                  onValueChange={(val: ProductStatus) => setEditStatus(val)}
+                >
+                  <SelectTrigger className="h-10 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Disponível">Disponível</SelectItem>
+                    <SelectItem value="Reservado">Reservado</SelectItem>
+                    <SelectItem value="Vendido">Vendido</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Precificação / Custo */}
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-slate-700">
+                  Custo de Aquisição (R$)
+                </Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={editCostPrice}
+                  onChange={(e) => setEditCostPrice(parseFloat(e.target.value) || 0)}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-slate-700">
+                  Preço de Venda (R$) *
+                </Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={editUnitPrice}
+                  onChange={(e) => setEditUnitPrice(parseFloat(e.target.value) || 0)}
+                  required
+                />
+              </div>
+            </div>
+
+            <DialogFooter className="pt-2">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setEditModalOpen(false)}
+                disabled={savingEdit}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                className="bg-slate-900 hover:bg-slate-800 text-white"
+                disabled={savingEdit}
+              >
+                {savingEdit ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Salvando...
+                  </>
+                ) : (
+                  'Salvar Alterações'
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* MODAL: GERENCIAR FOTOS DO EQUIPAMENTO */}
+      <Dialog open={photoModalOpen} onOpenChange={setPhotoModalOpen}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold text-slate-900 flex items-center gap-2">
+              <Camera className="w-5 h-5 text-blue-600" />
+              Fotos do Equipamento ({photos.length})
+            </DialogTitle>
+            <DialogDescription>
+              Faça upload de fotos do notebook ou adicione links de imagens para compor o anúncio.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-5 py-2">
+            {/* Opção 1: Upload Direto de Arquivo */}
+            <div className="p-4 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50 text-center space-y-2">
+              <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
+                <Upload className="w-5 h-5" />
+              </div>
+              <p className="text-xs font-semibold text-slate-800">
+                Selecione fotos do seu computador / celular
+              </p>
+              <p className="text-[11px] text-slate-500">Suporta JPG, PNG e WebP até 10MB</p>
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileUpload}
+                multiple
+                accept="image/*"
+                className="hidden"
+                id="photoFileInput"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploadingPhoto}
+                className="text-xs bg-white border-slate-300"
+              >
+                {isUploadingPhoto ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                    Enviando foto...
+                  </>
+                ) : (
+                  <>
+                    <Upload className="w-3.5 h-3.5 mr-1.5" />
+                    Escolher Fotos
+                  </>
+                )}
+              </Button>
+            </div>
+
+            {/* Opção 2: Adicionar por URL */}
+            <form onSubmit={handleAddPhotoUrl} className="space-y-1">
+              <Label className="text-xs font-semibold text-slate-700">
+                Ou informe a URL da foto
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="https://..."
+                  value={photoUrlInput}
+                  onChange={(e) => setPhotoUrlInput(e.target.value)}
+                  className="text-xs font-mono"
+                />
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={isUploadingPhoto || !photoUrlInput.trim()}
+                  className="bg-slate-900 text-white shrink-0 text-xs"
+                >
+                  Adicionar
+                </Button>
+              </div>
+            </form>
+
+            {/* Grid de Fotos Atuais */}
+            <div>
+              <Label className="text-xs font-semibold text-slate-700 block mb-2">
+                Fotos Cadastradas ({photos.length})
+              </Label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {photos.map((url, idx) => (
+                  <div
+                    key={idx}
+                    className="relative group rounded-lg overflow-hidden border border-slate-200 aspect-square bg-slate-100"
+                  >
+                    <img
+                      src={url}
+                      alt={`Foto ${idx + 1}`}
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        ;(e.target as HTMLImageElement).src =
+                          'https://img.usecurling.com/p/400/400?q=laptop'
+                      }}
+                    />
+                    <div className="absolute top-1.5 left-1.5 bg-slate-900/80 text-white text-[10px] px-1.5 py-0.5 rounded font-mono">
+                      #{idx + 1}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleRemovePhoto(idx)}
+                      disabled={isUploadingPhoto}
+                      className="absolute top-1.5 right-1.5 bg-rose-600 hover:bg-rose-700 text-white p-1 rounded-md opacity-80 group-hover:opacity-100 transition-opacity"
+                      title="Excluir foto"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              className="bg-slate-900 text-white"
+              onClick={() => setPhotoModalOpen(false)}
+            >
+              Concluir
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* MODAL: Adicionar Peça */}
       <Dialog open={partModalOpen} onOpenChange={setPartModalOpen}>
