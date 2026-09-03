@@ -37,31 +37,18 @@ import type {
   Product,
   TechnicalChecklistItem,
   ProductStatus,
+  ChecklistItemStatus,
 } from '@/types/inventory'
-
-// Os 16 itens canônicos vistos nos prints
-const CHECKLIST_ITEMS = [
-  'Boot/BIOS',
-  'Tela/Display',
-  'Teclado',
-  'Touchpad/Mouse',
-  'Portas USB/Vídeo',
-  'Bateria',
-  'Carregador',
-  'Câmera/Webcam',
-  'Microfone',
-  'Alto-falantes',
-  'Wi-Fi',
-  'Bluetooth',
-  'Dobradiças',
-  'Carcaça/Chassi',
-  'Memória RAM',
-  'Armazenamento',
-]
+import {
+  CHECKLIST_CANONICAL_ITEMS,
+  CHECKLIST_OPTIONS,
+  normalizeChecklistStatus,
+  getChecklistStatusStyles,
+} from '@/lib/checklist'
 
 interface ChecklistStateItem {
   item: string
-  status: 'OK' | 'Atenção' | 'Falha' | 'Não testado'
+  status: 'Ok' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A'
   observation: string
 }
 
@@ -95,12 +82,15 @@ export default function LoteInventariar() {
 
   // Checklist of 16 items
   const [checklist, setChecklist] = useState<ChecklistStateItem[]>(() =>
-    CHECKLIST_ITEMS.map((item) => ({
+    CHECKLIST_CANONICAL_ITEMS.map((item) => ({
       item,
-      status: 'Não testado',
+      status: 'Ok',
       observation: '',
     })),
   )
+  const [inspectionStatus, setInspectionStatus] = useState<
+    'Concluída' | 'Em andamento' | 'Pendente'
+  >('Concluída')
 
   // Classification & Pricing
   const [condition, setCondition] = useState('Bom')
@@ -167,8 +157,8 @@ export default function LoteInventariar() {
     await loadBatchInfo(newId)
   }
 
-  // Quick preset for checklist: mark all as OK or reset
-  const handleSetAllChecklist = (newStatus: 'OK' | 'Não testado') => {
+  // Quick preset for checklist: mark all as Ok, Não testado, etc.
+  const handleSetAllChecklist = (newStatus: 'Ok' | 'Não testado') => {
     setChecklist((prev) =>
       prev.map((c) => ({
         ...c,
@@ -179,11 +169,11 @@ export default function LoteInventariar() {
 
   const handleChecklistStatusChange = (
     index: number,
-    val: 'OK' | 'Atenção' | 'Falha' | 'Não testado',
+    val: 'Ok' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A',
   ) => {
     setChecklist((prev) => {
       const copy = [...prev]
-      copy[index] = { ...copy[index], status: val }
+      copy[index] = { ...copy[index], status: normalizeChecklistStatus(val) }
       return copy
     })
   }
@@ -598,69 +588,100 @@ export default function LoteInventariar() {
 
           <hr className="border-slate-200" />
 
-          {/* Section: Checklist de Inspeção (16 Itens em grade responsiva) */}
+          {/* Section: Checklist de Inspeção (16 Itens em grade responsiva idêntica ao print do Replit) */}
           <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div>
-                <h2 className="text-base font-bold text-slate-900">Checklist de Inspeção</h2>
-                <p className="text-xs text-slate-500">
-                  16 itens de bancada. Selecione o estado e adicione observação opcional para cada
-                  um.
-                </p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-1 border-b border-orange-100/70">
+              <div className="flex items-center gap-3">
+                <div>
+                  <h2 className="text-base font-bold text-slate-900">Checklist de Inspeção</h2>
+                  <p className="text-xs text-slate-500">
+                    16 itens de bancada com dropdown de status colorido e observação opcional.
+                  </p>
+                </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleSetAllChecklist('OK')}
-                  className="text-xs font-semibold text-orange-700 hover:text-orange-800 bg-orange-100/70 hover:bg-orange-100 px-2.5 py-1.5 rounded-md transition-colors"
-                >
-                  Marcar todos como OK
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSetAllChecklist('Não testado')}
-                  className="text-xs text-slate-500 hover:text-slate-800 bg-slate-200/60 hover:bg-slate-200 px-2.5 py-1.5 rounded-md transition-colors"
-                >
-                  Limpar
-                </button>
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-slate-600">Status geral:</span>
+                  <Select
+                    value={inspectionStatus}
+                    onValueChange={(v: any) => setInspectionStatus(v)}
+                  >
+                    <SelectTrigger className="h-8 w-36 text-xs bg-white border-slate-300 font-semibold text-slate-800">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Concluída">Concluída</SelectItem>
+                      <SelectItem value="Em andamento">Em andamento</SelectItem>
+                      <SelectItem value="Pendente">Pendente</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleSetAllChecklist('Ok')}
+                    className="text-xs font-semibold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2.5 py-1.5 rounded-md transition-colors"
+                  >
+                    Todos Ok
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSetAllChecklist('Não testado')}
+                    className="text-xs text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 border border-slate-200 px-2.5 py-1.5 rounded-md transition-colors"
+                  >
+                    Limpar
+                  </button>
+                </div>
               </div>
             </div>
 
-            {/* Grid of 16 inspection cards */}
+            {/* Grid of 16 inspection cards - exatamente como na imagem do Replit:
+                Caixa com cantos arredondados, título do item em cima, dropdown colorido e input "Observação opcional" abaixo */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
               {checklist.map((item, idx) => {
+                const normStatus = normalizeChecklistStatus(item.status)
+                const styles = getChecklistStatusStyles(normStatus)
                 return (
                   <div
                     key={item.item}
-                    className="bg-white border border-slate-200/80 rounded-xl p-3 shadow-xs space-y-2 hover:border-orange-300 transition-colors"
+                    className="bg-white border border-slate-200/90 rounded-2xl p-3.5 shadow-xs space-y-2 hover:border-orange-300 transition-colors"
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-800">{item.item}</span>
+                      <span className="text-xs font-bold text-slate-800 tracking-tight">
+                        {item.item}
+                      </span>
                     </div>
 
                     <Select
-                      value={item.status}
+                      value={normStatus}
                       onValueChange={(val: any) => handleChecklistStatusChange(idx, val)}
                     >
                       <SelectTrigger
-                        className={`h-8 text-xs font-medium border-slate-200 ${
-                          item.status === 'OK'
-                            ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                            : item.status === 'Atenção'
-                              ? 'bg-amber-50 text-amber-800 border-amber-300'
-                              : item.status === 'Falha'
-                                ? 'bg-rose-50 text-rose-800 border-rose-300'
-                                : 'bg-slate-50 text-slate-600'
-                        }`}
+                        className={`h-9 text-xs font-semibold rounded-lg transition-colors ${styles.select}`}
                       >
-                        <SelectValue />
+                        <div className="flex items-center gap-1.5">
+                          <span className={`w-2 h-2 rounded-full ${styles.dot}`} />
+                          <SelectValue />
+                        </div>
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="OK">OK</SelectItem>
-                        <SelectItem value="Atenção">Atenção</SelectItem>
-                        <SelectItem value="Falha">Falha</SelectItem>
-                        <SelectItem value="Não testado">Não testado</SelectItem>
+                        {CHECKLIST_OPTIONS.map((opt) => {
+                          const optStyles = getChecklistStatusStyles(opt.value)
+                          return (
+                            <SelectItem
+                              key={opt.value}
+                              value={opt.value}
+                              className="text-xs font-medium cursor-pointer"
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className={`w-2 h-2 rounded-full ${optStyles.dot}`} />
+                                <span className="font-semibold">{opt.label}</span>
+                              </div>
+                            </SelectItem>
+                          )
+                        })}
                       </SelectContent>
                     </Select>
 
@@ -668,7 +689,7 @@ export default function LoteInventariar() {
                       placeholder="Observação opcional"
                       value={item.observation}
                       onChange={(e) => handleChecklistObsChange(idx, e.target.value)}
-                      className="h-8 text-xs bg-slate-50/70 border-slate-200 text-slate-700"
+                      className="h-8 text-xs bg-slate-50/80 border-slate-200 text-slate-700 placeholder:text-slate-400 rounded-lg focus-visible:bg-white"
                     />
                   </div>
                 )

@@ -84,7 +84,14 @@ import type {
   EquipmentDeliverable,
   TechnicalChecklistItem,
   ProductStatus,
+  ChecklistItemStatus,
 } from '@/types/inventory'
+import {
+  CHECKLIST_CANONICAL_ITEMS,
+  CHECKLIST_OPTIONS,
+  normalizeChecklistStatus,
+  getChecklistStatusStyles,
+} from '@/lib/checklist'
 
 export default function CatalogoDetalhe() {
   const { id } = useParams<{ id: string }>()
@@ -100,6 +107,12 @@ export default function CatalogoDetalhe() {
   const [cloneModalOpen, setCloneModalOpen] = useState(false)
   const [deleteProductDialogOpen, setDeleteProductDialogOpen] = useState(false)
   const [deletingProduct, setDeletingProduct] = useState(false)
+
+  // Checklist Edit Modal State (idêntico ao Replit para checklist editável na ficha)
+  const [checklistModalOpen, setChecklistModalOpen] = useState(false)
+  const [editChecklistItems, setEditChecklistItems] = useState<{ item: string; status: 'Ok' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A'; observation: string }[]>([])
+  const [editInspectionStatus, setEditInspectionStatus] = useState<'Concluída' | 'Em andamento' | 'Pendente'>('Concluída')
+  const [savingChecklist, setSavingChecklist] = useState(false)
 
   // Edit Equipment / Lote Modal
   const [editModalOpen, setEditModalOpen] = useState(false)
@@ -440,11 +453,148 @@ export default function CatalogoDetalhe() {
     }
   }
 
-  // Checklist counts
-  const checklist = product?.technical_checklist || []
-  const okCount = checklist.filter((i) => i.status === 'OK').length
-  const warningCount = checklist.filter((i) => i.status === 'Atenção').length
-  const untestedCount = checklist.filter((i) => i.status === 'Não testado').length
+  // Checklist counts e dados canônicos
+  const rawChecklist = product?.technical_checklist || []
+  // Garante que todos os 16 itens canônicos existam para exibição e edição
+  const checklist = useMemo(() => {
+    if (!rawChecklist || rawChecklist.length === 0) {
+      return CHECKLIST_CANONICAL_ITEMS.map((name) => ({
+        item: name,
+        status: 'Não testado' as ChecklistItemStatus,
+        observation: '',
+      }))
+    }
+    // Preserva os itens que já existem e adiciona faltantes caso falte algum
+    const map = new Map<string, TechnicalChecklistItem>()
+    for (const c of rawChecklist) {
+      map.set(c.item.toLowerCase().trim(), c)
+    }
+    const result: TechnicalChecklistItem[] = []
+    for (const canon of CHECKLIST_CANONICAL_ITEMS) {
+      const existing = map.get(canon.toLowerCase().trim())
+      if (existing) {
+        result.push(existing)
+        map.delete(canon.toLowerCase().trim())
+      } else {
+        result.push({
+          item: canon,
+          status: 'Não testado',
+          observation: '',
+        })
+      }
+    }
+    // Adiciona quaisquer itens customizados remanescentes
+    for (const remaining of map.values()) {
+      result.push(remaining)
+    }
+    return result
+  }, [rawChecklist])
+
+  const okCount = checklist.filter((i) => normalizeChecklistStatus(i.status) === 'Ok').length
+  const warningCount = checklist.filter((i) => normalizeChecklistStatus(i.status) === 'Atenção').length
+  const failureCount = checklist.filter((i) => normalizeChecklistStatus(i.status) === 'Falha').length
+  const untestedCount = checklist.filter((i) => normalizeChecklistStatus(i.status) === 'Não testado').length
+  const naCount = checklist.filter((i) => normalizeChecklistStatus(i.status) === 'N/A').length
+
+  // Abrir Modal de Edição do Checklist
+  const handleOpenChecklistModal = () => {
+    const list = checklist.map((c) => ({
+      item: c.item,
+      status: normalizeChecklistStatus(c.status),
+      observation: c.observation || '',
+    }))
+    setEditChecklistItems(list)
+    setChecklistModalOpen(true)
+  }
+
+  // Alterar status de item individual no modal de edição
+  const handleEditItemStatus = (idx: number, newStatus: 'Ok' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A') => {
+    setEditChecklistItems((prev) => {
+      const copy = [...prev]
+      copy[idx] = { ...copy[idx], status: newStatus }
+      return copy
+    })
+  }
+
+  // Alterar observação de item individual no modal de edição
+  const handleEditItemObs = (idx: number, obs: string) => {
+    setEditChecklistItems((prev) => {
+      const copy = [...prev]
+      copy[idx] = { ...copy[idx], observation: obs }
+      return copy
+    })
+  }
+
+  // Marcar todos do checklist com um status
+  const handleSetAllChecklistModal = (statusVal: 'Ok' | 'Não testado') => {
+    setEditChecklistItems((prev) =>
+      prev.map((it) => ({
+        ...it,
+        status: statusVal,
+      })),
+    )
+  }
+
+  // Salvar checklist editado no produto
+  const handleSaveChecklist = async () => {
+    if (!product) return
+    setSavingChecklist(true)
+    try {
+      const historyCopy = Array.isArray(product.history_events) ? [...product.history_events] : []
+      historyCopy.unshift({
+        title: `Checklist de Inspeção atualizado (${editInspectionStatus})`,
+        date: new Date().toISOString().replace('T', ' ').substring(0, 19),
+      })
+
+      const updated = await productsService.update(product.id, {
+        technical_checklist: editChecklistItems,
+        history_events: historyCopy,
+      })
+      setProduct(updated)
+      setChecklistModalOpen(false)
+      toast({
+        title: 'Checklist atualizado com sucesso!',
+        description: `Todos os 16 itens técnicos foram salvos para ${product.name}.`,
+      })
+    } catch (err: any) {
+      console.error(err)
+      toast({
+        title: 'Erro ao salvar checklist',
+        description: err?.message || 'Não foi possível salvar o checklist.',
+        variant: 'destructive',
+      })
+    } finally {
+      setSavingChecklist(false)
+    }
+  }
+
+  // Inline alteração rápida de status do checklist diretamente na visualização (opcional)
+  const handleInlineChangeStatus = async (itemIndex: number, newStatus: 'Ok' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A') => {
+    if (!product) return
+    const updatedChecklist = checklist.map((it, idx) => {
+      if (idx === itemIndex) {
+        return { ...it, status: newStatus }
+      }
+      return it
+    })
+    try {
+      const updated = await productsService.update(product.id, {
+        technical_checklist: updatedChecklist,
+      })
+      setProduct(updated)
+      toast({
+        title: `Item "${checklist[itemIndex].item}" atualizado`,
+        description: `Status alterado para ${newStatus}.`,
+      })
+    } catch (err: any) {
+      console.error(err)
+      toast({
+        title: 'Erro ao atualizar item',
+        description: err?.message,
+        variant: 'destructive',
+      })
+    }
+  }
 
   // Financeiro
   const cost = Number(product?.cost_price) || 0
@@ -458,14 +608,12 @@ export default function CatalogoDetalhe() {
   // Total stock
   const totalStock = batches.reduce((acc, b) => acc + (b.quantity || 0), 0)
 
-  // Download Técnico (gerador de documento / relatório texto para impressão)
-  const handleDownloadChecklist = () => {
-    if (!product) return
-
     const checklistContent = checklist
       .map(
-        (item) =>
-          `[${item.status}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`,
+        (item) => {
+          const norm = normalizeChecklistStatus(item.status)
+          return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
+        },
       )
       .join('\n')
 
@@ -484,8 +632,377 @@ export default function CatalogoDetalhe() {
         : 'Sem pendências de entrega.'
 
     const reportText = `=====================================================
-LAUDO TÉCNICO E CHECKLIST DE REVISÃO
+LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
 LoteEquip Gestão de Equipamentos
+=====================================================
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
+Status Resumo:
+[OK (Verde)]: ${okCount} itens
+[ATENÇÃO (Amarelo)]: ${warningCount} itens
+[FALHA (Vermelho)]: ${failureCount} itens
+[NÃO TESTADO (Azul)]: ${untestedCount} itens
+[N/A (Roxo)]: ${naCount} itens
+
+${checklistContent}
+=====================================================
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO (Total: ${checklist.length} itens)
+Itens OK: ${okCount} | Atenção: ${warningCount} | Não testados: ${untestedCount}
+
+${checklistContent}
+
+-----------------------------------------------------
+PEÇAS E REPAROS REALIZADOS:
+${partsContent}
+
+-----------------------------------------------------
+ITENS E PENDÊNCIAS DE ENTREGA:
+${delivContent}
+=====================================================
+Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
+`
+=======
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
+Status Resumo:
+[OK (Verde)]: ${okCount} itens
+[ATENÇÃO (Amarelo)]: ${warningCount} itens
+[FALHA (Vermelho)]: ${failureCount} itens
+[NÃO TESTADO (Azul)]: ${untestedCount} itens
+[N/A (Roxo)]: ${naCount} itens
+
+${checklistContent}
+
+-----------------------------------------------------
+PEÇAS E REPAROS REALIZADOS:
+${partsContent}
+
+-----------------------------------------------------
+ITENS E PENDÊNCIAS DE ENTREGA:
+${delivContent}
+=====================================================
+Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
+`
+=======
+  // Download Técnico (gerador de documento / relatório texto para impressão)
+  const handleDownloadChecklist = () => {
+    if (!product) return
+
+    const checklistContent = checklist
+      .map(
+        (item) => {
+          const norm = normalizeChecklistStatus(item.status)
+          return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
+        },
+      )
+      .join('\n')
+
+    const partsContent =
+      parts.length > 0
+        ? parts
+            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
+            .join('\n')
+        : 'Nenhuma peça vinculada.'
+
+    const delivContent =
+      deliverables.length > 0
+        ? deliverables
+            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
+            .join('\n')
+        : 'Sem pendências de entrega.'
+
+    const reportText = `=====================================================
+LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
+LoteEquip Gestão de Equipamentos
+=====================================================
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
+Status Resumo:
+[OK (Verde)]: ${okCount} itens
+[ATENÇÃO (Amarelo)]: ${warningCount} itens
+[FALHA (Vermelho)]: ${failureCount} itens
+[NÃO TESTADO (Azul)]: ${untestedCount} itens
+[N/A (Roxo)]: ${naCount} itens
+
+${checklistContent}
+
+-----------------------------------------------------
+PEÇAS E REPAROS REALIZADOS:
+${partsContent}
+
+-----------------------------------------------------
+ITENS E PENDÊNCIAS DE ENTREGA:
+${delivContent}
+=====================================================
+Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
+`
+=======
+    const checklistContent = checklist
+      .map(
+        (item) => {
+          const norm = normalizeChecklistStatus(item.status)
+          return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
+        },
+      )
+      .join('\n')
+
+    const partsContent =
+      parts.length > 0
+        ? parts
+            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
+            .join('\n')
+        : 'Nenhuma peça vinculada.'
+
+    const delivContent =
+      deliverables.length > 0
+        ? deliverables
+            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
+            .join('\n')
+        : 'Sem pendências de entrega.'
+
+    const reportText = `=====================================================
+LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
+LoteEquip Gestão de Equipamentos
+=====================================================
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
+Status Resumo:
+[OK (Verde)]: ${okCount} itens
+[ATENÇÃO (Amarelo)]: ${warningCount} itens
+[FALHA (Vermelho)]: ${failureCount} itens
+[NÃO TESTADO (Azul)]: ${untestedCount} itens
+[N/A (Roxo)]: ${naCount} itens
+
+${checklistContent}
+=====================================================
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO (Total: ${checklist.length} itens)
+Itens OK: ${okCount} | Atenção: ${warningCount} | Não testados: ${untestedCount}
+
+${checklistContent}
+
+-----------------------------------------------------
+PEÇAS E REPAROS REALIZADOS:
+${partsContent}
+
+-----------------------------------------------------
+ITENS E PENDÊNCIAS DE ENTREGA:
+${delivContent}
+=====================================================
+Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
+`
+=======
+=====================================================
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
+Status Resumo:
+[OK (Verde)]: ${okCount} itens
+[ATENÇÃO (Amarelo)]: ${warningCount} itens
+[FALHA (Vermelho)]: ${failureCount} itens
+[NÃO TESTADO (Azul)]: ${untestedCount} itens
+[N/A (Roxo)]: ${naCount} itens
+
+${checklistContent}
+
+-----------------------------------------------------
+PEÇAS E REPAROS REALIZADOS:
+${partsContent}
+
+-----------------------------------------------------
+ITENS E PENDÊNCIAS DE ENTREGA:
+${delivContent}
+=====================================================
+Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
+`
+=======
+    const checklistContent = checklist
+      .map(
+        (item) => {
+          const norm = normalizeChecklistStatus(item.status)
+          return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
+        },
+      )
+      .join('\n')
+
+    const partsContent =
+      parts.length > 0
+        ? parts
+            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
+            .join('\n')
+        : 'Nenhuma peça vinculada.'
+
+    const delivContent =
+      deliverables.length > 0
+        ? deliverables
+            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
+            .join('\n')
+        : 'Sem pendências de entrega.'
+
+    const reportText = `=====================================================
+LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
+LoteEquip Gestão de Equipamentos
+=====================================================
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
+Status Resumo:
+[OK (Verde)]: ${okCount} itens
+[ATENÇÃO (Amarelo)]: ${warningCount} itens
+[FALHA (Vermelho)]: ${failureCount} itens
+[NÃO TESTADO (Azul)]: ${untestedCount} itens
+[N/A (Roxo)]: ${naCount} itens
+
+${checklistContent}
 =====================================================
 Equipamento: ${product.name}
 Código / SKU: ${product.sku}
@@ -1519,65 +2036,128 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
             </CardContent>
           </Card>
 
-          {/* Checklist de Revisão Técnica (replicando exatamente o layout do Replit) */}
+          {/* Checklist de Revisão Técnica (replicando exatamente o layout do Replit com edição completa) */}
           <Card className="border-slate-200 shadow-sm">
             <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
                 <div>
                   <CardTitle className="text-base font-bold text-slate-900 flex items-center gap-2">
                     <ShieldCheck className="w-5 h-5 text-emerald-600" />
                     Checklist de Revisão
                   </CardTitle>
                   <CardDescription className="text-xs">
-                    Inspecionado · Revisão do equipamento
+                    Inspecionado · Revisão do equipamento ({checklist.length} itens)
                   </CardDescription>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                    {okCount} OK
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleOpenChecklistModal}
+                  className="h-8 text-xs font-semibold gap-1.5 border-[#d9532f]/40 text-[#d9532f] hover:bg-[#d9532f]/10"
+                  title="Editar todos os 16 itens do checklist"
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                  Editar Checklist
+                </Button>
+              </div>
+
+              {/* Badges de Contagem com as 5 cores exigidas:
+                  Ok → verde, Atenção → amarelo, Falha → vermelho, Não testado → azul, N/A → roxo */}
+              <div className="flex items-center gap-1.5 flex-wrap pt-2">
+                <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                  {okCount} Ok
+                </span>
+                {warningCount > 0 && (
+                  <span className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                    {warningCount} Atenção
                   </span>
-                  {warningCount > 0 && (
-                    <span className="text-xs font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                      {warningCount} Atenção
-                    </span>
-                  )}
-                </div>
+                )}
+                {failureCount > 0 && (
+                  <span className="text-[11px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
+                    {failureCount} Falha
+                  </span>
+                )}
+                {untestedCount > 0 && (
+                  <span className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                    {untestedCount} Não testado
+                  </span>
+                )}
+                {naCount > 0 && (
+                  <span className="text-[11px] font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded border border-purple-200">
+                    {naCount} N/A
+                  </span>
+                )}
               </div>
             </CardHeader>
+
             <CardContent className="space-y-4">
+              {/* Lista dos 16 itens do checklist com dropdown editável e observações */}
               <div className="divide-y divide-slate-100 text-xs max-h-96 overflow-y-auto pr-1">
-                {checklist.map((c, i) => (
-                  <div key={i} className="py-2.5 flex items-start justify-between gap-2">
-                    <div>
-                      <span className="font-medium text-slate-800">{c.item}</span>
-                      {c.observation && (
-                        <p className="text-[11px] text-slate-500 mt-0.5">{c.observation}</p>
-                      )}
+                {checklist.map((c, i) => {
+                  const normStatus = normalizeChecklistStatus(c.status)
+                  const styles = getChecklistStatusStyles(normStatus)
+                  return (
+                    <div key={i} className="py-2.5 flex items-start justify-between gap-3 group">
+                      <div className="min-w-0 flex-1">
+                        <span className="font-semibold text-slate-800 block text-xs">{c.item}</span>
+                        {c.observation ? (
+                          <p className="text-[11px] text-slate-500 mt-0.5 italic">
+                            {c.observation}
+                          </p>
+                        ) : (
+                          <span className="text-[10px] text-slate-300 italic group-hover:text-slate-400">
+                            Sem observação
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Dropdown com as 5 cores diretamente na linha */}
+                      <div className="shrink-0">
+                        <Select
+                          value={normStatus}
+                          onValueChange={(val: any) => handleInlineChangeStatus(i, val)}
+                        >
+                          <SelectTrigger
+                            className={`h-7 px-2 text-[11px] font-semibold border rounded-md shadow-2xs transition-colors ${styles.select}`}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span className={`w-2 h-2 rounded-full ${styles.dot}`} />
+                              <SelectValue />
+                            </div>
+                          </SelectTrigger>
+                          <SelectContent align="end">
+                            {CHECKLIST_OPTIONS.map((opt) => {
+                              const optStyles = getChecklistStatusStyles(opt.value)
+                              return (
+                                <SelectItem
+                                  key={opt.value}
+                                  value={opt.value}
+                                  className="text-xs font-medium cursor-pointer"
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <span className={`w-2 h-2 rounded-full ${optStyles.dot}`} />
+                                    <span className="font-semibold">{opt.label}</span>
+                                  </div>
+                                </SelectItem>
+                              )
+                            })}
+                          </SelectContent>
+                        </Select>
+                      </div>
                     </div>
-                    <Badge
-                      variant="outline"
-                      className={`text-[11px] font-semibold border-none px-2 py-0.5 whitespace-nowrap ${
-                        c.status === 'OK'
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : c.status === 'Atenção'
-                            ? 'bg-amber-100 text-amber-800'
-                            : 'bg-slate-100 text-slate-600'
-                      }`}
-                    >
-                      {c.status}
-                    </Badge>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
 
               {/* Botões de Ações: Baixar Checklist, Clonar Equipamento, Excluir (Identico ao Screenshot 1 do Replit) */}
-              <div className="space-y-2">
+              <div className="space-y-2 pt-2 border-t border-slate-100">
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <Button
                     variant="outline"
                     onClick={handleDownloadChecklist}
                     className="text-xs font-medium gap-1.5 border-slate-300 text-slate-700 hover:bg-slate-50 h-9"
-                    title="Baixar checklist"
+                    title="Baixar laudo técnico e checklist"
                   >
                     <Download className="w-3.5 h-3.5" />
                     Baixar checklist
@@ -1619,6 +2199,155 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
           </Card>
         </div>
       </div>
+
+      {/* MODAL: EDITAR CHECKLIST DE INSPEÇÃO (16 ITENS COM OPÇÕES E CORES - IDÊNTICO AO PRINT DO REPLIT) */}
+      <Dialog open={checklistModalOpen} onOpenChange={setChecklistModalOpen}>
+        <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto p-6 sm:p-7 bg-[#faf8f5]">
+          <DialogHeader className="pb-3 border-b border-orange-100">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <DialogTitle className="text-xl font-bold text-slate-900 flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-emerald-600" />
+                  Checklist de Inspeção Técnica
+                </DialogTitle>
+                <DialogDescription className="text-xs text-slate-500 mt-0.5">
+                  Edite os 16 itens técnicos de bancada, defina o status e observações detalhadas para{' '}
+                  <strong className="text-slate-700">{product?.name}</strong>.
+                </DialogDescription>
+              </div>
+
+              {/* Status Geral do Checklist ("Concluída", etc. - idêntico ao cabeçalho do print) */}
+              <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-200 shadow-2xs">
+                <span className="text-xs font-semibold text-slate-700 whitespace-nowrap">
+                  Checklist de Inspeção:
+                </span>
+                <Select
+                  value={editInspectionStatus}
+                  onValueChange={(val: any) => setEditInspectionStatus(val)}
+                >
+                  <SelectTrigger className="h-8 w-36 text-xs font-bold border-slate-300 text-slate-900 bg-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Concluída">Concluída</SelectItem>
+                    <SelectItem value="Em andamento">Em andamento</SelectItem>
+                    <SelectItem value="Pendente">Pendente</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Quick Actions (Marcar todos como Ok / Limpar) */}
+            <div className="flex items-center justify-between pt-3 gap-2 flex-wrap">
+              <span className="text-xs text-slate-500">
+                16 itens verificados em bancada:
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleSetAllChecklistModal('Ok')}
+                  className="text-xs font-semibold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1 rounded-md transition-colors"
+                >
+                  Marcar todos como Ok
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSetAllChecklistModal('Não testado')}
+                  className="text-xs text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 border border-slate-200 px-3 py-1 rounded-md transition-colors"
+                >
+                  Resetar (Não testado)
+                </button>
+              </div>
+            </div>
+          </DialogHeader>
+
+          {/* Grid de 16 Cards idêntico ao Screenshot do Replit:
+              - Cada card tem o título do item (Boot/BIOS, Tela/Display, etc.)
+              - Select/dropdown com 5 opções coloridas (Ok, Atenção, Falha, Não testado, N/A)
+              - Campo "Observação opcional" abaixo */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 py-4">
+            {editChecklistItems.map((item, idx) => {
+              const normStatus = normalizeChecklistStatus(item.status)
+              const styles = getChecklistStatusStyles(normStatus)
+              return (
+                <div
+                  key={item.item}
+                  className="bg-white border border-slate-200/90 rounded-2xl p-3.5 shadow-xs space-y-2 hover:border-orange-300 transition-colors"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-800 tracking-tight">{item.item}</span>
+                  </div>
+
+                  <Select
+                    value={normStatus}
+                    onValueChange={(val: any) => handleEditItemStatus(idx, val)}
+                  >
+                    <SelectTrigger
+                      className={`h-9 text-xs font-semibold rounded-lg transition-colors ${styles.select}`}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span className={`w-2 h-2 rounded-full ${styles.dot}`} />
+                        <SelectValue />
+                      </div>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CHECKLIST_OPTIONS.map((opt) => {
+                        const optStyles = getChecklistStatusStyles(opt.value)
+                        return (
+                          <SelectItem
+                            key={opt.value}
+                            value={opt.value}
+                            className="text-xs font-medium cursor-pointer"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className={`w-2 h-2 rounded-full ${optStyles.dot}`} />
+                              <span className="font-semibold">{opt.label}</span>
+                            </div>
+                          </SelectItem>
+                        )
+                      })}
+                    </SelectContent>
+                  </Select>
+
+                  <Input
+                    placeholder="Observação opcional"
+                    value={item.observation}
+                    onChange={(e) => handleEditItemObs(idx, e.target.value)}
+                    className="h-8 text-xs bg-slate-50/80 border-slate-200 text-slate-700 placeholder:text-slate-400 rounded-lg focus-visible:bg-white"
+                  />
+                </div>
+              )
+            })}
+          </div>
+
+          <DialogFooter className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setChecklistModalOpen(false)}
+              disabled={savingChecklist}
+              className="bg-white border-slate-300 text-slate-700 text-xs h-9 px-4"
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              onClick={handleSaveChecklist}
+              disabled={savingChecklist}
+              className="bg-[#d9532f] hover:bg-[#c24624] text-white text-xs font-semibold h-9 px-5 gap-1.5 shadow-xs"
+            >
+              {savingChecklist ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+                  Salvando checklist...
+                </>
+              ) : (
+                'Salvar Checklist de Inspeção'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* MODAL: EDITAR LOTE & EQUIPAMENTO COMPLETO */}
       <Dialog open={editModalOpen} onOpenChange={setEditModalOpen}>

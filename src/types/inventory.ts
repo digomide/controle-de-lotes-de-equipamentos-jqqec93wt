@@ -9,9 +9,11 @@ export interface User extends RecordModel {
 
 export type ProductStatus = 'Disponível' | 'Reservado' | 'Vendido'
 
+export type ChecklistItemStatus = 'Ok' | 'OK' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A'
+
 export interface TechnicalChecklistItem {
   item: string
-  status: 'OK' | 'Atenção' | 'Não testado'
+  status: ChecklistItemStatus
   observation?: string
 }
 
