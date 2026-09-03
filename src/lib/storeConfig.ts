@@ -28,14 +28,25 @@ export interface StoreConfig {
 }
 
 export const STORE_CONFIG: StoreConfig = {
-  name: 'Ambicorp Equipamentos',
+  name: 'AMbicorpFlow',
   tagline: 'Notebooks corporativos seminovos revisados com garantia e procedência',
-  // PLACEHOLDER CLARO: Altere este número para o WhatsApp comercial da sua empresa (apenas dígitos: DDI + DDD + Número)
-  whatsappNumber: '5511999998888',
-  whatsappDisplay: '(11) 99999-8888',
-  email: 'contato@ambicorp.com.br',
+  // Número comercial oficial (DDI + DDD + Número: 55 + 31 + 992310866)
+  whatsappNumber: '5531992310866',
+  whatsappDisplay: '(31) 99231-0866',
+  email: 'contato@ambicorpflow.com.br',
   businessHours: 'Segunda a Sexta, das 08h às 18h',
-  location: 'São Paulo - SP',
+  location: 'Belo Horizonte - MG',
+}
+
+/**
+ * Helper interno para sanitizar e assegurar o prefixo DDI 55 do Brasil
+ */
+function getNormalizedWhatsAppNumber(): string {
+  const digits = STORE_CONFIG.whatsappNumber.replace(/\D/g, '')
+  if (digits.startsWith('55')) {
+    return digits
+  }
+  return `55${digits}`
 }
 
 /**
@@ -57,7 +68,8 @@ export function buildWhatsAppLink(product: {
   })
 
   const message = `Olá! Tenho interesse no ${brandModel}, serial ${serial}, anunciado por ${priceFormatted}. Ainda está disponível?`
-  return `https://wa.me/${STORE_CONFIG.whatsappNumber}?text=${encodeURIComponent(message)}`
+  const targetNumber = getNormalizedWhatsAppNumber()
+  return `https://wa.me/${targetNumber}?text=${encodeURIComponent(message)}`
 }
 
 /**
@@ -67,5 +79,6 @@ export function buildGeneralWhatsAppLink(subject?: string): string {
   const message = subject
     ? `Olá! Gostaria de tirar uma dúvida sobre: ${subject}`
     : `Olá! Vim pelo catálogo online e gostaria de falar com a equipe de vendas.`
-  return `https://wa.me/${STORE_CONFIG.whatsappNumber}?text=${encodeURIComponent(message)}`
+  const targetNumber = getNormalizedWhatsAppNumber()
+  return `https://wa.me/${targetNumber}?text=${encodeURIComponent(message)}`
 }

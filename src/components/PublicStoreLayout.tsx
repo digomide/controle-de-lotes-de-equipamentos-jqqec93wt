@@ -1,7 +1,8 @@
 import React from 'react'
 import { Link } from 'react-router-dom'
-import { Laptop, Phone, MessageSquare, ShieldCheck, Clock, MapPin } from 'lucide-react'
+import { Phone, MessageSquare, ShieldCheck, Clock, MapPin } from 'lucide-react'
 import { STORE_CONFIG, buildGeneralWhatsAppLink } from '@/lib/storeConfig'
+import { AmbicorpFlowLogo } from '@/components/AmbicorpFlowLogo'
 
 export const PublicStoreHeader: React.FC = () => {
   const whatsappUrl = buildGeneralWhatsAppLink()
@@ -11,20 +12,19 @@ export const PublicStoreHeader: React.FC = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 sm:h-20 gap-4">
           {/* Logo & Store Name */}
-          <Link to="/loja" className="flex items-center gap-3 group min-w-0">
-            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-slate-900 text-emerald-400 flex items-center justify-center shadow-xs group-hover:bg-slate-800 transition-colors shrink-0">
-              <Laptop className="w-5 h-5 sm:w-6 sm:h-6" />
-            </div>
+          <Link
+            to="/loja"
+            className="flex items-center gap-3 group min-w-0"
+            title="AMbicorpFlow - Início do Catálogo"
+          >
             <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="font-extrabold text-slate-900 text-lg sm:text-xl tracking-tight truncate group-hover:text-emerald-700 transition-colors">
-                  {STORE_CONFIG.name}
-                </span>
-                <span className="hidden md:inline-flex items-center text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+              <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap">
+                <AmbicorpFlowLogo size="md" variant="light" />
+                <span className="hidden sm:inline-flex items-center text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">
                   Seminovos Corporativos
                 </span>
               </div>
-              <p className="text-xs text-slate-500 truncate hidden sm:block">
+              <p className="text-xs text-slate-500 truncate hidden md:block mt-0.5">
                 {STORE_CONFIG.tagline}
               </p>
             </div>
@@ -48,7 +48,7 @@ export const PublicStoreHeader: React.FC = () => {
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm shadow-sm transition-all hover:shadow-md"
-              title="Fale conosco no WhatsApp"
+              title="Fale com a AMbicorpFlow no WhatsApp"
             >
               <MessageSquare className="w-4 h-4" />
               <span>Fale no WhatsApp</span>
@@ -67,13 +67,8 @@ export const PublicStoreFooter: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 pb-8 border-b border-slate-800 text-sm">
           {/* Coluna 1: Sobre */}
           <div className="space-y-3">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
-                <Laptop className="w-4 h-4" />
-              </div>
-              <span className="font-bold text-white text-base">{STORE_CONFIG.name}</span>
-            </div>
-            <p className="text-xs text-slate-400 leading-relaxed">
+            <AmbicorpFlowLogo size="sm" variant="dark" />
+            <p className="text-xs text-slate-400 leading-relaxed pt-1">
               Equipamentos corporativos seminovos de linhas profissionais (Dell Latitude, Lenovo
               ThinkPad, HP EliteBook) rigorosamente testados, revisados e prontos para uso imediato.
             </p>
