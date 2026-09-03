@@ -1817,6 +1817,21 @@ export default function CatalogoDetalhe() {
                     Clonar equipamento
                   </Button>
 
+                  <Link
+                    to={`/loja/${product.code || product.sku || product.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <Button
+                      variant="outline"
+                      className="text-xs font-semibold gap-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-50 h-9 w-full"
+                      title="Ver como o cliente visualiza este anúncio na loja pública"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      Ver na Loja Pública
+                    </Button>
+                  </Link>
+
                   {isAdmin && (
                     <Button
                       variant="outline"

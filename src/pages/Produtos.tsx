@@ -384,6 +384,17 @@ export default function Catalogo() {
         </div>
 
         <div className="flex items-center gap-2">
+          <Link to="/loja" target="_blank" rel="noopener noreferrer">
+            <Button
+              variant="outline"
+              className="text-xs h-9 font-semibold gap-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+              title="Abrir o Catálogo Público da Loja em nova aba"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              Ver Loja Pública
+            </Button>
+          </Link>
+
           <Link to="/lotes-entrada">
             <Button className="bg-[#d9532f] hover:bg-[#c24624] text-white text-xs h-9 font-medium shadow-xs gap-1.5">
               <Boxes className="w-4 h-4" />
