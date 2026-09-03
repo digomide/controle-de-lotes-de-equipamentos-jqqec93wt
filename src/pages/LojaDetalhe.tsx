@@ -283,7 +283,7 @@ export default function LojaDetalhe() {
                     <ZoomableImage
                       src={photos[selectedPhotoIndex] || photos[0]}
                       alt={product.name}
-                      scale={2.5}
+                      showScaleControl={true}
                       onClick={() => setZoomModalOpen(true)}
                     />
 

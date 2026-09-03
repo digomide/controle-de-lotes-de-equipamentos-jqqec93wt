@@ -13,9 +13,11 @@ import {
   CheckCircle2,
   X,
   SlidersHorizontal,
+  ChevronLeft,
   ChevronRight,
   ShieldCheck,
   RefreshCw,
+  Camera,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -138,15 +140,56 @@ export default function LojaPublica() {
     minPrice !== '' ||
     maxPrice !== ''
 
-  // Helper para URL da primeira foto
-  const getProductCoverPhoto = (p: Product): string => {
-    if (p.photos && Array.isArray(p.photos) && p.photos.length > 0 && p.photos[0]) {
-      return pb.files.getURL(p, p.photos[0])
+  // Helper para extrair a lista completa de fotos do equipamento
+  const getProductPhotos = (p: Product): string[] => {
+    const list: string[] = []
+    if (p.photos && Array.isArray(p.photos)) {
+      p.photos.forEach((fileName) => {
+        if (fileName) {
+          list.push(pb.files.getURL(p, fileName))
+        }
+      })
     }
-    if (p.images && Array.isArray(p.images) && p.images.length > 0 && p.images[0]) {
-      return p.images[0]
+    if (p.images && Array.isArray(p.images)) {
+      p.images.forEach((url) => {
+        if (url && !list.includes(url)) {
+          list.push(url)
+        }
+      })
     }
-    return 'https://img.usecurling.com/p/600/400?q=laptop'
+    if (list.length === 0) {
+      list.push('https://img.usecurling.com/p/600/400?q=laptop')
+    }
+    return list
+  }
+
+  // Estado para armazenar o índice da foto selecionada em cada card de produto
+  const [cardPhotoIndexes, setCardPhotoIndexes] = useState<Record<string, number>>({})
+
+  const handlePrevCardPhoto = (e: React.MouseEvent, productId: string, totalPhotos: number) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setCardPhotoIndexes((prev) => {
+      const current = prev[productId] || 0
+      const next = current > 0 ? current - 1 : totalPhotos - 1
+      return { ...prev, [productId]: next }
+    })
+  }
+
+  const handleNextCardPhoto = (e: React.MouseEvent, productId: string, totalPhotos: number) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setCardPhotoIndexes((prev) => {
+      const current = prev[productId] || 0
+      const next = current < totalPhotos - 1 ? current + 1 : 0
+      return { ...prev, [productId]: next }
+    })
+  }
+
+  const handleSelectCardPhoto = (e: React.MouseEvent, productId: string, index: number) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setCardPhotoIndexes((prev) => ({ ...prev, [productId]: index }))
   }
 
   return (
@@ -371,7 +414,13 @@ export default function LojaPublica() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {filteredProducts.map((p) => {
-                  const coverPhoto = getProductCoverPhoto(p)
+                  const productPhotos = getProductPhotos(p)
+                  const currentIndex = Math.min(
+                    cardPhotoIndexes[p.id] || 0,
+                    Math.max(0, productPhotos.length - 1),
+                  )
+                  const activePhoto = productPhotos[currentIndex] || productPhotos[0]
+                  const hasMultiplePhotos = productPhotos.length > 1
                   const detailUrl = `/loja/${p.code || p.sku || p.id}`
                   const price = Number(p.unit_price) || 0
                   const brandModel = [p.brand, p.model].filter(Boolean).join(' · ') || p.name
@@ -382,12 +431,12 @@ export default function LojaPublica() {
                       key={p.id}
                       className="overflow-hidden border border-slate-200/90 rounded-2xl bg-white shadow-xs hover:shadow-xl transition-all duration-300 flex flex-col group"
                     >
-                      {/* Foto e Badges Superiores */}
-                      <div className="relative w-full aspect-16/10 h-48 sm:h-52 bg-slate-100 overflow-hidden shrink-0">
+                      {/* Foto e Badges Superiores com Mini-Galeria Interativa */}
+                      <div className="relative w-full aspect-16/10 h-48 sm:h-52 bg-slate-100 overflow-hidden shrink-0 select-none">
                         <Link to={detailUrl} className="block w-full h-full">
                           <img
-                            src={coverPhoto}
-                            alt={p.name}
+                            src={activePhoto}
+                            alt={`${p.name} - Foto ${currentIndex + 1}`}
                             className="w-full h-full object-cover object-center block group-hover:scale-105 transition-transform duration-500"
                             onError={(e) => {
                               ;(e.target as HTMLImageElement).src =
@@ -397,7 +446,7 @@ export default function LojaPublica() {
                         </Link>
 
                         {/* Tag de Condição (Excelente / Bom) */}
-                        <div className="absolute top-3 left-3 flex items-center gap-1.5 z-10">
+                        <div className="absolute top-3 left-3 flex items-center gap-1.5 z-10 pointer-events-none">
                           <span
                             className={`px-2.5 py-0.5 rounded-md text-[11px] font-bold shadow-xs ${
                               p.condition === 'Excelente'
@@ -415,21 +464,73 @@ export default function LojaPublica() {
                         </div>
 
                         {/* Tag "Disponível" */}
-                        <div className="absolute top-3 right-3 z-10">
+                        <div className="absolute top-3 right-3 z-10 pointer-events-none">
                           <span className="inline-flex items-center gap-1 bg-emerald-600 text-white text-[11px] font-bold px-2.5 py-0.5 rounded-full shadow-xs">
                             <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
                             Disponível
                           </span>
                         </div>
 
-                        {/* Overlay hover: "Ver detalhes" */}
-                        <Link
-                          to={detailUrl}
-                          className="absolute inset-x-0 bottom-0 py-2.5 bg-gradient-to-t from-slate-950/80 via-slate-950/40 to-transparent text-white text-xs font-semibold text-center opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5"
-                        >
-                          <Eye className="w-4 h-4" />
-                          Ver fotos e especificações completas
-                        </Link>
+                        {/* Controles da Mini-Galeria (Apenas quando houver mais de 1 foto) */}
+                        {hasMultiplePhotos && (
+                          <>
+                            {/* Contador de fotos no topo central/inferior */}
+                            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 bg-slate-950/70 backdrop-blur-xs text-white text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 pointer-events-none opacity-90">
+                              <Camera className="w-3 h-3 text-emerald-400" />
+                              {currentIndex + 1}/{productPhotos.length}
+                            </div>
+
+                            {/* Setas de navegação direta anterior/próxima (aparecem no hover e no mobile com toque) */}
+                            <button
+                              type="button"
+                              onClick={(e) => handlePrevCardPhoto(e, p.id, productPhotos.length)}
+                              className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white/90 hover:bg-white text-slate-800 shadow-md flex items-center justify-center transition-all opacity-0 group-hover:opacity-100 z-20 focus:opacity-100"
+                              title="Foto anterior"
+                              aria-label="Foto anterior"
+                            >
+                              <ChevronLeft className="w-4 h-4" />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={(e) => handleNextCardPhoto(e, p.id, productPhotos.length)}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white/90 hover:bg-white text-slate-800 shadow-md flex items-center justify-center transition-all opacity-0 group-hover:opacity-100 z-20 focus:opacity-100"
+                              title="Próxima foto"
+                              aria-label="Próxima foto"
+                            >
+                              <ChevronRight className="w-4 h-4" />
+                            </button>
+
+                            {/* Indicador de Bolinhas/Pontos de navegação na base da foto */}
+                            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 px-2 py-0.5 bg-slate-950/50 backdrop-blur-xs rounded-full">
+                              {productPhotos.map((_, dotIdx) => (
+                                <button
+                                  key={dotIdx}
+                                  type="button"
+                                  onClick={(e) => handleSelectCardPhoto(e, p.id, dotIdx)}
+                                  className={`rounded-full transition-all ${
+                                    currentIndex === dotIdx
+                                      ? 'w-3 h-1.5 bg-emerald-400'
+                                      : 'w-1.5 h-1.5 bg-white/60 hover:bg-white'
+                                  }`}
+                                  title={`Ver foto ${dotIdx + 1}`}
+                                  aria-label={`Ver foto ${dotIdx + 1}`}
+                                />
+                              ))}
+                            </div>
+                          </>
+                        )}
+
+                        {/* Overlay hover sutil: "Ver detalhes" (quando não tiver mini-galeria de múltiplos pontos cobrindo toda a base) */}
+                        {!hasMultiplePhotos && (
+                          <Link
+                            to={detailUrl}
+                            className="absolute inset-x-0 bottom-0 py-2.5 bg-gradient-to-t from-slate-950/80 via-slate-950/40 to-transparent text-white text-xs font-semibold text-center opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5"
+                          >
+                            <Eye className="w-4 h-4" />
+                            Ver fotos e especificações completas
+                          </Link>
+                        )}
                       </div>
 
                       {/* Conteúdo do Card */}
