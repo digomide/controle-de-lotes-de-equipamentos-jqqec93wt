@@ -36,6 +36,7 @@ import {
   Boxes,
   Printer,
   QrCode,
+  Copy,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -75,6 +76,7 @@ import { batchesService } from '@/services/batches'
 import { equipmentService } from '@/services/equipment'
 import { salesService } from '@/services/sales'
 import { EtiquetaModal, type EtiquetaData } from '@/components/EtiquetaModal'
+import { CloneEquipmentModal } from '@/components/CloneEquipmentModal'
 import type {
   Product,
   Batch,
@@ -95,6 +97,9 @@ export default function CatalogoDetalhe() {
 
   // Etiqueta Modal State
   const [etiquetaModalOpen, setEtiquetaModalOpen] = useState(false)
+  const [cloneModalOpen, setCloneModalOpen] = useState(false)
+  const [deleteProductDialogOpen, setDeleteProductDialogOpen] = useState(false)
+  const [deletingProduct, setDeletingProduct] = useState(false)
 
   // Edit Equipment / Lote Modal
   const [editModalOpen, setEditModalOpen] = useState(false)
@@ -758,6 +763,33 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
       toast({ title: 'Item removido' })
     } catch (err) {
       console.error(err)
+    }
+  }
+
+  const handleDeleteProduct = async () => {
+    if (!product) return
+    setDeletingProduct(true)
+    try {
+      await productsService.delete(product.id)
+      toast({
+        title: 'Equipamento excluído com sucesso',
+        description: 'O item foi removido do catálogo e do estoque.',
+      })
+      if (product.purchase_batch_id) {
+        navigate(`/lotes-entrada/${product.purchase_batch_id}`)
+      } else {
+        navigate('/produtos')
+      }
+    } catch (err: any) {
+      console.error(err)
+      toast({
+        title: 'Erro ao excluir equipamento',
+        description: err?.message,
+        variant: 'destructive',
+      })
+    } finally {
+      setDeletingProduct(false)
+      setDeleteProductDialogOpen(false)
     }
   }
 
@@ -1538,20 +1570,46 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
                 ))}
               </div>
 
-              {/* Botão Baixar Checklist Técnico (igual ao Replit) */}
+              {/* Botões de Ações: Baixar Checklist, Clonar Equipamento, Excluir (Identico ao Screenshot 1 do Replit) */}
               <div className="space-y-2">
-                <Button
-                  variant="outline"
-                  onClick={handleDownloadChecklist}
-                  className="w-full text-xs font-semibold gap-2 border-slate-300 text-slate-700 hover:bg-slate-50"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  Baixar checklist técnico
-                </Button>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={handleDownloadChecklist}
+                    className="text-xs font-medium gap-1.5 border-slate-300 text-slate-700 hover:bg-slate-50 h-9"
+                    title="Baixar checklist"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Baixar checklist
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    onClick={() => setCloneModalOpen(true)}
+                    className="text-xs font-semibold gap-1.5 border-[#d9532f]/40 text-[#d9532f] hover:bg-[#d9532f]/10 h-9"
+                    title="Clonar equipamento"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    Clonar equipamento
+                  </Button>
+
+                  {isAdmin && (
+                    <Button
+                      variant="outline"
+                      onClick={() => setDeleteProductDialogOpen(true)}
+                      className="text-xs font-medium gap-1.5 border-rose-300 text-rose-600 hover:bg-rose-50 h-9"
+                      title="Excluir equipamento"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Excluir
+                    </Button>
+                  )}
+                </div>
+
                 <Button
                   variant="outline"
                   onClick={() => setEtiquetaModalOpen(true)}
-                  className="w-full text-xs font-semibold gap-2 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                  className="w-full text-xs font-semibold gap-2 border-emerald-300 text-emerald-700 hover:bg-emerald-50 h-9"
                 >
                   <Printer className="w-3.5 h-3.5" />
                   Imprimir etiqueta com QR Code
@@ -2274,6 +2332,54 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* MODAL CLONAR EQUIPAMENTO */}
+      <CloneEquipmentModal
+        open={cloneModalOpen}
+        onOpenChange={setCloneModalOpen}
+        product={product}
+        onSuccess={(count, targetBatchId) => {
+          loadData()
+          if (targetBatchId) {
+            navigate(`/lotes-entrada/${targetBatchId}`)
+          }
+        }}
+      />
+
+      {/* CONFIRMAÇÃO DE EXCLUSÃO DE EQUIPAMENTO */}
+      <AlertDialog open={deleteProductDialogOpen} onOpenChange={setDeleteProductDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-slate-900">
+              Excluir este equipamento?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta ação removerá permanentemente o item <strong>{product?.name}</strong> (
+              {product?.sku || product?.serial_number}) do catálogo e do lote de estoque.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingProduct}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                handleDeleteProduct()
+              }}
+              disabled={deletingProduct}
+              className="bg-rose-600 hover:bg-rose-700 text-white font-semibold"
+            >
+              {deletingProduct ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Excluindo...
+                </>
+              ) : (
+                'Sim, excluir equipamento'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

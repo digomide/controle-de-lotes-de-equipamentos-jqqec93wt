@@ -20,7 +20,9 @@ import {
   Edit2,
   ChevronRight,
   Sparkles,
+  Edit3,
 } from 'lucide-react'
+import { EditBatchModal } from '@/components/EditBatchModal'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -57,6 +59,9 @@ export default function LotesEntrada() {
 
   // Modal Novo Lote
   const [createModalOpen, setCreateModalOpen] = useState(false)
+  // Modal Editar Lote
+  const [editBatchModalOpen, setEditBatchModalOpen] = useState(false)
+  const [batchToEdit, setBatchToEdit] = useState<PurchaseBatch | null>(null)
   const [supplier, setSupplier] = useState('')
   const [invoiceNumber, setInvoiceNumber] = useState('')
   const [purchaseDate, setPurchaseDate] = useState(() => new Date().toISOString().split('T')[0])
@@ -517,6 +522,19 @@ export default function LotesEntrada() {
 
                       <td className="py-4 px-4 text-right">
                         <div className="flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setBatchToEdit(b)
+                              setEditBatchModalOpen(true)
+                            }}
+                            className="p-1.5 text-slate-500 hover:text-orange-600 hover:bg-orange-50 rounded transition-colors"
+                            title="Editar Lote"
+                          >
+                            <Edit3 className="w-4 h-4" />
+                          </button>
+
                           <Link
                             to={`/lotes-entrada/${b.id}`}
                             onClick={(e) => e.stopPropagation()}
@@ -690,6 +708,16 @@ export default function LotesEntrada() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Modal Editar Lote Existente */}
+      <EditBatchModal
+        open={editBatchModalOpen}
+        onOpenChange={setEditBatchModalOpen}
+        batch={batchToEdit}
+        onSuccess={() => {
+          loadData()
+        }}
+      />
     </div>
   )
 }

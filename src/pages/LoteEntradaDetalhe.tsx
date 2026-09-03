@@ -22,7 +22,15 @@ import {
   Trash2,
   Loader2,
   Sparkles,
+  Edit3,
+  ArrowRightLeft,
+  Copy,
+  MapPin,
 } from 'lucide-react'
+import { Checkbox } from '@/components/ui/checkbox'
+import { EditBatchModal } from '@/components/EditBatchModal'
+import { TransferEquipmentModal } from '@/components/TransferEquipmentModal'
+import { CloneEquipmentModal } from '@/components/CloneEquipmentModal'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -91,6 +99,17 @@ export default function LoteEntradaDetalhe() {
   const [partToDelete, setPartToDelete] = useState<EquipmentPart | null>(null)
   const [deletingPart, setDeletingPart] = useState(false)
 
+  // 1. Edição Completa do Lote
+  const [editBatchModalOpen, setEditBatchModalOpen] = useState(false)
+
+  // 2. Transferência de Equipamentos (Seleção Múltipla)
+  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([])
+  const [transferModalOpen, setTransferModalOpen] = useState(false)
+
+  // 3. Clonagem de Equipamento dentro do Lote
+  const [cloneModalOpen, setCloneModalOpen] = useState(false)
+  const [productToClone, setProductToClone] = useState<Product | null>(null)
+
   const loadData = async () => {
     if (!id) return
     try {
@@ -145,7 +164,42 @@ export default function LoteEntradaDetalhe() {
   const acquisitionCost = Number(batch?.total_cost) || 0
   const partsAndServicesCost = parts.reduce((acc, part) => acc + (Number(part.cost) || 0), 0)
   const totalCostOverall = acquisitionCost + partsAndServicesCost
+  // Custo-base por item do lote (custo total do lote ÷ quantidade esperada/total de itens)
   const averageUnitCost = expectedQty > 0 ? totalCostOverall / expectedQty : 0
+  const baseCostPerExpectedItem = expectedQty > 0 ? acquisitionCost / expectedQty : 0
+
+  // Selection handlers
+  const toggleSelectAll = () => {
+    if (selectedProductIds.length === products.length) {
+      setSelectedProductIds([])
+    } else {
+      setSelectedProductIds(products.map((p) => p.id))
+    }
+  }
+
+  const toggleSelectOne = (prodId: string) => {
+    if (selectedProductIds.includes(prodId)) {
+      setSelectedProductIds(selectedProductIds.filter((id) => id !== prodId))
+    } else {
+      setSelectedProductIds([...selectedProductIds, prodId])
+    }
+  }
+
+  const selectedProductsList = useMemo(() => {
+    return products.filter((p) => selectedProductIds.includes(p.id))
+  }, [products, selectedProductIds])
+
+  const handleOpenCloneSingle = (p: Product) => {
+    setProductToClone(p)
+    setCloneModalOpen(true)
+  }
+
+  const handleOpenCloneSelected = () => {
+    if (selectedProductsList.length === 1) {
+      setProductToClone(selectedProductsList[0])
+      setCloneModalOpen(true)
+    }
+  }
 
   // Estimated sales revenue and profit/deficit
   const totalTargetSales = products.reduce((acc, p) => acc + (Number(p.unit_price) || 0), 0)
@@ -338,7 +392,18 @@ export default function LoteEntradaDetalhe() {
         </div>
 
         {/* Action Buttons */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Botão Editar Lote */}
+          <Button
+            variant="outline"
+            onClick={() => setEditBatchModalOpen(true)}
+            className="text-xs h-10 border-slate-300 text-slate-700 hover:bg-slate-50 gap-1.5 font-medium"
+            title="Editar dados cadastrais, fornecedor, quantidade esperada e custos do lote"
+          >
+            <Edit3 className="w-4 h-4 text-[#d9532f]" />
+            Editar Lote
+          </Button>
+
           <Button
             variant="outline"
             onClick={handleToggleStatus}
@@ -354,6 +419,32 @@ export default function LoteEntradaDetalhe() {
           </Link>
         </div>
       </div>
+
+      {/* Info / Localização & Observações adicionais do Lote */}
+      {(batch.location || batch.notes) && (
+        <div className="bg-[#faf8f5] border border-orange-200/60 rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-700">
+          <div className="flex items-center gap-4 flex-wrap">
+            {batch.location && (
+              <span className="flex items-center gap-1.5 font-medium">
+                <MapPin className="w-4 h-4 text-[#d9532f]" />
+                Localização: <strong className="text-slate-900">{batch.location}</strong>
+              </span>
+            )}
+            {batch.notes && (
+              <span className="text-slate-600">
+                Observações: <span className="italic">{batch.notes}</span>
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setEditBatchModalOpen(true)}
+            className="text-[11px] text-[#d9532f] hover:underline font-semibold"
+          >
+            Alterar detalhes
+          </button>
+        </div>
+      )}
 
       {/* KPI Cards (Baseados na Tela 3) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -402,12 +493,12 @@ export default function LoteEntradaDetalhe() {
           </CardContent>
         </Card>
 
-        {/* KPI 3: Custo Médio Unitário */}
+        {/* KPI 3: Custo Médio Unitário / Custo-Base por Item */}
         <Card className="border-slate-200 shadow-xs bg-white">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                Custo Médio Unitário
+                Custo-Base por Item
               </span>
               <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
                 <TrendingUp className="w-4 h-4" />
@@ -415,10 +506,18 @@ export default function LoteEntradaDetalhe() {
             </div>
             <div className="mt-2">
               <div className="text-2xl font-bold text-slate-900">
-                {averageUnitCost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                {baseCostPerExpectedItem.toLocaleString('pt-BR', {
+                  style: 'currency',
+                  currency: 'BRL',
+                })}
               </div>
               <p className="text-xs text-slate-400 mt-1">
-                Sugerido para {expectedQty} equipamento(s)
+                {expectedQty} itens esperados (
+                {acquisitionCost.toLocaleString('pt-BR', {
+                  style: 'currency',
+                  currency: 'BRL',
+                })}{' '}
+                ÷ {expectedQty})
               </p>
             </div>
           </CardContent>
@@ -656,9 +755,9 @@ export default function LoteEntradaDetalhe() {
         )}
       </div>
 
-      {/* Tabela de Equipamentos Já Inventariados Neste Lote */}
+      {/* Tabela de Equipamentos Já Inventariados Neste Lote com Seleção Múltipla, Transferência e Clonagem */}
       <div className="space-y-3">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center gap-2">
             <h2 className="text-lg font-bold text-slate-900">
               Equipamentos no Lote ({inventoriedCount})
@@ -668,15 +767,63 @@ export default function LoteEntradaDetalhe() {
             </Badge>
           </div>
 
-          <Link to={`/lotes-entrada/${batch.id}/inventariar`}>
-            <Button
-              size="sm"
-              className="bg-[#d9532f] hover:bg-[#c24624] text-white shadow-xs text-xs font-semibold"
-            >
-              <Plus className="w-3.5 h-3.5 mr-1" />+ Inventariar equipamento
-            </Button>
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link to={`/lotes-entrada/${batch.id}/inventariar`}>
+              <Button
+                size="sm"
+                className="bg-[#d9532f] hover:bg-[#c24624] text-white shadow-xs text-xs font-semibold"
+              >
+                <Plus className="w-3.5 h-3.5 mr-1" />+ Inventariar equipamento
+              </Button>
+            </Link>
+          </div>
         </div>
+
+        {/* Barra de Ações em Massa quando houver seleção */}
+        {selectedProductIds.length > 0 && (
+          <div className="bg-[#f5ede4] border border-[#edd5c3] rounded-xl p-3 px-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-xs animate-in fade-in">
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-[#d9532f] bg-white px-2 py-0.5 rounded-md border border-[#edd5c3]">
+                {selectedProductIds.length} selecionado(s)
+              </span>
+              <span className="text-slate-600">Ações em massa para os equipamentos marcados:</span>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Botão Transferir para Lote (Qualquer quantidade selecionada >= 1) */}
+              <Button
+                size="sm"
+                onClick={() => setTransferModalOpen(true)}
+                className="bg-[#d9532f] hover:bg-[#c24624] text-white text-xs font-semibold h-8 gap-1.5 shadow-xs"
+              >
+                <ArrowRightLeft className="w-3.5 h-3.5" />
+                Transferir para lote ({selectedProductIds.length})
+              </Button>
+
+              {/* Botão Clonar Equipamento (quando exatamente 1 equipamento estiver selecionado) */}
+              {selectedProductIds.length === 1 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleOpenCloneSelected}
+                  className="bg-white hover:bg-orange-50 border-orange-300 text-[#d9532f] text-xs font-semibold h-8 gap-1.5"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  Clonar equipamento
+                </Button>
+              )}
+
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setSelectedProductIds([])}
+                className="text-slate-500 hover:text-slate-800 text-xs h-8"
+              >
+                Desmarcar todos
+              </Button>
+            </div>
+          </div>
+        )}
 
         {products.length === 0 ? (
           <Card className="border-dashed border-2 border-slate-200 bg-white">
@@ -702,6 +849,15 @@ export default function LoteEntradaDetalhe() {
               <table className="w-full text-left border-collapse text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50/75 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                    <th className="py-3 px-3 w-10 text-center">
+                      <Checkbox
+                        checked={
+                          selectedProductIds.length === products.length && products.length > 0
+                        }
+                        onCheckedChange={toggleSelectAll}
+                        aria-label="Selecionar todos os equipamentos"
+                      />
+                    </th>
                     <th className="py-3 px-4">Equipamento</th>
                     <th className="py-3 px-4">Serial / SKU</th>
                     <th className="py-3 px-4">Configuração</th>
@@ -710,13 +866,29 @@ export default function LoteEntradaDetalhe() {
                     <th className="py-3 px-4">Custo Base</th>
                     <th className="py-3 px-4">Preço Venda</th>
                     <th className="py-3 px-4">Status</th>
-                    <th className="py-3 px-4 text-right">Ação</th>
+                    <th className="py-3 px-4 text-right">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {products.map((p) => {
+                    const isSelected = selectedProductIds.includes(p.id)
                     return (
-                      <tr key={p.id} className="hover:bg-slate-50/80 transition-colors">
+                      <tr
+                        key={p.id}
+                        className={`transition-colors ${
+                          isSelected
+                            ? 'bg-orange-50/50 hover:bg-orange-50/80'
+                            : 'hover:bg-slate-50/80'
+                        }`}
+                      >
+                        <td className="py-3.5 px-3 text-center">
+                          <Checkbox
+                            checked={isSelected}
+                            onCheckedChange={() => toggleSelectOne(p.id)}
+                            aria-label={`Selecionar ${p.name}`}
+                          />
+                        </td>
+
                         <td className="py-3.5 px-4">
                           <div className="font-semibold text-slate-900">{p.name}</div>
                           <div className="text-xs text-slate-400">
@@ -786,13 +958,27 @@ export default function LoteEntradaDetalhe() {
                         </td>
 
                         <td className="py-3.5 px-4 text-right">
-                          <Link
-                            to={`/catalogo/${p.sku || p.code || p.id}`}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-orange-700 bg-orange-50 hover:bg-orange-100 rounded transition-colors"
-                          >
-                            Ver Ficha
-                            <ExternalLink className="w-3 h-3" />
-                          </Link>
+                          <div className="flex items-center justify-end gap-1.5">
+                            {/* Botão de Clonar Rápido Linha */}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleOpenCloneSingle(p)}
+                              className="h-7 px-2 text-xs text-slate-600 hover:text-[#d9532f] hover:bg-orange-50 gap-1"
+                              title="Clonar este equipamento"
+                            >
+                              <Copy className="w-3 h-3" />
+                              Clonar
+                            </Button>
+
+                            <Link
+                              to={`/catalogo/${p.sku || p.code || p.id}`}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-orange-700 bg-orange-50 hover:bg-orange-100 rounded transition-colors"
+                            >
+                              Ver Ficha
+                              <ExternalLink className="w-3 h-3" />
+                            </Link>
+                          </div>
                         </td>
                       </tr>
                     )
@@ -972,6 +1158,39 @@ export default function LoteEntradaDetalhe() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* 1. MODAL: EDITAR LOTE DE ENTRADA COMPLETO */}
+      <EditBatchModal
+        open={editBatchModalOpen}
+        onOpenChange={setEditBatchModalOpen}
+        batch={batch}
+        onSuccess={() => {
+          loadData()
+        }}
+      />
+
+      {/* 2. MODAL: TRANSFERIR EQUIPAMENTOS ENTRE LOTES */}
+      <TransferEquipmentModal
+        open={transferModalOpen}
+        onOpenChange={setTransferModalOpen}
+        currentBatchId={batch.id}
+        selectedProducts={selectedProductsList}
+        onSuccess={() => {
+          setSelectedProductIds([])
+          loadData()
+        }}
+      />
+
+      {/* 3. MODAL: CLONAR EQUIPAMENTO */}
+      <CloneEquipmentModal
+        open={cloneModalOpen}
+        onOpenChange={setCloneModalOpen}
+        product={productToClone}
+        onSuccess={(count, targetBatchId) => {
+          setSelectedProductIds([])
+          loadData()
+        }}
+      />
     </div>
   )
 }

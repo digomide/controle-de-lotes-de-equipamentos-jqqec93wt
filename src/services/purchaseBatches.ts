@@ -8,6 +8,8 @@ export interface CreatePurchaseBatchInput {
   total_cost: number
   expected_quantity: number
   status?: 'em_processamento' | 'concluido'
+  location?: string
+  notes?: string
 }
 
 export const purchaseBatchesService = {

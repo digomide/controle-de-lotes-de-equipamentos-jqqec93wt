@@ -29,6 +29,8 @@ export interface PurchaseBatch extends RecordModel {
   total_cost: number
   expected_quantity: number
   status: PurchaseBatchStatus
+  location?: string
+  notes?: string
   expand?: {
     products_via_purchase_batch_id?: Product[]
   }
