@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-03T11:11:35.733Z",
+  "generatedAt": "2026-09-03T11:52:41.169Z",
   "collections": [
     {
       "name": "users",
@@ -105,6 +105,97 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "cost_price",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "brand",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "model",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "processor",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ram",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "storage",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "condition",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "aesthetic_grade",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "battery_health",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "screen_size",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["Disponível", "Reservado", "Vendido"]
+        },
+        {
+          "name": "images",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "technical_checklist",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "history_events",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "code",
+          "type": "text",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": ["CREATE UNIQUE INDEX idx_products_sku ON products (sku)"]
@@ -359,6 +450,120 @@
         },
         {
           "name": "reason",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "equipment_parts",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "product_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "products"
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "cost",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["Pendente", "Trocado", "Instalado", "Danificado"]
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "equipment_deliverables",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "product_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "products"
+        },
+        {
+          "name": "item_name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["Pendente", "Resolvido"]
+        },
+        {
+          "name": "notes",
           "type": "text",
           "required": false,
           "system": false

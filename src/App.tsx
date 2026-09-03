@@ -9,6 +9,7 @@ import Layout from './components/Layout'
 import Login from './pages/Login'
 import Vendas from './pages/Vendas'
 import Produtos from './pages/Produtos'
+import CatalogoDetalhe from './pages/CatalogoDetalhe'
 import Estoque from './pages/Estoque'
 import Ajustes from './pages/Ajustes'
 import Configuracoes from './pages/Configuracoes'
@@ -37,6 +38,8 @@ const App = () => (
             <Route path="/" element={<Index />} />
             <Route path="/vendas" element={<Vendas />} />
             <Route path="/produtos" element={<Produtos />} />
+            <Route path="/catalogo" element={<Produtos />} />
+            <Route path="/catalogo/:id" element={<CatalogoDetalhe />} />
             <Route path="/estoque" element={<Estoque />} />
             <Route path="/ajustes" element={<Ajustes />} />
             <Route path="/configuracoes" element={<Configuracoes />} />

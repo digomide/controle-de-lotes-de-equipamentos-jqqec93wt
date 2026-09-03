@@ -128,11 +128,15 @@ export default function Vendas() {
     if (params.get('nova') === 'true') {
       openNewSaleWizard()
     }
+    const prodParam = params.get('produto')
+    if (prodParam && products.length > 0) {
+      handleProductChange(prodParam)
+    }
     const detalheId = params.get('detalhe')
     if (detalheId) {
       handleOpenDetails(detalheId)
     }
-  }, [location.search])
+  }, [location.search, products])
 
   // Realtime subscription
   useRealtime<Sale>('sales', () => {

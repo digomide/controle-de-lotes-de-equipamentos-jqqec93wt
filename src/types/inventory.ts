@@ -7,12 +7,55 @@ export interface User extends RecordModel {
   avatar?: string
 }
 
+export type ProductStatus = 'Disponível' | 'Reservado' | 'Vendido'
+
+export interface TechnicalChecklistItem {
+  item: string
+  status: 'OK' | 'Atenção' | 'Não testado'
+  observation?: string
+}
+
+export interface EquipmentHistoryEvent {
+  title: string
+  date: string
+}
+
 export interface Product extends RecordModel {
   name: string
   sku: string
+  code?: string
   description?: string
   category: string
   unit_price: number
+  cost_price?: number
+  brand?: string
+  model?: string
+  processor?: string
+  ram?: string
+  storage?: string
+  condition?: string
+  aesthetic_grade?: string
+  battery_health?: string
+  screen_size?: string
+  status?: ProductStatus
+  images?: string[]
+  technical_checklist?: TechnicalChecklistItem[]
+  history_events?: EquipmentHistoryEvent[]
+}
+
+export interface EquipmentPart extends RecordModel {
+  product_id: string
+  name: string
+  cost?: number
+  status: 'Pendente' | 'Trocado' | 'Instalado' | 'Danificado'
+  notes?: string
+}
+
+export interface EquipmentDeliverable extends RecordModel {
+  product_id: string
+  item_name: string
+  status: 'Pendente' | 'Resolvido'
+  notes?: string
 }
 
 export interface Batch extends RecordModel {

@@ -41,8 +41,8 @@ export default function Layout() {
 
   const navItems = [
     { title: 'Dashboard', path: '/', icon: LayoutDashboard },
+    { title: 'Catálogo de Notebooks', path: '/produtos', icon: Package },
     { title: 'Vendas', path: '/vendas', icon: ShoppingCart },
-    { title: 'Produtos', path: '/produtos', icon: Package },
     { title: 'Estoque / Lotes', path: '/estoque', icon: Layers },
     { title: 'Ajustes', path: '/ajustes', icon: SlidersHorizontal },
     { title: 'Configurações', path: '/configuracoes', icon: Settings },
@@ -52,7 +52,8 @@ export default function Layout() {
     const p = location.pathname
     if (p === '/') return 'Dashboard Geral'
     if (p.startsWith('/vendas')) return 'Gestão de Vendas'
-    if (p.startsWith('/produtos')) return 'Catálogo de Produtos'
+    if (p.startsWith('/catalogo/')) return 'Detalhes do Equipamento'
+    if (p.startsWith('/produtos') || p.startsWith('/catalogo')) return 'Catálogo de Equipamentos'
     if (p.startsWith('/estoque')) return 'Controle de Lotes & Estoque'
     if (p.startsWith('/ajustes')) return 'Ajuste de Inventário & Divergências'
     if (p.startsWith('/configuracoes')) return 'Configurações do Sistema'
@@ -295,6 +296,18 @@ export default function Layout() {
           >
             <LayoutDashboard className="w-4 h-4" />
             Início
+          </NavLink>
+          <NavLink
+            to="/produtos"
+            className={({ isActive }) =>
+              cn(
+                'flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-2 rounded',
+                isActive ? 'text-slate-900 font-bold' : 'text-slate-500',
+              )
+            }
+          >
+            <Package className="w-4 h-4" />
+            Catálogo
           </NavLink>
           <NavLink
             to="/vendas"
