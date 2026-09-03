@@ -75,7 +75,7 @@ import { productsService } from '@/services/products'
 import { batchesService } from '@/services/batches'
 import { equipmentService } from '@/services/equipment'
 import { salesService } from '@/services/sales'
-import { EtiquetaModal, type EtiquetaData } from '@/components/EtiquetaModal'
+import { EtiquetaModal } from '@/components/EtiquetaModal'
 import { CloneEquipmentModal } from '@/components/CloneEquipmentModal'
 import type {
   Product,
@@ -102,19 +102,23 @@ export default function CatalogoDetalhe() {
   const [loading, setLoading] = useState(true)
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0)
 
-  // Etiqueta Modal State
+  // Modais
   const [etiquetaModalOpen, setEtiquetaModalOpen] = useState(false)
   const [cloneModalOpen, setCloneModalOpen] = useState(false)
   const [deleteProductDialogOpen, setDeleteProductDialogOpen] = useState(false)
   const [deletingProduct, setDeletingProduct] = useState(false)
 
-  // Checklist Edit Modal State (idêntico ao Replit para checklist editável na ficha)
+  // Checklist Edit Modal
   const [checklistModalOpen, setChecklistModalOpen] = useState(false)
-  const [editChecklistItems, setEditChecklistItems] = useState<{ item: string; status: 'Ok' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A'; observation: string }[]>([])
-  const [editInspectionStatus, setEditInspectionStatus] = useState<'Concluída' | 'Em andamento' | 'Pendente'>('Concluída')
+  const [editChecklistItems, setEditChecklistItems] = useState<
+    { item: string; status: ChecklistItemStatus; observation: string }[]
+  >([])
+  const [editInspectionStatus, setEditInspectionStatus] = useState<
+    'Concluída' | 'Em andamento' | 'Pendente'
+  >('Concluída')
   const [savingChecklist, setSavingChecklist] = useState(false)
 
-  // Edit Equipment / Lote Modal
+  // Modal Editar Equipamento / Lote
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [editName, setEditName] = useState('')
   const [editSku, setEditSku] = useState('')
@@ -138,13 +142,13 @@ export default function CatalogoDetalhe() {
   const [editBatchNumber, setEditBatchNumber] = useState('')
   const [savingEdit, setSavingEdit] = useState(false)
 
-  // Photo Management Modal
+  // Gerenciador de Fotos
   const [photoModalOpen, setPhotoModalOpen] = useState(false)
   const [photoUrlInput, setPhotoUrlInput] = useState('')
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Modais de Peças e Pendências
+  // Peças & Trocas
   const [partModalOpen, setPartModalOpen] = useState(false)
   const [editingPart, setEditingPart] = useState<EquipmentPart | null>(null)
   const [partName, setPartName] = useState('')
@@ -158,12 +162,13 @@ export default function CatalogoDetalhe() {
   const [partToDelete, setPartToDelete] = useState<EquipmentPart | null>(null)
   const [deletingPart, setDeletingPart] = useState(false)
 
+  // Pendências de Entrega
   const [deliverableModalOpen, setDeliverableModalOpen] = useState(false)
   const [delivName, setDelivName] = useState('')
   const [delivStatus, setDelivStatus] = useState<'Pendente' | 'Resolvido'>('Pendente')
   const [delivNotes, setDelivNotes] = useState('')
 
-  // Modal Venda Rápida
+  // Venda Rápida
   const [quickSaleModalOpen, setQuickSaleModalOpen] = useState(false)
   const [quickSaleCustomer, setQuickSaleCustomer] = useState('')
   const [quickSaleContact, setQuickSaleContact] = useState('')
@@ -209,11 +214,10 @@ export default function CatalogoDetalhe() {
     loadData()
   }, [id])
 
-  // Photos calculation (combination of direct file uploads via PB + external image URLs)
+  // Lista combinada de fotos (uploads PocketBase + URLs json)
   const photos = useMemo(() => {
     const list: string[] = []
 
-    // 1. Files uploaded directly to PB 'photos' field
     if (product?.photos && Array.isArray(product.photos)) {
       for (const fn of product.photos) {
         if (fn) {
@@ -222,7 +226,6 @@ export default function CatalogoDetalhe() {
       }
     }
 
-    // 2. Images stored in json 'images' array
     if (product?.images && Array.isArray(product.images)) {
       for (const url of product.images) {
         if (url && typeof url === 'string' && url.trim().length > 0) {
@@ -242,10 +245,10 @@ export default function CatalogoDetalhe() {
     ]
   }, [product])
 
-  // Primary Batch
+  // Lote principal associado
   const primaryBatch = batches[0] || null
 
-  // Open Edit Modal with pre-filled state
+  // Abrir modal de edição do equipamento / lote
   const handleOpenEditModal = () => {
     if (!product) return
     setEditName(product.name || '')
@@ -279,14 +282,13 @@ export default function CatalogoDetalhe() {
     setEditModalOpen(true)
   }
 
-  // Save Edit (Equipamento / Lote)
+  // Salvar alterações de edição
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!product) return
 
     setSavingEdit(true)
     try {
-      // 1. Update product
       const updatedProd = await productsService.update(product.id, {
         name: editName,
         sku: editSku,
@@ -307,7 +309,6 @@ export default function CatalogoDetalhe() {
         description: editDescription,
       })
 
-      // 2. Update or create batch
       if (primaryBatch) {
         await batchesService.update(primaryBatch.id, {
           batch_number: editBatchNumber.trim(),
@@ -342,7 +343,7 @@ export default function CatalogoDetalhe() {
     }
   }
 
-  // Handle Photo File Upload
+  // Upload de fotos
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (!files || files.length === 0 || !product) return
@@ -375,7 +376,7 @@ export default function CatalogoDetalhe() {
     }
   }
 
-  // Handle Adding Photo by URL
+  // Adicionar URL de imagem
   const handleAddPhotoUrl = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!product || !photoUrlInput.trim()) return
@@ -406,7 +407,7 @@ export default function CatalogoDetalhe() {
     }
   }
 
-  // Remove Photo (File or URL)
+  // Remover foto da galeria
   const handleRemovePhoto = async (index: number) => {
     if (!product) return
 
@@ -415,7 +416,6 @@ export default function CatalogoDetalhe() {
       const totalUploadedPhotos = Array.isArray(product.photos) ? product.photos.length : 0
 
       if (index < totalUploadedPhotos) {
-        // It's a file in photos
         const targetFilename = product.photos![index]
         const remaining = product.photos!.filter((fn) => fn !== targetFilename)
         const updated = await productsService.update(product.id, {
@@ -423,7 +423,6 @@ export default function CatalogoDetalhe() {
         })
         setProduct(updated)
       } else {
-        // It's a URL in images
         const imgIndex = index - totalUploadedPhotos
         const currentImages = Array.isArray(product.images) ? [...product.images] : []
         currentImages.splice(imgIndex, 1)
@@ -453,9 +452,8 @@ export default function CatalogoDetalhe() {
     }
   }
 
-  // Checklist counts e dados canônicos
+  // Checklist canônico de 16 itens
   const rawChecklist = product?.technical_checklist || []
-  // Garante que todos os 16 itens canônicos existam para exibição e edição
   const checklist = useMemo(() => {
     if (!rawChecklist || rawChecklist.length === 0) {
       return CHECKLIST_CANONICAL_ITEMS.map((name) => ({
@@ -464,7 +462,6 @@ export default function CatalogoDetalhe() {
         observation: '',
       }))
     }
-    // Preserva os itens que já existem e adiciona faltantes caso falte algum
     const map = new Map<string, TechnicalChecklistItem>()
     for (const c of rawChecklist) {
       map.set(c.item.toLowerCase().trim(), c)
@@ -483,164 +480,26 @@ export default function CatalogoDetalhe() {
         })
       }
     }
-    // Adiciona quaisquer itens customizados remanescentes
     for (const remaining of map.values()) {
       result.push(remaining)
     }
     return result
   }, [rawChecklist])
 
+  // Contadores coloridos do checklist
   const okCount = checklist.filter((i) => normalizeChecklistStatus(i.status) === 'Ok').length
-  const warningCount = checklist.filter((i) => normalizeChecklistStatus(i.status) === 'Atenção').length
-  const failureCount = checklist.filter((i) => normalizeChecklistStatus(i.status) === 'Falha').length
-  const untestedCount = checklist.filter((i) => normalizeChecklistStatus(i.status) === 'Não testado').length
+  const warningCount = checklist.filter(
+    (i) => normalizeChecklistStatus(i.status) === 'Atenção',
+  ).length
+  const failureCount = checklist.filter(
+    (i) => normalizeChecklistStatus(i.status) === 'Falha',
+  ).length
+  const untestedCount = checklist.filter(
+    (i) => normalizeChecklistStatus(i.status) === 'Não testado',
+  ).length
   const naCount = checklist.filter((i) => normalizeChecklistStatus(i.status) === 'N/A').length
 
-  // Download Técnico (gerador de documento / relatório texto para impressão)
-  const handleDownloadChecklist = () => {
-    if (!product) return
-
-    const checklistContent = checklist
-      .map(
-        (item) => {
-          const norm = normalizeChecklistStatus(item.status)
-          return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
-        },
-      )
-      .join('\n')
-
-    const partsContent =
-      parts.length > 0
-        ? parts
-            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
-            .join('\n')
-        : 'Nenhuma peça vinculada.'
-
-    const delivContent =
-      deliverables.length > 0
-        ? deliverables
-            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
-            .join('\n')
-        : 'Sem pendências de entrega.'
-
-    const reportText = `=====================================================
-LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
-LoteEquip Gestão de Equipamentos
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-=======
-=======
-  // Marcar todos do checklist com um status
-  const handleSetAllChecklistModal = (statusVal: 'Ok' | 'Não testado') => {
-    setEditChecklistItems((prev) =>
-      prev.map((it) => ({
-        ...it,
-        status: statusVal,
-      })),
-    )
-  }
-
-  // Salvar checklist editado no produto
-  const handleSaveChecklist = async () => {
-    if (!product) return
-    setSavingChecklist(true)
-    try {
-      const historyCopy = Array.isArray(product.history_events) ? [...product.history_events] : []
-      historyCopy.unshift({
-        title: `Checklist de Inspeção atualizado (${editInspectionStatus})`,
-        date: new Date().toISOString().replace('T', ' ').substring(0, 19),
-      })
-
-      const updated = await productsService.update(product.id, {
-        technical_checklist: editChecklistItems,
-        history_events: historyCopy,
-      })
-      setProduct(updated)
-      setChecklistModalOpen(false)
-      toast({
-        title: 'Checklist atualizado com sucesso!',
-        description: `Todos os 16 itens técnicos foram salvos para ${product.name}.`,
-      })
-    } catch (err: any) {
-      console.error(err)
-      toast({
-        title: 'Erro ao salvar checklist',
-        description: err?.message || 'Não foi possível salvar o checklist.',
-        variant: 'destructive',
-      })
-    } finally {
-      setSavingChecklist(false)
-    }
-  }
-
-  // Inline alteração rápida de status do checklist diretamente na visualização (opcional)
-  const handleInlineChangeStatus = async (itemIndex: number, newStatus: 'Ok' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A') => {
-    if (!product) return
-    const updatedChecklist = checklist.map((it, idx) => {
-      if (idx === itemIndex) {
-        return { ...it, status: newStatus }
-      }
-      return it
-    })
-    try {
-      const updated = await productsService.update(product.id, {
-        technical_checklist: updatedChecklist,
-      })
-      setProduct(updated)
-      toast({
-        title: `Item "${checklist[itemIndex].item}" atualizado`,
-        description: `Status alterado para ${newStatus}.`,
-      })
-    } catch (err: any) {
-      console.error(err)
-      toast({
-        title: 'Erro ao atualizar item',
-        description: err?.message,
-        variant: 'destructive',
-      })
-    }
-  }
-
-  // Financeiro
+  // Variáveis financeiras
   const cost = Number(product?.cost_price) || 0
   const price = Number(product?.unit_price) || 0
   const totalPartsCost = parts.reduce((acc, p) => acc + (Number(p.cost) || 0), 0)
@@ -649,425 +508,26 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
   const marginPercent =
     totalCostCombined > 0 ? ((marginCombined / totalCostCombined) * 100).toFixed(1) : '100'
 
-  // Total stock
+  // Estoque total do equipamento
   const totalStock = batches.reduce((acc, b) => acc + (b.quantity || 0), 0)
 
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-
-    const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.href = url
-=======
-=======
-  // Alterar observação de item individual no modal de edição
-  const handleEditItemObs = (idx: number, obs: string) => {
-    setEditChecklistItems((prev) => {
-      const copy = [...prev]
-      copy[idx] = { ...copy[idx], observation: obs }
-      return copy
-    })
-  }
-
-  // Salvar checklist editado no produto
-  const handleSaveChecklist = async () => {
-    if (!product) return
-    setSavingChecklist(true)
-    try {
-      const historyCopy = Array.isArray(product.history_events) ? [...product.history_events] : []
-      historyCopy.unshift({
-        title: `Checklist de Inspeção atualizado (${editInspectionStatus})`,
-        date: new Date().toISOString().replace('T', ' ').substring(0, 19),
-      })
-
-      const updated = await productsService.update(product.id, {
-        technical_checklist: editChecklistItems,
-        history_events: historyCopy,
-      })
-      setProduct(updated)
-      setChecklistModalOpen(false)
-      toast({
-        title: 'Checklist atualizado com sucesso!',
-        description: `Todos os 16 itens técnicos foram salvos para ${product.name}.`,
-      })
-    } catch (err: any) {
-      console.error(err)
-      toast({
-        title: 'Erro ao salvar checklist',
-        description: err?.message || 'Não foi possível salvar o checklist.',
-        variant: 'destructive',
-      })
-    } finally {
-      setSavingChecklist(false)
-    }
-  }
-
-  // Inline alteração rápida de status do checklist diretamente na visualização (opcional)
-  const handleInlineChangeStatus = async (itemIndex: number, newStatus: 'Ok' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A') => {
-    if (!product) return
-    const updatedChecklist = checklist.map((it, idx) => {
-      if (idx === itemIndex) {
-        return { ...it, status: newStatus }
-      }
-      return it
-    })
-    try {
-      const updated = await productsService.update(product.id, {
-        technical_checklist: updatedChecklist,
-      })
-      setProduct(updated)
-      toast({
-        title: `Item "${checklist[itemIndex].item}" atualizado`,
-        description: `Status alterado para ${newStatus}.`,
-      })
-    } catch (err: any) {
-      console.error(err)
-      toast({
-        title: 'Erro ao atualizar item',
-        description: err?.message,
-        variant: 'destructive',
-      })
-    }
-  }
-
-  // Financeiro
-  const cost = Number(product?.cost_price) || 0
-  const price = Number(product?.unit_price) || 0
-  const totalPartsCost = parts.reduce((acc, p) => acc + (Number(p.cost) || 0), 0)
-  const totalCostCombined = cost + totalPartsCost
-  const marginCombined = price - totalCostCombined
-  const marginPercent =
-    totalCostCombined > 0 ? ((marginCombined / totalCostCombined) * 100).toFixed(1) : '100'
-
-  // Total stock
-  const totalStock = batches.reduce((acc, b) => acc + (b.quantity || 0), 0)
-
-  // Download Técnico (gerador de documento / relatório texto para impressão)
-  const handleDownloadChecklist = () => {
-    if (!product) return
-
-    const checklistContent = checklist
-      .map((item) => {
-        const norm = normalizeChecklistStatus(item.status)
-        return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
-      })
-      .join('\n')
-
-    const partsContent =
-      parts.length > 0
-        ? parts
-            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
-            .join('\n')
-        : 'Nenhuma peça vinculada.'
-
-    const delivContent =
-      deliverables.length > 0
-        ? deliverables
-            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
-            .join('\n')
-        : 'Sem pendências de entrega.'
-
-    const reportText = `=====================================================
-LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
-LoteEquip Gestão de Equipamentos
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-
-    const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `Checklist-Tecnico-${product.sku || 'equipamento'}.txt`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(url)
-
-    toast({
-      title: 'Checklist baixado',
-      description: 'O arquivo com o laudo de revisão foi salvo no seu computador.',
-    })
-  }
-=======
-  // Alterar status de item individual no modal de edição
-  const handleEditItemStatus = (idx: number, newStatus: 'Ok' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A') => {
-    setEditChecklistItems((prev) => {
-      const copy = [...prev]
-      copy[idx] = { ...copy[idx], status: newStatus }
-      return copy
-    })
-  }
-
-  // Alterar observação de item individual no modal de edição
-  const handleEditItemObs = (idx: number, obs: string) => {
-    setEditChecklistItems((prev) => {
-      const copy = [...prev]
-      copy[idx] = { ...copy[idx], observation: obs }
-      return copy
-    })
-  }
-
-  // Marcar todos do checklist com um status
-  const handleSetAllChecklistModal = (statusVal: 'Ok' | 'Não testado') => {
-    setEditChecklistItems((prev) =>
-      prev.map((it) => ({
-        ...it,
-        status: statusVal,
-      })),
-    )
-  }
-
-  // Salvar checklist editado no produto
-  const handleSaveChecklist = async () => {
-    if (!product) return
-    setSavingChecklist(true)
-    try {
-      const historyCopy = Array.isArray(product.history_events) ? [...product.history_events] : []
-      historyCopy.unshift({
-        title: `Checklist de Inspeção atualizado (${editInspectionStatus})`,
-        date: new Date().toISOString().replace('T', ' ').substring(0, 19),
-      })
-
-      const updated = await productsService.update(product.id, {
-        technical_checklist: editChecklistItems,
-        history_events: historyCopy,
-      })
-      setProduct(updated)
-      setChecklistModalOpen(false)
-      toast({
-        title: 'Checklist atualizado com sucesso!',
-        description: `Todos os 16 itens técnicos foram salvos para ${product.name}.`,
-      })
-    } catch (err: any) {
-      console.error(err)
-      toast({
-        title: 'Erro ao salvar checklist',
-        description: err?.message || 'Não foi possível salvar o checklist.',
-        variant: 'destructive',
-      })
-    } finally {
-      setSavingChecklist(false)
-    }
-  }
-
-  // Inline alteração rápida de status do checklist diretamente na visualização (opcional)
-  const handleInlineChangeStatus = async (itemIndex: number, newStatus: 'Ok' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A') => {
-    if (!product) return
-    const updatedChecklist = checklist.map((it, idx) => {
-      if (idx === itemIndex) {
-        return { ...it, status: newStatus }
-      }
-      return it
-    })
-    try {
-      const updated = await productsService.update(product.id, {
-        technical_checklist: updatedChecklist,
-      })
-      setProduct(updated)
-      toast({
-        title: `Item "${checklist[itemIndex].item}" atualizado`,
-        description: `Status alterado para ${newStatus}.`,
-      })
-    } catch (err: any) {
-      console.error(err)
-      toast({
-        title: 'Erro ao atualizar item',
-        description: err?.message,
-        variant: 'destructive',
-      })
-    }
-  }
-
-  // Financeiro
-  const cost = Number(product?.cost_price) || 0
-  const price = Number(product?.unit_price) || 0
-  const totalPartsCost = parts.reduce((acc, p) => acc + (Number(p.cost) || 0), 0)
-  const totalCostCombined = cost + totalPartsCost
-  const marginCombined = price - totalCostCombined
-  const marginPercent =
-    totalCostCombined > 0 ? ((marginCombined / totalCostCombined) * 100).toFixed(1) : '100'
-
-  // Total stock
-  const totalStock = batches.reduce((acc, b) => acc + (b.quantity || 0), 0)
-
-  // Download Técnico (gerador de documento / relatório texto para impressão)
-  const handleDownloadChecklist = () => {
-    if (!product) return
-
-    const checklistContent = checklist
-      .map((item) => {
-        const norm = normalizeChecklistStatus(item.status)
-        return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
-      })
-      .join('\n')
-
-    const partsContent =
-      parts.length > 0
-        ? parts
-            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
-            .join('\n')
-        : 'Nenhuma peça vinculada.'
-
-    const delivContent =
-      deliverables.length > 0
-        ? deliverables
-            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
-            .join('\n')
-        : 'Sem pendências de entrega.'
-
-    const reportText = `=====================================================
-LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
-LoteEquip Gestão de Equipamentos
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-
-    const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `Checklist-Tecnico-${product.sku || 'equipamento'}.txt`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(url)
-
-    toast({
-      title: 'Checklist baixado',
-      description: 'O arquivo com o laudo de revisão foi salvo no seu computador.',
-    })
-  }
-=======
-  // Abrir Modal de Edição do Checklist
+  // Abrir modal de edição do checklist
   const handleOpenChecklistModal = () => {
-    const list = checklist.map((c) => ({
-      item: c.item,
-      status: normalizeChecklistStatus(c.status),
-      observation: c.observation || '',
-    }))
-    setEditChecklistItems(list)
+    setEditChecklistItems(
+      checklist.map((it) => ({
+        item: it.item,
+        status: normalizeChecklistStatus(it.status),
+        observation: it.observation || '',
+      })),
+    )
+    setEditInspectionStatus('Concluída')
     setChecklistModalOpen(true)
   }
 
-  // Alterar status de item individual no modal de edição
-  const handleEditItemStatus = (idx: number, newStatus: 'Ok' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A') => {
+  const handleEditItemStatus = (
+    idx: number,
+    newStatus: 'Ok' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A',
+  ) => {
     setEditChecklistItems((prev) => {
       const copy = [...prev]
       copy[idx] = { ...copy[idx], status: newStatus }
@@ -1075,7 +535,6 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
     })
   }
 
-  // Alterar observação de item individual no modal de edição
   const handleEditItemObs = (idx: number, obs: string) => {
     setEditChecklistItems((prev) => {
       const copy = [...prev]
@@ -1084,7 +543,6 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
     })
   }
 
-  // Marcar todos do checklist com um status
   const handleSetAllChecklistModal = (statusVal: 'Ok' | 'Não testado') => {
     setEditChecklistItems((prev) =>
       prev.map((it) => ({
@@ -1094,7 +552,6 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
     )
   }
 
-  // Salvar checklist editado no produto
   const handleSaveChecklist = async () => {
     if (!product) return
     setSavingChecklist(true)
@@ -1127,8 +584,10 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
     }
   }
 
-  // Inline alteração rápida de status do checklist diretamente na visualização (opcional)
-  const handleInlineChangeStatus = async (itemIndex: number, newStatus: 'Ok' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A') => {
+  const handleInlineChangeStatus = async (
+    itemIndex: number,
+    newStatus: 'Ok' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A',
+  ) => {
     if (!product) return
     const updatedChecklist = checklist.map((it, idx) => {
       if (idx === itemIndex) {
@@ -1155,19 +614,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
     }
   }
 
-  // Financeiro
-  const cost = Number(product?.cost_price) || 0
-  const price = Number(product?.unit_price) || 0
-  const totalPartsCost = parts.reduce((acc, p) => acc + (Number(p.cost) || 0), 0)
-  const totalCostCombined = cost + totalPartsCost
-  const marginCombined = price - totalCostCombined
-  const marginPercent =
-    totalCostCombined > 0 ? ((marginCombined / totalCostCombined) * 100).toFixed(1) : '100'
-
-  // Total stock
-  const totalStock = batches.reduce((acc, b) => acc + (b.quantity || 0), 0)
-
-  // Download Técnico (gerador de documento / relatório texto para impressão)
+  // Download do laudo e checklist em texto formatado
   const handleDownloadChecklist = () => {
     if (!product) return
 
@@ -1192,1476 +639,53 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
             .join('\n')
         : 'Sem pendências de entrega.'
 
-    const reportText = `=====================================================
-LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
-LoteEquip Gestão de Equipamentos
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-
-    const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `Checklist-Tecnico-${product.sku || 'equipamento'}.txt`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(url)
-
-    toast({
-      title: 'Checklist baixado',
-      description: 'O arquivo com o laudo de revisão foi salvo no seu computador.',
-    })
-  }
-=======
-  // Download Técnico (gerador de documento / relatório texto para impressão)
-  const handleDownloadChecklist = () => {
-    if (!product) return
-
-    const checklistContent = checklist
-      .map(
-        (item) => {
-          const norm = normalizeChecklistStatus(item.status)
-          return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
-        },
-      )
-      .join('\n')
-
-    const partsContent =
-      parts.length > 0
-        ? parts
-            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
-            .join('\n')
-        : 'Nenhuma peça vinculada.'
-
-    const delivContent =
-      deliverables.length > 0
-        ? deliverables
-            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
-            .join('\n')
-        : 'Sem pendências de entrega.'
-
-    const reportText = `=====================================================
-LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
-LoteEquip Gestão de Equipamentos
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-=======
-=======
-  // Marcar todos do checklist com um status
-  const handleSetAllChecklistModal = (statusVal: 'Ok' | 'Não testado') => {
-    setEditChecklistItems((prev) =>
-      prev.map((it) => ({
-        ...it,
-        status: statusVal,
-      })),
-    )
-  }
-
-  // Salvar checklist editado no produto
-  const handleSaveChecklist = async () => {
-    if (!product) return
-    setSavingChecklist(true)
-    try {
-      const historyCopy = Array.isArray(product.history_events) ? [...product.history_events] : []
-      historyCopy.unshift({
-        title: `Checklist de Inspeção atualizado (${editInspectionStatus})`,
-        date: new Date().toISOString().replace('T', ' ').substring(0, 19),
-      })
-
-      const updated = await productsService.update(product.id, {
-        technical_checklist: editChecklistItems,
-        history_events: historyCopy,
-      })
-      setProduct(updated)
-      setChecklistModalOpen(false)
-      toast({
-        title: 'Checklist atualizado com sucesso!',
-        description: `Todos os 16 itens técnicos foram salvos para ${product.name}.`,
-      })
-    } catch (err: any) {
-      console.error(err)
-      toast({
-        title: 'Erro ao salvar checklist',
-        description: err?.message || 'Não foi possível salvar o checklist.',
-        variant: 'destructive',
-      })
-    } finally {
-      setSavingChecklist(false)
-    }
-  }
-
-  // Inline alteração rápida de status do checklist diretamente na visualização (opcional)
-  const handleInlineChangeStatus = async (itemIndex: number, newStatus: 'Ok' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A') => {
-    if (!product) return
-    const updatedChecklist = checklist.map((it, idx) => {
-      if (idx === itemIndex) {
-        return { ...it, status: newStatus }
-      }
-      return it
-    })
-    try {
-      const updated = await productsService.update(product.id, {
-        technical_checklist: updatedChecklist,
-      })
-      setProduct(updated)
-      toast({
-        title: `Item "${checklist[itemIndex].item}" atualizado`,
-        description: `Status alterado para ${newStatus}.`,
-      })
-    } catch (err: any) {
-      console.error(err)
-      toast({
-        title: 'Erro ao atualizar item',
-        description: err?.message,
-        variant: 'destructive',
-      })
-    }
-  }
-
-  // Financeiro
-  const cost = Number(product?.cost_price) || 0
-  const price = Number(product?.unit_price) || 0
-  const totalPartsCost = parts.reduce((acc, p) => acc + (Number(p.cost) || 0), 0)
-  const totalCostCombined = cost + totalPartsCost
-  const marginCombined = price - totalCostCombined
-  const marginPercent =
-    totalCostCombined > 0 ? ((marginCombined / totalCostCombined) * 100).toFixed(1) : '100'
-
-  // Total stock
-  const totalStock = batches.reduce((acc, b) => acc + (b.quantity || 0), 0)
-
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-
-    const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.href = url
-=======
-=======
-  // Alterar observação de item individual no modal de edição
-  const handleEditItemObs = (idx: number, obs: string) => {
-    setEditChecklistItems((prev) => {
-      const copy = [...prev]
-      copy[idx] = { ...copy[idx], observation: obs }
-      return copy
-    })
-  }
-
-  // Salvar checklist editado no produto
-  const handleSaveChecklist = async () => {
-    if (!product) return
-    setSavingChecklist(true)
-    try {
-      const historyCopy = Array.isArray(product.history_events) ? [...product.history_events] : []
-      historyCopy.unshift({
-        title: `Checklist de Inspeção atualizado (${editInspectionStatus})`,
-        date: new Date().toISOString().replace('T', ' ').substring(0, 19),
-      })
-
-      const updated = await productsService.update(product.id, {
-        technical_checklist: editChecklistItems,
-        history_events: historyCopy,
-      })
-      setProduct(updated)
-      setChecklistModalOpen(false)
-      toast({
-        title: 'Checklist atualizado com sucesso!',
-        description: `Todos os 16 itens técnicos foram salvos para ${product.name}.`,
-      })
-    } catch (err: any) {
-      console.error(err)
-      toast({
-        title: 'Erro ao salvar checklist',
-        description: err?.message || 'Não foi possível salvar o checklist.',
-        variant: 'destructive',
-      })
-    } finally {
-      setSavingChecklist(false)
-    }
-  }
-
-  // Inline alteração rápida de status do checklist diretamente na visualização (opcional)
-  const handleInlineChangeStatus = async (itemIndex: number, newStatus: 'Ok' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A') => {
-    if (!product) return
-    const updatedChecklist = checklist.map((it, idx) => {
-      if (idx === itemIndex) {
-        return { ...it, status: newStatus }
-      }
-      return it
-    })
-    try {
-      const updated = await productsService.update(product.id, {
-        technical_checklist: updatedChecklist,
-      })
-      setProduct(updated)
-      toast({
-        title: `Item "${checklist[itemIndex].item}" atualizado`,
-        description: `Status alterado para ${newStatus}.`,
-      })
-    } catch (err: any) {
-      console.error(err)
-      toast({
-        title: 'Erro ao atualizar item',
-        description: err?.message,
-        variant: 'destructive',
-      })
-    }
-  }
-
-  // Financeiro
-  const cost = Number(product?.cost_price) || 0
-  const price = Number(product?.unit_price) || 0
-  const totalPartsCost = parts.reduce((acc, p) => acc + (Number(p.cost) || 0), 0)
-  const totalCostCombined = cost + totalPartsCost
-  const marginCombined = price - totalCostCombined
-  const marginPercent =
-    totalCostCombined > 0 ? ((marginCombined / totalCostCombined) * 100).toFixed(1) : '100'
-
-  // Total stock
-  const totalStock = batches.reduce((acc, b) => acc + (b.quantity || 0), 0)
-
-  // Download Técnico (gerador de documento / relatório texto para impressão)
-  const handleDownloadChecklist = () => {
-    if (!product) return
-
-    const checklistContent = checklist
-      .map((item) => {
-        const norm = normalizeChecklistStatus(item.status)
-        return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
-      })
-      .join('\n')
-
-    const partsContent =
-      parts.length > 0
-        ? parts
-            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
-            .join('\n')
-        : 'Nenhuma peça vinculada.'
-
-    const delivContent =
-      deliverables.length > 0
-        ? deliverables
-            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
-            .join('\n')
-        : 'Sem pendências de entrega.'
-
-    const reportText = `=====================================================
-LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
-LoteEquip Gestão de Equipamentos
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-
-    const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `Checklist-Tecnico-${product.sku || 'equipamento'}.txt`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(url)
-
-    toast({
-      title: 'Checklist baixado',
-      description: 'O arquivo com o laudo de revisão foi salvo no seu computador.',
-    })
-  }
-=======
-  // Alterar status de item individual no modal de edição
-  const handleEditItemStatus = (idx: number, newStatus: 'Ok' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A') => {
-    setEditChecklistItems((prev) => {
-      const copy = [...prev]
-      copy[idx] = { ...copy[idx], status: newStatus }
-      return copy
-    })
-  }
-
-  // Alterar observação de item individual no modal de edição
-  const handleEditItemObs = (idx: number, obs: string) => {
-    setEditChecklistItems((prev) => {
-      const copy = [...prev]
-      copy[idx] = { ...copy[idx], observation: obs }
-      return copy
-    })
-  }
-
-  // Marcar todos do checklist com um status
-  const handleSetAllChecklistModal = (statusVal: 'Ok' | 'Não testado') => {
-    setEditChecklistItems((prev) =>
-      prev.map((it) => ({
-        ...it,
-        status: statusVal,
-      })),
-    )
-  }
-
-  // Salvar checklist editado no produto
-  const handleSaveChecklist = async () => {
-    if (!product) return
-    setSavingChecklist(true)
-    try {
-      const historyCopy = Array.isArray(product.history_events) ? [...product.history_events] : []
-      historyCopy.unshift({
-        title: `Checklist de Inspeção atualizado (${editInspectionStatus})`,
-        date: new Date().toISOString().replace('T', ' ').substring(0, 19),
-      })
-
-      const updated = await productsService.update(product.id, {
-        technical_checklist: editChecklistItems,
-        history_events: historyCopy,
-      })
-      setProduct(updated)
-      setChecklistModalOpen(false)
-      toast({
-        title: 'Checklist atualizado com sucesso!',
-        description: `Todos os 16 itens técnicos foram salvos para ${product.name}.`,
-      })
-    } catch (err: any) {
-      console.error(err)
-      toast({
-        title: 'Erro ao salvar checklist',
-        description: err?.message || 'Não foi possível salvar o checklist.',
-        variant: 'destructive',
-      })
-    } finally {
-      setSavingChecklist(false)
-    }
-  }
-
-  // Inline alteração rápida de status do checklist diretamente na visualização (opcional)
-  const handleInlineChangeStatus = async (itemIndex: number, newStatus: 'Ok' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A') => {
-    if (!product) return
-    const updatedChecklist = checklist.map((it, idx) => {
-      if (idx === itemIndex) {
-        return { ...it, status: newStatus }
-      }
-      return it
-    })
-    try {
-      const updated = await productsService.update(product.id, {
-        technical_checklist: updatedChecklist,
-      })
-      setProduct(updated)
-      toast({
-        title: `Item "${checklist[itemIndex].item}" atualizado`,
-        description: `Status alterado para ${newStatus}.`,
-      })
-    } catch (err: any) {
-      console.error(err)
-      toast({
-        title: 'Erro ao atualizar item',
-        description: err?.message,
-        variant: 'destructive',
-      })
-    }
-  }
-
-  // Financeiro
-  const cost = Number(product?.cost_price) || 0
-  const price = Number(product?.unit_price) || 0
-  const totalPartsCost = parts.reduce((acc, p) => acc + (Number(p.cost) || 0), 0)
-  const totalCostCombined = cost + totalPartsCost
-  const marginCombined = price - totalCostCombined
-  const marginPercent =
-    totalCostCombined > 0 ? ((marginCombined / totalCostCombined) * 100).toFixed(1) : '100'
-
-  // Total stock
-  const totalStock = batches.reduce((acc, b) => acc + (b.quantity || 0), 0)
-
-  // Download Técnico (gerador de documento / relatório texto para impressão)
-  const handleDownloadChecklist = () => {
-    if (!product) return
-
-    const checklistContent = checklist
-      .map((item) => {
-        const norm = normalizeChecklistStatus(item.status)
-        return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
-      })
-      .join('\n')
-
-    const partsContent =
-      parts.length > 0
-        ? parts
-            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
-            .join('\n')
-        : 'Nenhuma peça vinculada.'
-
-    const delivContent =
-      deliverables.length > 0
-        ? deliverables
-            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
-            .join('\n')
-        : 'Sem pendências de entrega.'
-
-    const reportText = `=====================================================
-LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
-LoteEquip Gestão de Equipamentos
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-
-    const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `Checklist-Tecnico-${product.sku || 'equipamento'}.txt`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(url)
-
-    toast({
-      title: 'Checklist baixado',
-      description: 'O arquivo com o laudo de revisão foi salvo no seu computador.',
-    })
-  }
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-=======
-  // Download Técnico (gerador de documento / relatório texto para impressão)
-  const handleDownloadChecklist = () => {
-    if (!product) return
-
-    const checklistContent = checklist
-      .map(
-        (item) => {
-          const norm = normalizeChecklistStatus(item.status)
-          return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
-        },
-      )
-      .join('\n')
-
-    const partsContent =
-      parts.length > 0
-        ? parts
-            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
-            .join('\n')
-        : 'Nenhuma peça vinculada.'
-
-    const delivContent =
-      deliverables.length > 0
-        ? deliverables
-            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
-            .join('\n')
-        : 'Sem pendências de entrega.'
-
-    const reportText = `=====================================================
-LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
-LoteEquip Gestão de Equipamentos
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-=======
-=======
-  // Marcar todos do checklist com um status
-  const handleSetAllChecklistModal = (statusVal: 'Ok' | 'Não testado') => {
-    setEditChecklistItems((prev) =>
-      prev.map((it) => ({
-        ...it,
-        status: statusVal,
-      })),
-    )
-  }
-
-  // Salvar checklist editado no produto
-  const handleSaveChecklist = async () => {
-    if (!product) return
-    setSavingChecklist(true)
-    try {
-      const historyCopy = Array.isArray(product.history_events) ? [...product.history_events] : []
-      historyCopy.unshift({
-        title: `Checklist de Inspeção atualizado (${editInspectionStatus})`,
-        date: new Date().toISOString().replace('T', ' ').substring(0, 19),
-      })
-
-      const updated = await productsService.update(product.id, {
-        technical_checklist: editChecklistItems,
-        history_events: historyCopy,
-      })
-      setProduct(updated)
-      setChecklistModalOpen(false)
-      toast({
-        title: 'Checklist atualizado com sucesso!',
-        description: `Todos os 16 itens técnicos foram salvos para ${product.name}.`,
-      })
-    } catch (err: any) {
-      console.error(err)
-      toast({
-        title: 'Erro ao salvar checklist',
-        description: err?.message || 'Não foi possível salvar o checklist.',
-        variant: 'destructive',
-      })
-    } finally {
-      setSavingChecklist(false)
-    }
-  }
-
-  // Inline alteração rápida de status do checklist diretamente na visualização (opcional)
-  const handleInlineChangeStatus = async (itemIndex: number, newStatus: 'Ok' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A') => {
-    if (!product) return
-    const updatedChecklist = checklist.map((it, idx) => {
-      if (idx === itemIndex) {
-        return { ...it, status: newStatus }
-      }
-      return it
-    })
-    try {
-      const updated = await productsService.update(product.id, {
-        technical_checklist: updatedChecklist,
-      })
-      setProduct(updated)
-      toast({
-        title: `Item "${checklist[itemIndex].item}" atualizado`,
-        description: `Status alterado para ${newStatus}.`,
-      })
-    } catch (err: any) {
-      console.error(err)
-      toast({
-        title: 'Erro ao atualizar item',
-        description: err?.message,
-        variant: 'destructive',
-      })
-    }
-  }
-
-  // Financeiro
-  const cost = Number(product?.cost_price) || 0
-  const price = Number(product?.unit_price) || 0
-  const totalPartsCost = parts.reduce((acc, p) => acc + (Number(p.cost) || 0), 0)
-  const totalCostCombined = cost + totalPartsCost
-  const marginCombined = price - totalCostCombined
-  const marginPercent =
-    totalCostCombined > 0 ? ((marginCombined / totalCostCombined) * 100).toFixed(1) : '100'
-
-  // Total stock
-  const totalStock = batches.reduce((acc, b) => acc + (b.quantity || 0), 0)
-
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-
-    const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.href = url
-=======
-=======
-  // Alterar observação de item individual no modal de edição
-  const handleEditItemObs = (idx: number, obs: string) => {
-    setEditChecklistItems((prev) => {
-      const copy = [...prev]
-      copy[idx] = { ...copy[idx], observation: obs }
-      return copy
-    })
-  }
-
-  // Salvar checklist editado no produto
-  const handleSaveChecklist = async () => {
-    if (!product) return
-    setSavingChecklist(true)
-    try {
-      const historyCopy = Array.isArray(product.history_events) ? [...product.history_events] : []
-      historyCopy.unshift({
-        title: `Checklist de Inspeção atualizado (${editInspectionStatus})`,
-        date: new Date().toISOString().replace('T', ' ').substring(0, 19),
-      })
-
-      const updated = await productsService.update(product.id, {
-        technical_checklist: editChecklistItems,
-        history_events: historyCopy,
-      })
-      setProduct(updated)
-      setChecklistModalOpen(false)
-      toast({
-        title: 'Checklist atualizado com sucesso!',
-        description: `Todos os 16 itens técnicos foram salvos para ${product.name}.`,
-      })
-    } catch (err: any) {
-      console.error(err)
-      toast({
-        title: 'Erro ao salvar checklist',
-        description: err?.message || 'Não foi possível salvar o checklist.',
-        variant: 'destructive',
-      })
-    } finally {
-      setSavingChecklist(false)
-    }
-  }
-
-  // Inline alteração rápida de status do checklist diretamente na visualização (opcional)
-  const handleInlineChangeStatus = async (itemIndex: number, newStatus: 'Ok' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A') => {
-    if (!product) return
-    const updatedChecklist = checklist.map((it, idx) => {
-      if (idx === itemIndex) {
-        return { ...it, status: newStatus }
-      }
-      return it
-    })
-    try {
-      const updated = await productsService.update(product.id, {
-        technical_checklist: updatedChecklist,
-      })
-      setProduct(updated)
-      toast({
-        title: `Item "${checklist[itemIndex].item}" atualizado`,
-        description: `Status alterado para ${newStatus}.`,
-      })
-    } catch (err: any) {
-      console.error(err)
-      toast({
-        title: 'Erro ao atualizar item',
-        description: err?.message,
-        variant: 'destructive',
-      })
-    }
-  }
-
-  // Financeiro
-  const cost = Number(product?.cost_price) || 0
-  const price = Number(product?.unit_price) || 0
-  const totalPartsCost = parts.reduce((acc, p) => acc + (Number(p.cost) || 0), 0)
-  const totalCostCombined = cost + totalPartsCost
-  const marginCombined = price - totalCostCombined
-  const marginPercent =
-    totalCostCombined > 0 ? ((marginCombined / totalCostCombined) * 100).toFixed(1) : '100'
-
-  // Total stock
-  const totalStock = batches.reduce((acc, b) => acc + (b.quantity || 0), 0)
-
-  // Download Técnico (gerador de documento / relatório texto para impressão)
-  const handleDownloadChecklist = () => {
-    if (!product) return
-
-    const checklistContent = checklist
-      .map((item) => {
-        const norm = normalizeChecklistStatus(item.status)
-        return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
-      })
-      .join('\n')
-
-    const partsContent =
-      parts.length > 0
-        ? parts
-            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
-            .join('\n')
-        : 'Nenhuma peça vinculada.'
-
-    const delivContent =
-      deliverables.length > 0
-        ? deliverables
-            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
-            .join('\n')
-        : 'Sem pendências de entrega.'
-
-    const reportText = `=====================================================
-LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
-LoteEquip Gestão de Equipamentos
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-
-    const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `Checklist-Tecnico-${product.sku || 'equipamento'}.txt`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(url)
-
-    toast({
-      title: 'Checklist baixado',
-      description: 'O arquivo com o laudo de revisão foi salvo no seu computador.',
-    })
-  }
-=======
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-=======
-  // Download Técnico (gerador de documento / relatório texto para impressão)
-  const handleDownloadChecklist = () => {
-    if (!product) return
-
-    const checklistContent = checklist
-      .map(
-        (item) => {
-          const norm = normalizeChecklistStatus(item.status)
-          return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
-        },
-      )
-      .join('\n')
-
-    const partsContent =
-      parts.length > 0
-        ? parts
-            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
-            .join('\n')
-        : 'Nenhuma peça vinculada.'
-
-    const delivContent =
-      deliverables.length > 0
-        ? deliverables
-            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
-            .join('\n')
-        : 'Sem pendências de entrega.'
-
-    const reportText = `=====================================================
-LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
-LoteEquip Gestão de Equipamentos
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-=======
-=======
-  // Marcar todos do checklist com um status
-  const handleSetAllChecklistModal = (statusVal: 'Ok' | 'Não testado') => {
-    setEditChecklistItems((prev) =>
-      prev.map((it) => ({
-        ...it,
-        status: statusVal,
-      })),
-    )
-  }
-
-  // Salvar checklist editado no produto
-  const handleSaveChecklist = async () => {
-    if (!product) return
-    setSavingChecklist(true)
-    try {
-      const historyCopy = Array.isArray(product.history_events) ? [...product.history_events] : []
-      historyCopy.unshift({
-        title: `Checklist de Inspeção atualizado (${editInspectionStatus})`,
-        date: new Date().toISOString().replace('T', ' ').substring(0, 19),
-      })
-
-      const updated = await productsService.update(product.id, {
-        technical_checklist: editChecklistItems,
-        history_events: historyCopy,
-      })
-      setProduct(updated)
-      setChecklistModalOpen(false)
-      toast({
-        title: 'Checklist atualizado com sucesso!',
-        description: `Todos os 16 itens técnicos foram salvos para ${product.name}.`,
-      })
-    } catch (err: any) {
-      console.error(err)
-      toast({
-        title: 'Erro ao salvar checklist',
-        description: err?.message || 'Não foi possível salvar o checklist.',
-        variant: 'destructive',
-      })
-    } finally {
-      setSavingChecklist(false)
-    }
-  }
-
-  // Inline alteração rápida de status do checklist diretamente na visualização (opcional)
-  const handleInlineChangeStatus = async (itemIndex: number, newStatus: 'Ok' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A') => {
-    if (!product) return
-    const updatedChecklist = checklist.map((it, idx) => {
-      if (idx === itemIndex) {
-        return { ...it, status: newStatus }
-      }
-      return it
-    })
-    try {
-      const updated = await productsService.update(product.id, {
-        technical_checklist: updatedChecklist,
-      })
-      setProduct(updated)
-      toast({
-        title: `Item "${checklist[itemIndex].item}" atualizado`,
-        description: `Status alterado para ${newStatus}.`,
-      })
-    } catch (err: any) {
-      console.error(err)
-      toast({
-        title: 'Erro ao atualizar item',
-        description: err?.message,
-        variant: 'destructive',
-      })
-    }
-  }
-
-  // Financeiro
-  const cost = Number(product?.cost_price) || 0
-  const price = Number(product?.unit_price) || 0
-  const totalPartsCost = parts.reduce((acc, p) => acc + (Number(p.cost) || 0), 0)
-  const totalCostCombined = cost + totalPartsCost
-  const marginCombined = price - totalCostCombined
-  const marginPercent =
-    totalCostCombined > 0 ? ((marginCombined / totalCostCombined) * 100).toFixed(1) : '100'
-
-  // Total stock
-  const totalStock = batches.reduce((acc, b) => acc + (b.quantity || 0), 0)
-
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-
-    const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.href = url
-=======
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-=======
-  // Download Técnico (gerador de documento / relatório texto para impressão)
-  const handleDownloadChecklist = () => {
-    if (!product) return
-
-    const checklistContent = checklist
-      .map(
-        (item) => {
-          const norm = normalizeChecklistStatus(item.status)
-          return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
-        },
-      )
-      .join('\n')
-
-    const partsContent =
-      parts.length > 0
-        ? parts
-            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
-            .join('\n')
-        : 'Nenhuma peça vinculada.'
-
-    const delivContent =
-      deliverables.length > 0
-        ? deliverables
-            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
-            .join('\n')
-        : 'Sem pendências de entrega.'
-
-    const reportText = `=====================================================
-LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
-LoteEquip Gestão de Equipamentos
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-=======
-=======
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-
-    const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-  // Part actions
-  const handleOpenAddPartModal = () => {
-=======
-  // Download Técnico (gerador de documento / relatório texto para impressão)
-  const handleDownloadChecklist = () => {
-    if (!product) return
-
-    const checklistContent = checklist
-      .map((item) => {
-        const norm = normalizeChecklistStatus(item.status)
-        return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
-      })
-      .join('\n')
-
-    const partsContent =
-      parts.length > 0
-        ? parts
-            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
-            .join('\n')
-        : 'Nenhuma peça vinculada.'
-
-    const delivContent =
-      deliverables.length > 0
-        ? deliverables
-            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
-            .join('\n')
-        : 'Sem pendências de entrega.'
-
-    const reportText = `=====================================================
-LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
-LoteEquip Gestão de Equipamentos
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
+    const sep = '-----------------------------------------------------'
+    const reportDivider = '*****************************************************'
+    const reportText = [
+      reportDivider,
+      'LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO',
+      'LoteEquip Gestão de Equipamentos',
+      reportDivider,
+      `Equipamento: ${product.name}`,
+      `Código / SKU: ${product.sku}`,
+      `Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}`,
+      `Localização: ${primaryBatch?.location || 'Depósito Central'}`,
+      `Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}`,
+      `Condição Geral: ${product.condition || 'Excelente'}`,
+      `Nota Estética: ${product.aesthetic_grade || 'A'}`,
+      `Saúde da Bateria: ${product.battery_health || '100%'}`,
+      `Preço Sugerido: R$ ${price.toFixed(2)}`,
+      `Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}`,
+      '',
+      sep,
+      'ESPECIFICAÇÕES TÉCNICAS:',
+      `- Processador: ${product.processor || 'N/A'}`,
+      `- Memória RAM: ${product.ram || 'N/A'}`,
+      `- Armazenamento: ${product.storage || 'N/A'}`,
+      `- Tela: ${product.screen_size || 'N/A'}`,
+      `- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}`,
+      '',
+      sep,
+      `CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)`,
+      'Status Resumo:',
+      `[OK (Verde)]: ${okCount} itens`,
+      `[ATENÇÃO (Amarelo)]: ${warningCount} itens`,
+      `[FALHA (Vermelho)]: ${failureCount} itens`,
+      `[NÃO TESTADO (Azul)]: ${untestedCount} itens`,
+      `[N/A (Roxo)]: ${naCount} itens`,
+      '',
+      checklistContent,
+      '',
+      sep,
+      'PEÇAS E REPAROS REALIZADOS:',
+      partsContent,
+      '',
+      sep,
+      'ITENS E PENDÊNCIAS DE ENTREGA:',
+      delivContent,
+      reportDivider,
+      'Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.',
+    ].join('\n')
 
     const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' })
     const url = URL.createObjectURL(blob)
@@ -2679,2104 +703,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
     })
   }
 
-  // Part actions
-  const handleOpenAddPartModal = () => {
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-
-    const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `Checklist-Tecnico-${product.sku || 'equipamento'}.txt`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(url)
-
-    toast({
-      title: 'Checklist baixado',
-      description: 'O arquivo com o laudo de revisão foi salvo no seu computador.',
-    })
-  }
-
-  // Part actions
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-
-    const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `Checklist-Tecnico-${product.sku || 'equipamento'}.txt`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(url)
-
-    toast({
-      title: 'Checklist baixado',
-      description: 'O arquivo com o laudo de revisão foi salvo no seu computador.',
-    })
-  }
-
-  // Part actions
-=======
-  // Salvar checklist editado no produto
-  const handleSaveChecklist = async () => {
-    if (!product) return
-    setSavingChecklist(true)
-    try {
-      const historyCopy = Array.isArray(product.history_events) ? [...product.history_events] : []
-      historyCopy.unshift({
-        title: `Checklist de Inspeção atualizado (${editInspectionStatus})`,
-        date: new Date().toISOString().replace('T', ' ').substring(0, 19),
-      })
-
-      const updated = await productsService.update(product.id, {
-        technical_checklist: editChecklistItems,
-        history_events: historyCopy,
-      })
-      setProduct(updated)
-      setChecklistModalOpen(false)
-      toast({
-        title: 'Checklist atualizado com sucesso!',
-        description: `Todos os 16 itens técnicos foram salvos para ${product.name}.`,
-      })
-    } catch (err: any) {
-      console.error(err)
-      toast({
-        title: 'Erro ao salvar checklist',
-        description: err?.message || 'Não foi possível salvar o checklist.',
-        variant: 'destructive',
-      })
-    } finally {
-      setSavingChecklist(false)
-    }
-  }
-
-  // Inline alteração rápida de status do checklist diretamente na visualização (opcional)
-  const handleInlineChangeStatus = async (itemIndex: number, newStatus: 'Ok' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A') => {
-    if (!product) return
-    const updatedChecklist = checklist.map((it, idx) => {
-      if (idx === itemIndex) {
-        return { ...it, status: newStatus }
-      }
-      return it
-    })
-    try {
-      const updated = await productsService.update(product.id, {
-        technical_checklist: updatedChecklist,
-      })
-      setProduct(updated)
-      toast({
-        title: `Item "${checklist[itemIndex].item}" atualizado`,
-        description: `Status alterado para ${newStatus}.`,
-      })
-    } catch (err: any) {
-      console.error(err)
-      toast({
-        title: 'Erro ao atualizar item',
-        description: err?.message,
-        variant: 'destructive',
-      })
-    }
-  }
-=======
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-=======
-  // Download Técnico (gerador de documento / relatório texto para impressão)
-  const handleDownloadChecklist = () => {
-    if (!product) return
-
-    const checklistContent = checklist
-      .map(
-        (item) => {
-          const norm = normalizeChecklistStatus(item.status)
-          return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
-        },
-      )
-      .join('\n')
-
-    const partsContent =
-      parts.length > 0
-        ? parts
-            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
-            .join('\n')
-        : 'Nenhuma peça vinculada.'
-
-    const delivContent =
-      deliverables.length > 0
-        ? deliverables
-            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
-            .join('\n')
-        : 'Sem pendências de entrega.'
-
-    const reportText = `=====================================================
-LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
-LoteEquip Gestão de Equipamentos
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-=======
-    const checklistContent = checklist
-      .map(
-        (item) => {
-          const norm = normalizeChecklistStatus(item.status)
-          return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
-        },
-      )
-      .join('\n')
-
-    const partsContent =
-      parts.length > 0
-        ? parts
-            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
-            .join('\n')
-        : 'Nenhuma peça vinculada.'
-
-    const delivContent =
-      deliverables.length > 0
-        ? deliverables
-            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
-            .join('\n')
-        : 'Sem pendências de entrega.'
-
-    const reportText = `=====================================================
-LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
-LoteEquip Gestão de Equipamentos
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO (Total: ${checklist.length} itens)
-Itens OK: ${okCount} | Atenção: ${warningCount} | Não testados: ${untestedCount}
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-=======
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-=======
-    const checklistContent = checklist
-      .map(
-        (item) => {
-          const norm = normalizeChecklistStatus(item.status)
-          return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
-        },
-      )
-      .join('\n')
-
-    const partsContent =
-      parts.length > 0
-        ? parts
-            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
-            .join('\n')
-        : 'Nenhuma peça vinculada.'
-
-    const delivContent =
-      deliverables.length > 0
-        ? deliverables
-            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
-            .join('\n')
-        : 'Sem pendências de entrega.'
-
-    const reportText = `=====================================================
-LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
-LoteEquip Gestão de Equipamentos
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO (Total: ${checklist.length} itens)
-Itens OK: ${okCount} | Atenção: ${warningCount} | Não testados: ${untestedCount}
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-=======
-  // Total stock
-  const totalStock = batches.reduce((acc, b) => acc + (b.quantity || 0), 0)
-
-  // Download Técnico (gerador de documento / relatório texto para impressão)
-  const handleDownloadChecklist = () => {
-    if (!product) return
-=======
-  // Inline alteração rápida de status do checklist diretamente na visualização (opcional)
-  const handleInlineChangeStatus = async (itemIndex: number, newStatus: 'Ok' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A') => {
-    if (!product) return
-    const updatedChecklist = checklist.map((it, idx) => {
-      if (idx === itemIndex) {
-        return { ...it, status: newStatus }
-      }
-      return it
-    })
-    try {
-      const updated = await productsService.update(product.id, {
-        technical_checklist: updatedChecklist,
-      })
-      setProduct(updated)
-      toast({
-        title: `Item "${checklist[itemIndex].item}" atualizado`,
-        description: `Status alterado para ${newStatus}.`,
-      })
-    } catch (err: any) {
-      console.error(err)
-      toast({
-        title: 'Erro ao atualizar item',
-        description: err?.message,
-        variant: 'destructive',
-      })
-    }
-  }
-
-  // Total stock
-  const totalStock = batches.reduce((acc, b) => acc + (b.quantity || 0), 0)
-
-  // Download Técnico (gerador de documento / relatório texto para impressão)
-  const handleDownloadChecklist = () => {
-    if (!product) return
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-=======
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-=======
-  // Download Técnico (gerador de documento / relatório texto para impressão)
-  const handleDownloadChecklist = () => {
-    if (!product) return
-
-    const checklistContent = checklist
-      .map(
-        (item) => {
-          const norm = normalizeChecklistStatus(item.status)
-          return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
-        },
-      )
-      .join('\n')
-
-    const partsContent =
-      parts.length > 0
-        ? parts
-            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
-            .join('\n')
-        : 'Nenhuma peça vinculada.'
-
-    const delivContent =
-      deliverables.length > 0
-        ? deliverables
-            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
-            .join('\n')
-        : 'Sem pendências de entrega.'
-
-    const reportText = `=====================================================
-LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
-LoteEquip Gestão de Equipamentos
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-=======
-    const checklistContent = checklist
-      .map(
-        (item) => {
-          const norm = normalizeChecklistStatus(item.status)
-          return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
-        },
-      )
-      .join('\n')
-
-    const partsContent =
-      parts.length > 0
-        ? parts
-            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
-            .join('\n')
-        : 'Nenhuma peça vinculada.'
-
-    const delivContent =
-      deliverables.length > 0
-        ? deliverables
-            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
-            .join('\n')
-        : 'Sem pendências de entrega.'
-
-    const reportText = `=====================================================
-LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
-LoteEquip Gestão de Equipamentos
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO (Total: ${checklist.length} itens)
-Itens OK: ${okCount} | Atenção: ${warningCount} | Não testados: ${untestedCount}
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-=======
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-=======
-    const checklistContent = checklist
-      .map(
-        (item) => {
-          const norm = normalizeChecklistStatus(item.status)
-          return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
-        },
-      )
-      .join('\n')
-
-    const partsContent =
-      parts.length > 0
-        ? parts
-            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
-            .join('\n')
-        : 'Nenhuma peça vinculada.'
-
-    const delivContent =
-      deliverables.length > 0
-        ? deliverables
-            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
-            .join('\n')
-        : 'Sem pendências de entrega.'
-
-    const reportText = `=====================================================
-LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
-LoteEquip Gestão de Equipamentos
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO (Total: ${checklist.length} itens)
-Itens OK: ${okCount} | Atenção: ${warningCount} | Não testados: ${untestedCount}
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-=======
-  // Total stock
-  const totalStock = batches.reduce((acc, b) => acc + (b.quantity || 0), 0)
-
-  // Download Técnico (gerador de documento / relatório texto para impressão)
-  const handleDownloadChecklist = () => {
-    if (!product) return
-
-    const checklistContent = checklist
-      .map((item) => {
-        const norm = normalizeChecklistStatus(item.status)
-        return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
-      })
-      .join('\n')
-
-    const partsContent =
-      parts.length > 0
-        ? parts
-            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
-            .join('\n')
-        : 'Nenhuma peça vinculada.'
-
-    const delivContent =
-      deliverables.length > 0
-        ? deliverables
-            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
-            .join('\n')
-        : 'Sem pendências de entrega.'
-
-    const reportText = `=====================================================
-LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
-LoteEquip Gestão de Equipamentos
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-=======
-  // Total stock
-  const totalStock = batches.reduce((acc, b) => acc + (b.quantity || 0), 0)
-
-  // Download Técnico (gerador de documento / relatório texto para impressão)
-  const handleDownloadChecklist = () => {
-    if (!product) return
-
-    const checklistContent = checklist
-      .map((item) => {
-        const norm = normalizeChecklistStatus(item.status)
-        return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
-      })
-      .join('\n')
-
-    const partsContent =
-      parts.length > 0
-        ? parts
-            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
-            .join('\n')
-        : 'Nenhuma peça vinculada.'
-
-    const delivContent =
-      deliverables.length > 0
-        ? deliverables
-            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
-            .join('\n')
-        : 'Sem pendências de entrega.'
-
-    const reportText = `=====================================================
-LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
-LoteEquip Gestão de Equipamentos
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-=======
-  // Total stock
-  const totalStock = batches.reduce((acc, b) => acc + (b.quantity || 0), 0)
-
-  // Download Técnico (gerador de documento / relatório texto para impressão)
-  const handleDownloadChecklist = () => {
-    if (!product) return
-
-    const checklistContent = checklist
-      .map((item) => {
-        const norm = normalizeChecklistStatus(item.status)
-        return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
-      })
-      .join('\n')
-
-    const partsContent =
-      parts.length > 0
-        ? parts
-            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
-            .join('\n')
-        : 'Nenhuma peça vinculada.'
-
-    const delivContent =
-      deliverables.length > 0
-        ? deliverables
-            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
-            .join('\n')
-        : 'Sem pendências de entrega.'
-
-    const reportText = `=====================================================
-LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
-LoteEquip Gestão de Equipamentos
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-
-    const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `Checklist-Tecnico-${product.sku || 'equipamento'}.txt`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(url)
-
-    toast({
-      title: 'Checklist baixado',
-      description: 'O arquivo com o laudo de revisão foi salvo no seu computador.',
-    })
-  }
-
-  // Part actions
-=======
-  // Financeiro
-  const cost = Number(product?.cost_price) || 0
-  const price = Number(product?.unit_price) || 0
-  const totalPartsCost = parts.reduce((acc, p) => acc + (Number(p.cost) || 0), 0)
-  const totalCostCombined = cost + totalPartsCost
-  const marginCombined = price - totalCostCombined
-  const marginPercent =
-    totalCostCombined > 0 ? ((marginCombined / totalCostCombined) * 100).toFixed(1) : '100'
-
-  // Total stock
-  const totalStock = batches.reduce((acc, b) => acc + (b.quantity || 0), 0)
-
-  // Download Técnico (gerador de documento / relatório texto para impressão)
-  const handleDownloadChecklist = () => {
-    if (!product) return
-
-    const checklistContent = checklist
-      .map((item) => {
-        const norm = normalizeChecklistStatus(item.status)
-        return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
-      })
-      .join('\n')
-
-    const partsContent =
-      parts.length > 0
-        ? parts
-            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
-            .join('\n')
-        : 'Nenhuma peça vinculada.'
-
-    const delivContent =
-      deliverables.length > 0
-        ? deliverables
-            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
-            .join('\n')
-        : 'Sem pendências de entrega.'
-
-    const reportText = `=====================================================
-LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
-LoteEquip Gestão de Equipamentos
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-
-    const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `Checklist-Tecnico-${product.sku || 'equipamento'}.txt`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(url)
-
-    toast({
-      title: 'Checklist baixado',
-      description: 'O arquivo com o laudo de revisão foi salvo no seu computador.',
-    })
-  }
-
-  // Part actions
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO (Total: ${checklist.length} itens)
-Itens OK: ${okCount} | Atenção: ${warningCount} | Não testados: ${untestedCount}
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-=======
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-=======
-  // Download Técnico (gerador de documento / relatório texto para impressão)
-  const handleDownloadChecklist = () => {
-    if (!product) return
-
-    const checklistContent = checklist
-      .map(
-        (item) => {
-          const norm = normalizeChecklistStatus(item.status)
-          return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
-        },
-      )
-      .join('\n')
-
-    const partsContent =
-      parts.length > 0
-        ? parts
-            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
-            .join('\n')
-        : 'Nenhuma peça vinculada.'
-
-    const delivContent =
-      deliverables.length > 0
-        ? deliverables
-            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
-            .join('\n')
-        : 'Sem pendências de entrega.'
-
-    const reportText = `=====================================================
-LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
-LoteEquip Gestão de Equipamentos
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-=======
-    const checklistContent = checklist
-      .map(
-        (item) => {
-          const norm = normalizeChecklistStatus(item.status)
-          return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
-        },
-      )
-      .join('\n')
-
-    const partsContent =
-      parts.length > 0
-        ? parts
-            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
-            .join('\n')
-        : 'Nenhuma peça vinculada.'
-
-    const delivContent =
-      deliverables.length > 0
-        ? deliverables
-            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
-            .join('\n')
-        : 'Sem pendências de entrega.'
-
-    const reportText = `=====================================================
-LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
-LoteEquip Gestão de Equipamentos
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO (Total: ${checklist.length} itens)
-Itens OK: ${okCount} | Atenção: ${warningCount} | Não testados: ${untestedCount}
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-=======
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-=======
-    const checklistContent = checklist
-      .map(
-        (item) => {
-          const norm = normalizeChecklistStatus(item.status)
-          return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
-        },
-      )
-      .join('\n')
-
-    const partsContent =
-      parts.length > 0
-        ? parts
-            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
-            .join('\n')
-        : 'Nenhuma peça vinculada.'
-
-    const delivContent =
-      deliverables.length > 0
-        ? deliverables
-            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
-            .join('\n')
-        : 'Sem pendências de entrega.'
-
-    const reportText = `=====================================================
-LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
-LoteEquip Gestão de Equipamentos
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO (Total: ${checklist.length} itens)
-Itens OK: ${okCount} | Atenção: ${warningCount} | Não testados: ${untestedCount}
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-=======
-  // Total stock
-  const totalStock = batches.reduce((acc, b) => acc + (b.quantity || 0), 0)
-
-  // Download Técnico (gerador de documento / relatório texto para impressão)
-  const handleDownloadChecklist = () => {
-    if (!product) return
-
-    const checklistContent = checklist
-      .map((item) => {
-        const norm = normalizeChecklistStatus(item.status)
-        return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
-      })
-      .join('\n')
-
-    const partsContent =
-      parts.length > 0
-        ? parts
-            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
-            .join('\n')
-        : 'Nenhuma peça vinculada.'
-
-    const delivContent =
-      deliverables.length > 0
-        ? deliverables
-            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
-            .join('\n')
-        : 'Sem pendências de entrega.'
-
-    const reportText = `=====================================================
-LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
-LoteEquip Gestão de Equipamentos
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO (Total: ${checklist.length} itens)
-Itens OK: ${okCount} | Atenção: ${warningCount} | Não testados: ${untestedCount}
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-=======
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-=======
-  // Download Técnico (gerador de documento / relatório texto para impressão)
-  const handleDownloadChecklist = () => {
-    if (!product) return
-
-    const checklistContent = checklist
-      .map(
-        (item) => {
-          const norm = normalizeChecklistStatus(item.status)
-          return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
-        },
-      )
-      .join('\n')
-
-    const partsContent =
-      parts.length > 0
-        ? parts
-            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
-            .join('\n')
-        : 'Nenhuma peça vinculada.'
-
-    const delivContent =
-      deliverables.length > 0
-        ? deliverables
-            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
-            .join('\n')
-        : 'Sem pendências de entrega.'
-
-    const reportText = `=====================================================
-LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
-LoteEquip Gestão de Equipamentos
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-=======
-    const checklistContent = checklist
-      .map(
-        (item) => {
-          const norm = normalizeChecklistStatus(item.status)
-          return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
-        },
-      )
-      .join('\n')
-
-    const partsContent =
-      parts.length > 0
-        ? parts
-            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
-            .join('\n')
-        : 'Nenhuma peça vinculada.'
-
-    const delivContent =
-      deliverables.length > 0
-        ? deliverables
-            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
-            .join('\n')
-        : 'Sem pendências de entrega.'
-
-    const reportText = `=====================================================
-LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
-LoteEquip Gestão de Equipamentos
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO (Total: ${checklist.length} itens)
-Itens OK: ${okCount} | Atenção: ${warningCount} | Não testados: ${untestedCount}
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-=======
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-=======
-    const checklistContent = checklist
-      .map(
-        (item) => {
-          const norm = normalizeChecklistStatus(item.status)
-          return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
-        },
-      )
-      .join('\n')
-
-    const partsContent =
-      parts.length > 0
-        ? parts
-            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
-            .join('\n')
-        : 'Nenhuma peça vinculada.'
-
-    const delivContent =
-      deliverables.length > 0
-        ? deliverables
-            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
-            .join('\n')
-        : 'Sem pendências de entrega.'
-
-    const reportText = `=====================================================
-LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
-LoteEquip Gestão de Equipamentos
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
-Status Resumo:
-[OK (Verde)]: ${okCount} itens
-[ATENÇÃO (Amarelo)]: ${warningCount} itens
-[FALHA (Vermelho)]: ${failureCount} itens
-[NÃO TESTADO (Azul)]: ${untestedCount} itens
-[N/A (Roxo)]: ${naCount} itens
-
-${checklistContent}
-=====================================================
-Equipamento: ${product.name}
-Código / SKU: ${product.sku}
-Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
-Localização: ${primaryBatch?.location || 'Depósito Central'}
-Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
-Condição Geral: ${product.condition || 'Excelente'}
-Nota Estética: ${product.aesthetic_grade || 'A'}
-Saúde da Bateria: ${product.battery_health || '100%'}
-Preço Sugerido: R$ ${price.toFixed(2)}
-Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
-
------------------------------------------------------
-ESPECIFICAÇÕES TÉCNICAS:
-- Processador: ${product.processor || 'N/A'}
-- Memória RAM: ${product.ram || 'N/A'}
-- Armazenamento: ${product.storage || 'N/A'}
-- Tela: ${product.screen_size || 'N/A'}
-
------------------------------------------------------
-CHECKLIST DE INSPEÇÃO (Total: ${checklist.length} itens)
-Itens OK: ${okCount} | Atenção: ${warningCount} | Não testados: ${untestedCount}
-
-${checklistContent}
-
------------------------------------------------------
-PEÇAS E REPAROS REALIZADOS:
-${partsContent}
-
------------------------------------------------------
-ITENS E PENDÊNCIAS DE ENTREGA:
-${delivContent}
-=====================================================
-Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
-`
-
-    const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-  // Part actions
+  // Handlers de Peças
   const handleOpenAddPartModal = () => {
     setEditingPart(null)
     setPartName('')
@@ -4862,7 +789,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
     }
   }
 
-  // Quick Sale Actions
+  // Handlers de Venda Rápida
   const handleOpenQuickSaleModal = () => {
     if (!product) return
     if (product.status !== 'Disponível') {
@@ -4887,10 +814,8 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
 
     setSubmittingQuickSale(true)
     try {
-      // Find batch or create fallback batch if needed
       let targetBatch = primaryBatch
       if (!targetBatch) {
-        // Create an inventory batch for tracking
         targetBatch = await batchesService.create({
           product_id: product.id,
           batch_number: `LOTE-${product.sku || 'UN'}`,
@@ -4899,7 +824,6 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
         })
       }
 
-      // Combine payment method into notes if provided
       const fullNotes = [
         quickSaleNotes.trim(),
         quickSalePaymentMethod ? `Forma de pagamento: ${quickSalePaymentMethod}` : '',
@@ -4908,7 +832,6 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
         .filter(Boolean)
         .join(' | ')
 
-      // Call salesService.createSale with user_id to ensure seller audit
       await salesService.createSale({
         customer_name: quickSaleCustomer.trim(),
         customer_contact: quickSaleContact.trim(),
@@ -4924,7 +847,6 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
         ],
       })
 
-      // Also ensure status is explicitly 'Vendido' in case batches logic was bypassed
       await productsService.updateStatus(product.id, 'Vendido')
 
       toast({
@@ -4946,7 +868,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
     }
   }
 
-  // Deliverable actions
+  // Handlers de Pendências de Entrega
   const handleAddDeliverable = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!product || !delivName.trim()) return
@@ -5004,6 +926,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
     }
   }
 
+  // Excluir Equipamento
   const handleDeleteProduct = async () => {
     if (!product) return
     setDeletingProduct(true)
@@ -5031,7 +954,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
     }
   }
 
-  // Quick Status Change
+  // Alterar Status Rápido (Disponível, Reservado, Vendido)
   const handleChangeStatus = async (newStatus: 'Disponível' | 'Reservado' | 'Vendido') => {
     if (!product) return
     try {
@@ -5082,7 +1005,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-16">
-      {/* Top action and navigation bar */}
+      {/* Barra de Navegação e Ações Principais */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-200 pb-4">
         <div className="flex items-center gap-3">
           <Link
@@ -5101,7 +1024,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
           </Link>
         </div>
 
-        {/* Operational buttons: Imprimir Etiqueta, Editar Lote/Equipamento, Gerenciar Fotos */}
+        {/* Botões Operacionais */}
         <div className="flex items-center gap-2 flex-wrap">
           <Button
             variant="default"
@@ -5137,11 +1060,11 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
         </div>
       </div>
 
-      {/* Main Grid: Gallery & Main Info (Replicando o visual do Replit com detalhes de ponta) */}
+      {/* Grid Principal: Galeria & Informações */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        {/* Left: Photos & History (7 cols) */}
+        {/* Coluna Esquerda: Galeria, Lote, Histórico, Peças, Pendências (7 colunas) */}
         <div className="lg:col-span-7 space-y-6">
-          {/* Main Photo Display with Photo Manager Action */}
+          {/* Galeria de Fotos */}
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
             <div className="aspect-16/10 bg-slate-100 relative group overflow-hidden flex items-center justify-center">
               <img
@@ -5158,7 +1081,6 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
                 Foto {selectedPhotoIndex + 1} de {photos.length}
               </div>
 
-              {/* Floating button to manage photos */}
               <button
                 type="button"
                 onClick={() => setPhotoModalOpen(true)}
@@ -5169,7 +1091,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
               </button>
             </div>
 
-            {/* Thumbnail Gallery Strip */}
+            {/* Miniaturas da Galeria */}
             {photos.length > 1 && (
               <div className="p-3 bg-slate-50/70 border-t border-slate-100 flex gap-2.5 overflow-x-auto">
                 {photos.map((url, idx) => (
@@ -5194,7 +1116,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
             )}
           </div>
 
-          {/* Lote e Rastreabilidade Física (Destaque do Lote individual) */}
+          {/* Lote e Rastreabilidade Física */}
           <Card className="border-slate-200 shadow-sm bg-gradient-to-r from-slate-50/50 to-white">
             <CardHeader className="pb-3 flex flex-row items-center justify-between">
               <div>
@@ -5248,7 +1170,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
             </CardContent>
           </Card>
 
-          {/* Histórico do Equipamento (igual ao Replit) */}
+          {/* Histórico do Equipamento */}
           <Card className="border-slate-200 shadow-sm">
             <CardHeader className="pb-3">
               <CardTitle className="text-base font-bold text-slate-900 flex items-center gap-2">
@@ -5273,14 +1195,16 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
                       <p className="text-xs font-semibold text-slate-800">
                         Inspeção e testes registrados
                       </p>
-                      <p className="text-[11px] text-slate-500">2 de setembro de 2026 às 08:16</p>
+                      <p className="text-[11px] text-slate-500">
+                        Equipamento cadastrado e inspecionado
+                      </p>
                     </div>
                     <div className="relative">
                       <div className="absolute -left-6 top-1 w-2.5 h-2.5 rounded-full bg-blue-600 ring-4 ring-white" />
                       <p className="text-xs font-semibold text-slate-800">
                         Equipamento preparado para anúncio
                       </p>
-                      <p className="text-[11px] text-slate-500">2 de setembro de 2026 às 08:16</p>
+                      <p className="text-[11px] text-slate-500">Pronto no catálogo</p>
                     </div>
                   </>
                 )}
@@ -5288,7 +1212,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
             </CardContent>
           </Card>
 
-          {/* Peças e Manutenções Vinculadas */}
+          {/* Peças & Trocas Vinculadas */}
           <Card className="border-slate-200 shadow-sm">
             <CardHeader className="pb-3 flex flex-row items-center justify-between">
               <div>
@@ -5438,7 +1362,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
                           <p
                             className={`font-semibold ${
                               d.status === 'Resolvido'
-                                ? 'text-slate-800 line-through text-slate-500'
+                                ? 'text-slate-800 line-through opacity-70'
                                 : 'text-slate-900'
                             }`}
                           >
@@ -5475,9 +1399,9 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
           </Card>
         </div>
 
-        {/* Right: Specifications, Financial Box, Checklist (5 cols) */}
+        {/* Coluna Direita: Preço, Venda Rápida, Custo x Venda, Especificações, Checklist (5 colunas) */}
         <div className="lg:col-span-5 space-y-6">
-          {/* Main Title, Code & Price Card */}
+          {/* Card Principal: Preço e Venda */}
           <Card className="border-slate-200 shadow-sm">
             <CardContent className="p-6 space-y-5">
               <div>
@@ -5505,7 +1429,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
                     </Badge>
                   </div>
 
-                  {/* Status Dropdown */}
+                  {/* Dropdown de Status */}
                   <Select
                     value={statusVal}
                     onValueChange={(val: 'Disponível' | 'Reservado' | 'Vendido') =>
@@ -5545,7 +1469,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
                 </p>
               </div>
 
-              {/* Price Banner */}
+              {/* Preço Anunciado */}
               <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-4">
                 <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 block">
                   Preço anunciado
@@ -5608,7 +1532,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
                 </p>
               </div>
 
-              {/* Painel de CUSTO x VENDA x MARGEM (Visível para Admin) */}
+              {/* Painel de Custo × Venda × Margem (Admin) */}
               {isAdmin && (
                 <div className="border border-slate-200 rounded-xl p-4 bg-slate-900 text-white space-y-3">
                   <div className="flex items-center justify-between border-b border-slate-800 pb-2">
@@ -5657,7 +1581,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
                 </div>
               )}
 
-              {/* Especificações Técnicas (igual ao Replit) */}
+              {/* Especificações Técnicas */}
               <div className="space-y-3 pt-2 border-t border-slate-100">
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-bold text-slate-900">Especificações</h3>
@@ -5757,7 +1681,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
             </CardContent>
           </Card>
 
-          {/* Checklist de Revisão Técnica (replicando exatamente o layout do Replit com edição completa) */}
+          {/* Checklist de Revisão Técnica */}
           <Card className="border-slate-200 shadow-sm">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -5783,8 +1707,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
                 </Button>
               </div>
 
-              {/* Badges de Contagem com as 5 cores exigidas:
-                  Ok → verde, Atenção → amarelo, Falha → vermelho, Não testado → azul, N/A → roxo */}
+              {/* Contadores Coloridos das 5 Opções */}
               <div className="flex items-center gap-1.5 flex-wrap pt-2">
                 <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
                   {okCount} Ok
@@ -5813,7 +1736,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
             </CardHeader>
 
             <CardContent className="space-y-4">
-              {/* Lista dos 16 itens do checklist com dropdown editável e observações */}
+              {/* Lista dos 16 itens com dropdown editável */}
               <div className="divide-y divide-slate-100 text-xs max-h-96 overflow-y-auto pr-1">
                 {checklist.map((c, i) => {
                   const normStatus = normalizeChecklistStatus(c.status)
@@ -5871,7 +1794,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
                 })}
               </div>
 
-              {/* Botões de Ações: Baixar Checklist, Clonar Equipamento, Excluir (Identico ao Screenshot 1 do Replit) */}
+              {/* Botões de Ações: Baixar Checklist, Clonar Equipamento, Excluir, Etiqueta */}
               <div className="space-y-2 pt-2 border-t border-slate-100">
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <Button
@@ -5921,7 +1844,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
         </div>
       </div>
 
-      {/* MODAL: EDITAR CHECKLIST DE INSPEÇÃO (16 ITENS COM OPÇÕES E CORES - IDÊNTICO AO PRINT DO REPLIT) */}
+      {/* MODAL: EDITAR CHECKLIST DE INSPEÇÃO (16 ITENS COM OPÇÕES E CORES) */}
       <Dialog open={checklistModalOpen} onOpenChange={setChecklistModalOpen}>
         <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto p-6 sm:p-7 bg-[#faf8f5]">
           <DialogHeader className="pb-3 border-b border-orange-100">
@@ -5932,12 +1855,12 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
                   Checklist de Inspeção Técnica
                 </DialogTitle>
                 <DialogDescription className="text-xs text-slate-500 mt-0.5">
-                  Edite os 16 itens técnicos de bancada, defina o status e observações detalhadas para{' '}
-                  <strong className="text-slate-700">{product?.name}</strong>.
+                  Edite os 16 itens técnicos de bancada, defina o status e observações detalhadas
+                  para <strong className="text-slate-700">{product?.name}</strong>.
                 </DialogDescription>
               </div>
 
-              {/* Status Geral do Checklist ("Concluída", etc. - idêntico ao cabeçalho do print) */}
+              {/* Status Geral da Inspeção */}
               <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-200 shadow-2xs">
                 <span className="text-xs font-semibold text-slate-700 whitespace-nowrap">
                   Checklist de Inspeção:
@@ -5958,11 +1881,9 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
               </div>
             </div>
 
-            {/* Quick Actions (Marcar todos como Ok / Limpar) */}
+            {/* Ações Rápidas (Todos Ok / Limpar) */}
             <div className="flex items-center justify-between pt-3 gap-2 flex-wrap">
-              <span className="text-xs text-slate-500">
-                16 itens verificados em bancada:
-              </span>
+              <span className="text-xs text-slate-500">16 itens verificados em bancada:</span>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -5982,10 +1903,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
             </div>
           </DialogHeader>
 
-          {/* Grid de 16 Cards idêntico ao Screenshot do Replit:
-              - Cada card tem o título do item (Boot/BIOS, Tela/Display, etc.)
-              - Select/dropdown com 5 opções coloridas (Ok, Atenção, Falha, Não testado, N/A)
-              - Campo "Observação opcional" abaixo */}
+          {/* Cards dos 16 Itens Técnicos */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 py-4">
             {editChecklistItems.map((item, idx) => {
               const normStatus = normalizeChecklistStatus(item.status)
@@ -5996,7 +1914,9 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
                   className="bg-white border border-slate-200/90 rounded-2xl p-3.5 shadow-xs space-y-2 hover:border-orange-300 transition-colors"
                 >
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-800 tracking-tight">{item.item}</span>
+                    <span className="text-xs font-bold text-slate-800 tracking-tight">
+                      {item.item}
+                    </span>
                   </div>
 
                   <Select
@@ -6070,7 +1990,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
         </DialogContent>
       </Dialog>
 
-      {/* MODAL: EDITAR LOTE & EQUIPAMENTO COMPLETO */}
+      {/* MODAL: EDITAR LOTE & EQUIPAMENTO */}
       <Dialog open={editModalOpen} onOpenChange={setEditModalOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -6079,13 +1999,12 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
               Editar Lote & Equipamento
             </DialogTitle>
             <DialogDescription>
-              Altere identificador do lote, localização física, preços, fotos e especificações do
-              notebook.
+              Altere identificador do lote, localização física, preços e especificações do notebook.
             </DialogDescription>
           </DialogHeader>
 
           <form onSubmit={handleSaveEdit} className="space-y-4">
-            {/* Seção 1: Dados do Lote Físico */}
+            {/* Dados do Lote Físico */}
             <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-3">
               <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5 uppercase tracking-wide">
                 <Layers className="w-4 h-4 text-emerald-600" />
@@ -6127,7 +2046,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
               </div>
             </div>
 
-            {/* Seção 2: Especificações do Equipamento */}
+            {/* Especificações do Equipamento */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1 sm:col-span-2">
                 <Label className="text-xs font-semibold text-slate-700">
@@ -6263,7 +2182,6 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
                 </Select>
               </div>
 
-              {/* Precificação / Custo */}
               <div className="space-y-1">
                 <Label className="text-xs font-semibold text-slate-700">
                   Custo de Aquisição (R$)
@@ -6320,7 +2238,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
         </DialogContent>
       </Dialog>
 
-      {/* ETIQUETA COM QR CODE MODAL */}
+      {/* MODAL: ETIQUETA COM QR CODE */}
       <EtiquetaModal
         open={etiquetaModalOpen}
         onOpenChange={setEtiquetaModalOpen}
@@ -6353,7 +2271,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
           </DialogHeader>
 
           <div className="space-y-5 py-2">
-            {/* Opção 1: Upload Direto de Arquivo */}
+            {/* Upload Direto */}
             <div className="p-4 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50 text-center space-y-2">
               <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
                 <Upload className="w-5 h-5" />
@@ -6393,7 +2311,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
               </Button>
             </div>
 
-            {/* Opção 2: Adicionar por URL */}
+            {/* Adicionar por URL */}
             <form onSubmit={handleAddPhotoUrl} className="space-y-1">
               <Label className="text-xs font-semibold text-slate-700">
                 Ou informe a URL da foto
@@ -6566,7 +2484,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
         </DialogContent>
       </Dialog>
 
-      {/* Confirmação de Exclusão de Peça */}
+      {/* AlertDialog: Confirmação de Exclusão de Peça */}
       <AlertDialog open={!!partToDelete} onOpenChange={(open) => !open && setPartToDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -6796,7 +2714,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
         }}
       />
 
-      {/* CONFIRMAÇÃO DE EXCLUSÃO DE EQUIPAMENTO */}
+      {/* AlertDialog: Confirmação de Exclusão de Equipamento */}
       <AlertDialog open={deleteProductDialogOpen} onOpenChange={setDeleteProductDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
