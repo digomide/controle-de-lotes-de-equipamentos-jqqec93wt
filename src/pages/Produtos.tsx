@@ -647,11 +647,11 @@ export default function Catalogo() {
                   }`}
                 >
                   {/* Card Image Header with Overlays */}
-                  <div className="relative bg-slate-100 aspect-16/10 overflow-hidden group">
+                  <div className="relative w-full aspect-16/10 h-48 sm:h-52 bg-slate-100 overflow-hidden group shrink-0">
                     <img
                       src={firstImage}
                       alt={p.name}
-                      className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-300"
+                      className="w-full h-full object-cover object-center block group-hover:scale-105 transition-transform duration-300"
                       onError={(e) => {
                         ;(e.target as HTMLImageElement).src =
                           'https://img.usecurling.com/p/600/400?q=laptop'
@@ -910,15 +910,34 @@ export default function Catalogo() {
                           </button>
                         </td>
                         <td className="py-3 px-4">
-                          <Link
-                            to={detailPath}
-                            className="font-semibold text-slate-900 hover:text-emerald-700 block"
-                          >
-                            {p.name}
-                          </Link>
-                          <span className="text-xs text-slate-500 font-normal">
-                            {p.brand} {p.model ? `· ${p.model}` : ''}
-                          </span>
+                          <div className="flex items-center gap-3">
+                            <div className="w-12 h-10 rounded-md overflow-hidden bg-slate-100 border border-slate-200 shrink-0">
+                              <img
+                                src={
+                                  p.images && p.images.length > 0
+                                    ? p.images[0]
+                                    : 'https://img.usecurling.com/p/200/150?q=laptop'
+                                }
+                                alt={p.name}
+                                className="w-full h-full object-cover object-center"
+                                onError={(e) => {
+                                  ;(e.target as HTMLImageElement).src =
+                                    'https://img.usecurling.com/p/200/150?q=laptop'
+                                }}
+                              />
+                            </div>
+                            <div className="min-w-0">
+                              <Link
+                                to={detailPath}
+                                className="font-semibold text-slate-900 hover:text-emerald-700 block truncate max-w-xs sm:max-w-sm"
+                              >
+                                {p.name}
+                              </Link>
+                              <span className="text-xs text-slate-500 font-normal">
+                                {p.brand} {p.model ? `· ${p.model}` : ''}
+                              </span>
+                            </div>
+                          </div>
                         </td>
                         <td className="py-3 px-4 whitespace-nowrap font-mono text-xs">
                           <Badge variant="outline" className="bg-slate-50 text-slate-700 font-mono">

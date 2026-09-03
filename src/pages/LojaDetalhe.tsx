@@ -29,6 +29,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { useToast } from '@/hooks/use-toast'
+import { ZoomableImage } from '@/components/ZoomableImage'
 import { PublicStoreHeader, PublicStoreFooter } from '@/components/PublicStoreLayout'
 import { STORE_CONFIG, buildWhatsAppLink, buildGeneralWhatsAppLink } from '@/lib/storeConfig'
 import { productsService } from '@/services/products'
@@ -274,24 +275,20 @@ export default function LojaDetalhe() {
               {/* Coluna Esquerda: Galeria de Fotos com Zoom (7 colunas) */}
               <div className="lg:col-span-7 space-y-4">
                 <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
-                  {/* Foto Principal com gatilho de Zoom */}
+                  {/* Foto Principal com gatilho de Zoom estilo Mercado Livre */}
                   <div
-                    onClick={() => setZoomModalOpen(true)}
-                    className="relative aspect-16/10 bg-slate-100 cursor-zoom-in group overflow-hidden flex items-center justify-center"
-                    title="Clique para ampliar com zoom"
+                    className="relative aspect-16/10 bg-slate-100 group overflow-hidden flex items-center justify-center"
+                    title="Passe o mouse para zoom estilo Mercado Livre ou clique para tela cheia"
                   >
-                    <img
+                    <ZoomableImage
                       src={photos[selectedPhotoIndex] || photos[0]}
                       alt={product.name}
-                      className="w-full h-full object-cover object-center group-hover:scale-102 transition-transform duration-300"
-                      onError={(e) => {
-                        ;(e.target as HTMLImageElement).src =
-                          'https://img.usecurling.com/p/800/600?q=laptop'
-                      }}
+                      scale={2.5}
+                      onClick={() => setZoomModalOpen(true)}
                     />
 
                     {/* Badge contador de fotos */}
-                    <div className="absolute top-3 left-3 bg-slate-950/75 backdrop-blur-xs text-white text-xs px-3 py-1 rounded-md font-mono font-medium flex items-center gap-2">
+                    <div className="absolute top-3 left-3 bg-slate-950/75 backdrop-blur-xs text-white text-xs px-3 py-1 rounded-md font-mono font-medium flex items-center gap-2 pointer-events-none z-10">
                       Foto {selectedPhotoIndex + 1} de {photos.length}
                     </div>
 
@@ -302,10 +299,10 @@ export default function LojaDetalhe() {
                         e.stopPropagation()
                         setZoomModalOpen(true)
                       }}
-                      className="absolute top-3 right-3 bg-white/95 hover:bg-white text-slate-800 text-xs px-3 py-1.5 rounded-lg font-bold shadow-md flex items-center gap-1.5 transition-all opacity-95 group-hover:opacity-100"
+                      className="absolute top-3 right-3 bg-white/95 hover:bg-white text-slate-800 text-xs px-3 py-1.5 rounded-lg font-bold shadow-md flex items-center gap-1.5 transition-all opacity-95 group-hover:opacity-100 z-10"
                     >
                       <ZoomIn className="w-4 h-4 text-emerald-600" />
-                      Ampliar Foto
+                      Tela Cheia
                     </button>
 
                     {/* Setas de navegação direta sobre a imagem */}
@@ -314,7 +311,7 @@ export default function LojaDetalhe() {
                         <button
                           type="button"
                           onClick={handlePrevPhoto}
-                          className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/80 hover:bg-white text-slate-800 flex items-center justify-center shadow-md transition-all opacity-0 group-hover:opacity-100"
+                          className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/80 hover:bg-white text-slate-800 flex items-center justify-center shadow-md transition-all opacity-0 group-hover:opacity-100 z-10"
                           title="Foto anterior"
                         >
                           <ChevronLeft className="w-5 h-5" />
@@ -322,7 +319,7 @@ export default function LojaDetalhe() {
                         <button
                           type="button"
                           onClick={handleNextPhoto}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/80 hover:bg-white text-slate-800 flex items-center justify-center shadow-md transition-all opacity-0 group-hover:opacity-100"
+                          className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/80 hover:bg-white text-slate-800 flex items-center justify-center shadow-md transition-all opacity-0 group-hover:opacity-100 z-10"
                           title="Próxima foto"
                         >
                           <ChevronRight className="w-5 h-5" />

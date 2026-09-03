@@ -383,12 +383,12 @@ export default function LojaPublica() {
                       className="overflow-hidden border border-slate-200/90 rounded-2xl bg-white shadow-xs hover:shadow-xl transition-all duration-300 flex flex-col group"
                     >
                       {/* Foto e Badges Superiores */}
-                      <div className="relative aspect-16/10 bg-slate-100 overflow-hidden">
+                      <div className="relative w-full aspect-16/10 h-48 sm:h-52 bg-slate-100 overflow-hidden shrink-0">
                         <Link to={detailUrl} className="block w-full h-full">
                           <img
                             src={coverPhoto}
                             alt={p.name}
-                            className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
+                            className="w-full h-full object-cover object-center block group-hover:scale-105 transition-transform duration-500"
                             onError={(e) => {
                               ;(e.target as HTMLImageElement).src =
                                 'https://img.usecurling.com/p/600/400?q=laptop'
