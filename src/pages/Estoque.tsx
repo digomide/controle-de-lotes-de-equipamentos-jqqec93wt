@@ -24,6 +24,7 @@ import {
   Tag,
   Laptop,
   Boxes,
+  Barcode,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -137,14 +138,20 @@ export default function Estoque() {
 
   const filteredBatches = useMemo(() => {
     return batches.filter((b) => {
-      const prodName = b.expand?.product_id?.name || ''
-      const prodSku = b.expand?.product_id?.sku || ''
+      const prod = b.expand?.product_id
+      const prodName = prod?.name || ''
+      const prodSku = prod?.sku || ''
+      const prodSerial = prod?.serial_number || ''
+      const prodCode = prod?.code || ''
 
+      const term = searchFilter.toLowerCase()
       const matchesSearch =
-        b.batch_number.toLowerCase().includes(searchFilter.toLowerCase()) ||
-        prodName.toLowerCase().includes(searchFilter.toLowerCase()) ||
-        prodSku.toLowerCase().includes(searchFilter.toLowerCase()) ||
-        (b.location && b.location.toLowerCase().includes(searchFilter.toLowerCase()))
+        b.batch_number.toLowerCase().includes(term) ||
+        prodSerial.toLowerCase().includes(term) ||
+        prodSku.toLowerCase().includes(term) ||
+        prodCode.toLowerCase().includes(term) ||
+        prodName.toLowerCase().includes(term) ||
+        (b.location && b.location.toLowerCase().includes(term))
 
       const matchesProduct = productFilter === 'all' || b.product_id === productFilter
 
@@ -463,7 +470,8 @@ export default function Estoque() {
           <table className="w-full text-left text-sm border-collapse">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                <th className="py-3 px-4">Lote / Equipamento</th>
+                <th className="py-3 px-4">Serial / Part Number</th>
+                <th className="py-3 px-4">Lote Físico</th>
                 <th className="py-3 px-4">Notebook Vinculado</th>
                 <th className="py-3 px-4">Localização</th>
                 <th className="py-3 px-4 text-center">Status Venda</th>
@@ -475,7 +483,7 @@ export default function Estoque() {
             <tbody className="divide-y divide-slate-100 font-sans">
               {filteredBatches.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-slate-400">
+                  <td colSpan={8} className="py-12 text-center text-slate-400">
                     Nenhum lote físico encontrado com os filtros selecionados.
                   </td>
                 </tr>
@@ -487,6 +495,9 @@ export default function Estoque() {
                   const detailHref = `/lotes/${b.batch_number || prod?.code || prod?.sku || b.id}`
                   const statusVal = prod?.status || 'Disponível'
                   const price = Number(prod?.unit_price) || 0
+                  const serialOrPart = prod?.serial_number || prod?.sku || prod?.code || '—'
+                  const hasSeparatePartNumber =
+                    prod?.sku && prod?.serial_number && prod.sku !== prod.serial_number
 
                   return (
                     <tr
@@ -495,16 +506,33 @@ export default function Estoque() {
                         isLow ? 'bg-rose-50/20' : ''
                       }`}
                     >
-                      {/* Batch Identifier clickable to open lote */}
+                      {/* 1ª COLUNA: Serial / Part Number (SKU) do Equipamento */}
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <Link
+                          to={detailHref}
+                          className="inline-flex items-center gap-1.5 font-mono text-xs font-bold text-slate-900 hover:text-emerald-700 bg-slate-100 hover:bg-emerald-50 px-2.5 py-1 rounded border border-slate-200 hover:border-emerald-300 transition-colors group"
+                          title="Clique para abrir a ficha completa do equipamento"
+                        >
+                          <Barcode className="w-3.5 h-3.5 text-slate-500 group-hover:text-emerald-600 shrink-0" />
+                          <span>{serialOrPart}</span>
+                          <ExternalLink className="w-3 h-3 opacity-40 group-hover:opacity-100 ml-0.5 shrink-0" />
+                        </Link>
+                        {hasSeparatePartNumber && (
+                          <div className="text-[11px] font-mono text-slate-400 mt-0.5 pl-0.5">
+                            P/N: {prod.sku}
+                          </div>
+                        )}
+                      </td>
+
+                      {/* 2ª COLUNA: Lote Físico */}
                       <td className="py-3 px-4 font-mono font-bold text-slate-900 whitespace-nowrap text-xs">
                         <Link
                           to={detailHref}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-slate-100 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-300 border border-slate-200 transition-colors group"
+                          className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-slate-700 hover:bg-slate-100 transition-colors"
                           title="Clique para abrir e gerenciar este lote"
                         >
-                          <Layers className="w-3.5 h-3.5 text-slate-500 group-hover:text-emerald-600" />
+                          <Layers className="w-3.5 h-3.5 text-slate-400" />
                           <span>{b.batch_number}</span>
-                          <ExternalLink className="w-3 h-3 opacity-40 group-hover:opacity-100 ml-0.5" />
                         </Link>
                       </td>
 
@@ -516,8 +544,9 @@ export default function Estoque() {
                         >
                           {prod?.name || 'Equipamento'}
                         </Link>
-                        <div className="flex items-center gap-2 mt-0.5 text-[11px] font-mono text-slate-400">
-                          <span>SKU: {prod?.sku || '—'}</span>
+                        <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-400">
+                          {prod?.brand && <span>{prod.brand}</span>}
+                          {prod?.model && <span>· {prod.model}</span>}
                           {prod?.processor && <span>· {prod.processor}</span>}
                         </div>
                       </td>
