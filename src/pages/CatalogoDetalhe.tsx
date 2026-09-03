@@ -496,25 +496,161 @@ export default function CatalogoDetalhe() {
   const untestedCount = checklist.filter((i) => normalizeChecklistStatus(i.status) === 'Não testado').length
   const naCount = checklist.filter((i) => normalizeChecklistStatus(i.status) === 'N/A').length
 
-  // Abrir Modal de Edição do Checklist
-  const handleOpenChecklistModal = () => {
-    const list = checklist.map((c) => ({
-      item: c.item,
-      status: normalizeChecklistStatus(c.status),
-      observation: c.observation || '',
-    }))
-    setEditChecklistItems(list)
-    setChecklistModalOpen(true)
+  // Download Técnico (gerador de documento / relatório texto para impressão)
+  const handleDownloadChecklist = () => {
+    if (!product) return
+
+    const checklistContent = checklist
+      .map(
+        (item) => {
+          const norm = normalizeChecklistStatus(item.status)
+          return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
+        },
+      )
+      .join('\n')
+
+    const partsContent =
+      parts.length > 0
+        ? parts
+            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
+            .join('\n')
+        : 'Nenhuma peça vinculada.'
+
+    const delivContent =
+      deliverables.length > 0
+        ? deliverables
+            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
+            .join('\n')
+        : 'Sem pendências de entrega.'
+
+    const reportText = `=====================================================
+LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
+LoteEquip Gestão de Equipamentos
+=====================================================
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
+Status Resumo:
+[OK (Verde)]: ${okCount} itens
+[ATENÇÃO (Amarelo)]: ${warningCount} itens
+[FALHA (Vermelho)]: ${failureCount} itens
+[NÃO TESTADO (Azul)]: ${untestedCount} itens
+[N/A (Roxo)]: ${naCount} itens
+
+${checklistContent}
+
+-----------------------------------------------------
+PEÇAS E REPAROS REALIZADOS:
+${partsContent}
+
+-----------------------------------------------------
+ITENS E PENDÊNCIAS DE ENTREGA:
+${delivContent}
+=====================================================
+Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
+`
+=======
+=======
+  // Marcar todos do checklist com um status
+  const handleSetAllChecklistModal = (statusVal: 'Ok' | 'Não testado') => {
+    setEditChecklistItems((prev) =>
+      prev.map((it) => ({
+        ...it,
+        status: statusVal,
+      })),
+    )
   }
 
-  // Alterar status de item individual no modal de edição
-  const handleEditItemStatus = (idx: number, newStatus: 'Ok' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A') => {
-    setEditChecklistItems((prev) => {
-      const copy = [...prev]
-      copy[idx] = { ...copy[idx], status: newStatus }
-      return copy
-    })
+  // Salvar checklist editado no produto
+  const handleSaveChecklist = async () => {
+    if (!product) return
+    setSavingChecklist(true)
+    try {
+      const historyCopy = Array.isArray(product.history_events) ? [...product.history_events] : []
+      historyCopy.unshift({
+        title: `Checklist de Inspeção atualizado (${editInspectionStatus})`,
+        date: new Date().toISOString().replace('T', ' ').substring(0, 19),
+      })
+
+      const updated = await productsService.update(product.id, {
+        technical_checklist: editChecklistItems,
+        history_events: historyCopy,
+      })
+      setProduct(updated)
+      setChecklistModalOpen(false)
+      toast({
+        title: 'Checklist atualizado com sucesso!',
+        description: `Todos os 16 itens técnicos foram salvos para ${product.name}.`,
+      })
+    } catch (err: any) {
+      console.error(err)
+      toast({
+        title: 'Erro ao salvar checklist',
+        description: err?.message || 'Não foi possível salvar o checklist.',
+        variant: 'destructive',
+      })
+    } finally {
+      setSavingChecklist(false)
+    }
   }
+
+  // Inline alteração rápida de status do checklist diretamente na visualização (opcional)
+  const handleInlineChangeStatus = async (itemIndex: number, newStatus: 'Ok' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A') => {
+    if (!product) return
+    const updatedChecklist = checklist.map((it, idx) => {
+      if (idx === itemIndex) {
+        return { ...it, status: newStatus }
+      }
+      return it
+    })
+    try {
+      const updated = await productsService.update(product.id, {
+        technical_checklist: updatedChecklist,
+      })
+      setProduct(updated)
+      toast({
+        title: `Item "${checklist[itemIndex].item}" atualizado`,
+        description: `Status alterado para ${newStatus}.`,
+      })
+    } catch (err: any) {
+      console.error(err)
+      toast({
+        title: 'Erro ao atualizar item',
+        description: err?.message,
+        variant: 'destructive',
+      })
+    }
+  }
+
+  // Financeiro
+  const cost = Number(product?.cost_price) || 0
+  const price = Number(product?.unit_price) || 0
+  const totalPartsCost = parts.reduce((acc, p) => acc + (Number(p.cost) || 0), 0)
+  const totalCostCombined = cost + totalPartsCost
+  const marginCombined = price - totalCostCombined
+  const marginPercent =
+    totalCostCombined > 0 ? ((marginCombined / totalCostCombined) * 100).toFixed(1) : '100'
+
+  // Total stock
+  const totalStock = batches.reduce((acc, b) => acc + (b.quantity || 0), 0)
 
 Equipamento: ${product.name}
 Código / SKU: ${product.sku}
@@ -553,6 +689,1128 @@ ${partsContent}
 -----------------------------------------------------
 ITENS E PENDÊNCIAS DE ENTREGA:
 ${delivContent}
+=====================================================
+Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
+`
+
+    const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.href = url
+=======
+=======
+  // Alterar observação de item individual no modal de edição
+  const handleEditItemObs = (idx: number, obs: string) => {
+    setEditChecklistItems((prev) => {
+      const copy = [...prev]
+      copy[idx] = { ...copy[idx], observation: obs }
+      return copy
+    })
+  }
+
+  // Salvar checklist editado no produto
+  const handleSaveChecklist = async () => {
+    if (!product) return
+    setSavingChecklist(true)
+    try {
+      const historyCopy = Array.isArray(product.history_events) ? [...product.history_events] : []
+      historyCopy.unshift({
+        title: `Checklist de Inspeção atualizado (${editInspectionStatus})`,
+        date: new Date().toISOString().replace('T', ' ').substring(0, 19),
+      })
+
+      const updated = await productsService.update(product.id, {
+        technical_checklist: editChecklistItems,
+        history_events: historyCopy,
+      })
+      setProduct(updated)
+      setChecklistModalOpen(false)
+      toast({
+        title: 'Checklist atualizado com sucesso!',
+        description: `Todos os 16 itens técnicos foram salvos para ${product.name}.`,
+      })
+    } catch (err: any) {
+      console.error(err)
+      toast({
+        title: 'Erro ao salvar checklist',
+        description: err?.message || 'Não foi possível salvar o checklist.',
+        variant: 'destructive',
+      })
+    } finally {
+      setSavingChecklist(false)
+    }
+  }
+
+  // Inline alteração rápida de status do checklist diretamente na visualização (opcional)
+  const handleInlineChangeStatus = async (itemIndex: number, newStatus: 'Ok' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A') => {
+    if (!product) return
+    const updatedChecklist = checklist.map((it, idx) => {
+      if (idx === itemIndex) {
+        return { ...it, status: newStatus }
+      }
+      return it
+    })
+    try {
+      const updated = await productsService.update(product.id, {
+        technical_checklist: updatedChecklist,
+      })
+      setProduct(updated)
+      toast({
+        title: `Item "${checklist[itemIndex].item}" atualizado`,
+        description: `Status alterado para ${newStatus}.`,
+      })
+    } catch (err: any) {
+      console.error(err)
+      toast({
+        title: 'Erro ao atualizar item',
+        description: err?.message,
+        variant: 'destructive',
+      })
+    }
+  }
+
+  // Financeiro
+  const cost = Number(product?.cost_price) || 0
+  const price = Number(product?.unit_price) || 0
+  const totalPartsCost = parts.reduce((acc, p) => acc + (Number(p.cost) || 0), 0)
+  const totalCostCombined = cost + totalPartsCost
+  const marginCombined = price - totalCostCombined
+  const marginPercent =
+    totalCostCombined > 0 ? ((marginCombined / totalCostCombined) * 100).toFixed(1) : '100'
+
+  // Total stock
+  const totalStock = batches.reduce((acc, b) => acc + (b.quantity || 0), 0)
+
+  // Download Técnico (gerador de documento / relatório texto para impressão)
+  const handleDownloadChecklist = () => {
+    if (!product) return
+
+    const checklistContent = checklist
+      .map((item) => {
+        const norm = normalizeChecklistStatus(item.status)
+        return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
+      })
+      .join('\n')
+
+    const partsContent =
+      parts.length > 0
+        ? parts
+            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
+            .join('\n')
+        : 'Nenhuma peça vinculada.'
+
+    const delivContent =
+      deliverables.length > 0
+        ? deliverables
+            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
+            .join('\n')
+        : 'Sem pendências de entrega.'
+
+    const reportText = `=====================================================
+LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
+LoteEquip Gestão de Equipamentos
+=====================================================
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
+Status Resumo:
+[OK (Verde)]: ${okCount} itens
+[ATENÇÃO (Amarelo)]: ${warningCount} itens
+[FALHA (Vermelho)]: ${failureCount} itens
+[NÃO TESTADO (Azul)]: ${untestedCount} itens
+[N/A (Roxo)]: ${naCount} itens
+
+${checklistContent}
+
+-----------------------------------------------------
+PEÇAS E REPAROS REALIZADOS:
+${partsContent}
+
+-----------------------------------------------------
+ITENS E PENDÊNCIAS DE ENTREGA:
+${delivContent}
+=====================================================
+Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
+`
+
+    const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `Checklist-Tecnico-${product.sku || 'equipamento'}.txt`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+
+    toast({
+      title: 'Checklist baixado',
+      description: 'O arquivo com o laudo de revisão foi salvo no seu computador.',
+    })
+  }
+=======
+  // Alterar status de item individual no modal de edição
+  const handleEditItemStatus = (idx: number, newStatus: 'Ok' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A') => {
+    setEditChecklistItems((prev) => {
+      const copy = [...prev]
+      copy[idx] = { ...copy[idx], status: newStatus }
+      return copy
+    })
+  }
+
+  // Alterar observação de item individual no modal de edição
+  const handleEditItemObs = (idx: number, obs: string) => {
+    setEditChecklistItems((prev) => {
+      const copy = [...prev]
+      copy[idx] = { ...copy[idx], observation: obs }
+      return copy
+    })
+  }
+
+  // Marcar todos do checklist com um status
+  const handleSetAllChecklistModal = (statusVal: 'Ok' | 'Não testado') => {
+    setEditChecklistItems((prev) =>
+      prev.map((it) => ({
+        ...it,
+        status: statusVal,
+      })),
+    )
+  }
+
+  // Salvar checklist editado no produto
+  const handleSaveChecklist = async () => {
+    if (!product) return
+    setSavingChecklist(true)
+    try {
+      const historyCopy = Array.isArray(product.history_events) ? [...product.history_events] : []
+      historyCopy.unshift({
+        title: `Checklist de Inspeção atualizado (${editInspectionStatus})`,
+        date: new Date().toISOString().replace('T', ' ').substring(0, 19),
+      })
+
+      const updated = await productsService.update(product.id, {
+        technical_checklist: editChecklistItems,
+        history_events: historyCopy,
+      })
+      setProduct(updated)
+      setChecklistModalOpen(false)
+      toast({
+        title: 'Checklist atualizado com sucesso!',
+        description: `Todos os 16 itens técnicos foram salvos para ${product.name}.`,
+      })
+    } catch (err: any) {
+      console.error(err)
+      toast({
+        title: 'Erro ao salvar checklist',
+        description: err?.message || 'Não foi possível salvar o checklist.',
+        variant: 'destructive',
+      })
+    } finally {
+      setSavingChecklist(false)
+    }
+  }
+
+  // Inline alteração rápida de status do checklist diretamente na visualização (opcional)
+  const handleInlineChangeStatus = async (itemIndex: number, newStatus: 'Ok' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A') => {
+    if (!product) return
+    const updatedChecklist = checklist.map((it, idx) => {
+      if (idx === itemIndex) {
+        return { ...it, status: newStatus }
+      }
+      return it
+    })
+    try {
+      const updated = await productsService.update(product.id, {
+        technical_checklist: updatedChecklist,
+      })
+      setProduct(updated)
+      toast({
+        title: `Item "${checklist[itemIndex].item}" atualizado`,
+        description: `Status alterado para ${newStatus}.`,
+      })
+    } catch (err: any) {
+      console.error(err)
+      toast({
+        title: 'Erro ao atualizar item',
+        description: err?.message,
+        variant: 'destructive',
+      })
+    }
+  }
+
+  // Financeiro
+  const cost = Number(product?.cost_price) || 0
+  const price = Number(product?.unit_price) || 0
+  const totalPartsCost = parts.reduce((acc, p) => acc + (Number(p.cost) || 0), 0)
+  const totalCostCombined = cost + totalPartsCost
+  const marginCombined = price - totalCostCombined
+  const marginPercent =
+    totalCostCombined > 0 ? ((marginCombined / totalCostCombined) * 100).toFixed(1) : '100'
+
+  // Total stock
+  const totalStock = batches.reduce((acc, b) => acc + (b.quantity || 0), 0)
+
+  // Download Técnico (gerador de documento / relatório texto para impressão)
+  const handleDownloadChecklist = () => {
+    if (!product) return
+
+    const checklistContent = checklist
+      .map((item) => {
+        const norm = normalizeChecklistStatus(item.status)
+        return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
+      })
+      .join('\n')
+
+    const partsContent =
+      parts.length > 0
+        ? parts
+            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
+            .join('\n')
+        : 'Nenhuma peça vinculada.'
+
+    const delivContent =
+      deliverables.length > 0
+        ? deliverables
+            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
+            .join('\n')
+        : 'Sem pendências de entrega.'
+
+    const reportText = `=====================================================
+LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
+LoteEquip Gestão de Equipamentos
+=====================================================
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
+Status Resumo:
+[OK (Verde)]: ${okCount} itens
+[ATENÇÃO (Amarelo)]: ${warningCount} itens
+[FALHA (Vermelho)]: ${failureCount} itens
+[NÃO TESTADO (Azul)]: ${untestedCount} itens
+[N/A (Roxo)]: ${naCount} itens
+
+${checklistContent}
+
+-----------------------------------------------------
+PEÇAS E REPAROS REALIZADOS:
+${partsContent}
+
+-----------------------------------------------------
+ITENS E PENDÊNCIAS DE ENTREGA:
+${delivContent}
+=====================================================
+Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
+`
+
+    const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `Checklist-Tecnico-${product.sku || 'equipamento'}.txt`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+
+    toast({
+      title: 'Checklist baixado',
+      description: 'O arquivo com o laudo de revisão foi salvo no seu computador.',
+    })
+  }
+=======
+  // Abrir Modal de Edição do Checklist
+  const handleOpenChecklistModal = () => {
+    const list = checklist.map((c) => ({
+      item: c.item,
+      status: normalizeChecklistStatus(c.status),
+      observation: c.observation || '',
+    }))
+    setEditChecklistItems(list)
+    setChecklistModalOpen(true)
+  }
+
+  // Alterar status de item individual no modal de edição
+  const handleEditItemStatus = (idx: number, newStatus: 'Ok' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A') => {
+    setEditChecklistItems((prev) => {
+      const copy = [...prev]
+      copy[idx] = { ...copy[idx], status: newStatus }
+      return copy
+    })
+  }
+
+  // Alterar observação de item individual no modal de edição
+  const handleEditItemObs = (idx: number, obs: string) => {
+    setEditChecklistItems((prev) => {
+      const copy = [...prev]
+      copy[idx] = { ...copy[idx], observation: obs }
+      return copy
+    })
+  }
+
+  // Marcar todos do checklist com um status
+  const handleSetAllChecklistModal = (statusVal: 'Ok' | 'Não testado') => {
+    setEditChecklistItems((prev) =>
+      prev.map((it) => ({
+        ...it,
+        status: statusVal,
+      })),
+    )
+  }
+
+  // Salvar checklist editado no produto
+  const handleSaveChecklist = async () => {
+    if (!product) return
+    setSavingChecklist(true)
+    try {
+      const historyCopy = Array.isArray(product.history_events) ? [...product.history_events] : []
+      historyCopy.unshift({
+        title: `Checklist de Inspeção atualizado (${editInspectionStatus})`,
+        date: new Date().toISOString().replace('T', ' ').substring(0, 19),
+      })
+
+      const updated = await productsService.update(product.id, {
+        technical_checklist: editChecklistItems,
+        history_events: historyCopy,
+      })
+      setProduct(updated)
+      setChecklistModalOpen(false)
+      toast({
+        title: 'Checklist atualizado com sucesso!',
+        description: `Todos os 16 itens técnicos foram salvos para ${product.name}.`,
+      })
+    } catch (err: any) {
+      console.error(err)
+      toast({
+        title: 'Erro ao salvar checklist',
+        description: err?.message || 'Não foi possível salvar o checklist.',
+        variant: 'destructive',
+      })
+    } finally {
+      setSavingChecklist(false)
+    }
+  }
+
+  // Inline alteração rápida de status do checklist diretamente na visualização (opcional)
+  const handleInlineChangeStatus = async (itemIndex: number, newStatus: 'Ok' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A') => {
+    if (!product) return
+    const updatedChecklist = checklist.map((it, idx) => {
+      if (idx === itemIndex) {
+        return { ...it, status: newStatus }
+      }
+      return it
+    })
+    try {
+      const updated = await productsService.update(product.id, {
+        technical_checklist: updatedChecklist,
+      })
+      setProduct(updated)
+      toast({
+        title: `Item "${checklist[itemIndex].item}" atualizado`,
+        description: `Status alterado para ${newStatus}.`,
+      })
+    } catch (err: any) {
+      console.error(err)
+      toast({
+        title: 'Erro ao atualizar item',
+        description: err?.message,
+        variant: 'destructive',
+      })
+    }
+  }
+
+  // Financeiro
+  const cost = Number(product?.cost_price) || 0
+  const price = Number(product?.unit_price) || 0
+  const totalPartsCost = parts.reduce((acc, p) => acc + (Number(p.cost) || 0), 0)
+  const totalCostCombined = cost + totalPartsCost
+  const marginCombined = price - totalCostCombined
+  const marginPercent =
+    totalCostCombined > 0 ? ((marginCombined / totalCostCombined) * 100).toFixed(1) : '100'
+
+  // Total stock
+  const totalStock = batches.reduce((acc, b) => acc + (b.quantity || 0), 0)
+
+  // Download Técnico (gerador de documento / relatório texto para impressão)
+  const handleDownloadChecklist = () => {
+    if (!product) return
+
+    const checklistContent = checklist
+      .map((item) => {
+        const norm = normalizeChecklistStatus(item.status)
+        return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
+      })
+      .join('\n')
+
+    const partsContent =
+      parts.length > 0
+        ? parts
+            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
+            .join('\n')
+        : 'Nenhuma peça vinculada.'
+
+    const delivContent =
+      deliverables.length > 0
+        ? deliverables
+            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
+            .join('\n')
+        : 'Sem pendências de entrega.'
+
+    const reportText = `=====================================================
+LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
+LoteEquip Gestão de Equipamentos
+=====================================================
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
+Status Resumo:
+[OK (Verde)]: ${okCount} itens
+[ATENÇÃO (Amarelo)]: ${warningCount} itens
+[FALHA (Vermelho)]: ${failureCount} itens
+[NÃO TESTADO (Azul)]: ${untestedCount} itens
+[N/A (Roxo)]: ${naCount} itens
+
+${checklistContent}
+
+-----------------------------------------------------
+PEÇAS E REPAROS REALIZADOS:
+${partsContent}
+
+-----------------------------------------------------
+ITENS E PENDÊNCIAS DE ENTREGA:
+${delivContent}
+=====================================================
+Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
+`
+
+    const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `Checklist-Tecnico-${product.sku || 'equipamento'}.txt`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+
+    toast({
+      title: 'Checklist baixado',
+      description: 'O arquivo com o laudo de revisão foi salvo no seu computador.',
+    })
+  }
+=======
+  // Download Técnico (gerador de documento / relatório texto para impressão)
+  const handleDownloadChecklist = () => {
+    if (!product) return
+
+    const checklistContent = checklist
+      .map(
+        (item) => {
+          const norm = normalizeChecklistStatus(item.status)
+          return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
+        },
+      )
+      .join('\n')
+
+    const partsContent =
+      parts.length > 0
+        ? parts
+            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
+            .join('\n')
+        : 'Nenhuma peça vinculada.'
+
+    const delivContent =
+      deliverables.length > 0
+        ? deliverables
+            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
+            .join('\n')
+        : 'Sem pendências de entrega.'
+
+    const reportText = `=====================================================
+LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
+LoteEquip Gestão de Equipamentos
+=====================================================
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
+Status Resumo:
+[OK (Verde)]: ${okCount} itens
+[ATENÇÃO (Amarelo)]: ${warningCount} itens
+[FALHA (Vermelho)]: ${failureCount} itens
+[NÃO TESTADO (Azul)]: ${untestedCount} itens
+[N/A (Roxo)]: ${naCount} itens
+
+${checklistContent}
+
+-----------------------------------------------------
+PEÇAS E REPAROS REALIZADOS:
+${partsContent}
+
+-----------------------------------------------------
+ITENS E PENDÊNCIAS DE ENTREGA:
+${delivContent}
+=====================================================
+Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
+`
+=======
+=======
+  // Marcar todos do checklist com um status
+  const handleSetAllChecklistModal = (statusVal: 'Ok' | 'Não testado') => {
+    setEditChecklistItems((prev) =>
+      prev.map((it) => ({
+        ...it,
+        status: statusVal,
+      })),
+    )
+  }
+
+  // Salvar checklist editado no produto
+  const handleSaveChecklist = async () => {
+    if (!product) return
+    setSavingChecklist(true)
+    try {
+      const historyCopy = Array.isArray(product.history_events) ? [...product.history_events] : []
+      historyCopy.unshift({
+        title: `Checklist de Inspeção atualizado (${editInspectionStatus})`,
+        date: new Date().toISOString().replace('T', ' ').substring(0, 19),
+      })
+
+      const updated = await productsService.update(product.id, {
+        technical_checklist: editChecklistItems,
+        history_events: historyCopy,
+      })
+      setProduct(updated)
+      setChecklistModalOpen(false)
+      toast({
+        title: 'Checklist atualizado com sucesso!',
+        description: `Todos os 16 itens técnicos foram salvos para ${product.name}.`,
+      })
+    } catch (err: any) {
+      console.error(err)
+      toast({
+        title: 'Erro ao salvar checklist',
+        description: err?.message || 'Não foi possível salvar o checklist.',
+        variant: 'destructive',
+      })
+    } finally {
+      setSavingChecklist(false)
+    }
+  }
+
+  // Inline alteração rápida de status do checklist diretamente na visualização (opcional)
+  const handleInlineChangeStatus = async (itemIndex: number, newStatus: 'Ok' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A') => {
+    if (!product) return
+    const updatedChecklist = checklist.map((it, idx) => {
+      if (idx === itemIndex) {
+        return { ...it, status: newStatus }
+      }
+      return it
+    })
+    try {
+      const updated = await productsService.update(product.id, {
+        technical_checklist: updatedChecklist,
+      })
+      setProduct(updated)
+      toast({
+        title: `Item "${checklist[itemIndex].item}" atualizado`,
+        description: `Status alterado para ${newStatus}.`,
+      })
+    } catch (err: any) {
+      console.error(err)
+      toast({
+        title: 'Erro ao atualizar item',
+        description: err?.message,
+        variant: 'destructive',
+      })
+    }
+  }
+
+  // Financeiro
+  const cost = Number(product?.cost_price) || 0
+  const price = Number(product?.unit_price) || 0
+  const totalPartsCost = parts.reduce((acc, p) => acc + (Number(p.cost) || 0), 0)
+  const totalCostCombined = cost + totalPartsCost
+  const marginCombined = price - totalCostCombined
+  const marginPercent =
+    totalCostCombined > 0 ? ((marginCombined / totalCostCombined) * 100).toFixed(1) : '100'
+
+  // Total stock
+  const totalStock = batches.reduce((acc, b) => acc + (b.quantity || 0), 0)
+
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
+Status Resumo:
+[OK (Verde)]: ${okCount} itens
+[ATENÇÃO (Amarelo)]: ${warningCount} itens
+[FALHA (Vermelho)]: ${failureCount} itens
+[NÃO TESTADO (Azul)]: ${untestedCount} itens
+[N/A (Roxo)]: ${naCount} itens
+
+${checklistContent}
+
+-----------------------------------------------------
+PEÇAS E REPAROS REALIZADOS:
+${partsContent}
+
+-----------------------------------------------------
+ITENS E PENDÊNCIAS DE ENTREGA:
+${delivContent}
+=====================================================
+Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
+`
+
+    const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.href = url
+=======
+=======
+  // Alterar observação de item individual no modal de edição
+  const handleEditItemObs = (idx: number, obs: string) => {
+    setEditChecklistItems((prev) => {
+      const copy = [...prev]
+      copy[idx] = { ...copy[idx], observation: obs }
+      return copy
+    })
+  }
+
+  // Salvar checklist editado no produto
+  const handleSaveChecklist = async () => {
+    if (!product) return
+    setSavingChecklist(true)
+    try {
+      const historyCopy = Array.isArray(product.history_events) ? [...product.history_events] : []
+      historyCopy.unshift({
+        title: `Checklist de Inspeção atualizado (${editInspectionStatus})`,
+        date: new Date().toISOString().replace('T', ' ').substring(0, 19),
+      })
+
+      const updated = await productsService.update(product.id, {
+        technical_checklist: editChecklistItems,
+        history_events: historyCopy,
+      })
+      setProduct(updated)
+      setChecklistModalOpen(false)
+      toast({
+        title: 'Checklist atualizado com sucesso!',
+        description: `Todos os 16 itens técnicos foram salvos para ${product.name}.`,
+      })
+    } catch (err: any) {
+      console.error(err)
+      toast({
+        title: 'Erro ao salvar checklist',
+        description: err?.message || 'Não foi possível salvar o checklist.',
+        variant: 'destructive',
+      })
+    } finally {
+      setSavingChecklist(false)
+    }
+  }
+
+  // Inline alteração rápida de status do checklist diretamente na visualização (opcional)
+  const handleInlineChangeStatus = async (itemIndex: number, newStatus: 'Ok' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A') => {
+    if (!product) return
+    const updatedChecklist = checklist.map((it, idx) => {
+      if (idx === itemIndex) {
+        return { ...it, status: newStatus }
+      }
+      return it
+    })
+    try {
+      const updated = await productsService.update(product.id, {
+        technical_checklist: updatedChecklist,
+      })
+      setProduct(updated)
+      toast({
+        title: `Item "${checklist[itemIndex].item}" atualizado`,
+        description: `Status alterado para ${newStatus}.`,
+      })
+    } catch (err: any) {
+      console.error(err)
+      toast({
+        title: 'Erro ao atualizar item',
+        description: err?.message,
+        variant: 'destructive',
+      })
+    }
+  }
+
+  // Financeiro
+  const cost = Number(product?.cost_price) || 0
+  const price = Number(product?.unit_price) || 0
+  const totalPartsCost = parts.reduce((acc, p) => acc + (Number(p.cost) || 0), 0)
+  const totalCostCombined = cost + totalPartsCost
+  const marginCombined = price - totalCostCombined
+  const marginPercent =
+    totalCostCombined > 0 ? ((marginCombined / totalCostCombined) * 100).toFixed(1) : '100'
+
+  // Total stock
+  const totalStock = batches.reduce((acc, b) => acc + (b.quantity || 0), 0)
+
+  // Download Técnico (gerador de documento / relatório texto para impressão)
+  const handleDownloadChecklist = () => {
+    if (!product) return
+
+    const checklistContent = checklist
+      .map((item) => {
+        const norm = normalizeChecklistStatus(item.status)
+        return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
+      })
+      .join('\n')
+
+    const partsContent =
+      parts.length > 0
+        ? parts
+            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
+            .join('\n')
+        : 'Nenhuma peça vinculada.'
+
+    const delivContent =
+      deliverables.length > 0
+        ? deliverables
+            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
+            .join('\n')
+        : 'Sem pendências de entrega.'
+
+    const reportText = `=====================================================
+LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
+LoteEquip Gestão de Equipamentos
+=====================================================
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
+Status Resumo:
+[OK (Verde)]: ${okCount} itens
+[ATENÇÃO (Amarelo)]: ${warningCount} itens
+[FALHA (Vermelho)]: ${failureCount} itens
+[NÃO TESTADO (Azul)]: ${untestedCount} itens
+[N/A (Roxo)]: ${naCount} itens
+
+${checklistContent}
+
+-----------------------------------------------------
+PEÇAS E REPAROS REALIZADOS:
+${partsContent}
+
+-----------------------------------------------------
+ITENS E PENDÊNCIAS DE ENTREGA:
+${delivContent}
+=====================================================
+Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
+`
+
+    const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `Checklist-Tecnico-${product.sku || 'equipamento'}.txt`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+
+    toast({
+      title: 'Checklist baixado',
+      description: 'O arquivo com o laudo de revisão foi salvo no seu computador.',
+    })
+  }
+=======
+  // Alterar status de item individual no modal de edição
+  const handleEditItemStatus = (idx: number, newStatus: 'Ok' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A') => {
+    setEditChecklistItems((prev) => {
+      const copy = [...prev]
+      copy[idx] = { ...copy[idx], status: newStatus }
+      return copy
+    })
+  }
+
+  // Alterar observação de item individual no modal de edição
+  const handleEditItemObs = (idx: number, obs: string) => {
+    setEditChecklistItems((prev) => {
+      const copy = [...prev]
+      copy[idx] = { ...copy[idx], observation: obs }
+      return copy
+    })
+  }
+
+  // Marcar todos do checklist com um status
+  const handleSetAllChecklistModal = (statusVal: 'Ok' | 'Não testado') => {
+    setEditChecklistItems((prev) =>
+      prev.map((it) => ({
+        ...it,
+        status: statusVal,
+      })),
+    )
+  }
+
+  // Salvar checklist editado no produto
+  const handleSaveChecklist = async () => {
+    if (!product) return
+    setSavingChecklist(true)
+    try {
+      const historyCopy = Array.isArray(product.history_events) ? [...product.history_events] : []
+      historyCopy.unshift({
+        title: `Checklist de Inspeção atualizado (${editInspectionStatus})`,
+        date: new Date().toISOString().replace('T', ' ').substring(0, 19),
+      })
+
+      const updated = await productsService.update(product.id, {
+        technical_checklist: editChecklistItems,
+        history_events: historyCopy,
+      })
+      setProduct(updated)
+      setChecklistModalOpen(false)
+      toast({
+        title: 'Checklist atualizado com sucesso!',
+        description: `Todos os 16 itens técnicos foram salvos para ${product.name}.`,
+      })
+    } catch (err: any) {
+      console.error(err)
+      toast({
+        title: 'Erro ao salvar checklist',
+        description: err?.message || 'Não foi possível salvar o checklist.',
+        variant: 'destructive',
+      })
+    } finally {
+      setSavingChecklist(false)
+    }
+  }
+
+  // Inline alteração rápida de status do checklist diretamente na visualização (opcional)
+  const handleInlineChangeStatus = async (itemIndex: number, newStatus: 'Ok' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A') => {
+    if (!product) return
+    const updatedChecklist = checklist.map((it, idx) => {
+      if (idx === itemIndex) {
+        return { ...it, status: newStatus }
+      }
+      return it
+    })
+    try {
+      const updated = await productsService.update(product.id, {
+        technical_checklist: updatedChecklist,
+      })
+      setProduct(updated)
+      toast({
+        title: `Item "${checklist[itemIndex].item}" atualizado`,
+        description: `Status alterado para ${newStatus}.`,
+      })
+    } catch (err: any) {
+      console.error(err)
+      toast({
+        title: 'Erro ao atualizar item',
+        description: err?.message,
+        variant: 'destructive',
+      })
+    }
+  }
+
+  // Financeiro
+  const cost = Number(product?.cost_price) || 0
+  const price = Number(product?.unit_price) || 0
+  const totalPartsCost = parts.reduce((acc, p) => acc + (Number(p.cost) || 0), 0)
+  const totalCostCombined = cost + totalPartsCost
+  const marginCombined = price - totalCostCombined
+  const marginPercent =
+    totalCostCombined > 0 ? ((marginCombined / totalCostCombined) * 100).toFixed(1) : '100'
+
+  // Total stock
+  const totalStock = batches.reduce((acc, b) => acc + (b.quantity || 0), 0)
+
+  // Download Técnico (gerador de documento / relatório texto para impressão)
+  const handleDownloadChecklist = () => {
+    if (!product) return
+
+    const checklistContent = checklist
+      .map((item) => {
+        const norm = normalizeChecklistStatus(item.status)
+        return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
+      })
+      .join('\n')
+
+    const partsContent =
+      parts.length > 0
+        ? parts
+            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
+            .join('\n')
+        : 'Nenhuma peça vinculada.'
+
+    const delivContent =
+      deliverables.length > 0
+        ? deliverables
+            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
+            .join('\n')
+        : 'Sem pendências de entrega.'
+
+    const reportText = `=====================================================
+LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
+LoteEquip Gestão de Equipamentos
+=====================================================
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
+Status Resumo:
+[OK (Verde)]: ${okCount} itens
+[ATENÇÃO (Amarelo)]: ${warningCount} itens
+[FALHA (Vermelho)]: ${failureCount} itens
+[NÃO TESTADO (Azul)]: ${untestedCount} itens
+[N/A (Roxo)]: ${naCount} itens
+
+${checklistContent}
+
+-----------------------------------------------------
+PEÇAS E REPAROS REALIZADOS:
+${partsContent}
+
+-----------------------------------------------------
+ITENS E PENDÊNCIAS DE ENTREGA:
+${delivContent}
+=====================================================
+Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
+`
+
+    const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `Checklist-Tecnico-${product.sku || 'equipamento'}.txt`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+
+    toast({
+      title: 'Checklist baixado',
+      description: 'O arquivo com o laudo de revisão foi salvo no seu computador.',
+    })
+  }
 =====================================================
 Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
 `
