@@ -596,17 +596,85 @@ export default function CatalogoDetalhe() {
     }
   }
 
-  // Financeiro
-  const cost = Number(product?.cost_price) || 0
-  const price = Number(product?.unit_price) || 0
-  const totalPartsCost = parts.reduce((acc, p) => acc + (Number(p.cost) || 0), 0)
-  const totalCostCombined = cost + totalPartsCost
-  const marginCombined = price - totalCostCombined
-  const marginPercent =
-    totalCostCombined > 0 ? ((marginCombined / totalCostCombined) * 100).toFixed(1) : '100'
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
 
-  // Total stock
-  const totalStock = batches.reduce((acc, b) => acc + (b.quantity || 0), 0)
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO (Total: ${checklist.length} itens)
+Itens OK: ${okCount} | Atenção: ${warningCount} | Não testados: ${untestedCount}
+
+${checklistContent}
+
+-----------------------------------------------------
+PEÇAS E REPAROS REALIZADOS:
+${partsContent}
+
+-----------------------------------------------------
+ITENS E PENDÊNCIAS DE ENTREGA:
+${delivContent}
+=====================================================
+Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
+`
+=======
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
+Status Resumo:
+[OK (Verde)]: ${okCount} itens
+[ATENÇÃO (Amarelo)]: ${warningCount} itens
+[FALHA (Vermelho)]: ${failureCount} itens
+[NÃO TESTADO (Azul)]: ${untestedCount} itens
+[N/A (Roxo)]: ${naCount} itens
+
+${checklistContent}
+
+-----------------------------------------------------
+PEÇAS E REPAROS REALIZADOS:
+${partsContent}
+
+-----------------------------------------------------
+ITENS E PENDÊNCIAS DE ENTREGA:
+${delivContent}
+=====================================================
+Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
+`
+=======
+  // Download Técnico (gerador de documento / relatório texto para impressão)
+  const handleDownloadChecklist = () => {
+    if (!product) return
 
     const checklistContent = checklist
       .map(
@@ -634,6 +702,1057 @@ export default function CatalogoDetalhe() {
     const reportText = `=====================================================
 LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
 LoteEquip Gestão de Equipamentos
+=====================================================
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
+Status Resumo:
+[OK (Verde)]: ${okCount} itens
+[ATENÇÃO (Amarelo)]: ${warningCount} itens
+[FALHA (Vermelho)]: ${failureCount} itens
+[NÃO TESTADO (Azul)]: ${untestedCount} itens
+[N/A (Roxo)]: ${naCount} itens
+
+${checklistContent}
+
+-----------------------------------------------------
+PEÇAS E REPAROS REALIZADOS:
+${partsContent}
+
+-----------------------------------------------------
+ITENS E PENDÊNCIAS DE ENTREGA:
+${delivContent}
+=====================================================
+Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
+`
+=======
+    const checklistContent = checklist
+      .map(
+        (item) => {
+          const norm = normalizeChecklistStatus(item.status)
+          return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
+        },
+      )
+      .join('\n')
+
+    const partsContent =
+      parts.length > 0
+        ? parts
+            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
+            .join('\n')
+        : 'Nenhuma peça vinculada.'
+
+    const delivContent =
+      deliverables.length > 0
+        ? deliverables
+            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
+            .join('\n')
+        : 'Sem pendências de entrega.'
+
+    const reportText = `=====================================================
+LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
+LoteEquip Gestão de Equipamentos
+=====================================================
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
+Status Resumo:
+[OK (Verde)]: ${okCount} itens
+[ATENÇÃO (Amarelo)]: ${warningCount} itens
+[FALHA (Vermelho)]: ${failureCount} itens
+[NÃO TESTADO (Azul)]: ${untestedCount} itens
+[N/A (Roxo)]: ${naCount} itens
+
+${checklistContent}
+=====================================================
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO (Total: ${checklist.length} itens)
+Itens OK: ${okCount} | Atenção: ${warningCount} | Não testados: ${untestedCount}
+
+${checklistContent}
+
+-----------------------------------------------------
+PEÇAS E REPAROS REALIZADOS:
+${partsContent}
+
+-----------------------------------------------------
+ITENS E PENDÊNCIAS DE ENTREGA:
+${delivContent}
+=====================================================
+Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
+`
+=======
+=====================================================
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
+Status Resumo:
+[OK (Verde)]: ${okCount} itens
+[ATENÇÃO (Amarelo)]: ${warningCount} itens
+[FALHA (Vermelho)]: ${failureCount} itens
+[NÃO TESTADO (Azul)]: ${untestedCount} itens
+[N/A (Roxo)]: ${naCount} itens
+
+${checklistContent}
+
+-----------------------------------------------------
+PEÇAS E REPAROS REALIZADOS:
+${partsContent}
+
+-----------------------------------------------------
+ITENS E PENDÊNCIAS DE ENTREGA:
+${delivContent}
+=====================================================
+Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
+`
+=======
+    const checklistContent = checklist
+      .map(
+        (item) => {
+          const norm = normalizeChecklistStatus(item.status)
+          return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
+        },
+      )
+      .join('\n')
+
+    const partsContent =
+      parts.length > 0
+        ? parts
+            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
+            .join('\n')
+        : 'Nenhuma peça vinculada.'
+
+    const delivContent =
+      deliverables.length > 0
+        ? deliverables
+            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
+            .join('\n')
+        : 'Sem pendências de entrega.'
+
+    const reportText = `=====================================================
+LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
+LoteEquip Gestão de Equipamentos
+=====================================================
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
+Status Resumo:
+[OK (Verde)]: ${okCount} itens
+[ATENÇÃO (Amarelo)]: ${warningCount} itens
+[FALHA (Vermelho)]: ${failureCount} itens
+[NÃO TESTADO (Azul)]: ${untestedCount} itens
+[N/A (Roxo)]: ${naCount} itens
+
+${checklistContent}
+=====================================================
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO (Total: ${checklist.length} itens)
+Itens OK: ${okCount} | Atenção: ${warningCount} | Não testados: ${untestedCount}
+
+${checklistContent}
+
+-----------------------------------------------------
+PEÇAS E REPAROS REALIZADOS:
+${partsContent}
+
+-----------------------------------------------------
+ITENS E PENDÊNCIAS DE ENTREGA:
+${delivContent}
+=====================================================
+Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
+`
+=======
+  // Total stock
+  const totalStock = batches.reduce((acc, b) => acc + (b.quantity || 0), 0)
+
+  // Download Técnico (gerador de documento / relatório texto para impressão)
+  const handleDownloadChecklist = () => {
+    if (!product) return
+
+    const checklistContent = checklist
+      .map((item) => {
+        const norm = normalizeChecklistStatus(item.status)
+        return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
+      })
+      .join('\n')
+
+    const partsContent =
+      parts.length > 0
+        ? parts
+            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
+            .join('\n')
+        : 'Nenhuma peça vinculada.'
+
+    const delivContent =
+      deliverables.length > 0
+        ? deliverables
+            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
+            .join('\n')
+        : 'Sem pendências de entrega.'
+
+    const reportText = `=====================================================
+LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
+LoteEquip Gestão de Equipamentos
+=====================================================
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
+Status Resumo:
+[OK (Verde)]: ${okCount} itens
+[ATENÇÃO (Amarelo)]: ${warningCount} itens
+[FALHA (Vermelho)]: ${failureCount} itens
+[NÃO TESTADO (Azul)]: ${untestedCount} itens
+[N/A (Roxo)]: ${naCount} itens
+
+${checklistContent}
+
+-----------------------------------------------------
+PEÇAS E REPAROS REALIZADOS:
+${partsContent}
+
+-----------------------------------------------------
+ITENS E PENDÊNCIAS DE ENTREGA:
+${delivContent}
+=====================================================
+Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
+`
+=======
+  // Total stock
+  const totalStock = batches.reduce((acc, b) => acc + (b.quantity || 0), 0)
+
+  // Download Técnico (gerador de documento / relatório texto para impressão)
+  const handleDownloadChecklist = () => {
+    if (!product) return
+
+    const checklistContent = checklist
+      .map((item) => {
+        const norm = normalizeChecklistStatus(item.status)
+        return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
+      })
+      .join('\n')
+
+    const partsContent =
+      parts.length > 0
+        ? parts
+            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
+            .join('\n')
+        : 'Nenhuma peça vinculada.'
+
+    const delivContent =
+      deliverables.length > 0
+        ? deliverables
+            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
+            .join('\n')
+        : 'Sem pendências de entrega.'
+
+    const reportText = `=====================================================
+LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
+LoteEquip Gestão de Equipamentos
+=====================================================
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
+Status Resumo:
+[OK (Verde)]: ${okCount} itens
+[ATENÇÃO (Amarelo)]: ${warningCount} itens
+[FALHA (Vermelho)]: ${failureCount} itens
+[NÃO TESTADO (Azul)]: ${untestedCount} itens
+[N/A (Roxo)]: ${naCount} itens
+
+${checklistContent}
+
+-----------------------------------------------------
+PEÇAS E REPAROS REALIZADOS:
+${partsContent}
+
+-----------------------------------------------------
+ITENS E PENDÊNCIAS DE ENTREGA:
+${delivContent}
+=====================================================
+Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
+`
+=======
+  // Total stock
+  const totalStock = batches.reduce((acc, b) => acc + (b.quantity || 0), 0)
+
+  // Download Técnico (gerador de documento / relatório texto para impressão)
+  const handleDownloadChecklist = () => {
+    if (!product) return
+
+    const checklistContent = checklist
+      .map((item) => {
+        const norm = normalizeChecklistStatus(item.status)
+        return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
+      })
+      .join('\n')
+
+    const partsContent =
+      parts.length > 0
+        ? parts
+            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
+            .join('\n')
+        : 'Nenhuma peça vinculada.'
+
+    const delivContent =
+      deliverables.length > 0
+        ? deliverables
+            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
+            .join('\n')
+        : 'Sem pendências de entrega.'
+
+    const reportText = `=====================================================
+LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
+LoteEquip Gestão de Equipamentos
+=====================================================
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
+Status Resumo:
+[OK (Verde)]: ${okCount} itens
+[ATENÇÃO (Amarelo)]: ${warningCount} itens
+[FALHA (Vermelho)]: ${failureCount} itens
+[NÃO TESTADO (Azul)]: ${untestedCount} itens
+[N/A (Roxo)]: ${naCount} itens
+
+${checklistContent}
+
+-----------------------------------------------------
+PEÇAS E REPAROS REALIZADOS:
+${partsContent}
+
+-----------------------------------------------------
+ITENS E PENDÊNCIAS DE ENTREGA:
+${delivContent}
+=====================================================
+Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
+`
+
+    const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `Checklist-Tecnico-${product.sku || 'equipamento'}.txt`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+
+    toast({
+      title: 'Checklist baixado',
+      description: 'O arquivo com o laudo de revisão foi salvo no seu computador.',
+    })
+  }
+
+  // Part actions
+=======
+  // Financeiro
+  const cost = Number(product?.cost_price) || 0
+  const price = Number(product?.unit_price) || 0
+  const totalPartsCost = parts.reduce((acc, p) => acc + (Number(p.cost) || 0), 0)
+  const totalCostCombined = cost + totalPartsCost
+  const marginCombined = price - totalCostCombined
+  const marginPercent =
+    totalCostCombined > 0 ? ((marginCombined / totalCostCombined) * 100).toFixed(1) : '100'
+
+  // Total stock
+  const totalStock = batches.reduce((acc, b) => acc + (b.quantity || 0), 0)
+
+  // Download Técnico (gerador de documento / relatório texto para impressão)
+  const handleDownloadChecklist = () => {
+    if (!product) return
+
+    const checklistContent = checklist
+      .map((item) => {
+        const norm = normalizeChecklistStatus(item.status)
+        return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
+      })
+      .join('\n')
+
+    const partsContent =
+      parts.length > 0
+        ? parts
+            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
+            .join('\n')
+        : 'Nenhuma peça vinculada.'
+
+    const delivContent =
+      deliverables.length > 0
+        ? deliverables
+            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
+            .join('\n')
+        : 'Sem pendências de entrega.'
+
+    const reportText = `=====================================================
+LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
+LoteEquip Gestão de Equipamentos
+=====================================================
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
+Status Resumo:
+[OK (Verde)]: ${okCount} itens
+[ATENÇÃO (Amarelo)]: ${warningCount} itens
+[FALHA (Vermelho)]: ${failureCount} itens
+[NÃO TESTADO (Azul)]: ${untestedCount} itens
+[N/A (Roxo)]: ${naCount} itens
+
+${checklistContent}
+
+-----------------------------------------------------
+PEÇAS E REPAROS REALIZADOS:
+${partsContent}
+
+-----------------------------------------------------
+ITENS E PENDÊNCIAS DE ENTREGA:
+${delivContent}
+=====================================================
+Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
+`
+
+    const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `Checklist-Tecnico-${product.sku || 'equipamento'}.txt`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+
+    toast({
+      title: 'Checklist baixado',
+      description: 'O arquivo com o laudo de revisão foi salvo no seu computador.',
+    })
+  }
+
+  // Part actions
+=====================================================
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO (Total: ${checklist.length} itens)
+Itens OK: ${okCount} | Atenção: ${warningCount} | Não testados: ${untestedCount}
+
+${checklistContent}
+
+-----------------------------------------------------
+PEÇAS E REPAROS REALIZADOS:
+${partsContent}
+
+-----------------------------------------------------
+ITENS E PENDÊNCIAS DE ENTREGA:
+${delivContent}
+=====================================================
+Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
+`
+=======
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
+Status Resumo:
+[OK (Verde)]: ${okCount} itens
+[ATENÇÃO (Amarelo)]: ${warningCount} itens
+[FALHA (Vermelho)]: ${failureCount} itens
+[NÃO TESTADO (Azul)]: ${untestedCount} itens
+[N/A (Roxo)]: ${naCount} itens
+
+${checklistContent}
+
+-----------------------------------------------------
+PEÇAS E REPAROS REALIZADOS:
+${partsContent}
+
+-----------------------------------------------------
+ITENS E PENDÊNCIAS DE ENTREGA:
+${delivContent}
+=====================================================
+Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
+`
+=======
+  // Download Técnico (gerador de documento / relatório texto para impressão)
+  const handleDownloadChecklist = () => {
+    if (!product) return
+
+    const checklistContent = checklist
+      .map(
+        (item) => {
+          const norm = normalizeChecklistStatus(item.status)
+          return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
+        },
+      )
+      .join('\n')
+
+    const partsContent =
+      parts.length > 0
+        ? parts
+            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
+            .join('\n')
+        : 'Nenhuma peça vinculada.'
+
+    const delivContent =
+      deliverables.length > 0
+        ? deliverables
+            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
+            .join('\n')
+        : 'Sem pendências de entrega.'
+
+    const reportText = `=====================================================
+LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
+LoteEquip Gestão de Equipamentos
+=====================================================
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
+Status Resumo:
+[OK (Verde)]: ${okCount} itens
+[ATENÇÃO (Amarelo)]: ${warningCount} itens
+[FALHA (Vermelho)]: ${failureCount} itens
+[NÃO TESTADO (Azul)]: ${untestedCount} itens
+[N/A (Roxo)]: ${naCount} itens
+
+${checklistContent}
+
+-----------------------------------------------------
+PEÇAS E REPAROS REALIZADOS:
+${partsContent}
+
+-----------------------------------------------------
+ITENS E PENDÊNCIAS DE ENTREGA:
+${delivContent}
+=====================================================
+Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
+`
+=======
+    const checklistContent = checklist
+      .map(
+        (item) => {
+          const norm = normalizeChecklistStatus(item.status)
+          return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
+        },
+      )
+      .join('\n')
+
+    const partsContent =
+      parts.length > 0
+        ? parts
+            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
+            .join('\n')
+        : 'Nenhuma peça vinculada.'
+
+    const delivContent =
+      deliverables.length > 0
+        ? deliverables
+            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
+            .join('\n')
+        : 'Sem pendências de entrega.'
+
+    const reportText = `=====================================================
+LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
+LoteEquip Gestão de Equipamentos
+=====================================================
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
+Status Resumo:
+[OK (Verde)]: ${okCount} itens
+[ATENÇÃO (Amarelo)]: ${warningCount} itens
+[FALHA (Vermelho)]: ${failureCount} itens
+[NÃO TESTADO (Azul)]: ${untestedCount} itens
+[N/A (Roxo)]: ${naCount} itens
+
+${checklistContent}
+=====================================================
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO (Total: ${checklist.length} itens)
+Itens OK: ${okCount} | Atenção: ${warningCount} | Não testados: ${untestedCount}
+
+${checklistContent}
+
+-----------------------------------------------------
+PEÇAS E REPAROS REALIZADOS:
+${partsContent}
+
+-----------------------------------------------------
+ITENS E PENDÊNCIAS DE ENTREGA:
+${delivContent}
+=====================================================
+Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
+`
+=======
+=====================================================
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
+Status Resumo:
+[OK (Verde)]: ${okCount} itens
+[ATENÇÃO (Amarelo)]: ${warningCount} itens
+[FALHA (Vermelho)]: ${failureCount} itens
+[NÃO TESTADO (Azul)]: ${untestedCount} itens
+[N/A (Roxo)]: ${naCount} itens
+
+${checklistContent}
+
+-----------------------------------------------------
+PEÇAS E REPAROS REALIZADOS:
+${partsContent}
+
+-----------------------------------------------------
+ITENS E PENDÊNCIAS DE ENTREGA:
+${delivContent}
+=====================================================
+Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
+`
+=======
+    const checklistContent = checklist
+      .map(
+        (item) => {
+          const norm = normalizeChecklistStatus(item.status)
+          return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
+        },
+      )
+      .join('\n')
+
+    const partsContent =
+      parts.length > 0
+        ? parts
+            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
+            .join('\n')
+        : 'Nenhuma peça vinculada.'
+
+    const delivContent =
+      deliverables.length > 0
+        ? deliverables
+            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
+            .join('\n')
+        : 'Sem pendências de entrega.'
+
+    const reportText = `=====================================================
+LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
+LoteEquip Gestão de Equipamentos
+=====================================================
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
+Status Resumo:
+[OK (Verde)]: ${okCount} itens
+[ATENÇÃO (Amarelo)]: ${warningCount} itens
+[FALHA (Vermelho)]: ${failureCount} itens
+[NÃO TESTADO (Azul)]: ${untestedCount} itens
+[N/A (Roxo)]: ${naCount} itens
+
+${checklistContent}
+=====================================================
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO (Total: ${checklist.length} itens)
+Itens OK: ${okCount} | Atenção: ${warningCount} | Não testados: ${untestedCount}
+
+${checklistContent}
+
+-----------------------------------------------------
+PEÇAS E REPAROS REALIZADOS:
+${partsContent}
+
+-----------------------------------------------------
+ITENS E PENDÊNCIAS DE ENTREGA:
+${delivContent}
+=====================================================
+Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
+`
+=======
+  // Total stock
+  const totalStock = batches.reduce((acc, b) => acc + (b.quantity || 0), 0)
+
+  // Download Técnico (gerador de documento / relatório texto para impressão)
+  const handleDownloadChecklist = () => {
+    if (!product) return
+
+    const checklistContent = checklist
+      .map((item) => {
+        const norm = normalizeChecklistStatus(item.status)
+        return `[${norm.toUpperCase()}] ${item.item}${item.observation ? ` - Obs: ${item.observation}` : ''}`
+      })
+      .join('\n')
+
+    const partsContent =
+      parts.length > 0
+        ? parts
+            .map((p) => `- ${p.name} (${p.status}) R$ ${Number(p.cost || 0).toFixed(2)}`)
+            .join('\n')
+        : 'Nenhuma peça vinculada.'
+
+    const delivContent =
+      deliverables.length > 0
+        ? deliverables
+            .map((d) => `- [${d.status}] ${d.item_name} ${d.notes ? `(${d.notes})` : ''}`)
+            .join('\n')
+        : 'Sem pendências de entrega.'
+
+    const reportText = `=====================================================
+LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO
+LoteEquip Gestão de Equipamentos
+=====================================================
+Equipamento: ${product.name}
+Código / SKU: ${product.sku}
+Lote Físico: ${primaryBatch ? primaryBatch.batch_number : 'Sem lote vinculado'}
+Localização: ${primaryBatch?.location || 'Depósito Central'}
+Marca / Modelo: ${product.brand || 'Dell'} ${product.model || ''}
+Condição Geral: ${product.condition || 'Excelente'}
+Nota Estética: ${product.aesthetic_grade || 'A'}
+Saúde da Bateria: ${product.battery_health || '100%'}
+Preço Sugerido: R$ ${price.toFixed(2)}
+Data da Emissão: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}
+
+-----------------------------------------------------
+ESPECIFICAÇÕES TÉCNICAS:
+- Processador: ${product.processor || 'N/A'}
+- Memória RAM: ${product.ram || 'N/A'}
+- Armazenamento: ${product.storage || 'N/A'}
+- Tela: ${product.screen_size || 'N/A'}
+- Carregador: ${product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
+
+-----------------------------------------------------
+CHECKLIST DE INSPEÇÃO TÉCNICA (Total: ${checklist.length} itens)
+Status Resumo:
+[OK (Verde)]: ${okCount} itens
+[ATENÇÃO (Amarelo)]: ${warningCount} itens
+[FALHA (Vermelho)]: ${failureCount} itens
+[NÃO TESTADO (Azul)]: ${untestedCount} itens
+[N/A (Roxo)]: ${naCount} itens
+
+${checklistContent}
+
+-----------------------------------------------------
+PEÇAS E REPAROS REALIZADOS:
+${partsContent}
+
+-----------------------------------------------------
+ITENS E PENDÊNCIAS DE ENTREGA:
+${delivContent}
+=====================================================
+Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.
+`
 =====================================================
 Equipamento: ${product.name}
 Código / SKU: ${product.sku}
