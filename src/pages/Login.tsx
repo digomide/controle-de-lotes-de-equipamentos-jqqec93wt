@@ -122,7 +122,7 @@ export default function Login() {
               <div className="p-3 bg-slate-100 rounded-lg text-xs text-slate-600 space-y-1">
                 <div className="font-semibold text-slate-700 flex items-center gap-1">
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                  Contas de Acesso Rápido (Demonstração):
+                  Acesso Administrador:
                 </div>
                 <div className="flex flex-wrap gap-2 pt-1">
                   <button
@@ -130,14 +130,7 @@ export default function Login() {
                     onClick={() => handleQuickLogin('rodrigoifgx@gmail.com')}
                     className="text-blue-600 hover:underline font-medium text-left"
                   >
-                    • Admin: rodrigoifgx@gmail.com
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleQuickLogin('vendedor@skip.internal')}
-                    className="text-blue-600 hover:underline font-medium text-left"
-                  >
-                    • Vendedor: vendedor@skip.internal
+                    • Entrar como Admin: rodrigoifgx@gmail.com
                   </button>
                 </div>
                 <p className="text-slate-400 pt-0.5">Senha padrão: Skip@Pass</p>
