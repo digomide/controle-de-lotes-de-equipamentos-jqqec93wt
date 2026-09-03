@@ -270,13 +270,13 @@ export default function LucratividadeLotes() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200 pb-5">
         <div>
           <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
-            <Link to="/lotes-entrada" className="hover:text-orange-600 font-medium">
+            <Link to="/lotes-entrada" className="hover:text-[#d9532f] font-medium">
               Lotes de Entrada
             </Link>
             <span>/</span>
-            <span className="text-slate-700">Relatório de Lucratividade</span>
+            <span className="text-slate-700 font-medium">Relatório de Lucratividade</span>
           </div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">
+          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900">
             Relatório de Lucratividade por Lote
           </h1>
           <p className="text-sm text-slate-500 mt-1">
@@ -287,9 +287,15 @@ export default function LucratividadeLotes() {
 
         <div className="flex items-center gap-2">
           <Link to="/lotes-entrada">
-            <Button variant="outline" className="text-xs h-10 border-slate-300">
-              <Boxes className="w-4 h-4 mr-1.5 text-slate-500" />
+            <Button variant="outline" className="text-xs h-10 border-slate-300 hover:bg-slate-100">
+              <Boxes className="w-4 h-4 mr-1.5 text-slate-600" />
               Ver Lotes de Entrada
+            </Button>
+          </Link>
+          <Link to="/vendas">
+            <Button className="bg-[#d9532f] hover:bg-[#c24624] text-white text-xs h-10 font-semibold shadow-xs gap-1.5">
+              <TrendingUp className="w-4 h-4" />
+              Gestão de Vendas
             </Button>
           </Link>
         </div>
@@ -614,7 +620,7 @@ export default function LucratividadeLotes() {
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="text-xs h-7 px-2.5 text-orange-700 bg-orange-50 hover:bg-orange-100"
+                              className="text-xs h-7 px-2.5 text-[#d9532f] bg-orange-50 hover:bg-orange-100 font-semibold"
                             >
                               Ver Lote
                             </Button>

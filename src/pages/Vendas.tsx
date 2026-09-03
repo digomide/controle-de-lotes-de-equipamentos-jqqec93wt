@@ -308,6 +308,7 @@ export default function Vendas() {
         customer_name: customerName,
         customer_contact: customerContact,
         notes: saleNotes,
+        user_id: user?.id,
         items: cart.map((c) => ({
           product_id: c.productId,
           batch_id: c.batchId,

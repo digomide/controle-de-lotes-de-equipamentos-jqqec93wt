@@ -52,6 +52,16 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -147,7 +157,7 @@ export default function CatalogoDetalhe() {
   const [savingAction, setSavingAction] = useState(false)
 
   const { toast } = useToast()
-  const { isAdmin } = useAuth()
+  const { user, isAdmin } = useAuth()
   const navigate = useNavigate()
 
   const loadData = async () => {
@@ -655,11 +665,12 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
         .filter(Boolean)
         .join(' | ')
 
-      // Call salesService.createSale (same logic used in Vendas 4-step wizard)
+      // Call salesService.createSale with user_id to ensure seller audit
       await salesService.createSale({
         customer_name: quickSaleCustomer.trim(),
         customer_contact: quickSaleContact.trim(),
         notes: fullNotes,
+        user_id: user?.id,
         items: [
           {
             product_id: product.id,

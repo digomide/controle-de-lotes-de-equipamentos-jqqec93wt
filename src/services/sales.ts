@@ -5,6 +5,7 @@ export interface CreateSaleInput {
   customer_name: string
   customer_contact?: string
   notes?: string
+  user_id?: string
   items: Array<{
     product_id: string
     batch_id: string
@@ -45,7 +46,7 @@ export const salesService = {
 
   async createSale(input: CreateSaleInput): Promise<Sale> {
     const totalAmount = input.items.reduce((sum, item) => sum + item.quantity * item.unit_price, 0)
-    const userId = pb.authStore.record?.id
+    const userId = input.user_id || pb.authStore.record?.id
 
     // 1. Create Sale record
     const sale = await pb.collection('sales').create<Sale>({
