@@ -34,6 +34,8 @@ import {
   X,
   ExternalLink,
   Boxes,
+  Printer,
+  QrCode,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -61,6 +63,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { productsService } from '@/services/products'
 import { batchesService } from '@/services/batches'
 import { equipmentService } from '@/services/equipment'
+import { EtiquetaModal, type EtiquetaData } from '@/components/EtiquetaModal'
 import type {
   Product,
   Batch,
@@ -78,6 +81,9 @@ export default function CatalogoDetalhe() {
   const [deliverables, setDeliverables] = useState<EquipmentDeliverable[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0)
+
+  // Etiqueta Modal State
+  const [etiquetaModalOpen, setEtiquetaModalOpen] = useState(false)
 
   // Edit Equipment / Lote Modal
   const [editModalOpen, setEditModalOpen] = useState(false)
@@ -675,8 +681,19 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
           </Link>
         </div>
 
-        {/* Operational buttons: Editar Lote/Equipamento, Gerenciar Fotos */}
-        <div className="flex items-center gap-2">
+        {/* Operational buttons: Imprimir Etiqueta, Editar Lote/Equipamento, Gerenciar Fotos */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => setEtiquetaModalOpen(true)}
+            className="text-xs h-9 gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs font-semibold"
+            title="Gerar e imprimir etiqueta com QR Code e Serial do equipamento"
+          >
+            <QrCode className="w-4 h-4" />
+            Imprimir Etiqueta
+          </Button>
+
           <Button
             variant="outline"
             size="sm"
@@ -684,7 +701,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
             className="text-xs h-9 gap-1.5 border-slate-300 text-slate-700 hover:bg-slate-50"
           >
             <Camera className="w-3.5 h-3.5 text-blue-600" />
-            Adicionar / Gerenciar Fotos ({photos.length})
+            Fotos ({photos.length})
           </Button>
 
           {isAdmin && (
@@ -694,7 +711,7 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
               className="bg-slate-900 hover:bg-slate-800 text-white text-xs h-9 gap-1.5 shadow-sm"
             >
               <Edit2 className="w-3.5 h-3.5" />
-              Editar Lote & Equipamento
+              Editar Equipamento
             </Button>
           )}
         </div>
@@ -1336,14 +1353,24 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
               </div>
 
               {/* Botão Baixar Checklist Técnico (igual ao Replit) */}
-              <Button
-                variant="outline"
-                onClick={handleDownloadChecklist}
-                className="w-full text-xs font-semibold gap-2 border-slate-300 text-slate-700 hover:bg-slate-50"
-              >
-                <Download className="w-3.5 h-3.5" />
-                Baixar checklist técnico
-              </Button>
+              <div className="space-y-2">
+                <Button
+                  variant="outline"
+                  onClick={handleDownloadChecklist}
+                  className="w-full text-xs font-semibold gap-2 border-slate-300 text-slate-700 hover:bg-slate-50"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Baixar checklist técnico
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setEtiquetaModalOpen(true)}
+                  className="w-full text-xs font-semibold gap-2 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  Imprimir etiqueta com QR Code
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -1598,6 +1625,25 @@ Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercializ
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* ETIQUETA COM QR CODE MODAL */}
+      <EtiquetaModal
+        open={etiquetaModalOpen}
+        onOpenChange={setEtiquetaModalOpen}
+        data={{
+          product,
+          batch: primaryBatch,
+          batchNumber: primaryBatch?.batch_number,
+          location: primaryBatch?.location,
+          status: product?.status,
+          price: Number(product?.unit_price) || 0,
+          serialNumber: product?.serial_number || product?.sku,
+          sku: product?.sku,
+          productName: product?.name,
+          brand: product?.brand,
+          model: product?.model,
+        }}
+      />
 
       {/* MODAL: GERENCIAR FOTOS DO EQUIPAMENTO */}
       <Dialog open={photoModalOpen} onOpenChange={setPhotoModalOpen}>

@@ -25,6 +25,8 @@ import {
   Laptop,
   Boxes,
   Barcode,
+  Printer,
+  QrCode,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -52,6 +54,7 @@ import { useRealtime } from '@/hooks/use-realtime'
 import { batchesService } from '@/services/batches'
 import { productsService } from '@/services/products'
 import { adjustmentsService } from '@/services/adjustments'
+import { EtiquetaModal, type EtiquetaData } from '@/components/EtiquetaModal'
 import type { Batch, Product, ProductStatus } from '@/types/inventory'
 
 export default function Estoque() {
@@ -62,6 +65,7 @@ export default function Estoque() {
   // Filters
   const [searchFilter, setSearchFilter] = useState('')
   const [productFilter, setProductFilter] = useState<string>('all')
+  const [statusFilter, setStatusFilter] = useState<string>('all')
   const [stockLevelFilter, setStockLevelFilter] = useState<string>('all')
 
   // Modal State for New/Edit Batch
@@ -95,6 +99,10 @@ export default function Estoque() {
   const [physicalCount, setPhysicalCount] = useState<number>(0)
   const [countReason, setCountReason] = useState('Contagem periódica de rotina')
   const [isSubmittingCount, setIsSubmittingCount] = useState(false)
+
+  // Etiqueta Modal State
+  const [etiquetaModalOpen, setEtiquetaModalOpen] = useState(false)
+  const [etiquetaData, setEtiquetaData] = useState<EtiquetaData | null>(null)
 
   const { toast } = useToast()
   const { isAdmin } = useAuth()
@@ -155,6 +163,10 @@ export default function Estoque() {
 
       const matchesProduct = productFilter === 'all' || b.product_id === productFilter
 
+      // Status de venda filter (Disponível, Reservado, Vendido)
+      const currentStatus = prod?.status || 'Disponível'
+      const matchesStatus = statusFilter === 'all' || currentStatus === statusFilter
+
       let matchesStock = true
       if (stockLevelFilter === 'low') {
         matchesStock = b.quantity <= 5
@@ -164,9 +176,9 @@ export default function Estoque() {
         matchesStock = b.quantity > 0
       }
 
-      return matchesSearch && matchesProduct && matchesStock
+      return matchesSearch && matchesProduct && matchesStatus && matchesStock
     })
-  }, [batches, searchFilter, productFilter, stockLevelFilter])
+  }, [batches, searchFilter, productFilter, statusFilter, stockLevelFilter])
 
   const handleOpenCreateBatch = () => {
     setEditingBatch(null)
@@ -323,6 +335,24 @@ export default function Estoque() {
     }
   }
 
+  const handleOpenEtiqueta = (b: Batch) => {
+    const prod = b.expand?.product_id || products.find((p) => p.id === b.product_id) || null
+    setEtiquetaData({
+      batch: b,
+      product: prod,
+      batchNumber: b.batch_number,
+      location: b.location,
+      status: prod?.status || 'Disponível',
+      price: Number(prod?.unit_price) || 0,
+      serialNumber: prod?.serial_number || prod?.sku,
+      sku: prod?.sku,
+      productName: prod?.name,
+      brand: prod?.brand,
+      model: prod?.model,
+    })
+    setEtiquetaModalOpen(true)
+  }
+
   // Quick Counting Flow
   const handleOpenQuickCount = (b: Batch) => {
     setTargetBatch(b)
@@ -417,26 +447,41 @@ export default function Estoque() {
       {/* Filter Toolbar */}
       <Card className="border-slate-200 shadow-sm bg-white">
         <CardContent className="p-4">
-          <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3">
             {/* Search */}
-            <div className="relative sm:col-span-2">
+            <div className="relative sm:col-span-2 lg:col-span-5">
               <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
               <Input
-                placeholder="Buscar por identificador do lote, notebook, SKU ou prateleira..."
+                placeholder="Buscar por serial, part number, nome, lote ou localização..."
                 value={searchFilter}
                 onChange={(e) => setSearchFilter(e.target.value)}
                 className="pl-9 bg-slate-50 border-slate-200 text-xs h-10"
               />
             </div>
 
-            {/* Product Filter */}
-            <div>
-              <Select value={productFilter} onValueChange={setProductFilter}>
+            {/* Status Filter (Disponível, Reservado, Vendido, Todos) */}
+            <div className="sm:col-span-1 lg:col-span-3">
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger className="bg-slate-50 border-slate-200 text-xs h-10">
-                  <SelectValue placeholder="Filtrar por Equipamento" />
+                  <SelectValue placeholder="Status de Venda" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Todos os Equipamentos</SelectItem>
+                  <SelectItem value="all">Todos os Status</SelectItem>
+                  <SelectItem value="Disponível">Disponíveis (Disponível)</SelectItem>
+                  <SelectItem value="Reservado">Reservados (Reservado)</SelectItem>
+                  <SelectItem value="Vendido">Vendidos (Vendido)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Product Filter */}
+            <div className="sm:col-span-1 lg:col-span-2">
+              <Select value={productFilter} onValueChange={setProductFilter}>
+                <SelectTrigger className="bg-slate-50 border-slate-200 text-xs h-10 truncate">
+                  <SelectValue placeholder="Equipamento" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos Equipamentos</SelectItem>
                   {products.map((p) => (
                     <SelectItem key={p.id} value={p.id}>
                       {p.name}
@@ -447,10 +492,10 @@ export default function Estoque() {
             </div>
 
             {/* Stock Level Filter */}
-            <div>
+            <div className="sm:col-span-2 lg:col-span-2">
               <Select value={stockLevelFilter} onValueChange={setStockLevelFilter}>
                 <SelectTrigger className="bg-slate-50 border-slate-200 text-xs h-10">
-                  <SelectValue placeholder="Nível de Estoque" />
+                  <SelectValue placeholder="Nível Estoque" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todos os Níveis</SelectItem>
@@ -601,15 +646,27 @@ export default function Estoque() {
                         {/* Abrir Lote Separado */}
                         <Link to={detailHref}>
                           <Button
-                            variant="default"
+                            variant="outline"
                             size="sm"
-                            className="h-8 text-xs gap-1.5 bg-slate-900 hover:bg-slate-800 text-white shadow-xs"
+                            className="h-8 text-xs gap-1 border-slate-300 text-slate-700 hover:bg-slate-100"
                             title="Abrir este lote separadamente"
                           >
                             <Eye className="w-3.5 h-3.5" />
                             Abrir Lote
                           </Button>
                         </Link>
+
+                        {/* Imprimir Etiqueta com QR Code */}
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={() => handleOpenEtiqueta(b)}
+                          className="h-8 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs font-medium"
+                          title="Gerar e imprimir etiqueta com QR Code e Serial"
+                        >
+                          <QrCode className="w-3.5 h-3.5" />
+                          <span className="hidden sm:inline">Etiqueta</span>
+                        </Button>
 
                         {/* Editar rápido / Precificar */}
                         {isAdmin && (
@@ -1055,6 +1112,13 @@ export default function Estoque() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ETIQUETA COM QR CODE MODAL */}
+      <EtiquetaModal
+        open={etiquetaModalOpen}
+        onOpenChange={setEtiquetaModalOpen}
+        data={etiquetaData}
+      />
     </div>
   )
 }

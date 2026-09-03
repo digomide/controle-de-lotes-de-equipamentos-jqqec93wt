@@ -288,3 +288,54 @@
     animation: spotlight 2s ease forwards;
   }
 }
+
+/* Print styling for barcode / QR label printing */
+@media print {
+  /* Hide overall application chrome (sidebars, navbars, modals backdrop, footers) */
+  header,
+  aside,
+  nav,
+  button,
+  [role='dialog'] > button,
+  [data-radix-popper-content-wrapper],
+  .no-print {
+    display: none !important;
+  }
+
+  body {
+    background: white !important;
+    color: black !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* When printing an etiqueta modal */
+  body:has(#printable-etiqueta) * {
+    visibility: hidden;
+  }
+
+  body:has(#printable-etiqueta) #printable-etiqueta,
+  body:has(#printable-etiqueta) #printable-etiqueta * {
+    visibility: visible;
+  }
+
+  #printable-etiqueta {
+    position: fixed !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    max-width: 480px !important;
+    margin: 0 auto !important;
+    padding: 12px !important;
+    border: 2px solid black !important;
+    box-shadow: none !important;
+    background: white !important;
+    color: black !important;
+    page-break-inside: avoid !important;
+  }
+
+  @page {
+    margin: 6mm;
+    size: auto;
+  }
+}
