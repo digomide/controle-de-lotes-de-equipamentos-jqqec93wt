@@ -16,6 +16,7 @@ import LucratividadeLotes from './pages/LucratividadeLotes'
 import Estoque from './pages/Estoque'
 import Ajustes from './pages/Ajustes'
 import Configuracoes from './pages/Configuracoes'
+import AnunciosML from './pages/AnunciosML'
 import LotesEntrada from './pages/LotesEntrada'
 import LoteEntradaDetalhe from './pages/LoteEntradaDetalhe'
 import LoteInventariar from './pages/LoteInventariar'
@@ -59,6 +60,7 @@ const App = () => (
             <Route path="/lotes/:id" element={<CatalogoDetalhe />} />
             <Route path="/ajustes" element={<Ajustes />} />
             <Route path="/configuracoes" element={<Configuracoes />} />
+            <Route path="/anuncios-ml" element={<AnunciosML />} />
           </Route>
 
           <Route path="*" element={<NotFound />} />

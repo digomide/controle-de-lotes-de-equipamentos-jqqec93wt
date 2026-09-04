@@ -16,6 +16,7 @@ import {
   Boxes,
   ShieldAlert,
   UserCheck,
+  ShoppingBag,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -44,6 +45,7 @@ export default function Layout() {
     { title: 'Lotes de Entrada', path: '/lotes-entrada', icon: Boxes },
     { title: 'Lucratividade Lotes', path: '/lucratividade', icon: SlidersHorizontal },
     { title: 'Catálogo de Notebooks', path: '/produtos', icon: Package },
+    { title: 'Anúncios ML', path: '/anuncios-ml', icon: ShoppingBag },
     { title: 'Vendas', path: '/vendas', icon: ShoppingCart },
     { title: 'Estoque / Lotes', path: '/estoque', icon: Layers },
     { title: 'Ajustes', path: '/ajustes', icon: SlidersHorizontal },
@@ -58,6 +60,7 @@ export default function Layout() {
     if (p.startsWith('/lotes-entrada/')) return 'Detalhes do Lote de Entrada'
     if (p.startsWith('/lotes-entrada')) return 'Lotes de Entrada'
     if (p.startsWith('/vendas')) return 'Gestão de Vendas'
+    if (p.startsWith('/anuncios-ml')) return 'Anúncios Mercado Livre (Visualização)'
     if (p.startsWith('/catalogo/')) return 'Detalhes do Equipamento'
     if (p.startsWith('/produtos') || p.startsWith('/catalogo')) return 'Catálogo de Equipamentos'
     if (p.startsWith('/estoque')) return 'Controle de Lotes & Estoque'

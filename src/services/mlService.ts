@@ -24,6 +24,49 @@ export interface MLItemResponse {
   sold_quantity: number
 }
 
+export interface MLSellerItem {
+  id: string
+  title: string
+  price: number
+  currency_id: string
+  available_quantity: number
+  sold_quantity: number
+  condition: string
+  status: 'active' | 'paused' | 'closed' | string
+  permalink: string
+  thumbnail: string
+  pictures_count?: number
+  listing_type_id?: string
+  date_created?: string
+  last_updated?: string
+  gtin?: string
+  brand?: string
+  model?: string
+  line?: string
+  // Dados de correspondência com catálogo local
+  matchedProduct?: {
+    id: string
+    name: string
+    sku: string
+    serial_number?: string
+    status: string
+    unit_price: number
+    match_type: 'ml_listing_id' | 'gtin'
+  }
+}
+
+export interface MLSellerItemsResult {
+  seller_id: string
+  seller_nickname?: string
+  paging: {
+    total: number
+    offset: number
+    limit: number
+  }
+  items: MLSellerItem[]
+  total: number
+}
+
 export interface MLPublishPayload {
   product_id: string
   title: string
@@ -1200,5 +1243,101 @@ export const mlService = {
     }
 
     throw new Error('Tempo limite ao alterar status do anúncio no servidor.')
+  },
+
+  /**
+   * Obtém a lista somente-leitura de anúncios do vendedor autenticado no Mercado Livre
+   * e faz match com produtos existentes no catálogo (por ml_listing_id ou gtin)
+   */
+  async getSellerItems(params?: {
+    limit?: number
+    offset?: number
+    status?: string
+  }): Promise<MLSellerItemsResult> {
+    const q = new URLSearchParams()
+    if (params?.limit) q.set('limit', String(params.limit))
+    if (params?.offset) q.set('offset', String(params.offset))
+    if (params?.status) q.set('status', params.status)
+
+    const queryStr = q.toString() ? `?${q.toString()}` : ''
+    const url = `${pb.baseURL}/api/ml/items${queryStr}`
+
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+      },
+    })
+
+    const data = await res.json()
+
+    if (!res.ok) {
+      if (res.status === 401) {
+        throw new Error(
+          data.error ||
+            'Sessão com o Mercado Livre expirada. Reconecte sua conta nas Configurações.',
+        )
+      }
+      throw new Error(
+        data.error || `Erro ao carregar anúncios do Mercado Livre (HTTP ${res.status}).`,
+      )
+    }
+
+    const items: MLSellerItem[] = Array.isArray(data.items) ? data.items : []
+
+    // Cruzar com catálogo local (somente leitura) para indicar quais já correspondem a produtos
+    try {
+      const products = await pb.collection('products').getFullList({
+        fields: 'id,name,sku,serial_number,status,unit_price,ml_listing_id,gtin',
+      })
+
+      const mapByListingId = new Map<string, any>()
+      const mapByGtin = new Map<string, any>()
+
+      for (const p of products) {
+        if (p.ml_listing_id) {
+          mapByListingId.set(String(p.ml_listing_id).trim(), p)
+        }
+        if (p.gtin) {
+          mapByGtin.set(String(p.gtin).trim(), p)
+        }
+      }
+
+      for (const item of items) {
+        if (mapByListingId.has(item.id)) {
+          const match = mapByListingId.get(item.id)
+          item.matchedProduct = {
+            id: match.id,
+            name: match.name,
+            sku: match.sku,
+            serial_number: match.serial_number,
+            status: match.status,
+            unit_price: Number(match.unit_price) || 0,
+            match_type: 'ml_listing_id',
+          }
+        } else if (item.gtin && mapByGtin.has(item.gtin)) {
+          const match = mapByGtin.get(item.gtin)
+          item.matchedProduct = {
+            id: match.id,
+            name: match.name,
+            sku: match.sku,
+            serial_number: match.serial_number,
+            status: match.status,
+            unit_price: Number(match.unit_price) || 0,
+            match_type: 'gtin',
+          }
+        }
+      }
+    } catch (cErr) {
+      console.warn('Não foi possível cruzar com o catálogo local:', cErr)
+    }
+
+    return {
+      seller_id: data.seller_id || '',
+      seller_nickname: data.seller_nickname || '',
+      paging: data.paging || { total: items.length, offset: 0, limit: items.length },
+      items,
+      total: data.total || items.length,
+    }
   },
 }

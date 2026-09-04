@@ -104,13 +104,14 @@ import {
   type ConditionGrade,
 } from '@/lib/condition'
 import { SingleMLPublishModal } from '@/components/SingleMLPublishModal'
+import { BackgroundRemovalModal } from '@/components/BackgroundRemovalModal'
 import {
   validateProductForML,
   mlService,
   deriveProductFamily,
   type MLItemResponse,
 } from '@/services/mlService'
-import { ShoppingBag, PauseCircle, PlayCircle, XCircle } from 'lucide-react'
+import { ShoppingBag, PauseCircle, PlayCircle, XCircle, Wand2 } from 'lucide-react'
 
 export default function CatalogoDetalhe() {
   const { id } = useParams<{ id: string }>()
@@ -172,8 +173,10 @@ export default function CatalogoDetalhe() {
   const [editBatchNumber, setEditBatchNumber] = useState('')
   const [savingEdit, setSavingEdit] = useState(false)
 
-  // Gerenciador de Fotos
+  // Gerenciador de Fotos e IA de Remoção de Fundo
   const [photoModalOpen, setPhotoModalOpen] = useState(false)
+  const [bgRemovalModalOpen, setBgRemovalModalOpen] = useState(false)
+  const [bgRemovalTargetIndex, setBgRemovalTargetIndex] = useState(0)
   const [photoUrlInput, setPhotoUrlInput] = useState('')
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -423,6 +426,68 @@ export default function CatalogoDetalhe() {
       })
     } finally {
       setSavingEdit(false)
+    }
+  }
+
+  // Abertura do modal de remoção de fundo com IA
+  const handleOpenBgRemoval = (photoIndex: number) => {
+    setBgRemovalTargetIndex(photoIndex)
+    setBgRemovalModalOpen(true)
+  }
+
+  // Callback ao salvar a imagem processada pela IA
+  const handleSaveProcessedPhoto = async (
+    newFile: File,
+    photoIndex: number,
+    replaceOriginal: boolean,
+  ) => {
+    if (!product) return
+
+    setIsUploadingPhoto(true)
+    try {
+      const totalUploadedPhotos = Array.isArray(product.photos) ? product.photos.length : 0
+
+      if (replaceOriginal && photoIndex < totalUploadedPhotos) {
+        // Para substituir um arquivo no PocketBase: removemos o arquivo antigo e anexamos o novo
+        const targetFilename = product.photos![photoIndex]
+        const remaining = product.photos!.filter((fn) => fn !== targetFilename)
+
+        // 1. Atualizar lista excluindo o antigo
+        await productsService.update(product.id, {
+          photos: remaining,
+        })
+
+        // 2. Anexar o novo arquivo gerado
+        const formData = new FormData()
+        formData.append('photos', newFile)
+        const updated = await productsService.update(product.id, formData)
+        setProduct(updated)
+      } else if (replaceOriginal && photoIndex >= totalUploadedPhotos) {
+        // Substituindo uma imagem por URL externa
+        const imgIndex = photoIndex - totalUploadedPhotos
+        const currentImages = Array.isArray(product.images) ? [...product.images] : []
+        currentImages.splice(imgIndex, 1)
+
+        // Salvar novo arquivo em photos e atualizar images
+        const formData = new FormData()
+        formData.append('photos', newFile)
+        formData.append('images', JSON.stringify(currentImages))
+        const updated = await productsService.update(product.id, formData)
+        setProduct(updated)
+      } else {
+        // Modo adicionar como nova foto
+        const formData = new FormData()
+        formData.append('photos', newFile)
+        const updated = await productsService.update(product.id, formData)
+        setProduct(updated)
+      }
+
+      await loadData()
+    } catch (err: any) {
+      console.error('Erro ao atualizar foto processada no produto:', err)
+      throw err
+    } finally {
+      setIsUploadingPhoto(false)
     }
   }
 
@@ -1244,6 +1309,19 @@ export default function CatalogoDetalhe() {
                 >
                   <ZoomIn className="w-3.5 h-3.5 text-emerald-600" />
                   Tela Cheia
+                </button>
+
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleOpenBgRemoval(selectedPhotoIndex)
+                  }}
+                  className="bg-indigo-600/95 hover:bg-indigo-700 text-white text-xs px-2.5 py-1 rounded-md font-semibold shadow flex items-center gap-1.5 transition-all opacity-95 group-hover:opacity-100"
+                  title="Remover fundo desta foto com IA no navegador e compor fundo branco (#FFFFFF)"
+                >
+                  <Wand2 className="w-3.5 h-3.5" />
+                  Remover Fundo (IA)
                 </button>
 
                 <button
@@ -2833,15 +2911,36 @@ export default function CatalogoDetalhe() {
                     <div className="absolute top-1.5 left-1.5 bg-slate-900/80 text-white text-[10px] px-1.5 py-0.5 rounded font-mono">
                       #{idx + 1}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleRemovePhoto(idx)}
-                      disabled={isUploadingPhoto}
-                      className="absolute top-1.5 right-1.5 bg-rose-600 hover:bg-rose-700 text-white p-1 rounded-md opacity-80 group-hover:opacity-100 transition-opacity"
-                      title="Excluir foto"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="absolute top-1.5 right-1.5 flex items-center gap-1 opacity-90 group-hover:opacity-100 transition-opacity">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenBgRemoval(idx)}
+                        disabled={isUploadingPhoto}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white p-1 rounded-md shadow-xs"
+                        title="Remover fundo com IA e colocar fundo branco ML"
+                      >
+                        <Wand2 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRemovePhoto(idx)}
+                        disabled={isUploadingPhoto}
+                        className="bg-rose-600 hover:bg-rose-700 text-white p-1 rounded-md shadow-xs"
+                        title="Excluir foto"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <div className="absolute bottom-1.5 inset-x-1.5 flex justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenBgRemoval(idx)}
+                        className="w-full bg-slate-900/90 hover:bg-slate-900 text-white text-[10px] py-1 px-1.5 rounded font-semibold flex items-center justify-center gap-1 shadow"
+                      >
+                        <Wand2 className="w-3 h-3 text-indigo-300" />
+                        Remover fundo
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -3202,6 +3301,18 @@ export default function CatalogoDetalhe() {
           }
         }}
       />
+
+      {/* MODAL: REMOÇÃO DE FUNDO COM IA NO NAVEGADOR */}
+      {photos[bgRemovalTargetIndex] && (
+        <BackgroundRemovalModal
+          open={bgRemovalModalOpen}
+          onOpenChange={setBgRemovalModalOpen}
+          originalImageUrl={photos[bgRemovalTargetIndex]}
+          photoIndex={bgRemovalTargetIndex}
+          equipmentName={product?.name}
+          onSaveProcessedPhoto={handleSaveProcessedPhoto}
+        />
+      )}
 
       {/* DIALOG DE ZOOM / LIGHTBOX DE FOTOS EM TELA CHEIA COM AJUSTE DE LUZ */}
       <ImageLightboxModal

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -348,6 +349,17 @@ export function MercadoLivreConfigCard() {
                 </div>
 
                 <div className="flex items-center gap-2 self-end sm:self-center">
+                  <Link to="/anuncios-ml">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="text-xs h-8 border-amber-300 text-amber-950 bg-amber-50 hover:bg-amber-100 font-semibold gap-1.5"
+                    >
+                      <ShoppingBag className="w-3.5 h-3.5 text-amber-700" />
+                      Ver Anúncios ML
+                    </Button>
+                  </Link>
                   <Button
                     type="button"
                     variant="outline"
