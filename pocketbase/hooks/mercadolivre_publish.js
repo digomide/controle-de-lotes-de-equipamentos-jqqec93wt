@@ -99,7 +99,20 @@ routerAdd(
     if (customPictures.length > 0) {
       pictureObjects = customPictures.map((u) => ({ source: u }))
     } else {
-      // Coletar do produto
+      // Coletar do produto: fotos do storage e/ou URLs externas
+      const photosRaw = product.get('photos')
+      if (photosRaw && Array.isArray(photosRaw)) {
+        const pbcBase = $os.getenv('VITE_POCKETBASE_URL') || ''
+        const colId = product.collection().id
+        const pId = product.id
+        for (let i = 0; i < photosRaw.length; i++) {
+          const fn = (photosRaw[i] || '').toString().trim()
+          if (fn) {
+            pictureObjects.push({ source: pbcBase + '/api/files/' + colId + '/' + pId + '/' + fn })
+          }
+        }
+      }
+
       const imagesRaw = product.get('images')
       if (imagesRaw && Array.isArray(imagesRaw)) {
         for (let i = 0; i < imagesRaw.length; i++) {
