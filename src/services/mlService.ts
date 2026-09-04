@@ -104,7 +104,13 @@ export const ML_CATEGORIES = [
 /**
  * Gera título otimizado respeitando o limite máximo de 60 caracteres da API do Mercado Livre
  */
-export function generateMLTitle(product: Product): string {
+export function generateMLTitle(
+  product: Product,
+  overrides?: {
+    conditionType?: 'novo' | 'usado' | 'recondicionado' | 'caixa_aberta'
+    conditionGrade?: 'excelente' | 'bom' | 'aceitavel'
+  },
+): string {
   const brand = (product.brand || '').trim()
   const model = (product.model || '').trim()
   const proc = (product.processor || '').replace(/Processador\s*/i, '').trim()
@@ -129,8 +135,8 @@ export function generateMLTitle(product: Product): string {
   }
 
   // Se for recondicionado e couber grau de estado, enriquecer
-  const condType = (product.condition_type || '').toLowerCase()
-  const condGrade = (product.condition_grade || '').toLowerCase()
+  const condType = (overrides?.conditionType || product.condition_type || '').toLowerCase()
+  const condGrade = (overrides?.conditionGrade || product.condition_grade || '').toLowerCase()
   if (condType === 'recondicionado' && condGrade) {
     const gradeShort =
       condGrade === 'excelente' ? 'Excelente' : condGrade === 'bom' ? 'Bom' : 'Aceitável'
@@ -148,7 +154,13 @@ export function generateMLTitle(product: Product): string {
 /**
  * Gera descrição estruturada com checklist técnico, especificações e contato
  */
-export function generateMLDescription(product: Product): string {
+export function generateMLDescription(
+  product: Product,
+  overrides?: {
+    conditionType?: 'novo' | 'usado' | 'recondicionado' | 'caixa_aberta'
+    conditionGrade?: 'excelente' | 'bom' | 'aceitavel'
+  },
+): string {
   const lines: string[] = []
 
   lines.push(`*** ${product.name || 'NOTEBOOK REVISADO'} ***`)
@@ -174,12 +186,10 @@ export function generateMLDescription(product: Product): string {
     bom: 'Bom (marcas pequenas, tela sem detalhes)',
     aceitavel: 'Aceitável (marcas visíveis de uso)',
   }
-  const cType = product.condition_type
-    ? typeMap[product.condition_type] || product.condition_type
-    : ''
-  const cGrade = product.condition_grade
-    ? gradeMap[product.condition_grade] || product.condition_grade
-    : ''
+  const activeType = overrides?.conditionType || product.condition_type
+  const activeGrade = overrides?.conditionGrade || product.condition_grade
+  const cType = activeType ? typeMap[activeType] || activeType : ''
+  const cGrade = activeGrade ? gradeMap[activeGrade] || activeGrade : ''
 
   if (cType && cGrade) {
     lines.push(`• Condição / Estado (Padrão Mercado Livre): ${cType} — Grau: ${cGrade}`)
@@ -279,7 +289,13 @@ export function validateProductForML(product: Product): { eligible: boolean; rea
     reasons.push('Equipamento não possui nenhuma foto cadastrada')
   }
 
-  if (product.condition_type === 'recondicionado' && !product.condition_grade) {
+  const resolvedType =
+    product.condition_type ||
+    (product.condition?.toLowerCase().includes('novo') ? 'novo' : 'recondicionado')
+  const resolvedGrade = product.condition_grade
+  if (resolvedType === 'recondicionado' && !resolvedGrade) {
+    // Não bloqueia mais no batch se o usuário puder escolher no modal;
+    // mas se ambos faltarem, avisa:
     reasons.push('Recondicionados exigem grau de estado (Excelente, Bom ou Aceitável)')
   }
 

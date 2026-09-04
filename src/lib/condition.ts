@@ -212,58 +212,66 @@ export function getMLGradeLabel(grade?: ConditionGrade): string {
 /**
  * Estilos Tailwind para badges baseados no tipo e grau
  */
+export interface ConditionBadgeResult {
+  badgeClass: string
+  dotClass: string
+  classes: string
+  label: string
+  gradeLabel?: string
+}
+
+/**
+ * Estilos Tailwind e rótulos para badges baseados no tipo e grau
+ */
 export function getConditionBadgeStyles(
   type: ConditionType,
   grade?: ConditionGrade,
-): {
-  badgeClass: string
-  dotClass: string
-} {
+): ConditionBadgeResult {
+  const typeOpt = CONDITION_TYPE_OPTIONS.find((t) => t.value === type)
+  const label = typeOpt ? typeOpt.label : 'Usado'
+
+  const gradeOpt = grade ? CONDITION_GRADE_OPTIONS.find((g) => g.value === grade) : undefined
+  const gradeLabel = gradeOpt?.label
+
+  let badgeClass = 'bg-slate-100 text-slate-800 border-slate-300'
+  let dotClass = 'bg-slate-400'
+
   if (type === 'novo') {
-    return {
-      badgeClass: 'bg-emerald-50 text-emerald-800 border-emerald-200',
-      dotClass: 'bg-emerald-500',
-    }
-  }
-  if (type === 'caixa_aberta') {
-    return {
-      badgeClass: 'bg-indigo-50 text-indigo-800 border-indigo-200',
-      dotClass: 'bg-indigo-500',
-    }
-  }
-  if (type === 'recondicionado') {
+    badgeClass = 'bg-emerald-50 text-emerald-800 border-emerald-200'
+    dotClass = 'bg-emerald-500'
+  } else if (type === 'caixa_aberta') {
+    badgeClass = 'bg-indigo-50 text-indigo-800 border-indigo-200'
+    dotClass = 'bg-indigo-500'
+  } else if (type === 'recondicionado') {
     if (grade === 'excelente') {
-      return {
-        badgeClass: 'bg-blue-50 text-blue-800 border-blue-200',
-        dotClass: 'bg-blue-500',
-      }
+      badgeClass = 'bg-blue-50 text-blue-800 border-blue-200'
+      dotClass = 'bg-blue-500'
+    } else if (grade === 'aceitavel') {
+      badgeClass = 'bg-amber-50 text-amber-800 border-amber-200'
+      dotClass = 'bg-amber-500'
+    } else {
+      badgeClass = 'bg-cyan-50 text-cyan-800 border-cyan-200'
+      dotClass = 'bg-cyan-500'
     }
-    if (grade === 'aceitavel') {
-      return {
-        badgeClass: 'bg-amber-50 text-amber-800 border-amber-200',
-        dotClass: 'bg-amber-500',
-      }
-    }
-    return {
-      badgeClass: 'bg-cyan-50 text-cyan-800 border-cyan-200',
-      dotClass: 'bg-cyan-500',
-    }
-  }
-  // usado
-  if (grade === 'excelente') {
-    return {
-      badgeClass: 'bg-slate-100 text-slate-800 border-slate-300',
-      dotClass: 'bg-emerald-500',
-    }
-  }
-  if (grade === 'aceitavel') {
-    return {
-      badgeClass: 'bg-slate-100 text-slate-700 border-slate-300',
-      dotClass: 'bg-amber-500',
+  } else {
+    // usado
+    if (grade === 'excelente') {
+      badgeClass = 'bg-slate-100 text-slate-800 border-slate-300'
+      dotClass = 'bg-emerald-500'
+    } else if (grade === 'aceitavel') {
+      badgeClass = 'bg-slate-100 text-slate-700 border-slate-300'
+      dotClass = 'bg-amber-500'
+    } else {
+      badgeClass = 'bg-slate-100 text-slate-800 border-slate-300'
+      dotClass = 'bg-slate-400'
     }
   }
+
   return {
-    badgeClass: 'bg-slate-100 text-slate-800 border-slate-300',
-    dotClass: 'bg-slate-400',
+    badgeClass,
+    dotClass,
+    classes: badgeClass,
+    label,
+    gradeLabel,
   }
 }

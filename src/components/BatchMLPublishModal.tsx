@@ -11,6 +11,13 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { useToast } from '@/hooks/use-toast'
 import type { Product } from '@/types/inventory'
 import {
@@ -22,6 +29,13 @@ import {
   translateMLErrorMessage,
   type MLStatusResponse,
 } from '@/services/mlService'
+import {
+  CONDITION_TYPE_OPTIONS,
+  CONDITION_GRADE_OPTIONS,
+  resolveCondition,
+  type ConditionType,
+  type ConditionGrade,
+} from '@/lib/condition'
 import {
   ShoppingBag,
   ExternalLink,
@@ -46,6 +60,8 @@ interface EditableMLItem {
   title: string
   price: number
   categoryId: string
+  conditionType: ConditionType
+  conditionGrade?: ConditionGrade
   eligible: boolean
   reasons: string[]
   status: 'idle' | 'publishing' | 'success' | 'error'
@@ -75,14 +91,24 @@ export function BatchMLPublishModal({
       setCurrentIndex(0)
       setPublishFinished(false)
 
-      // Inicializa os itens com validação prévia
+      // Inicializa os itens com validação prévia e condição normalizada
       const list: EditableMLItem[] = selectedProducts.map((p) => {
+        const resolved = resolveCondition(p.condition_type, p.condition_grade, p.condition)
+        const initialType = resolved.type
+        const initialGrade =
+          resolved.grade || (initialType === 'recondicionado' ? 'excelente' : undefined)
         const validation = validateProductForML(p)
+
         return {
           product: p,
-          title: generateMLTitle(p),
+          title: generateMLTitle(p, {
+            conditionType: initialType,
+            conditionGrade: initialGrade,
+          }),
           price: Number(p.unit_price) || 0,
           categoryId: 'MLB1652',
+          conditionType: initialType,
+          conditionGrade: initialGrade,
           eligible: validation.eligible,
           reasons: validation.reasons,
           status: 'idle',
@@ -122,6 +148,37 @@ export function BatchMLPublishModal({
     })
   }
 
+  const handleUpdateItemConditionType = (index: number, val: ConditionType) => {
+    setItems((prev) => {
+      const copy = [...prev]
+      const current = copy[index]
+      const opt = CONDITION_TYPE_OPTIONS.find((t) => t.value === val)
+      let newGrade: ConditionGrade | undefined = current.conditionGrade
+      if (!opt?.allowsGrade) {
+        newGrade = undefined
+      } else if (opt?.requiresGrade && !current.conditionGrade) {
+        newGrade = 'excelente'
+      }
+      copy[index] = {
+        ...current,
+        conditionType: val,
+        conditionGrade: newGrade,
+      }
+      return copy
+    })
+  }
+
+  const handleUpdateItemConditionGrade = (index: number, val?: ConditionGrade) => {
+    setItems((prev) => {
+      const copy = [...prev]
+      copy[index] = {
+        ...copy[index],
+        conditionGrade: val,
+      }
+      return copy
+    })
+  }
+
   // Publicação sequencial 1 a 1 via fila do servidor PocketBase
   const handleStartPublish = async () => {
     if (eligibleItems.length === 0) return
@@ -147,13 +204,18 @@ export function BatchMLPublishModal({
 
       try {
         const pictures = getProductImageUrls(it.product)
-        const desc = generateMLDescription(it.product)
+        const desc = generateMLDescription(it.product, {
+          conditionType: it.conditionType,
+          conditionGrade: it.conditionGrade,
+        })
 
         const res = await mlService.publish({
           product_id: it.product.id,
           title: it.title.trim(),
           price: it.price,
           category_id: it.categoryId,
+          condition_type: it.conditionType,
+          condition_grade: it.conditionGrade,
           description: desc,
           pictures: pictures,
         })
@@ -399,40 +461,142 @@ export function BatchMLPublishModal({
                         </div>
 
                         {it.eligible ? (
-                          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 items-center">
-                            {/* Título do Anúncio */}
-                            <div className="sm:col-span-3 space-y-0.5">
-                              <div className="flex justify-between text-[10px] text-slate-400">
-                                <span>Título ML (máx. 60)</span>
-                                <span
-                                  className={it.title.length > 60 ? 'text-rose-600 font-bold' : ''}
-                                >
-                                  {it.title.length}/60
-                                </span>
+                          <div className="space-y-2">
+                            {/* Linha 1: Título e Preço */}
+                            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 items-center">
+                              {/* Título do Anúncio */}
+                              <div className="sm:col-span-3 space-y-0.5">
+                                <div className="flex justify-between text-[10px] text-slate-400">
+                                  <span>Título ML (máx. 60)</span>
+                                  <span
+                                    className={
+                                      it.title.length > 60 ? 'text-rose-600 font-bold' : ''
+                                    }
+                                  >
+                                    {it.title.length}/60
+                                  </span>
+                                </div>
+                                <Input
+                                  value={it.title}
+                                  onChange={(e) => handleUpdateItemTitle(idx, e.target.value)}
+                                  disabled={isPublishingBatch || it.status === 'success'}
+                                  maxLength={60}
+                                  className="h-8 text-xs bg-white"
+                                />
                               </div>
-                              <Input
-                                value={it.title}
-                                onChange={(e) => handleUpdateItemTitle(idx, e.target.value)}
-                                disabled={isPublishingBatch || it.status === 'success'}
-                                maxLength={60}
-                                className="h-8 text-xs bg-white"
-                              />
+
+                              {/* Preço de Venda */}
+                              <div className="space-y-0.5">
+                                <div className="text-[10px] text-slate-400">Preço (R$)</div>
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  value={it.price || ''}
+                                  onChange={(e) =>
+                                    handleUpdateItemPrice(idx, parseFloat(e.target.value) || 0)
+                                  }
+                                  disabled={isPublishingBatch || it.status === 'success'}
+                                  className="h-8 text-xs font-mono font-bold bg-white"
+                                />
+                              </div>
                             </div>
 
-                            {/* Preço de Venda */}
-                            <div className="space-y-0.5">
-                              <div className="text-[10px] text-slate-400">Preço (R$)</div>
-                              <Input
-                                type="number"
-                                step="0.01"
-                                value={it.price || ''}
-                                onChange={(e) =>
-                                  handleUpdateItemPrice(idx, parseFloat(e.target.value) || 0)
-                                }
-                                disabled={isPublishingBatch || it.status === 'success'}
-                                className="h-8 text-xs font-mono font-bold bg-white"
-                              />
-                            </div>
+                            {/* Linha 2: Tipo de Produto e Grau de Estado */}
+                            {(() => {
+                              const typeOpt = CONDITION_TYPE_OPTIONS.find(
+                                (t) => t.value === it.conditionType,
+                              )
+                              const allows = typeOpt ? typeOpt.allowsGrade : false
+                              const requires = typeOpt ? typeOpt.requiresGrade : false
+
+                              return (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-slate-50/80 p-2 rounded-md border border-slate-200">
+                                  <div className="space-y-0.5">
+                                    <div className="text-[10px] text-slate-500 font-semibold">
+                                      Tipo de Produto ML
+                                    </div>
+                                    <Select
+                                      value={it.conditionType}
+                                      onValueChange={(val: ConditionType) =>
+                                        handleUpdateItemConditionType(idx, val)
+                                      }
+                                      disabled={isPublishingBatch || it.status === 'success'}
+                                    >
+                                      <SelectTrigger className="h-7 text-xs bg-white">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {CONDITION_TYPE_OPTIONS.map((opt) => (
+                                          <SelectItem
+                                            key={opt.value}
+                                            value={opt.value}
+                                            className="text-xs"
+                                          >
+                                            {opt.label}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+
+                                  <div className="space-y-0.5">
+                                    <div className="text-[10px] text-slate-500 font-semibold flex items-center justify-between">
+                                      <span>Grau de Estado</span>
+                                      <span className="text-[9px] text-slate-400">
+                                        {requires
+                                          ? 'Obrigatório'
+                                          : allows
+                                            ? 'Opcional'
+                                            : 'Não aplicável'}
+                                      </span>
+                                    </div>
+                                    <Select
+                                      value={it.conditionGrade || 'none'}
+                                      onValueChange={(val: string) =>
+                                        handleUpdateItemConditionGrade(
+                                          idx,
+                                          val === 'none' ? undefined : (val as ConditionGrade),
+                                        )
+                                      }
+                                      disabled={
+                                        !allows || isPublishingBatch || it.status === 'success'
+                                      }
+                                    >
+                                      <SelectTrigger
+                                        className={`h-7 text-xs bg-white ${
+                                          !allows ? 'opacity-60 bg-slate-100' : ''
+                                        }`}
+                                      >
+                                        <SelectValue
+                                          placeholder={
+                                            !allows ? 'Não aplicável' : 'Selecione o grau...'
+                                          }
+                                        />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {!requires && (
+                                          <SelectItem
+                                            value="none"
+                                            className="text-xs text-slate-400 italic"
+                                          >
+                                            Sem grau
+                                          </SelectItem>
+                                        )}
+                                        {CONDITION_GRADE_OPTIONS.map((opt) => (
+                                          <SelectItem
+                                            key={opt.value}
+                                            value={opt.value}
+                                            className="text-xs"
+                                          >
+                                            {opt.label}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                </div>
+                              )
+                            })()}
                           </div>
                         ) : (
                           /* Motivos de inelegibilidade */

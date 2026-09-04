@@ -31,6 +31,14 @@ import {
   type MLStatusResponse,
 } from '@/services/mlService'
 import {
+  CONDITION_TYPE_OPTIONS,
+  CONDITION_GRADE_OPTIONS,
+  resolveCondition,
+  getMLItemCondition,
+  type ConditionType,
+  type ConditionGrade,
+} from '@/lib/condition'
+import {
   ShoppingBag,
   ExternalLink,
   Loader2,
@@ -38,6 +46,7 @@ import {
   CheckCircle2,
   Info,
   Settings,
+  Sparkles,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
@@ -69,14 +78,42 @@ export function SingleMLPublishModal({
   const [description, setDescription] = useState('')
   const [photos, setPhotos] = useState<string[]>([])
 
+  // Condição & Grau de estado para publicação
+  const [conditionType, setConditionType] = useState<ConditionType>('recondicionado')
+  const [conditionGrade, setConditionGrade] = useState<ConditionGrade | undefined>('excelente')
+
   useEffect(() => {
     if (isOpen) {
       setErrorMessage(null)
       setPublishing(false)
-      setTitle(generateMLTitle(product))
+
+      // Resolver valores iniciais a partir do cadastro do produto
+      const resolved = resolveCondition(
+        product.condition_type,
+        product.condition_grade,
+        product.condition,
+      )
+      const initialType = resolved.type
+      const initialGrade =
+        resolved.grade || (initialType === 'recondicionado' ? 'excelente' : undefined)
+
+      setConditionType(initialType)
+      setConditionGrade(initialGrade)
+
+      setTitle(
+        generateMLTitle(product, {
+          conditionType: initialType,
+          conditionGrade: initialGrade,
+        }),
+      )
       setPrice(Number(product.unit_price) || 0)
       setCategoryId('MLB1652')
-      setDescription(generateMLDescription(product))
+      setDescription(
+        generateMLDescription(product, {
+          conditionType: initialType,
+          conditionGrade: initialGrade,
+        }),
+      )
       setPhotos(getProductImageUrls(product))
 
       // Checar status de conexão do ML
@@ -88,6 +125,54 @@ export function SingleMLPublishModal({
         .finally(() => setLoadingStatus(false))
     }
   }, [isOpen, product])
+
+  // Informações da opção atual
+  const currentTypeOpt = CONDITION_TYPE_OPTIONS.find((t) => t.value === conditionType)
+  const allowsGrade = currentTypeOpt ? currentTypeOpt.allowsGrade : false
+  const requiresGrade = currentTypeOpt ? currentTypeOpt.requiresGrade : false
+
+  // Ao alterar o tipo
+  const handleTypeChange = (newType: ConditionType) => {
+    setConditionType(newType)
+    const opt = CONDITION_TYPE_OPTIONS.find((t) => t.value === newType)
+    let newGrade: ConditionGrade | undefined = conditionGrade
+    if (!opt?.allowsGrade) {
+      newGrade = undefined
+      setConditionGrade(undefined)
+    } else if (opt?.requiresGrade && !conditionGrade) {
+      newGrade = 'excelente'
+      setConditionGrade('excelente')
+    }
+
+    // Atualiza automaticamente a descrição para refletir a nova condição escolhida
+    setDescription(
+      generateMLDescription(product, {
+        conditionType: newType,
+        conditionGrade: newGrade,
+      }),
+    )
+  }
+
+  // Ao alterar o grau
+  const handleGradeChange = (newGrade?: ConditionGrade) => {
+    setConditionGrade(newGrade)
+    setDescription(
+      generateMLDescription(product, {
+        conditionType,
+        conditionGrade: newGrade,
+      }),
+    )
+  }
+
+  // Regenerar título com a nova condição
+  const handleRegenerateTitle = () => {
+    setTitle(
+      generateMLTitle(product, {
+        conditionType,
+        conditionGrade,
+      }),
+    )
+  }
 
   const handlePublish = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -115,6 +200,13 @@ export function SingleMLPublishModal({
       return
     }
 
+    if (requiresGrade && !conditionGrade) {
+      setErrorMessage(
+        'Produtos recondicionados exigem selecionar o Grau de estado (Excelente, Bom ou Aceitável).',
+      )
+      return
+    }
+
     setPublishing(true)
     setPublishProgress('Enviando anúncio para processamento no servidor...')
     try {
@@ -126,6 +218,8 @@ export function SingleMLPublishModal({
           category_id: categoryId,
           description: description.trim(),
           pictures: photos,
+          condition_type: conditionType,
+          condition_grade: conditionGrade,
         },
         (msg) => setPublishProgress(msg),
       )
@@ -139,6 +233,8 @@ export function SingleMLPublishModal({
         if (onPublished) {
           onPublished({
             ...product,
+            condition_type: conditionType,
+            condition_grade: conditionGrade,
             ml_listing_id: res.ml_listing_id,
             ml_listing_url: res.ml_listing_url,
             ml_listing_status: res.ml_listing_status,
@@ -250,11 +346,131 @@ export function SingleMLPublishModal({
               </div>
             )}
 
+            {/* Seleção de Condição ML (Tipo de Produto & Grau de Estado) */}
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                  Condição do Equipamento no Mercado Livre
+                </span>
+                <span className="text-[10px] text-slate-500">
+                  API: <code>{getMLItemCondition(conditionType)}</code>
+                  {conditionGrade && allowsGrade && (
+                    <>
+                      {' · '}
+                      <code>ITEM_GRADE: {conditionGrade}</code>
+                    </>
+                  )}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Tipo de Produto */}
+                <div className="space-y-1">
+                  <Label className="text-slate-700 font-semibold">Tipo de Produto *</Label>
+                  <Select
+                    value={conditionType}
+                    onValueChange={(val: ConditionType) => handleTypeChange(val)}
+                  >
+                    <SelectTrigger className="text-xs bg-white h-9">
+                      <SelectValue placeholder="Selecione o tipo..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CONDITION_TYPE_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                          <div className="flex flex-col text-left py-0.5">
+                            <span className="font-semibold text-slate-900">{opt.label}</span>
+                            <span className="text-[10px] text-slate-500 font-normal">
+                              {opt.description}
+                            </span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Grau de Estado */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-slate-700 font-semibold">
+                      Grau de Estado {requiresGrade && <span className="text-orange-600">*</span>}
+                    </Label>
+                    <span className="text-[10px] text-slate-400">
+                      {requiresGrade
+                        ? 'Obrigatório (Recondicionado)'
+                        : allowsGrade
+                          ? 'Opcional (Usado)'
+                          : 'Não aplicável'}
+                    </span>
+                  </div>
+                  <Select
+                    value={conditionGrade || 'none'}
+                    onValueChange={(val: string) =>
+                      handleGradeChange(val === 'none' ? undefined : (val as ConditionGrade))
+                    }
+                    disabled={!allowsGrade}
+                  >
+                    <SelectTrigger
+                      className={`text-xs bg-white h-9 ${
+                        !allowsGrade ? 'opacity-60 bg-slate-100 cursor-not-allowed' : ''
+                      }`}
+                    >
+                      <SelectValue
+                        placeholder={
+                          !allowsGrade ? 'Não aplicável para este tipo' : 'Selecione o grau...'
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {!requiresGrade && (
+                        <SelectItem value="none" className="text-xs text-slate-500 italic">
+                          Sem grau definido
+                        </SelectItem>
+                      )}
+                      {CONDITION_GRADE_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                          <div className="flex flex-col text-left py-0.5">
+                            <span className="font-semibold text-slate-900">{opt.label}</span>
+                            <span className="text-[10px] text-slate-500 font-normal">
+                              {opt.description}
+                            </span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* Dica oficial ML do tipo selecionado */}
+              <p className="text-[11px] text-slate-500 leading-relaxed bg-white/70 p-2 rounded border border-slate-200/60">
+                {currentTypeOpt?.description}
+                {allowsGrade && conditionGrade && (
+                  <>
+                    {' — '}
+                    <strong>
+                      {CONDITION_GRADE_OPTIONS.find((g) => g.value === conditionGrade)?.label}:
+                    </strong>{' '}
+                    {CONDITION_GRADE_OPTIONS.find((g) => g.value === conditionGrade)?.description}
+                  </>
+                )}
+              </p>
+            </div>
+
             {/* Título do Anúncio (máximo 60 caracteres) */}
             <div className="space-y-1">
               <div className="flex items-center justify-between">
-                <Label className="text-slate-700 font-semibold">
-                  Título do Anúncio (máx. 60 caracteres) *
+                <Label className="text-slate-700 font-semibold flex items-center gap-2">
+                  <span>Título do Anúncio (máx. 60 caracteres) *</span>
+                  <button
+                    type="button"
+                    onClick={handleRegenerateTitle}
+                    className="text-[10px] text-blue-600 hover:underline font-normal"
+                    title="Regerar título com as especificações e condição atual"
+                  >
+                    Regerar título
+                  </button>
                 </Label>
                 <span
                   className={`text-[11px] font-mono ${
@@ -281,7 +497,7 @@ export function SingleMLPublishModal({
               </p>
             </div>
 
-            {/* Linha com Preço, Categoria e Condição */}
+            {/* Linha com Preço, Categoria e Estoque */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1">
                 <Label className="text-slate-700 font-semibold">Preço de Venda (R$) *</Label>
@@ -313,12 +529,12 @@ export function SingleMLPublishModal({
               </div>
 
               <div className="space-y-1">
-                <Label className="text-slate-700 font-semibold">Condição & Estoque</Label>
+                <Label className="text-slate-700 font-semibold">Estoque Local</Label>
                 <div className="h-9 px-3 bg-slate-100 rounded-md border border-slate-200 flex items-center justify-between text-slate-700">
                   <Badge variant="outline" className="bg-white text-slate-800 text-[11px]">
-                    Usado (Used)
+                    Pronto para envio
                   </Badge>
-                  <span className="text-[11px] font-mono">Qtd: 1 un</span>
+                  <span className="text-[11px] font-mono">1 un</span>
                 </div>
               </div>
             </div>

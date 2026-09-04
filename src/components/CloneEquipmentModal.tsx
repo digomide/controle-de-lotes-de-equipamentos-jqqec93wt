@@ -181,6 +181,8 @@ export function CloneEquipmentModal({
           ram: product.ram,
           storage: product.storage,
           condition: product.condition || 'Excelente',
+          condition_type: product.condition_type || 'recondicionado',
+          condition_grade: product.condition_grade || 'excelente',
           aesthetic_grade: product.aesthetic_grade || 'A - Excelente',
           battery_health: product.battery_health || '100%',
           screen_size: product.screen_size,

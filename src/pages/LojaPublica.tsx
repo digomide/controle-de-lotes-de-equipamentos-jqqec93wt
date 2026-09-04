@@ -36,6 +36,12 @@ import {
 import { PublicStoreHeader, PublicStoreFooter } from '@/components/PublicStoreLayout'
 import { STORE_CONFIG, buildWhatsAppLink } from '@/lib/storeConfig'
 import { ZoomableImage } from '@/components/ZoomableImage'
+import {
+  resolveCondition,
+  getConditionBadgeStyles,
+  CONDITION_TYPE_OPTIONS,
+  type ConditionType,
+} from '@/lib/condition'
 import pb from '@/lib/pocketbase/client'
 import type { Product } from '@/types/inventory'
 
@@ -48,7 +54,7 @@ export default function LojaPublica() {
   // Filtros
   const [searchTerm, setSearchTerm] = useState('')
   const [brandFilter, setBrandFilter] = useState('all')
-  const [conditionFilter, setConditionFilter] = useState('all')
+  const [conditionFilter, setConditionFilter] = useState<'all' | ConditionType>('all')
   const [minPrice, setMinPrice] = useState('')
   const [maxPrice, setMaxPrice] = useState('')
   const [sortBy, setSortBy] = useState<'featured' | 'price-asc' | 'price-desc' | 'name'>('featured')
@@ -106,7 +112,8 @@ export default function LojaPublica() {
       const matchesBrand = brandFilter === 'all' || p.brand?.trim() === brandFilter
 
       // 3. Filtro de condição
-      const matchesCondition = conditionFilter === 'all' || p.condition === conditionFilter
+      const cond = resolveCondition(p.condition_type, p.condition_grade, p.condition)
+      const matchesCondition = conditionFilter === 'all' || cond.type === conditionFilter
 
       // 4. Faixa de preço
       const price = Number(p.unit_price) || 0
@@ -297,14 +304,20 @@ export default function LojaPublica() {
             {/* Filtro Condição */}
             <div className="lg:col-span-2 space-y-1">
               <Label className="text-xs font-semibold text-slate-700">Condição</Label>
-              <Select value={conditionFilter} onValueChange={setConditionFilter}>
+              <Select
+                value={conditionFilter}
+                onValueChange={(val: 'all' | ConditionType) => setConditionFilter(val)}
+              >
                 <SelectTrigger className="text-xs sm:text-sm h-10 bg-slate-50 border-slate-200">
                   <SelectValue placeholder="Todas" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todas as condições</SelectItem>
-                  <SelectItem value="Excelente">Excelente (Sem marcas)</SelectItem>
-                  <SelectItem value="Bom">Bom (Sinais leves de uso)</SelectItem>
+                  {CONDITION_TYPE_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -449,17 +462,28 @@ export default function LojaPublica() {
                           }}
                         />
 
-                        {/* Tag de Condição (Excelente / Bom) */}
-                        <div className="absolute top-3 left-3 flex items-center gap-1.5 z-10 pointer-events-none">
-                          <span
-                            className={`px-2.5 py-0.5 rounded-md text-[11px] font-bold shadow-xs ${
-                              p.condition === 'Excelente'
-                                ? 'bg-blue-600 text-white'
-                                : 'bg-slate-800 text-white'
-                            }`}
-                          >
-                            {p.condition || 'Excelente'}
-                          </span>
+                        {/* Tag de Condição e Grau ML */}
+                        <div className="absolute top-3 left-3 flex items-center gap-1.5 z-10 pointer-events-none flex-wrap">
+                          {(() => {
+                            const c = resolveCondition(
+                              p.condition_type,
+                              p.condition_grade,
+                              p.condition,
+                            )
+                            const badge = getConditionBadgeStyles(c.type, c.grade)
+                            return (
+                              <>
+                                <span className="bg-slate-900/90 text-white px-2.5 py-0.5 rounded-md text-[11px] font-bold shadow-xs backdrop-blur-xs">
+                                  {badge.label}
+                                </span>
+                                {badge.gradeLabel && (
+                                  <span className="bg-amber-500 text-slate-950 font-bold px-2 py-0.5 rounded-md text-[10px] shadow-xs">
+                                    Grau {badge.gradeLabel}
+                                  </span>
+                                )}
+                              </>
+                            )
+                          })()}
                           {p.aesthetic_grade && (
                             <span className="bg-white/90 backdrop-blur-xs text-slate-800 px-2 py-0.5 rounded-md text-[10px] font-bold shadow-xs">
                               {p.aesthetic_grade}

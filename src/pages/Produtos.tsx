@@ -55,7 +55,14 @@ import { useToast } from '@/hooks/use-toast'
 import { useAuth } from '@/contexts/AuthContext'
 import { productsService } from '@/services/products'
 import { ProductConditionSelect } from '@/components/ProductConditionSelect'
-import { resolveCondition, type ConditionType, type ConditionGrade } from '@/lib/condition'
+import {
+  resolveCondition,
+  getConditionBadgeStyles,
+  CONDITION_TYPE_OPTIONS,
+  CONDITION_GRADE_OPTIONS,
+  type ConditionType,
+  type ConditionGrade,
+} from '@/lib/condition'
 import { batchesService } from '@/services/batches'
 import type { Product, Batch, ProductStatus } from '@/types/inventory'
 import { Link, useNavigate } from 'react-router-dom'
@@ -96,7 +103,7 @@ export default function Catalogo() {
   const [condition, setCondition] = useState('Excelente')
   const [conditionType, setConditionType] = useState<ConditionType>('recondicionado')
   const [conditionGrade, setConditionGrade] = useState<ConditionGrade | undefined>('excelente')
-  const [conditionError, setConditionError] = useState('')
+  const [conditionFilter, setConditionFilter] = useState<'all' | ConditionType>('all')
   const [aestheticGrade, setAestheticGrade] = useState('A - Excelente')
   const [batteryHealth, setBatteryHealth] = useState('100%')
   const [screenSize, setScreenSize] = useState('14"')
@@ -180,6 +187,9 @@ export default function Catalogo() {
       const effectiveStatus = p.status || 'Disponível'
       const matchesStatus = statusFilter === 'all' || effectiveStatus === statusFilter
 
+      const resolved = resolveCondition(p.condition_type, p.condition_grade, p.condition)
+      const matchesCondition = conditionFilter === 'all' || resolved.type === conditionFilter
+
       const price = Number(p.unit_price) || 0
       const matchesMinPrice = !minPrice || price >= parseFloat(minPrice)
       const matchesMaxPrice = !maxPrice || price <= parseFloat(maxPrice)
@@ -189,11 +199,21 @@ export default function Catalogo() {
         matchesFamily &&
         matchesBrand &&
         matchesStatus &&
+        matchesCondition &&
         matchesMinPrice &&
         matchesMaxPrice
       )
     })
-  }, [products, searchTerm, familyFilter, brandFilter, statusFilter, minPrice, maxPrice])
+  }, [
+    products,
+    searchTerm,
+    familyFilter,
+    brandFilter,
+    statusFilter,
+    conditionFilter,
+    minPrice,
+    maxPrice,
+  ])
 
   // Multi-select actions
   const toggleSelect = (id: string) => {
@@ -243,6 +263,8 @@ export default function Catalogo() {
     setRam('16GB DDR4')
     setStorage('SSD 256GB')
     setCondition('Excelente')
+    setConditionType('recondicionado')
+    setConditionGrade('excelente')
     setAestheticGrade('A - Excelente')
     setBatteryHealth('100%')
     setScreenSize('14"')
@@ -266,6 +288,11 @@ export default function Catalogo() {
     setProcessor(p.processor || '')
     setRam(p.ram || '')
     setStorage(p.storage || '')
+    const resolved = resolveCondition(p.condition_type, p.condition_grade, p.condition)
+    setConditionType(resolved.type)
+    setConditionGrade(
+      resolved.grade || (resolved.type === 'recondicionado' ? 'excelente' : undefined),
+    )
     setCondition(p.condition || 'Excelente')
     setAestheticGrade(p.aesthetic_grade || 'A - Excelente')
     setBatteryHealth(p.battery_health || '')
@@ -308,6 +335,8 @@ export default function Catalogo() {
         ram,
         storage,
         condition,
+        condition_type: conditionType,
+        condition_grade: conditionGrade || null,
         aesthetic_grade: aestheticGrade,
         battery_health: batteryHealth,
         screen_size: screenSize,
@@ -576,6 +605,27 @@ export default function Catalogo() {
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Condição ML */}
+            <div>
+              <Label className="text-xs font-semibold text-slate-700 mb-1 block">Condição ML</Label>
+              <Select
+                value={conditionFilter}
+                onValueChange={(v: 'all' | ConditionType) => setConditionFilter(v)}
+              >
+                <SelectTrigger className="bg-slate-50 border-slate-200 text-xs h-10">
+                  <SelectValue placeholder="Todas as Condições" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas as Condições</SelectItem>
+                  {CONDITION_TYPE_OPTIONS.map((c) => (
+                    <SelectItem key={c.value} value={c.value}>
+                      {c.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           {/* Segunda linha de filtros: Faixa de Preço */}
@@ -605,6 +655,7 @@ export default function Catalogo() {
               familyFilter !== 'all' ||
               brandFilter !== 'all' ||
               statusFilter !== 'all' ||
+              conditionFilter !== 'all' ||
               minPrice ||
               maxPrice) && (
               <Button
@@ -615,6 +666,7 @@ export default function Catalogo() {
                   setFamilyFilter('all')
                   setBrandFilter('all')
                   setStatusFilter('all')
+                  setConditionFilter('all')
                   setMinPrice('')
                   setMaxPrice('')
                 }}
@@ -745,20 +797,36 @@ export default function Catalogo() {
                       </Link>
 
                       {/* Condition badge */}
-                      <div className="mt-2 flex items-center gap-2">
-                        <Badge
-                          variant="outline"
-                          className={`text-[11px] font-semibold border-none px-2 py-0.5 ${
-                            p.condition === 'Excelente'
-                              ? 'bg-blue-50 text-blue-700'
-                              : 'bg-slate-100 text-slate-700'
-                          }`}
-                        >
-                          {p.condition || 'Excelente'}
-                        </Badge>
+                      <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+                        {(() => {
+                          const resolved = resolveCondition(
+                            p.condition_type,
+                            p.condition_grade,
+                            p.condition,
+                          )
+                          const badge = getConditionBadgeStyles(resolved.type, resolved.grade)
+                          return (
+                            <>
+                              <Badge
+                                variant="outline"
+                                className={`text-[11px] font-semibold border px-2 py-0.5 ${badge.classes}`}
+                              >
+                                {badge.label}
+                              </Badge>
+                              {badge.gradeLabel && (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px] bg-white text-slate-700 border-slate-200 px-1.5 py-0.2"
+                                >
+                                  Grau: {badge.gradeLabel}
+                                </Badge>
+                              )}
+                            </>
+                          )
+                        })()}
                         {p.aesthetic_grade && (
                           <span className="text-[11px] text-slate-500">
-                            Nota: {p.aesthetic_grade}
+                            · Nota: {p.aesthetic_grade}
                           </span>
                         )}
                       </div>
@@ -989,16 +1057,29 @@ export default function Catalogo() {
                           {p.processor} | {p.ram} | {p.storage}
                         </td>
                         <td className="py-3 px-4 text-center whitespace-nowrap">
-                          <Badge
-                            variant="outline"
-                            className={`text-xs ${
-                              p.condition === 'Excelente'
-                                ? 'bg-blue-50 text-blue-700'
-                                : 'bg-slate-100 text-slate-700'
-                            }`}
-                          >
-                            {p.condition || 'Bom'}
-                          </Badge>
+                          {(() => {
+                            const resolved = resolveCondition(
+                              p.condition_type,
+                              p.condition_grade,
+                              p.condition,
+                            )
+                            const badge = getConditionBadgeStyles(resolved.type, resolved.grade)
+                            return (
+                              <div className="flex flex-col items-center gap-0.5">
+                                <Badge
+                                  variant="outline"
+                                  className={`text-[11px] font-semibold border ${badge.classes}`}
+                                >
+                                  {badge.label}
+                                </Badge>
+                                {badge.gradeLabel && (
+                                  <span className="text-[10px] text-slate-500 font-medium">
+                                    Grau {badge.gradeLabel}
+                                  </span>
+                                )}
+                              </div>
+                            )
+                          })()}
                         </td>
                         <td className="py-3 px-4 text-center whitespace-nowrap">
                           <span
@@ -1298,18 +1379,14 @@ export default function Catalogo() {
                 </Select>
               </div>
 
-              <div className="space-y-1">
-                <Label className="text-xs font-semibold text-slate-700">Condição</Label>
-                <Select value={condition} onValueChange={setCondition}>
-                  <SelectTrigger className="h-10 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Excelente">Excelente</SelectItem>
-                    <SelectItem value="Bom">Bom</SelectItem>
-                    <SelectItem value="Regular">Regular</SelectItem>
-                  </SelectContent>
-                </Select>
+              {/* Product Condition Select integrado */}
+              <div className="sm:col-span-2">
+                <ProductConditionSelect
+                  conditionType={conditionType}
+                  conditionGrade={conditionGrade}
+                  onTypeChange={setConditionType}
+                  onGradeChange={setConditionGrade}
+                />
               </div>
 
               <div className="space-y-1">

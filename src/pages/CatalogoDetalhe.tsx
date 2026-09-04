@@ -95,6 +95,14 @@ import {
   normalizeChecklistStatus,
   getChecklistStatusStyles,
 } from '@/lib/checklist'
+import {
+  CONDITION_TYPE_OPTIONS,
+  CONDITION_GRADE_OPTIONS,
+  resolveCondition,
+  getConditionBadgeStyles,
+  type ConditionType,
+  type ConditionGrade,
+} from '@/lib/condition'
 import { SingleMLPublishModal } from '@/components/SingleMLPublishModal'
 import { validateProductForML, mlService, type MLItemResponse } from '@/services/mlService'
 import { ShoppingBag, PauseCircle, PlayCircle, XCircle } from 'lucide-react'
@@ -139,6 +147,10 @@ export default function CatalogoDetalhe() {
   const [editProcessor, setEditProcessor] = useState('')
   const [editRam, setEditRam] = useState('')
   const [editStorage, setEditStorage] = useState('')
+  const [editConditionType, setEditConditionType] = useState<ConditionType>('recondicionado')
+  const [editConditionGrade, setEditConditionGrade] = useState<ConditionGrade | undefined>(
+    'excelente',
+  )
   const [editCondition, setEditCondition] = useState('Excelente')
   const [editAestheticGrade, setEditAestheticGrade] = useState('A - Excelente')
   const [editBatteryHealth, setEditBatteryHealth] = useState('100%')
@@ -307,6 +319,15 @@ export default function CatalogoDetalhe() {
     setEditProcessor(product.processor || '')
     setEditRam(product.ram || '')
     setEditStorage(product.storage || '')
+    const resolved = resolveCondition(
+      product.condition_type,
+      product.condition_grade,
+      product.condition,
+    )
+    setEditConditionType(resolved.type)
+    setEditConditionGrade(
+      resolved.grade || (resolved.type === 'recondicionado' ? 'excelente' : undefined),
+    )
     setEditCondition(product.condition || 'Excelente')
     setEditAestheticGrade(product.aesthetic_grade || 'A - Excelente')
     setEditBatteryHealth(product.battery_health || '100%')
@@ -347,6 +368,8 @@ export default function CatalogoDetalhe() {
         processor: editProcessor,
         ram: editRam,
         storage: editStorage,
+        condition_type: editConditionType,
+        condition_grade: editConditionGrade || null,
         condition: editCondition,
         aesthetic_grade: editAestheticGrade,
         battery_health: editBatteryHealth,
@@ -1913,11 +1936,34 @@ export default function CatalogoDetalhe() {
 
                   <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100">
                     <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-semibold">
-                      Condição Geral
+                      Condição & Grau ML
                     </span>
-                    <span className="font-medium text-slate-800 block">
-                      {product.condition || 'Excelente'}
-                    </span>
+                    {(() => {
+                      const resolved = resolveCondition(
+                        product.condition_type,
+                        product.condition_grade,
+                        product.condition,
+                      )
+                      const badge = getConditionBadgeStyles(resolved.type, resolved.grade)
+                      return (
+                        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                          <Badge
+                            variant="outline"
+                            className={`text-[11px] font-semibold ${badge.classes}`}
+                          >
+                            {badge.label}
+                          </Badge>
+                          {badge.gradeLabel && (
+                            <Badge
+                              variant="outline"
+                              className="text-[10px] bg-white text-slate-700 border-slate-200"
+                            >
+                              Grau: {badge.gradeLabel}
+                            </Badge>
+                          )}
+                        </div>
+                      )
+                    })()}
                   </div>
 
                   <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100">
@@ -2443,19 +2489,77 @@ export default function CatalogoDetalhe() {
                 </Select>
               </div>
 
+              {/* Tipo de Produto (Mercado Livre) */}
               <div className="space-y-1">
-                <Label className="text-xs font-semibold text-slate-700">Condição</Label>
-                <Select value={editCondition} onValueChange={setEditCondition}>
+                <Label className="text-xs font-semibold text-slate-700">Tipo de Produto *</Label>
+                <Select
+                  value={editConditionType}
+                  onValueChange={(val: ConditionType) => {
+                    setEditConditionType(val)
+                    const opt = CONDITION_TYPE_OPTIONS.find((t) => t.value === val)
+                    if (!opt?.allowsGrade) {
+                      setEditConditionGrade(undefined)
+                    } else if (opt?.requiresGrade && !editConditionGrade) {
+                      setEditConditionGrade('excelente')
+                    }
+                  }}
+                >
                   <SelectTrigger className="h-10 text-xs">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Excelente">Excelente</SelectItem>
-                    <SelectItem value="Bom">Bom</SelectItem>
-                    <SelectItem value="Regular">Regular</SelectItem>
+                    {CONDITION_TYPE_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                        {opt.label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
+
+              {/* Grau de Estado (Mercado Livre) */}
+              {(() => {
+                const opt = CONDITION_TYPE_OPTIONS.find((t) => t.value === editConditionType)
+                const allows = opt ? opt.allowsGrade : false
+                const requires = opt ? opt.requiresGrade : false
+
+                return (
+                  <div className="space-y-1">
+                    <Label className="text-xs font-semibold text-slate-700">
+                      Grau de Estado {requires && <span className="text-orange-600">*</span>}
+                    </Label>
+                    <Select
+                      value={editConditionGrade || 'none'}
+                      onValueChange={(val: string) =>
+                        setEditConditionGrade(val === 'none' ? undefined : (val as ConditionGrade))
+                      }
+                      disabled={!allows}
+                    >
+                      <SelectTrigger
+                        className={`h-10 text-xs ${!allows ? 'opacity-60 bg-slate-100' : ''}`}
+                      >
+                        <SelectValue
+                          placeholder={
+                            !allows ? 'Não aplicável para este tipo' : 'Selecione o grau...'
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {!requires && (
+                          <SelectItem value="none" className="text-xs text-slate-400 italic">
+                            Sem grau definido
+                          </SelectItem>
+                        )}
+                        {CONDITION_GRADE_OPTIONS.map((g) => (
+                          <SelectItem key={g.value} value={g.value} className="text-xs">
+                            {g.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )
+              })()}
 
               <div className="space-y-1">
                 <Label className="text-xs font-semibold text-slate-700">Nota Estética</Label>

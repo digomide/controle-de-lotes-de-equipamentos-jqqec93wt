@@ -30,6 +30,7 @@ import { Button } from '@/components/ui/button'
 import { useToast } from '@/hooks/use-toast'
 import { ZoomableImage } from '@/components/ZoomableImage'
 import { ImageLightboxModal } from '@/components/ImageLightboxModal'
+import { resolveCondition, getConditionBadgeStyles } from '@/lib/condition'
 import { PublicStoreHeader, PublicStoreFooter } from '@/components/PublicStoreLayout'
 import { STORE_CONFIG, buildWhatsAppLink, buildGeneralWhatsAppLink } from '@/lib/storeConfig'
 import { productsService } from '@/services/products'
@@ -385,16 +386,32 @@ export default function LojaDetalhe() {
                           </span>
                         </div>
 
-                        <Badge
-                          variant="outline"
-                          className={`text-xs font-bold ${
-                            product.condition === 'Excelente'
-                              ? 'bg-blue-50 text-blue-700 border-blue-200'
-                              : 'bg-slate-100 text-slate-700'
-                          }`}
-                        >
-                          Condição: {product.condition || 'Excelente'}
-                        </Badge>
+                        {(() => {
+                          const cond = resolveCondition(
+                            product.condition_type,
+                            product.condition_grade,
+                            product.condition,
+                          )
+                          const badge = getConditionBadgeStyles(cond.type, cond.grade)
+                          return (
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <Badge
+                                variant="outline"
+                                className={`text-xs font-bold border ${badge.classes}`}
+                              >
+                                {badge.label}
+                              </Badge>
+                              {badge.gradeLabel && (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[11px] bg-slate-100 text-slate-800 border-slate-300"
+                                >
+                                  Grau: {badge.gradeLabel}
+                                </Badge>
+                              )}
+                            </div>
+                          )
+                        })()}
                       </div>
 
                       <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight leading-snug">

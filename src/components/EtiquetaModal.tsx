@@ -23,6 +23,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { QRCodeSVG } from '@/components/QRCodeSVG'
 import { useToast } from '@/hooks/use-toast'
+import { resolveCondition, getConditionBadgeStyles } from '@/lib/condition'
 import type { Product, Batch } from '@/types/inventory'
 
 export interface EtiquetaData {
@@ -69,6 +70,8 @@ export function EtiquetaModal({ open, onOpenChange, data }: EtiquetaModalProps) 
   const processor = prod?.processor || ''
   const ram = prod?.ram || ''
   const storage = prod?.storage || ''
+  const condBadge = resolveCondition(prod?.condition_type, prod?.condition_grade, prod?.condition)
+  const badgeInfo = getConditionBadgeStyles(condBadge.type, condBadge.grade)
 
   // Valor contido no QR Code: prioriza serial, depois SKU/código
   const qrValue = prod?.serial_number
@@ -160,6 +163,14 @@ export function EtiquetaModal({ open, onOpenChange, data }: EtiquetaModalProps) 
                 <p className="text-[11px] text-slate-700 font-medium print:text-black">
                   {brand} {model && `· ${model}`}
                 </p>
+
+                {/* Condição / Grau do Produto */}
+                <div className="flex items-center gap-1.5 pt-0.5 print:text-black">
+                  <span className="font-bold text-[10px] uppercase tracking-wide bg-slate-100 print:bg-transparent px-1.5 py-0.2 rounded border border-slate-300 print:border-black">
+                    {badgeInfo.label}
+                    {badgeInfo.gradeLabel && ` · Grau ${badgeInfo.gradeLabel}`}
+                  </span>
+                </div>
 
                 {/* Serial / Part Number Box */}
                 <div className="bg-slate-100 print:bg-slate-50 border border-slate-300 print:border-black rounded px-2 py-1 mt-1">
