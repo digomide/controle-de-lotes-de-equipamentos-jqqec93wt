@@ -150,6 +150,49 @@ onRecordAfterCreateSuccess((e) => {
     return
   }
 
+  // Mapeamento ITEM_CONDITION do Mercado Livre:
+  // novo -> "new", usado -> "used", recondicionado -> "refurbished", caixa_aberta -> "clipped"
+  const rawType = (payload.condition_type || product.getString('condition_type') || '')
+    .toLowerCase()
+    .trim()
+  const rawGrade = (payload.condition_grade || product.getString('condition_grade') || '')
+    .toLowerCase()
+    .trim()
+
+  let mlCondition = 'used'
+  if (rawType === 'novo' || rawType === 'new') {
+    mlCondition = 'new'
+  } else if (rawType === 'caixa_aberta' || rawType === 'clipped') {
+    mlCondition = 'clipped'
+  } else if (rawType === 'recondicionado' || rawType === 'refurbished') {
+    mlCondition = 'refurbished'
+  } else if (rawType === 'usado' || rawType === 'used') {
+    mlCondition = 'used'
+  } else {
+    // Inferência por legado se não estiver setado
+    const leg = (product.getString('condition') || '').toLowerCase()
+    if (leg.includes('novo')) mlCondition = 'new'
+    else if (leg.includes('caixa')) mlCondition = 'clipped'
+    else mlCondition = 'refurbished'
+  }
+
+  // Grau em recondicionados ou usados (Excelente, Bom, Aceitável)
+  const gradeLabelMap = {
+    excelente: 'Excelente',
+    bom: 'Bom',
+    aceitavel: 'Aceitável',
+  }
+  const gradeLabel = gradeLabelMap[rawGrade] || ''
+
+  // Atributos de item (ITEM_GRADE e ITEM_CONDITION)
+  const itemAttributes = []
+  if (gradeLabel) {
+    itemAttributes.push({
+      id: 'ITEM_GRADE',
+      value_name: gradeLabel,
+    })
+  }
+
   const itemPayload = {
     title: title,
     category_id: categoryId,
@@ -158,9 +201,12 @@ onRecordAfterCreateSuccess((e) => {
     available_quantity: 1,
     buying_mode: 'buy_it_now',
     listing_type_id: listingTypeId,
-    condition: 'used',
+    condition: mlCondition,
     pictures: pictureObjects,
     channels: ['marketplace'],
+  }
+  if (itemAttributes.length > 0) {
+    itemPayload.attributes = itemAttributes
   }
 
   let createRes = null
@@ -185,6 +231,35 @@ onRecordAfterCreateSuccess((e) => {
     $app.save(pubItem)
     e.next()
     return
+  }
+
+  // Se falhar com erro de atributo (ex: ITEM_GRADE não aceito na categoria), tentar novamente sem attributes
+  if (createRes.statusCode >= 400 && itemPayload.attributes && itemPayload.attributes.length > 0) {
+    const errJsonTemp = createRes.json || {}
+    const errMsgTemp = JSON.stringify(errJsonTemp).toLowerCase()
+    if (
+      errMsgTemp.includes('attribute') ||
+      errMsgTemp.includes('item_grade') ||
+      errMsgTemp.includes('invalid_attribute')
+    ) {
+      console.log('[ml_publish_hook] Tentando novamente sem o atributo ITEM_GRADE...')
+      delete itemPayload.attributes
+      try {
+        createRes = $http.send({
+          url: 'https://api.mercadolibre.com/items',
+          method: 'POST',
+          headers: {
+            Authorization: 'Bearer ' + accessToken,
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify(itemPayload),
+          timeout: 30,
+        })
+      } catch (retryErr) {
+        console.log('[ml_publish_hook] Erro ao retentar sem attributes: ' + retryErr)
+      }
+    }
   }
 
   if (createRes.statusCode >= 400) {

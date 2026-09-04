@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-04T12:29:14.108Z",
+  "generatedAt": "2026-09-04T12:44:11.738Z",
   "collections": [
     {
       "name": "users",
@@ -257,6 +257,20 @@
           "type": "date",
           "required": false,
           "system": false
+        },
+        {
+          "name": "condition_type",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["novo", "usado", "recondicionado", "caixa_aberta"]
+        },
+        {
+          "name": "condition_grade",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["excelente", "bom", "aceitavel"]
         }
       ],
       "indexes": ["CREATE UNIQUE INDEX idx_products_sku ON products (sku)"]

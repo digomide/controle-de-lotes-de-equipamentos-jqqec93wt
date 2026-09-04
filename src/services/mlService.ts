@@ -1,6 +1,8 @@
 import pb from '@/lib/pocketbase/client'
 import type { Product } from '@/types/inventory'
 import { STORE_CONFIG } from '@/lib/storeConfig'
+import { getMLItemCondition, getMLGradeLabel } from '@/lib/condition'
+export { getMLItemCondition, getMLGradeLabel }
 
 export interface MLStatusResponse {
   configured: boolean
@@ -30,6 +32,8 @@ export interface MLPublishPayload {
   category_id?: string
   description?: string
   pictures?: string[]
+  condition_type?: 'novo' | 'usado' | 'recondicionado' | 'caixa_aberta'
+  condition_grade?: 'excelente' | 'bom' | 'aceitavel'
 }
 
 export interface MLPublishResponse {
@@ -76,6 +80,18 @@ export function generateMLTitle(product: Product): string {
     return title
   }
 
+  // Se for recondicionado e couber grau de estado, enriquecer
+  const condType = (product.condition_type || '').toLowerCase()
+  const condGrade = (product.condition_grade || '').toLowerCase()
+  if (condType === 'recondicionado' && condGrade) {
+    const gradeShort =
+      condGrade === 'excelente' ? 'Excelente' : condGrade === 'bom' ? 'Bom' : 'Aceitável'
+    const enriched = `${brand} ${model} ${proc} ${ram} Recondicionado ${gradeShort}`.trim()
+    if (enriched.length <= 60 && enriched.length > title.length) {
+      return enriched
+    }
+  }
+
   // Fallback seguro truncado em 60 chars
   const fallback = (product.name || `${brand} ${model}`).trim()
   return fallback.slice(0, 60)
@@ -99,7 +115,31 @@ export function generateMLDescription(product: Product): string {
   if (product.has_numeric_keypad !== undefined) {
     lines.push(`• Teclado Numérico: ${product.has_numeric_keypad ? 'Sim' : 'Não'}`)
   }
-  if (product.condition) lines.push(`• Condição: ${product.condition}`)
+  const typeMap: Record<string, string> = {
+    recondicionado: 'Recondicionado',
+    usado: 'Usado',
+    caixa_aberta: 'Caixa aberta',
+    novo: 'Novo',
+  }
+  const gradeMap: Record<string, string> = {
+    excelente: 'Excelente (marcas sutis, tela sem detalhes)',
+    bom: 'Bom (marcas pequenas, tela sem detalhes)',
+    aceitavel: 'Aceitável (marcas visíveis de uso)',
+  }
+  const cType = product.condition_type
+    ? typeMap[product.condition_type] || product.condition_type
+    : ''
+  const cGrade = product.condition_grade
+    ? gradeMap[product.condition_grade] || product.condition_grade
+    : ''
+
+  if (cType && cGrade) {
+    lines.push(`• Condição / Estado (Padrão Mercado Livre): ${cType} — Grau: ${cGrade}`)
+  } else if (cType) {
+    lines.push(`• Condição / Tipo (Padrão Mercado Livre): ${cType}`)
+  } else if (product.condition) {
+    lines.push(`• Condição: ${product.condition}`)
+  }
   if (product.aesthetic_grade) lines.push(`• Grau Estético: ${product.aesthetic_grade}`)
   if (product.battery_health) lines.push(`• Saúde da Bateria: ${product.battery_health}`)
   if (product.includes_charger !== undefined) {
@@ -189,6 +229,10 @@ export function validateProductForML(product: Product): { eligible: boolean; rea
   const photos = getProductImageUrls(product)
   if (photos.length === 0) {
     reasons.push('Equipamento não possui nenhuma foto cadastrada')
+  }
+
+  if (product.condition_type === 'recondicionado' && !product.condition_grade) {
+    reasons.push('Recondicionados exigem grau de estado (Excelente, Bom ou Aceitável)')
   }
 
   return {
@@ -429,6 +473,8 @@ export const mlService = {
         description: payload.description,
         photos: payload.pictures || [],
         listing_type_id: 'gold_special',
+        condition_type: payload.condition_type,
+        condition_grade: payload.condition_grade,
       },
     })
 

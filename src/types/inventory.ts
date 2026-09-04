@@ -52,6 +52,8 @@ export interface Product extends RecordModel {
   ram?: string
   storage?: string
   condition?: string
+  condition_type?: 'novo' | 'usado' | 'recondicionado' | 'caixa_aberta'
+  condition_grade?: 'excelente' | 'bom' | 'aceitavel'
   aesthetic_grade?: string
   battery_health?: string
   screen_size?: string

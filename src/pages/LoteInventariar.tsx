@@ -45,6 +45,8 @@ import {
   normalizeChecklistStatus,
   getChecklistStatusStyles,
 } from '@/lib/checklist'
+import { ProductConditionSelect } from '@/components/ProductConditionSelect'
+import type { ConditionType, ConditionGrade } from '@/lib/condition'
 
 interface ChecklistStateItem {
   item: string
@@ -95,7 +97,9 @@ export default function LoteInventariar() {
   >('Concluída')
 
   // Classification & Pricing
-  const [condition, setCondition] = useState('Bom')
+  const [conditionType, setConditionType] = useState<ConditionType>('recondicionado')
+  const [conditionGrade, setConditionGrade] = useState<ConditionGrade | undefined>('bom')
+  const [conditionError, setConditionError] = useState<string>('')
   const [status, setStatus] = useState<ProductStatus>('Disponível')
   const [customStatus, setCustomStatus] = useState('Em teste')
   const [costPrice, setCostPrice] = useState<number | string>(1000)
@@ -224,6 +228,18 @@ export default function LoteInventariar() {
       return
     }
 
+    if (conditionType === 'recondicionado' && !conditionGrade) {
+      setConditionError('Selecione o grau de estado obrigatório para recondicionados.')
+      toast({
+        title: 'Grau de estado obrigatório',
+        description:
+          'Para produtos recondicionados, é necessário selecionar o grau (Excelente, Bom ou Aceitável).',
+        variant: 'destructive',
+      })
+      return
+    }
+    setConditionError('')
+
     const equipmentTitle = title.trim() || `Notebook ${brand} ${model || 'Corporativo'}`.trim()
 
     // Determine SKU: use serial number if provided, else generate unique identifier
@@ -258,7 +274,17 @@ export default function LoteInventariar() {
       formData.append('has_numeric_keypad', String(hasNumericKeypad))
       formData.append('battery_health', batteryHealth)
       formData.append('aesthetic_grade', aestheticGrade)
-      formData.append('condition', condition)
+      formData.append('condition_type', conditionType)
+      if (conditionGrade) {
+        formData.append('condition_grade', conditionGrade)
+      }
+      const legacyCondition =
+        conditionGrade === 'excelente'
+          ? 'Excelente'
+          : conditionGrade === 'aceitavel'
+            ? 'Aceitável'
+            : 'Bom'
+      formData.append('condition', legacyCondition)
       formData.append('includes_charger', String(includesCharger))
       formData.append('cost_price', String(Number(costPrice) || 0))
       formData.append('unit_price', String(Number(unitPrice) || 0))
@@ -743,23 +769,24 @@ export default function LoteInventariar() {
           <div className="space-y-4">
             <h2 className="text-base font-bold text-slate-900">Classificação e Valores</h2>
 
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-              <div>
-                <Label htmlFor="cond" className="text-xs font-semibold text-slate-700">
-                  Condição
-                </Label>
-                <Select value={condition} onValueChange={setCondition}>
-                  <SelectTrigger id="cond" className="bg-white border-slate-300 text-sm h-10 mt-1">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Excelente">Excelente</SelectItem>
-                    <SelectItem value="Bom">Bom</SelectItem>
-                    <SelectItem value="Regular">Regular</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+            {/* Condição do Mercado Livre: Tipo de Produto + Grau de Estado */}
+            <div className="bg-white border border-slate-200/90 rounded-xl p-4 shadow-2xs">
+              <ProductConditionSelect
+                conditionType={conditionType}
+                conditionGrade={conditionGrade}
+                onTypeChange={(t) => {
+                  setConditionType(t)
+                  setConditionError('')
+                }}
+                onGradeChange={(g) => {
+                  setConditionGrade(g)
+                  setConditionError('')
+                }}
+                error={conditionError}
+              />
+            </div>
 
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
                 <Label htmlFor="status" className="text-xs font-semibold text-slate-700">
                   Status

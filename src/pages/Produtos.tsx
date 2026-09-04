@@ -54,6 +54,8 @@ import {
 import { useToast } from '@/hooks/use-toast'
 import { useAuth } from '@/contexts/AuthContext'
 import { productsService } from '@/services/products'
+import { ProductConditionSelect } from '@/components/ProductConditionSelect'
+import { resolveCondition, type ConditionType, type ConditionGrade } from '@/lib/condition'
 import { batchesService } from '@/services/batches'
 import type { Product, Batch, ProductStatus } from '@/types/inventory'
 import { Link, useNavigate } from 'react-router-dom'
@@ -92,6 +94,9 @@ export default function Catalogo() {
   const [ram, setRam] = useState('')
   const [storage, setStorage] = useState('')
   const [condition, setCondition] = useState('Excelente')
+  const [conditionType, setConditionType] = useState<ConditionType>('recondicionado')
+  const [conditionGrade, setConditionGrade] = useState<ConditionGrade | undefined>('excelente')
+  const [conditionError, setConditionError] = useState('')
   const [aestheticGrade, setAestheticGrade] = useState('A - Excelente')
   const [batteryHealth, setBatteryHealth] = useState('100%')
   const [screenSize, setScreenSize] = useState('14"')
