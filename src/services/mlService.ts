@@ -103,7 +103,7 @@ export function translateMLErrorMessage(rawError: string): string {
     rawError.includes('title: invalid') ||
     rawError.includes('title is invalid')
   ) {
-    return 'O Mercado Livre rejeitou o título do anúncio. Verifique se o título atende às políticas da categoria (máximo 60 caracteres, sem quebras de linha ou caracteres especiais).'
+    return 'O Mercado Livre rejeitou o título do anúncio. O ML exige título conciso (máx. 60 caracteres), sem aspas ou caracteres especiais, e no padrão: "Notebook" + Marca + Modelo + Processador + RAM + Armazenamento.'
   }
 
   // Tratamento específico de body.invalid_fields
@@ -121,9 +121,8 @@ export function translateMLErrorMessage(rawError: string): string {
         detailStr.includes('The fields [title] are invalid') ||
         detailStr.includes('[title] are invalid')
       ) {
-        return 'O Mercado Livre rejeitou o título do anúncio. Verifique se o título atende às políticas da categoria (máximo 60 caracteres, sem quebras de linha ou caracteres especiais).'
+        return 'O Mercado Livre rejeitou o título do anúncio. O ML exige título conciso (máx. 60 caracteres), sem aspas ou caracteres especiais, e no padrão: "Notebook" + Marca + Modelo + Processador + RAM + Armazenamento.'
       }
-
       if (detailStr) {
         const causes = detailStr
           .split(';')
@@ -380,14 +379,15 @@ export function generateMLTitle(
     shortStorage = `${typeLabel} ${storageCapMatch[1]}`
   }
 
-  // 6. Tela curta: '15.6"', '14"', '13.3"'
+  // 6. Tela curta: '15.6' ou '15.6 Pol' (sem aspas duplas no título para evitar incompatibilidade com API de títulos do ML)
   const fullScreen = (product.screen_size || '' + ' ' + rawName).trim()
   let shortScreen = ''
   const screenMatch = fullScreen.match(/(\d{2}(?:\.\d)?)\s*(?:["”']|pol|polegadas)?/i)
   if (screenMatch && screenMatch[1]) {
     const val = parseFloat(screenMatch[1])
     if (val >= 10 && val <= 21) {
-      shortScreen = `${screenMatch[1]}"`
+      // Usar número puro ou 15.6 para títulos do ML
+      shortScreen = `${screenMatch[1]}`
     }
   }
 
@@ -595,7 +595,13 @@ export function validateProductForML(
   if (!currentTitle) {
     reasons.push('Título do anúncio é obrigatório')
   } else if (currentTitle.length > 60) {
-    reasons.push(`Título excede 60 caracteres (atual: ${currentTitle.length} caracteres)`)
+    reasons.push(
+      `Título excede o limite de 60 caracteres do Mercado Livre (atual: ${currentTitle.length} caracteres)`,
+    )
+  } else if (/["“”]/.test(currentTitle)) {
+    reasons.push(
+      'O título contém aspas (" ou “”). O Mercado Livre recomenda remover aspas para evitar rejeição da API.',
+    )
   }
 
   // 5. Condição e Grau
@@ -959,9 +965,12 @@ export const mlService = {
     }
 
     // Truncar e normalizar o título explicitamente para segurança máxima de 60 chars
+    // Normalizar aspas curvas, substituir caracteres que possam falhar na validação do ML
     const cleanTitleInput = (payload.title || '')
       .toString()
       .replace(/[\r\n\t]+/g, ' ')
+      .replace(/[“”]/g, '"')
+      .replace(/[‘’]/g, "'")
       .replace(/\s+/g, ' ')
       .trim()
     const safeTitle = cleanTitleInput.slice(0, 60).trim()

@@ -99,11 +99,34 @@ onRecordAfterCreateSuccess((e) => {
     return
   }
 
-  const payload = pubItem.get('payload') || {}
-  // Sanitizar título: remover quebras de linha e espaços repetidos, limitar rigorosamente a 60 caracteres
-  const rawTitleInput = (payload.title || product.getString('name') || '').toString()
+  // No PocketBase JS VM, campos json em pubItem podem ser acessados via pubItem.get('payload') ou pubItem.getJson('payload')
+  let payload = {}
+  try {
+    const rawPl = pubItem.get('payload')
+    if (rawPl && typeof rawPl === 'object') {
+      payload = rawPl
+    } else if (typeof rawPl === 'string' && rawPl.trim()) {
+      payload = JSON.parse(rawPl)
+    }
+  } catch (_) {
+    payload = {}
+  }
+  // Sanitizar título: dar prioridade total ao payload.title (se informado pelo usuário no modal)
+  // Normalizar aspas curvas, remover caracteres inválidos/multibyte problemáticos e limitar rigorosamente a 60 chars
+  let rawTitleInput = ''
+  let titleSource = 'product.name'
+  if (payload && payload.title && typeof payload.title === 'string' && payload.title.trim()) {
+    rawTitleInput = payload.title.trim()
+    titleSource = 'payload.title'
+  } else {
+    rawTitleInput = (product.getString('name') || '').trim()
+  }
+
+  // Normalizar caracteres tipográficos (ex: aspas curvas “ ” para aspas retas ou polegada ", travessões, quebras de linha)
   const cleanTitleOneLine = rawTitleInput
     .replace(/[\r\n\t]+/g, ' ')
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
     .replace(/\s+/g, ' ')
     .trim()
   const title = cleanTitleOneLine.slice(0, 60).trim()
@@ -113,7 +136,7 @@ onRecordAfterCreateSuccess((e) => {
       '): "' +
       title +
       '" | Origem: ' +
-      (payload.title ? 'payload.title' : 'product.name'),
+      titleSource,
   )
 
   const price =
@@ -167,13 +190,16 @@ onRecordAfterCreateSuccess((e) => {
 
   // Mapeamento ITEM_CONDITION do Mercado Livre:
   // novo -> "new", usado -> "used", recondicionado -> "refurbished", caixa_aberta -> "clipped"
-  const rawType = (payload.condition_type || product.getString('condition_type') || '')
+  const rawType = ((payload && payload.condition_type) || product.getString('condition_type') || '')
     .toLowerCase()
     .trim()
-  const rawGrade = (payload.condition_grade || product.getString('condition_grade') || '')
+  const rawGrade = (
+    (payload && payload.condition_grade) ||
+    product.getString('condition_grade') ||
+    ''
+  )
     .toLowerCase()
     .trim()
-
   let mlCondition = 'used'
   if (rawType === 'novo' || rawType === 'new') {
     mlCondition = 'new'
@@ -328,7 +354,7 @@ onRecordAfterCreateSuccess((e) => {
 
   // 3. Família / Linha (LINE)
   // Prioridade 1: se o payload enviou family_name explicitamente
-  let familyVal = (payload.family_name || '').toString().trim()
+  let familyVal = ((payload && payload.family_name) || '').toString().trim()
 
   // Prioridade 2: derivação completa case-insensitive por modelo / nome / marca
   if (!familyVal) {
@@ -832,7 +858,7 @@ onRecordAfterCreateSuccess((e) => {
           title +
           '" (' +
           title.length +
-          ' caracteres). Verifique se o formato atende às regras da categoria ou edite o título.'
+          ' caracteres). O ML exige título conciso, sem redundâncias ou caracteres especiais (ex: aspas, parênteses ou símbolos). Use a sugestão padronizada no modal.'
       }
     } else if (errJson.cause && Array.isArray(errJson.cause) && errJson.cause.length > 0) {
       const causes = errJson.cause
@@ -856,6 +882,20 @@ onRecordAfterCreateSuccess((e) => {
     }
     pubItem.set('status', 'error')
     pubItem.set('error_message', detailedMsg)
+    pubItem.set('result', {
+      status_code: createRes.statusCode,
+      response: errJson,
+      sent_payload_summary: {
+        title: itemPayload.title,
+        title_length: itemPayload.title ? itemPayload.title.length : 0,
+        category_id: itemPayload.category_id,
+        condition: itemPayload.condition,
+        price: itemPayload.price,
+        has_family_name: Boolean(itemPayload.family_name),
+        family_name: itemPayload.family_name,
+        attributes_count: itemPayload.attributes ? itemPayload.attributes.length : 0,
+      },
+    })
     $app.save(pubItem)
     e.next()
     return

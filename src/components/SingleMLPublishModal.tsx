@@ -627,6 +627,60 @@ export function SingleMLPublishModal({
               </div>
             </div>
 
+            {/* Resumo de Validação dos Atributos Obrigatórios do Mercado Livre */}
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                  Campos Obrigatórios da Categoria (MLB1652)
+                </span>
+                <span className="text-[10px] text-slate-500">Validação proativa pré-envio</span>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px]">
+                <div className="bg-white p-2 rounded border border-slate-200">
+                  <span className="text-slate-400 block text-[10px]">Marca (BRAND)</span>
+                  <strong className="text-slate-800 truncate block">
+                    {product.brand || 'Lenovo'}
+                  </strong>
+                </div>
+                <div className="bg-white p-2 rounded border border-slate-200">
+                  <span className="text-slate-400 block text-[10px]">Modelo (MODEL)</span>
+                  <strong className="text-slate-800 truncate block">
+                    {product.model || 'ThinkPad T580'}
+                  </strong>
+                </div>
+                <div className="bg-white p-2 rounded border border-slate-200">
+                  <span className="text-slate-400 block text-[10px]">
+                    Família (LINE / family_name)
+                  </span>
+                  <strong className="text-emerald-700 truncate block">
+                    {familyName.trim() || 'Pendente'}
+                  </strong>
+                </div>
+                <div className="bg-white p-2 rounded border border-slate-200">
+                  <span className="text-slate-400 block text-[10px]">Processador (PROCESSOR)</span>
+                  <strong className="text-slate-800 truncate block">
+                    {product.processor || 'Intel Core i7'}
+                  </strong>
+                </div>
+                <div className="bg-white p-2 rounded border border-slate-200">
+                  <span className="text-slate-400 block text-[10px]">Memória (RAM)</span>
+                  <strong className="text-slate-800 truncate block">
+                    {product.ram || '16 GB'}
+                  </strong>
+                </div>
+                <div className="bg-white p-2 rounded border border-slate-200">
+                  <span className="text-slate-400 block text-[10px]">Condição & Grau</span>
+                  <strong className="text-slate-800 truncate block">
+                    {conditionType === 'recondicionado'
+                      ? `Recondicionado · ${conditionGrade || 'Excelente'}`
+                      : conditionType}
+                  </strong>
+                </div>
+              </div>
+            </div>
+
             {/* Fotos que serão enviadas */}
             <div className="space-y-1.5">
               <Label className="text-slate-700 font-semibold flex items-center justify-between">
@@ -662,7 +716,6 @@ export function SingleMLPublishModal({
                 </div>
               )}
             </div>
-
             {/* Descrição do Anúncio */}
             <div className="space-y-1">
               <Label className="text-slate-700 font-semibold flex items-center justify-between">
