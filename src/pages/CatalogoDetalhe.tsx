@@ -105,6 +105,7 @@ import {
 } from '@/lib/condition'
 import { SingleMLPublishModal } from '@/components/SingleMLPublishModal'
 import { BackgroundRemovalModal } from '@/components/BackgroundRemovalModal'
+import { PhotoReorderGrid, PhotoOrderItem } from '@/components/PhotoReorderGrid'
 import {
   validateProductForML,
   mlService,
@@ -179,6 +180,10 @@ export default function CatalogoDetalhe() {
   const [bgRemovalTargetIndex, setBgRemovalTargetIndex] = useState(0)
   const [photoUrlInput, setPhotoUrlInput] = useState('')
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false)
+  const [localModalPhotos, setLocalModalPhotos] = useState<
+    Array<{ type: 'photo' | 'image'; value: string; originalIndex: number }>
+  >([])
+  const [isSavingPhotoOrder, setIsSavingPhotoOrder] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Peças & Trocas
@@ -460,6 +465,7 @@ export default function CatalogoDetalhe() {
 
         const updated = await productsService.update(product.id, formData)
         setProduct(updated)
+        initLocalModalPhotos(updated)
       } else if (replaceOriginal && photoIndex >= totalUploadedPhotos) {
         // Substituindo uma imagem por URL externa
         const imgIndex = photoIndex - totalUploadedPhotos
@@ -472,12 +478,14 @@ export default function CatalogoDetalhe() {
         formData.append('images', JSON.stringify(currentImages))
         const updated = await productsService.update(product.id, formData)
         setProduct(updated)
+        initLocalModalPhotos(updated)
       } else {
         // Modo adicionar como nova foto: usar photos+ para garantir que apenas concatena
         const formData = new FormData()
         formData.append('photos+', newFile)
         const updated = await productsService.update(product.id, formData)
         setProduct(updated)
+        initLocalModalPhotos(updated)
       }
 
       await loadData()
@@ -487,6 +495,35 @@ export default function CatalogoDetalhe() {
     } finally {
       setIsUploadingPhoto(false)
     }
+  }
+
+  // Sincronizar estado local do modal sempre que o modal abre ou o produto muda
+  const initLocalModalPhotos = (prod: Product | null) => {
+    if (!prod) {
+      setLocalModalPhotos([])
+      return
+    }
+    const combined: Array<{ type: 'photo' | 'image'; value: string; originalIndex: number }> = []
+    if (prod.photos && Array.isArray(prod.photos)) {
+      prod.photos.forEach((fn, idx) => {
+        if (fn) {
+          combined.push({ type: 'photo', value: fn, originalIndex: idx })
+        }
+      })
+    }
+    if (prod.images && Array.isArray(prod.images)) {
+      prod.images.forEach((url, idx) => {
+        if (url && typeof url === 'string' && url.trim().length > 0) {
+          combined.push({ type: 'image', value: url.trim(), originalIndex: idx })
+        }
+      })
+    }
+    setLocalModalPhotos(combined)
+  }
+
+  const handleOpenPhotoModal = () => {
+    initLocalModalPhotos(product)
+    setPhotoModalOpen(true)
   }
 
   // Upload de fotos
@@ -503,6 +540,7 @@ export default function CatalogoDetalhe() {
 
       const updated = await productsService.update(product.id, formData)
       setProduct(updated)
+      initLocalModalPhotos(updated)
       toast({
         title: 'Foto(s) adicionada(s)!',
         description: `${files.length} imagem(ns) enviada(s) para o equipamento.`,
@@ -536,6 +574,7 @@ export default function CatalogoDetalhe() {
         images: currentImages,
       })
       setProduct(updated)
+      initLocalModalPhotos(updated)
       setPhotoUrlInput('')
       toast({
         title: 'URL de foto adicionada!',
@@ -557,25 +596,28 @@ export default function CatalogoDetalhe() {
   const handleRemovePhoto = async (index: number) => {
     if (!product) return
 
+    // Se estivermos manipulando o modal com lista local, pegar o item correspondente da lista local
+    const targetItem = localModalPhotos[index]
+    if (!targetItem) return
+
     setIsUploadingPhoto(true)
     try {
-      const totalUploadedPhotos = Array.isArray(product.photos) ? product.photos.length : 0
-
-      if (index < totalUploadedPhotos) {
-        const targetFilename = product.photos![index]
+      if (targetItem.type === 'photo') {
+        const targetFilename = targetItem.value
         // Utilizar photos- no PocketBase para exclusão atômica e segura do arquivo específico
         const updated = await productsService.update(product.id, {
           'photos-': [targetFilename],
         } as any)
         setProduct(updated)
+        initLocalModalPhotos(updated)
       } else {
-        const imgIndex = index - totalUploadedPhotos
         const currentImages = Array.isArray(product.images) ? [...product.images] : []
-        currentImages.splice(imgIndex, 1)
+        const filteredImages = currentImages.filter((img) => img !== targetItem.value)
         const updated = await productsService.update(product.id, {
-          images: currentImages,
+          images: filteredImages,
         })
         setProduct(updated)
+        initLocalModalPhotos(updated)
       }
 
       if (selectedPhotoIndex >= photos.length - 1) {
@@ -595,6 +637,45 @@ export default function CatalogoDetalhe() {
       })
     } finally {
       setIsUploadingPhoto(false)
+    }
+  }
+
+  // Salvar a reordenação das fotos (photos e images)
+  const handleSavePhotoOrder = async () => {
+    if (!product) return
+    setIsSavingPhotoOrder(true)
+    try {
+      const newPhotosOrder: string[] = []
+      const newImagesOrder: string[] = []
+
+      for (const item of localModalPhotos) {
+        if (item.type === 'photo') {
+          newPhotosOrder.push(item.value)
+        } else if (item.type === 'image') {
+          newImagesOrder.push(item.value)
+        }
+      }
+
+      const updated = await productsService.update(product.id, {
+        photos: newPhotosOrder,
+        images: newImagesOrder,
+      })
+      setProduct(updated)
+      initLocalModalPhotos(updated)
+      setPhotoModalOpen(false)
+      toast({
+        title: 'Ordem das fotos atualizada!',
+        description: 'A nova sequência das fotos foi gravada com sucesso.',
+      })
+    } catch (err: any) {
+      console.error(err)
+      toast({
+        title: 'Erro ao salvar ordem das fotos',
+        description: err?.message || 'Não foi possível persistir a nova ordem.',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsSavingPhotoOrder(false)
     }
   }
 
@@ -1253,7 +1334,7 @@ export default function CatalogoDetalhe() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setPhotoModalOpen(true)}
+            onClick={() => handleOpenPhotoModal()}
             className="text-xs h-9 gap-1.5 border-slate-300 text-slate-700 hover:bg-slate-50"
           >
             <Camera className="w-3.5 h-3.5 text-blue-600" />
@@ -1326,7 +1407,7 @@ export default function CatalogoDetalhe() {
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation()
-                    setPhotoModalOpen(true)
+                    handleOpenPhotoModal()
                   }}
                   className="bg-white/90 hover:bg-white text-slate-800 text-xs px-2.5 py-1 rounded-md font-semibold shadow flex items-center gap-1.5 transition-all opacity-90 group-hover:opacity-100"
                 >
@@ -2810,34 +2891,44 @@ export default function CatalogoDetalhe() {
       />
 
       {/* MODAL: GERENCIAR FOTOS DO EQUIPAMENTO */}
-      <Dialog open={photoModalOpen} onOpenChange={setPhotoModalOpen}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+      <Dialog
+        open={photoModalOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            // Cancelar descarta estado local
+            initLocalModalPhotos(product)
+          }
+          setPhotoModalOpen(open)
+        }}
+      >
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-base font-bold text-slate-900 flex items-center gap-2">
-              <Camera className="w-5 h-5 text-blue-600" />
-              Fotos do Equipamento ({photos.length})
+              <Camera className="w-5 h-5 text-orange-600" />
+              Fotos do equipamento ({localModalPhotos.length})
             </DialogTitle>
-            <DialogDescription>
-              Faça upload de fotos do notebook ou adicione links de imagens para compor o anúncio.
+            <DialogDescription className="text-xs">
+              Até 6 imagens JPEG, PNG ou WebP, com no máximo 5 MB cada. Altere a ordem arrastando as
+              miniaturas ou selecionando a posição numérica desejada.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-5 py-2">
             {/* Upload Direto */}
             <div className="p-4 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50 text-center space-y-2">
-              <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
+              <div className="w-10 h-10 rounded-full bg-orange-50 text-orange-600 flex items-center justify-center mx-auto">
                 <Upload className="w-5 h-5" />
               </div>
               <p className="text-xs font-semibold text-slate-800">
                 Selecione fotos do seu computador / celular
               </p>
-              <p className="text-[11px] text-slate-500">Suporta JPG, PNG e WebP até 10MB</p>
+              <p className="text-[11px] text-slate-500">Suporta JPEG, PNG e WebP até 5 MB cada</p>
               <input
                 type="file"
                 ref={fileInputRef}
                 onChange={handleFileUpload}
                 multiple
-                accept="image/*"
+                accept="image/jpeg,image/png,image/webp"
                 className="hidden"
                 id="photoFileInput"
               />
@@ -2846,7 +2937,7 @@ export default function CatalogoDetalhe() {
                 variant="outline"
                 size="sm"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={isUploadingPhoto}
+                disabled={isUploadingPhoto || localModalPhotos.length >= 6}
                 className="text-xs bg-white border-slate-300"
               >
                 {isUploadingPhoto ? (
@@ -2874,11 +2965,14 @@ export default function CatalogoDetalhe() {
                   value={photoUrlInput}
                   onChange={(e) => setPhotoUrlInput(e.target.value)}
                   className="text-xs font-mono"
+                  disabled={isUploadingPhoto || localModalPhotos.length >= 6}
                 />
                 <Button
                   type="submit"
                   size="sm"
-                  disabled={isUploadingPhoto || !photoUrlInput.trim()}
+                  disabled={
+                    isUploadingPhoto || !photoUrlInput.trim() || localModalPhotos.length >= 6
+                  }
                   className="bg-slate-900 text-white shrink-0 text-xs"
                 >
                   Adicionar
@@ -2886,77 +2980,99 @@ export default function CatalogoDetalhe() {
               </div>
             </form>
 
-            {/* Grid de Fotos Atuais */}
+            {/* Grid de Reordenação com Drag & Drop, Setas, Seletor 1..N e Tornar Capa */}
             <div>
-              <Label className="text-xs font-semibold text-slate-700 block mb-2">
-                Fotos Cadastradas ({photos.length})
-              </Label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                {photos.map((url, idx) => (
-                  <div
-                    key={idx}
-                    className="relative group rounded-lg overflow-hidden border border-slate-200 aspect-square bg-slate-100"
-                  >
-                    <img
-                      src={url}
-                      alt={`Foto ${idx + 1}`}
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        ;(e.target as HTMLImageElement).src =
-                          'https://img.usecurling.com/p/400/400?q=laptop'
-                      }}
-                    />
-                    <div className="absolute top-1.5 left-1.5 bg-slate-900/80 text-white text-[10px] px-1.5 py-0.5 rounded font-mono">
-                      #{idx + 1}
-                    </div>
-                    <div className="absolute top-1.5 right-1.5 flex items-center gap-1 opacity-90 group-hover:opacity-100 transition-opacity">
-                      <button
-                        type="button"
-                        onClick={() => handleOpenBgRemoval(idx)}
-                        disabled={isUploadingPhoto}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white p-1 rounded-md shadow-xs"
-                        title="Remover fundo com IA e colocar fundo branco ML"
-                      >
-                        <Wand2 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleRemovePhoto(idx)}
-                        disabled={isUploadingPhoto}
-                        className="bg-rose-600 hover:bg-rose-700 text-white p-1 rounded-md shadow-xs"
-                        title="Excluir foto"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                    <div className="absolute bottom-1.5 inset-x-1.5 flex justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        type="button"
-                        onClick={() => handleOpenBgRemoval(idx)}
-                        className="w-full bg-slate-900/90 hover:bg-slate-900 text-white text-[10px] py-1 px-1.5 rounded font-semibold flex items-center justify-center gap-1 shadow"
-                      >
-                        <Wand2 className="w-3 h-3 text-indigo-300" />
-                        Remover fundo
-                      </button>
-                    </div>
-                  </div>
-                ))}
+              <div className="flex items-center justify-between mb-2.5">
+                <Label className="text-xs font-semibold text-slate-700">
+                  Organização das Fotos ({localModalPhotos.length}/6)
+                </Label>
+                <span className="text-[11px] text-slate-500">
+                  A foto #1 é a <strong>capa principal</strong> no catálogo e no PDF.
+                </span>
               </div>
+
+              {localModalPhotos.length === 0 ? (
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  className="border-2 border-dashed border-slate-200 rounded-xl p-8 text-center bg-white hover:bg-slate-50 cursor-pointer transition-colors"
+                >
+                  <p className="text-xs text-slate-400">Nenhuma foto adicionada.</p>
+                </div>
+              ) : (
+                <PhotoReorderGrid
+                  items={localModalPhotos.map((item, idx) => {
+                    const previewUrl =
+                      item.type === 'photo' && product
+                        ? productsService.getFileUrl(product, item.value)
+                        : item.value
+                    return {
+                      id: `${item.value}-${idx}`,
+                      url: previewUrl,
+                      label: `Foto ${idx + 1}`,
+                      isCover: idx === 0,
+                    }
+                  })}
+                  onReorder={(newOrderItems) => {
+                    // Mapeia os novos itens de volta para a lista localModalPhotos
+                    const urlToItemMap = new Map<string, (typeof localModalPhotos)[0]>()
+                    localModalPhotos.forEach((item) => {
+                      const url =
+                        item.type === 'photo' && product
+                          ? productsService.getFileUrl(product, item.value)
+                          : item.value
+                      urlToItemMap.set(url, item)
+                    })
+
+                    const updatedList = newOrderItems
+                      .map((oi) => urlToItemMap.get(oi.url))
+                      .filter(Boolean) as typeof localModalPhotos
+
+                    setLocalModalPhotos(updatedList)
+                  }}
+                  onRemove={(idx) => handleRemovePhoto(idx)}
+                  onOpenBgRemoval={(idx) => handleOpenBgRemoval(idx)}
+                  disabled={isUploadingPhoto || isSavingPhotoOrder}
+                  maxPhotos={6}
+                />
+              )}
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2">
             <Button
               type="button"
-              className="bg-slate-900 text-white"
-              onClick={() => setPhotoModalOpen(false)}
+              variant="outline"
+              className="bg-white border-slate-300 text-slate-700 text-xs h-9 px-4"
+              onClick={() => {
+                // Cancelar descarta estado local
+                initLocalModalPhotos(product)
+                setPhotoModalOpen(false)
+              }}
+              disabled={isSavingPhotoOrder}
             >
-              Concluir
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              className="bg-[#d9532f] hover:bg-[#c24624] text-white text-xs font-semibold h-9 px-5 gap-1.5 shadow-sm"
+              onClick={handleSavePhotoOrder}
+              disabled={isSavingPhotoOrder || isUploadingPhoto}
+            >
+              {isSavingPhotoOrder ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
+                  Salvando alterações...
+                </>
+              ) : (
+                <>
+                  <Check className="w-3.5 h-3.5" />
+                  Salvar alterações
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
       {/* MODAL: Adicionar / Editar Peça */}
       <Dialog open={partModalOpen} onOpenChange={setPartModalOpen}>
         <DialogContent className="max-w-md">

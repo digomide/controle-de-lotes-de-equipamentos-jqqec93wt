@@ -5,7 +5,6 @@ import {
   Boxes,
   Camera,
   Upload,
-  X,
   Plus,
   Loader2,
   CheckCircle2,
@@ -47,6 +46,7 @@ import {
 } from '@/lib/checklist'
 import { ProductConditionSelect } from '@/components/ProductConditionSelect'
 import type { ConditionType, ConditionGrade } from '@/lib/condition'
+import { PhotoReorderGrid, PhotoOrderItem } from '@/components/PhotoReorderGrid'
 
 interface ChecklistStateItem {
   item: string
@@ -214,6 +214,28 @@ export default function LoteInventariar() {
     setSelectedPhotos(nextFiles)
     const urls = nextFiles.map((f) => URL.createObjectURL(f))
     setPreviewUrls(urls)
+  }
+
+  const handleReorderPhotos = (newOrderItems: PhotoOrderItem[]) => {
+    // Reordenar tanto selectedPhotos quanto previewUrls mantendo sincronia estrita
+    const urlToIndexMap = new Map<string, number>()
+    previewUrls.forEach((url, idx) => {
+      urlToIndexMap.set(url, idx)
+    })
+
+    const newFiles: File[] = []
+    const newUrls: string[] = []
+
+    for (const item of newOrderItems) {
+      const originalIdx = urlToIndexMap.get(item.url)
+      if (originalIdx !== undefined && selectedPhotos[originalIdx]) {
+        newFiles.push(selectedPhotos[originalIdx])
+        newUrls.push(item.url)
+      }
+    }
+
+    setSelectedPhotos(newFiles)
+    setPreviewUrls(newUrls)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -896,25 +918,19 @@ export default function LoteInventariar() {
                 <p className="text-xs text-slate-400">Nenhuma foto adicionada.</p>
               </div>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
-                {previewUrls.map((url, i) => (
-                  <div
-                    key={i}
-                    className="relative group rounded-xl overflow-hidden border border-slate-200 bg-white aspect-square shadow-xs"
-                  >
-                    <img src={url} alt={`Foto ${i + 1}`} className="w-full h-full object-cover" />
-                    <button
-                      type="button"
-                      onClick={() => handleRemovePhoto(i)}
-                      className="absolute top-1 right-1 p-1 bg-rose-600 text-white rounded-full opacity-80 group-hover:opacity-100 hover:bg-rose-700 transition-opacity"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                    <span className="absolute bottom-1 left-1 px-1.5 py-0.5 bg-black/60 text-white text-[10px] rounded font-mono">
-                      #{i + 1}
-                    </span>
-                  </div>
-                ))}
+              <div className="space-y-2">
+                <PhotoReorderGrid
+                  items={previewUrls.map((url, i) => ({
+                    id: `${url}-${i}`,
+                    url,
+                    label: `Foto ${i + 1}`,
+                    isCover: i === 0,
+                  }))}
+                  onReorder={handleReorderPhotos}
+                  onRemove={handleRemovePhoto}
+                  disabled={isSubmitting}
+                  maxPhotos={6}
+                />
               </div>
             )}
           </div>
