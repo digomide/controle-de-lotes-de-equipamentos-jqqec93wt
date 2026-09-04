@@ -233,7 +233,7 @@ cronAdd('ml_queue_worker', '@every 15s', () => {
         !isNaN(Number(payload.price)) && Number(payload.price) > 0
           ? Number(payload.price)
           : product.getFloat('unit_price')
-      const categoryId = payload.category_id || 'MLB1652'
+      const categoryId = (payload.category_id || 'MLB1652').trim()
       const customDescription = (payload.description || '').toString().trim()
       const customPictures = Array.isArray(payload.photos) ? payload.photos : []
       const listingTypeId = payload.listing_type_id || 'gold_special'
@@ -277,6 +277,268 @@ cronAdd('ml_queue_worker', '@every 15s', () => {
         continue
       }
 
+      const rawType = (payload.condition_type || product.getString('condition_type') || '')
+        .toLowerCase()
+        .trim()
+      const rawGrade = (payload.condition_grade || product.getString('condition_grade') || '')
+        .toLowerCase()
+        .trim()
+
+      let mlCondition = 'used'
+      if (rawType === 'novo' || rawType === 'new') {
+        mlCondition = 'new'
+      } else if (rawType === 'caixa_aberta' || rawType === 'clipped') {
+        mlCondition = 'clipped'
+      } else if (rawType === 'recondicionado' || rawType === 'refurbished') {
+        mlCondition = 'refurbished'
+      } else if (rawType === 'usado' || rawType === 'used') {
+        mlCondition = 'used'
+      } else {
+        const leg = (product.getString('condition') || '').toLowerCase()
+        if (leg.includes('novo')) mlCondition = 'new'
+        else if (leg.includes('caixa')) mlCondition = 'clipped'
+        else mlCondition = 'refurbished'
+      }
+
+      const gradeLabelMap = {
+        excelente: 'Excelente',
+        bom: 'Bom',
+        aceitavel: 'Aceitável',
+      }
+      const gradeLabel = gradeLabelMap[rawGrade] || ''
+
+      // 1. Obter metadados dos atributos obrigatórios da categoria no ML via GET /categories/{category_id}/attributes
+      let categoryAttributesMeta = []
+      try {
+        const catAttrRes = $http.send({
+          url: 'https://api.mercadolibre.com/categories/' + categoryId + '/attributes',
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+          },
+          timeout: 15,
+        })
+        if (catAttrRes.statusCode === 200 && Array.isArray(catAttrRes.json)) {
+          categoryAttributesMeta = catAttrRes.json
+        }
+      } catch (cErr) {
+        console.log(
+          '[ml_cron] Erro ao consultar atributos da categoria ' + categoryId + ': ' + cErr,
+        )
+      }
+
+      const requiredAttrMap = {}
+      for (let m = 0; m < categoryAttributesMeta.length; m++) {
+        const attrDef = categoryAttributesMeta[m] || {}
+        const tags = attrDef.tags || {}
+        const isRequired =
+          tags.required === true ||
+          tags.catalog_required === true ||
+          (tags.conditional_required === true &&
+            mlCondition === 'refurbished' &&
+            attrDef.id === 'GRADING')
+        if (isRequired && attrDef.id) {
+          requiredAttrMap[attrDef.id] = attrDef
+        }
+      }
+
+      const pBrand = (product.getString('brand') || '').trim()
+      const pModel = (product.getString('model') || '').trim()
+      const pProcessor = (product.getString('processor') || '').trim()
+      const pRam = (product.getString('ram') || '').trim()
+      const pStorage = (product.getString('storage') || '').trim()
+      const pScreen = (product.getString('screen_size') || '').trim()
+      const pName = (product.getString('name') || '').trim()
+
+      let brandVal = pBrand
+      if (!brandVal) {
+        if (pName.toLowerCase().includes('lenovo')) brandVal = 'Lenovo'
+        else if (pName.toLowerCase().includes('dell')) brandVal = 'Dell'
+        else if (pName.toLowerCase().includes('hp')) brandVal = 'HP'
+        else if (pName.toLowerCase().includes('apple')) brandVal = 'Apple'
+        else if (pName.toLowerCase().includes('acer')) brandVal = 'Acer'
+        else if (pName.toLowerCase().includes('asus')) brandVal = 'Asus'
+        else if (pName.toLowerCase().includes('samsung')) brandVal = 'Samsung'
+        else if (pName.toLowerCase().includes('positivo')) brandVal = 'Positivo'
+      }
+
+      let modelVal = pModel
+      if (!modelVal) {
+        modelVal = title.replace(brandVal, '').trim() || pName.slice(0, 60)
+      }
+
+      let familyVal = ''
+      const combinedText = (pModel + ' ' + pName).trim()
+      if (/thinkpad/i.test(combinedText)) familyVal = 'ThinkPad'
+      else if (/ideapad/i.test(combinedText)) familyVal = 'IdeaPad'
+      else if (/latitude/i.test(combinedText)) familyVal = 'Latitude'
+      else if (/inspiron/i.test(combinedText)) familyVal = 'Inspiron'
+      else if (/vostro/i.test(combinedText)) familyVal = 'Vostro'
+      else if (/precision/i.test(combinedText)) familyVal = 'Precision'
+      else if (/elitebook/i.test(combinedText)) familyVal = 'EliteBook'
+      else if (/probook/i.test(combinedText)) familyVal = 'ProBook'
+      else if (/macbook pro/i.test(combinedText)) familyVal = 'MacBook Pro'
+      else if (/macbook air/i.test(combinedText)) familyVal = 'MacBook Air'
+      else if (/macbook/i.test(combinedText)) familyVal = 'MacBook'
+      else if (/aspire/i.test(combinedText)) familyVal = 'Aspire'
+      else if (/expertbook/i.test(combinedText)) familyVal = 'ExpertBook'
+      else if (/zenbook/i.test(combinedText)) familyVal = 'ZenBook'
+      else if (/vivobook/i.test(combinedText)) familyVal = 'VivoBook'
+      else if (/galaxy book/i.test(combinedText)) familyVal = 'Galaxy Book'
+      else {
+        familyVal = (pModel || brandVal || title).trim().slice(0, 60)
+      }
+
+      let procBrand = 'Intel'
+      let procLine = 'Core i7'
+      let procModel = ''
+
+      const procCombined = (pProcessor + ' ' + pName).toLowerCase()
+      if (procCombined.includes('amd') || procCombined.includes('ryzen')) {
+        procBrand = 'AMD'
+        if (procCombined.includes('ryzen 7')) procLine = 'Ryzen 7'
+        else if (procCombined.includes('ryzen 5')) procLine = 'Ryzen 5'
+        else if (procCombined.includes('ryzen 3')) procLine = 'Ryzen 3'
+        else if (procCombined.includes('ryzen 9')) procLine = 'Ryzen 9'
+        else procLine = 'Ryzen'
+      } else if (
+        procCombined.includes('apple') ||
+        procCombined.includes('m1') ||
+        procCombined.includes('m2') ||
+        procCombined.includes('m3')
+      ) {
+        procBrand = 'Apple'
+        if (procCombined.includes('m3')) procLine = 'M3'
+        else if (procCombined.includes('m2')) procLine = 'M2'
+        else procLine = 'M1'
+      } else {
+        procBrand = 'Intel'
+        if (procCombined.includes('i7') || procCombined.includes('core i7')) procLine = 'Core i7'
+        else if (procCombined.includes('i5') || procCombined.includes('core i5'))
+          procLine = 'Core i5'
+        else if (procCombined.includes('i3') || procCombined.includes('core i3'))
+          procLine = 'Core i3'
+        else if (procCombined.includes('i9') || procCombined.includes('core i9'))
+          procLine = 'Core i9'
+        else if (procCombined.includes('celeron')) procLine = 'Celeron'
+        else if (procCombined.includes('xeon')) procLine = 'Xeon'
+      }
+
+      const modelMatch = (pProcessor + ' ' + pName).match(/\b(\d{4}[A-Z0-9]*)\b/i)
+      if (modelMatch && modelMatch[1]) {
+        procModel = modelMatch[1].toUpperCase()
+      } else {
+        if (procLine === 'Core i7' && procCombined.includes('8')) {
+          procModel = '8550U'
+        } else if (procLine === 'Core i5' && procCombined.includes('8')) {
+          procModel = '8250U'
+        } else if (procLine === 'Core i7' && procCombined.includes('7')) {
+          procModel = '7500U'
+        } else if (procLine === 'Core i5' && procCombined.includes('7')) {
+          procModel = '7200U'
+        } else if (procLine === 'Core i7' && procCombined.includes('10')) {
+          procModel = '10510U'
+        } else if (procLine === 'Core i5' && procCombined.includes('10')) {
+          procModel = '10210U'
+        } else if (procLine === 'Core i7' && procCombined.includes('11')) {
+          procModel = '1165G7'
+        } else if (procLine === 'Core i5' && procCombined.includes('11')) {
+          procModel = '1135G7'
+        } else {
+          procModel = pProcessor.trim() || '8250U'
+        }
+      }
+
+      const attributesMap = {}
+      function setAttr(id, valueName) {
+        if (
+          id &&
+          valueName !== undefined &&
+          valueName !== null &&
+          String(valueName).trim() !== ''
+        ) {
+          attributesMap[id] = { id: id, value_name: String(valueName).trim() }
+        }
+      }
+
+      if (brandVal) setAttr('BRAND', brandVal)
+      if (modelVal) setAttr('MODEL', modelVal)
+      if (familyVal) {
+        setAttr('LINE', familyVal)
+        setAttr('FAMILY_NAME', familyVal)
+      }
+      if (procBrand) setAttr('PROCESSOR_BRAND', procBrand)
+      if (procLine) setAttr('PROCESSOR_LINE', procLine)
+      if (procModel) setAttr('PROCESSOR_MODEL', procModel)
+
+      if (pRam) {
+        const ramMatch = pRam.match(/(\d+)\s*GB/i)
+        if (ramMatch) {
+          setAttr('RAM_MEMORY_MODULE_TOTAL_CAPACITY', ramMatch[1] + ' GB')
+          setAttr('RAM', ramMatch[1] + ' GB')
+        } else {
+          setAttr('RAM', pRam)
+        }
+      }
+
+      if (pStorage) {
+        const ssdMatch = pStorage.match(/(\d+)\s*(GB|TB)/i)
+        if (ssdMatch) {
+          setAttr('SSD_DATA_STORAGE_CAPACITY', ssdMatch[1] + ' ' + ssdMatch[2].toUpperCase())
+        }
+      }
+
+      if (pScreen) {
+        setAttr('SCREEN_SIZE', pScreen)
+      }
+
+      if (product.getBool('has_numeric_keypad') !== undefined) {
+        setAttr('WITH_NUMERIC_PAD', product.getBool('has_numeric_keypad') ? 'Sim' : 'Não')
+      }
+
+      if (mlCondition === 'refurbished' && gradeLabel) {
+        setAttr('GRADING', gradeLabel)
+        setAttr('ITEM_GRADE', gradeLabel)
+      }
+
+      const missingAttrs = []
+      const friendlyNames = {
+        BRAND: 'Marca (BRAND)',
+        MODEL: 'Modelo (MODEL)',
+        LINE: 'Linha/Família (LINE)',
+        PROCESSOR_BRAND: 'Marca do Processador',
+        PROCESSOR_LINE: 'Linha do Processador',
+        PROCESSOR_MODEL: 'Modelo do Processador',
+        RAM: 'Memória RAM',
+        family_name: 'Família do Produto (family_name)',
+      }
+
+      for (const reqId in requiredAttrMap) {
+        if (!attributesMap[reqId]) {
+          const def = requiredAttrMap[reqId]
+          const label = friendlyNames[reqId] || def.name || reqId
+          missingAttrs.push(label)
+        }
+      }
+
+      if (missingAttrs.length > 0) {
+        const errText =
+          'O Mercado Livre exige os seguintes atributos obrigatórios para a categoria ' +
+          categoryId +
+          ': ' +
+          missingAttrs.join(', ') +
+          '. Revise o cadastro do equipamento para preenchê-los.'
+        pubItem.set('status', 'error')
+        pubItem.set('error_message', errText)
+        $app.save(pubItem)
+        continue
+      }
+
+      const itemAttributes = []
+      for (const k in attributesMap) {
+        itemAttributes.push(attributesMap[k])
+      }
+
       const itemPayload = {
         title: title,
         category_id: categoryId,
@@ -285,9 +547,11 @@ cronAdd('ml_queue_worker', '@every 15s', () => {
         available_quantity: 1,
         buying_mode: 'buy_it_now',
         listing_type_id: listingTypeId,
-        condition: 'used',
+        condition: mlCondition,
         pictures: pictureObjects,
         channels: ['marketplace'],
+        family_name: familyVal || title.slice(0, 60),
+        attributes: itemAttributes,
       }
 
       let createRes = null
@@ -311,6 +575,40 @@ cronAdd('ml_queue_worker', '@every 15s', () => {
         )
         $app.save(pubItem)
         continue
+      }
+
+      if (
+        createRes.statusCode >= 400 &&
+        itemPayload.attributes &&
+        itemPayload.attributes.length > 0
+      ) {
+        const errJsonTemp = createRes.json || {}
+        const errMsgTemp = JSON.stringify(errJsonTemp).toLowerCase()
+        if (
+          errMsgTemp.includes('item_grade') ||
+          errMsgTemp.includes('grading') ||
+          errMsgTemp.includes('invalid_attribute')
+        ) {
+          console.log('[ml_cron] Ajustando atributos e retentando publicação...')
+          itemPayload.attributes = itemPayload.attributes.filter(
+            (a) => a.id !== 'ITEM_GRADE' && a.id !== 'GRADING',
+          )
+          try {
+            createRes = $http.send({
+              url: 'https://api.mercadolibre.com/items',
+              method: 'POST',
+              headers: {
+                Authorization: 'Bearer ' + accessToken,
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+              },
+              body: JSON.stringify(itemPayload),
+              timeout: 30,
+            })
+          } catch (retryErr) {
+            console.log('[ml_cron] Erro ao retentar com atributos ajustados: ' + retryErr)
+          }
+        }
       }
 
       if (createRes.statusCode >= 400) {

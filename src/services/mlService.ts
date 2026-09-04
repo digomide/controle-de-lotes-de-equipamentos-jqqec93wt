@@ -45,6 +45,54 @@ export interface MLPublishResponse {
 }
 
 /**
+ * Traduz mensagens técnicas de erro da API do Mercado Livre para mensagens claras e amigáveis ao usuário
+ */
+export function translateMLErrorMessage(rawError: string): string {
+  if (!rawError) return 'Falha desconhecida ao comunicar com o Mercado Livre.'
+
+  // Erro específico de body.required_fields [family_name] ou outros atributos faltantes
+  if (
+    rawError.includes('body.required_fields') ||
+    rawError.includes('The body does not contains') ||
+    rawError.includes('does not contain')
+  ) {
+    const fieldsMatch = rawError.match(/\[(.*?)\]/)
+    const rawFields = fieldsMatch ? fieldsMatch[1].split(',').map((s) => s.trim()) : []
+
+    const friendlyDict: Record<string, string> = {
+      family_name: 'família do produto (family_name / linha)',
+      brand: 'marca do equipamento (BRAND)',
+      model: 'modelo do produto (MODEL)',
+      line: 'linha do produto (LINE)',
+      processor_brand: 'marca do processador',
+      processor_line: 'linha do processador',
+      processor_model: 'modelo do processador',
+      ram_memory_module_total_capacity: 'memória RAM',
+      ssd_data_storage_capacity: 'capacidade do SSD',
+      item_grade: 'grau de estado',
+      grading: 'grau de recondicionamento',
+    }
+
+    if (rawFields.length > 0) {
+      const translated = rawFields.map((f) => friendlyDict[f.toLowerCase()] || f).join(', ')
+      return `O Mercado Livre exige os seguintes campos obrigatórios: ${translated}. O sistema agora preenche isso automaticamente com base nas especificações cadastradas; revise o cadastro do equipamento se faltar alguma informação.`
+    }
+
+    return 'O Mercado Livre exige campos obrigatórios que não foram informados (ex: família do produto ou marca/modelo). O sistema agora preenche isso automaticamente; revise o cadastro se faltar alguma especificação.'
+  }
+
+  // Erros de token expirado ou permissão
+  if (
+    rawError.toLowerCase().includes('token') &&
+    (rawError.toLowerCase().includes('expired') || rawError.toLowerCase().includes('invalid'))
+  ) {
+    return 'A autorização do Mercado Livre expirou. Acesse Configurações e reconecte sua conta.'
+  }
+
+  return rawError
+}
+
+/**
  * Categorias populares do Mercado Livre Brasil para notebooks e informática
  */
 export const ML_CATEGORIES = [
@@ -233,6 +281,11 @@ export function validateProductForML(product: Product): { eligible: boolean; rea
 
   if (product.condition_type === 'recondicionado' && !product.condition_grade) {
     reasons.push('Recondicionados exigem grau de estado (Excelente, Bom ou Aceitável)')
+  }
+
+  // Verificar se possui marca e modelo para satisfazer BRAND/MODEL da categoria do ML
+  if (!product.brand?.trim() && !product.name?.trim()) {
+    reasons.push('Marca do equipamento não informada')
   }
 
   return {

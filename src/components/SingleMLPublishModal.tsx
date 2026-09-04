@@ -26,6 +26,7 @@ import {
   generateMLTitle,
   generateMLDescription,
   getProductImageUrls,
+  translateMLErrorMessage,
   ML_CATEGORIES,
   type MLStatusResponse,
 } from '@/services/mlService'
@@ -146,12 +147,14 @@ export function SingleMLPublishModal({
         }
         onClose()
       } else {
-        setErrorMessage(res.error || 'Falha desconhecida ao publicar anúncio.')
+        const friendly = translateMLErrorMessage(res.error || '')
+        setErrorMessage(friendly)
       }
     } catch (err: any) {
       console.error('Erro na publicação ML:', err)
-      const msg =
+      const rawMsg =
         err?.data?.error || err?.message || 'Erro ao comunicar com a API do Mercado Livre.'
+      const msg = translateMLErrorMessage(rawMsg)
       setErrorMessage(msg)
     } finally {
       setPublishProgress(null)

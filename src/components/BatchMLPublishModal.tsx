@@ -19,6 +19,7 @@ import {
   generateMLTitle,
   generateMLDescription,
   getProductImageUrls,
+  translateMLErrorMessage,
   type MLStatusResponse,
 } from '@/services/mlService'
 import {
@@ -174,19 +175,19 @@ export function BatchMLPublishModal({
             copy[i] = {
               ...copy[i],
               status: 'error',
-              errorMsg: res.error || 'Falha ao publicar',
+              errorMsg: translateMLErrorMessage(res.error || 'Falha ao publicar'),
             }
             return copy
           })
         }
       } catch (err: any) {
-        const msg = err?.data?.error || err?.message || 'Erro de comunicação com o servidor'
+        const rawMsg = err?.data?.error || err?.message || 'Erro de comunicação com o servidor'
         setItems((prev) => {
           const copy = [...prev]
           copy[i] = {
             ...copy[i],
             status: 'error',
-            errorMsg: msg,
+            errorMsg: translateMLErrorMessage(rawMsg),
           }
           return copy
         })
