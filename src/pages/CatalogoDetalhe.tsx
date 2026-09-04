@@ -448,18 +448,16 @@ export default function CatalogoDetalhe() {
       const totalUploadedPhotos = Array.isArray(product.photos) ? product.photos.length : 0
 
       if (replaceOriginal && photoIndex < totalUploadedPhotos) {
-        // Para substituir um arquivo no PocketBase: removemos o arquivo antigo e anexamos o novo
+        // Substituir um arquivo específico no PocketBase preservando todos os demais:
+        // No PocketBase multipart/form-data:
+        // - 'photos+' anexa o novo arquivo File
+        // - 'photos-' remove especificamente o filename antigo
+        // Ao enviar ambos no mesmo FormData, o PB faz a substituição cirúrgica sem apagar os outros
         const targetFilename = product.photos![photoIndex]
-        const remaining = product.photos!.filter((fn) => fn !== targetFilename)
-
-        // 1. Atualizar lista excluindo o antigo
-        await productsService.update(product.id, {
-          photos: remaining,
-        })
-
-        // 2. Anexar o novo arquivo gerado
         const formData = new FormData()
-        formData.append('photos', newFile)
+        formData.append('photos+', newFile)
+        formData.append('photos-', targetFilename)
+
         const updated = await productsService.update(product.id, formData)
         setProduct(updated)
       } else if (replaceOriginal && photoIndex >= totalUploadedPhotos) {
@@ -468,16 +466,16 @@ export default function CatalogoDetalhe() {
         const currentImages = Array.isArray(product.images) ? [...product.images] : []
         currentImages.splice(imgIndex, 1)
 
-        // Salvar novo arquivo em photos e atualizar images
+        // Anexar novo arquivo em photos+ preservando os existentes e atualizar array de images externas
         const formData = new FormData()
-        formData.append('photos', newFile)
+        formData.append('photos+', newFile)
         formData.append('images', JSON.stringify(currentImages))
         const updated = await productsService.update(product.id, formData)
         setProduct(updated)
       } else {
-        // Modo adicionar como nova foto
+        // Modo adicionar como nova foto: usar photos+ para garantir que apenas concatena
         const formData = new FormData()
-        formData.append('photos', newFile)
+        formData.append('photos+', newFile)
         const updated = await productsService.update(product.id, formData)
         setProduct(updated)
       }
@@ -500,7 +498,7 @@ export default function CatalogoDetalhe() {
     try {
       const formData = new FormData()
       for (let i = 0; i < files.length; i++) {
-        formData.append('photos', files[i])
+        formData.append('photos+', files[i])
       }
 
       const updated = await productsService.update(product.id, formData)
@@ -565,10 +563,10 @@ export default function CatalogoDetalhe() {
 
       if (index < totalUploadedPhotos) {
         const targetFilename = product.photos![index]
-        const remaining = product.photos!.filter((fn) => fn !== targetFilename)
+        // Utilizar photos- no PocketBase para exclusão atômica e segura do arquivo específico
         const updated = await productsService.update(product.id, {
-          photos: remaining,
-        })
+          'photos-': [targetFilename],
+        } as any)
         setProduct(updated)
       } else {
         const imgIndex = index - totalUploadedPhotos
