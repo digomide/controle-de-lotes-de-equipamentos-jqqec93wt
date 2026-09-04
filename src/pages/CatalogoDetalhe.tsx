@@ -162,6 +162,7 @@ export default function CatalogoDetalhe() {
   const [editScreenSize, setEditScreenSize] = useState('14"')
   const [editHasNumericKeypad, setEditHasNumericKeypad] = useState<boolean>(false)
   const [editIncludesCharger, setEditIncludesCharger] = useState<boolean>(true)
+  const [editGtin, setEditGtin] = useState('')
   const [editUnitPrice, setEditUnitPrice] = useState<number>(0)
   const [editCostPrice, setEditCostPrice] = useState<number>(0)
   const [editStatus, setEditStatus] = useState<ProductStatus>('Disponível')
@@ -340,6 +341,7 @@ export default function CatalogoDetalhe() {
     setEditScreenSize(product.screen_size || '14"')
     setEditHasNumericKeypad(Boolean(product.has_numeric_keypad))
     setEditIncludesCharger(Boolean(product.includes_charger))
+    setEditGtin(product.gtin || '')
     setEditUnitPrice(Number(product.unit_price) || 0)
     setEditCostPrice(Number(product.cost_price) || 0)
     setEditStatus(product.status || 'Disponível')
@@ -383,6 +385,7 @@ export default function CatalogoDetalhe() {
         screen_size: editScreenSize,
         has_numeric_keypad: editHasNumericKeypad,
         includes_charger: editIncludesCharger,
+        gtin: editGtin.trim() || '',
         unit_price: Number(editUnitPrice) || 0,
         cost_price: Number(editCostPrice) || 0,
         status: editStatus,
@@ -1999,13 +2002,28 @@ export default function CatalogoDetalhe() {
                   {product.serial_number && (
                     <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100">
                       <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-semibold">
-                        Número de Série
+                        Número de Série (S/N)
                       </span>
                       <span className="font-medium font-mono text-slate-800 block truncate">
                         {product.serial_number}
                       </span>
                     </div>
                   )}
+
+                  <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                    <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-semibold">
+                      Código de Barras (GTIN/EAN)
+                    </span>
+                    {product.gtin ? (
+                      <span className="font-medium font-mono text-emerald-700 block truncate">
+                        {product.gtin}
+                      </span>
+                    ) : (
+                      <span className="text-amber-600 italic text-[11px] block">
+                        Não cadastrado (recom. para ML)
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 {product.bench_notes && (
@@ -2482,6 +2500,22 @@ export default function CatalogoDetalhe() {
                   placeholder='14", 15.6"'
                   value={editScreenSize}
                   onChange={(e) => setEditScreenSize(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-semibold text-slate-700">
+                    Código de Barras (GTIN / EAN)
+                  </Label>
+                  <span className="text-[10px] text-slate-400">8 a 14 dígitos</span>
+                </div>
+                <Input
+                  placeholder="Ex: 7891234567890 (código de fábrica)"
+                  value={editGtin}
+                  onChange={(e) => setEditGtin(e.target.value.replace(/\D/g, '').slice(0, 14))}
+                  className="font-mono text-xs"
+                  maxLength={14}
                 />
               </div>
 

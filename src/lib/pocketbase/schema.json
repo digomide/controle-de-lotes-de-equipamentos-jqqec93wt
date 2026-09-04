@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-04T21:07:35.112Z",
+  "generatedAt": "2026-09-04T21:13:59.474Z",
   "collections": [
     {
       "name": "users",
@@ -271,6 +271,12 @@
           "required": false,
           "system": false,
           "selectValues": ["excelente", "bom", "aceitavel"]
+        },
+        {
+          "name": "gtin",
+          "type": "text",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": ["CREATE UNIQUE INDEX idx_products_sku ON products (sku)"]

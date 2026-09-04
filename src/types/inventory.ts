@@ -65,6 +65,7 @@ export interface Product extends RecordModel {
   history_events?: EquipmentHistoryEvent[]
   purchase_batch_id?: string
   serial_number?: string
+  gtin?: string
   includes_charger?: boolean
   bench_notes?: string
   ml_listing_id?: string

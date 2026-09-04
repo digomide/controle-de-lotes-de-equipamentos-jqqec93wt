@@ -1,7 +1,7 @@
 // Hook acionado imediatamente após a criação de um registro em ml_publish_queue
 // Suporta modelo moderno User Product do Mercado Livre (exige family_name na raiz e proíbe title)
-// e fallback para modelo tradicional (com title).
-// Executa bateria sistemática de variações reais no POST /items com GTIN válido com dígito verificador e EMPTY_GTIN_REASON
+// Suporta envio do GTIN/EAN informado pelo usuário ou isenção EMPTY_GTIN_REASON
+// Trata o erro 7810 / missing_conditional_required com mensagem clara e bloqueio de retry inútil
 // Tudo inline dentro do callback para respeitar a VM isolada do PocketBase v0.36 (Goja engine)
 
 onRecordAfterCreateSuccess((e) => {
@@ -126,10 +126,10 @@ onRecordAfterCreateSuccess((e) => {
       }
     }
 
-    if (!payload || !payload.title) {
+    if (!payload || (!payload.title && !payload.family_name)) {
       try {
         const direct = pubItem.get('payload')
-        if (direct && typeof direct === 'object' && direct.title) {
+        if (direct && typeof direct === 'object' && (direct.title || direct.family_name)) {
           payload = direct
         }
       } catch (_) {}
@@ -156,14 +156,6 @@ onRecordAfterCreateSuccess((e) => {
     .replace(/\s+/g, ' ')
     .trim()
   const initialTitle = cleanTitleOneLine.slice(0, 60).trim()
-  console.log(
-    '[ml_publish_hook] Título sugerido (len: ' +
-      initialTitle.length +
-      '): "' +
-      initialTitle +
-      '" | Origem: ' +
-      titleSource,
-  )
 
   const price =
     !isNaN(Number(payload.price)) && Number(payload.price) > 0
@@ -453,11 +445,16 @@ onRecordAfterCreateSuccess((e) => {
     normalizedScreen = numOnly ? numOnly + ' "' : rawScreenCandidate
   }
 
-  // Teclado numérico
   const hasNumPad = product.getBool('has_numeric_keypad')
 
-  // Helper para construir atributos
-  function buildAttributesSet(mode, cond, gtinValue) {
+  // Extração do GTIN/EAN informado pelo usuário
+  let rawGtin = ((payload && payload.gtin) || product.getString('gtin') || '').trim()
+  let userGtin = ''
+  if (/^\d{8,14}$/.test(rawGtin)) {
+    userGtin = rawGtin
+  }
+
+  function buildAttributesSet(mode, cond, gtinValue, useExemption) {
     const m = {}
     function add(id, valName) {
       if (!id || valName === undefined || valName === null) return
@@ -504,9 +501,11 @@ onRecordAfterCreateSuccess((e) => {
       }
     }
 
-    // GTIN
+    // GTIN ou isenção
     if (gtinValue) {
       m['GTIN'] = { id: 'GTIN', value_name: gtinValue }
+    } else if (useExemption) {
+      m['EMPTY_GTIN_REASON'] = { id: 'EMPTY_GTIN_REASON', value_name: 'Outro motivo' }
     }
 
     if (mode === 'full') {
@@ -541,74 +540,70 @@ onRecordAfterCreateSuccess((e) => {
     { id: 'WARRANTY_TIME', value_name: '90 dias' },
   ]
 
-  // SUÍTE SISTEMÁTICA DE TESTES
-  // GTINs oficiais para notebooks Lenovo ThinkPad T580 e genéricos com checksum GS1 perfeito:
-  // 0192076016710: UPC/EAN oficial do Lenovo ThinkPad T580
-  // 0192330107747: EAN oficial Lenovo T580
-  // 7891112223334: EAN-13 válido com checksum correto
-  const variations = [
-    {
-      name: 'Variação UP-GTIN-1 (User Product: SEM title, GTIN ThinkPad T580 0192076016710, refurbished, full)',
+  // Montar lista de variações
+  const variations = []
+  if (userGtin) {
+    variations.push({
+      name: 'UP (User Product: SEM title, GTIN informado, full)',
       sendTitle: false,
-      familyName: fullFamilyName || 'Lenovo ThinkPad T580',
+      familyName: fullFamilyName || 'Notebook ' + (familyVal || brandVal),
       attrMode: 'full',
-      gtin: '0192076016710',
+      gtin: userGtin,
+      useExemption: false,
       condition: initialMlCondition,
       includeWarranty: true,
-    },
-    {
-      name: 'Variação UP-GTIN-2 (User Product: SEM title, GTIN 192076016710 UPC-12, refurbished, full)',
-      sendTitle: false,
-      familyName: fullFamilyName || 'Lenovo ThinkPad T580',
-      attrMode: 'full',
-      gtin: '192076016710',
-      condition: initialMlCondition,
-      includeWarranty: true,
-    },
-    {
-      name: 'Variação UP-GTIN-3 (User Product: SEM title, GTIN ThinkPad 0192330107747, condition="used", full)',
-      sendTitle: false,
-      familyName: fullFamilyName || 'Lenovo ThinkPad T580',
-      attrMode: 'full',
-      gtin: '0192330107747',
-      condition: 'used',
-      includeWarranty: true,
-    },
-    {
-      name: 'Variação UP-GTIN-4 (User Product: SEM title, GTIN 7891112223334, refurbished, full)',
-      sendTitle: false,
-      familyName: fullFamilyName || 'Lenovo ThinkPad T580',
-      attrMode: 'full',
-      gtin: '7891112223334',
-      condition: initialMlCondition,
-      includeWarranty: true,
-    },
-    {
-      name: 'Variação UP-GTIN-5 (User Product: SEM title, family="ThinkPad", GTIN 0192076016710, minimal)',
+    })
+    variations.push({
+      name: 'UP (User Product: SEM title, family curta, GTIN informado, minimal)',
       sendTitle: false,
       familyName: familyVal || 'ThinkPad',
       attrMode: 'minimal',
-      gtin: '0192076016710',
+      gtin: userGtin,
+      useExemption: false,
       condition: initialMlCondition,
       includeWarranty: true,
-    },
-  ]
+    })
+  } else {
+    variations.push({
+      name: 'UP (User Product: SEM title, com isenção EMPTY_GTIN_REASON)',
+      sendTitle: false,
+      familyName: fullFamilyName || 'Notebook ' + (familyVal || brandVal),
+      attrMode: 'full',
+      gtin: null,
+      useExemption: true,
+      condition: initialMlCondition,
+      includeWarranty: true,
+    })
+    variations.push({
+      name: 'UP (User Product: SEM title, sem GTIN)',
+      sendTitle: false,
+      familyName: fullFamilyName || 'Notebook ' + (familyVal || brandVal),
+      attrMode: 'full',
+      gtin: null,
+      useExemption: false,
+      condition: initialMlCondition,
+      includeWarranty: true,
+    })
+  }
 
   console.log(
-    '[ml_publish_hook] Iniciando bateria de testes sistemáticos para o produto: ' +
+    '[ml_publish_hook] Iniciando bateria para produto: ' +
       productId +
-      ' | Total variações preparadas: ' +
+      ' | GTIN usuário: ' +
+      (userGtin || 'não informado') +
+      ' | Total variações: ' +
       variations.length,
   )
 
   let successfulVariation = null
   let successfulRes = null
   let successfulPayload = null
+  let gtinRequiredBlocked = false
   const attemptsLog = []
 
   for (let vIdx = 0; vIdx < variations.length; vIdx++) {
     const v = variations[vIdx]
-    const itemAttrs = buildAttributesSet(v.attrMode, v.condition, v.gtin)
+    const itemAttrs = buildAttributesSet(v.attrMode, v.condition, v.gtin, v.useExemption)
 
     const trialPayload = {
       category_id: categoryId,
@@ -621,13 +616,11 @@ onRecordAfterCreateSuccess((e) => {
       pictures: pictureObjects,
       channels: ['marketplace'],
       attributes: itemAttrs,
+      family_name: v.familyName,
     }
 
     if (v.sendTitle && v.title) {
       trialPayload.title = v.title
-    }
-    if (v.familyName) {
-      trialPayload.family_name = v.familyName
     }
     if (v.includeWarranty) {
       trialPayload.sale_terms = defaultSaleTerms
@@ -641,7 +634,7 @@ onRecordAfterCreateSuccess((e) => {
         variations.length +
         '] ' +
         v.name +
-        ' | Payload JSON COMPLETO enviado ao POST /items: ' +
+        ' | Payload JSON: ' +
         payloadJsonStr,
     )
 
@@ -690,25 +683,22 @@ onRecordAfterCreateSuccess((e) => {
       sent_payload: trialPayload,
     })
 
+    const respStr = JSON.stringify(respJson)
+    // Se o ML exigir especificamente GTIN (cause_id 7810 / missing_conditional_required)
+    if (respStr.includes('missing_conditional_required') && respStr.includes('GTIN')) {
+      gtinRequiredBlocked = true
+      console.log('[ml_publish_hook] Categoria exige GTIN/EAN obrigatório.')
+      break
+    }
+
     if (respStatusCode === 201 || (respStatusCode >= 200 && respStatusCode < 300)) {
       successfulVariation = v
       successfulRes = trialRes
       successfulPayload = trialPayload
       console.log(
-        '[ml_publish_hook] SUCESSO na ' +
-          v.name +
-          '! Item criado no Mercado Livre com id: ' +
-          (respJson.id || ''),
+        '[ml_publish_hook] SUCESSO na ' + v.name + '! Item criado: ' + (respJson.id || ''),
       )
       break
-    } else {
-      console.log(
-        '[ml_publish_hook] Falha na ' +
-          v.name +
-          ' (status ' +
-          respStatusCode +
-          '). Tentando próxima variação...',
-      )
     }
   }
 
@@ -720,7 +710,6 @@ onRecordAfterCreateSuccess((e) => {
     const itemStatus = createdItem.status || 'active'
     const mlGeneratedTitle = createdItem.title || initialTitle
 
-    // Sanitizar descrição para remover dados de contato e dados da loja
     let sanitizedDescription = customDescription || ''
     if (sanitizedDescription) {
       sanitizedDescription = sanitizedDescription
@@ -769,6 +758,9 @@ onRecordAfterCreateSuccess((e) => {
     product.set('ml_listing_url', permalink)
     product.set('ml_listing_status', itemStatus)
     product.set('ml_published_at', new Date().toISOString())
+    if (userGtin && !product.getString('gtin')) {
+      product.set('gtin', userGtin)
+    }
 
     const currentEvents = product.get('history_events') || []
     const eventsList = Array.isArray(currentEvents) ? [...currentEvents] : []
@@ -797,30 +789,14 @@ onRecordAfterCreateSuccess((e) => {
       all_attempts: attemptsLog,
     })
     $app.save(pubItem)
-    console.log(
-      '[ml_publish_hook] Publicação finalizada com ÊXITO! Item ML: ' +
-        itemId +
-        ' via ' +
-        successfulVariation.name,
-    )
   } else {
     const lastAttempt = attemptsLog[attemptsLog.length - 1] || {}
     const lastResponse = lastAttempt.response || {}
-    console.log(
-      '[ml_publish_hook] TODAS AS ' +
-        variations.length +
-        ' VARIAÇÕES FORAM RECUSADAS pelo Mercado Livre.',
-    )
 
     let detailedMsg = ''
-    const rawErrorJsonStr = JSON.stringify(lastResponse)
-    if (
-      rawErrorJsonStr.includes('The fields [title] are invalid') ||
-      rawErrorJsonStr.includes('[title] are invalid')
-    ) {
+    if (gtinRequiredBlocked) {
       detailedMsg =
-        'O Mercado Livre rejeitou o título em todas as variações testadas. Resposta bruta: ' +
-        rawErrorJsonStr
+        "O Mercado Livre exige o código de barras de fábrica (GTIN/EAN) deste equipamento. Cole o código no campo 'Código de barras (GTIN/EAN)' do modal."
     } else if (
       lastResponse.cause &&
       Array.isArray(lastResponse.cause) &&
@@ -848,6 +824,7 @@ onRecordAfterCreateSuccess((e) => {
     pubItem.set('result', {
       total_variations_tested: variations.length,
       all_failed: true,
+      gtin_required_blocked: gtinRequiredBlocked,
       last_error: lastResponse,
       all_attempts: attemptsLog,
     })

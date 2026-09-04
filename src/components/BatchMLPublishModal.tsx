@@ -65,8 +65,10 @@ interface EditableMLItem {
   conditionType: ConditionType
   conditionGrade?: ConditionGrade
   familyName: string
+  gtin: string
   eligible: boolean
   reasons: string[]
+  warnings?: string[]
   status: 'idle' | 'publishing' | 'success' | 'error'
   mlItemId?: string
   mlUrl?: string
@@ -123,6 +125,7 @@ export function BatchMLPublishModal({
               conditionGrade: initialGrade,
               categoryAttributes: attrs,
               familyName: initFamily,
+              gtin: p.gtin || '',
             })
 
             return {
@@ -133,8 +136,10 @@ export function BatchMLPublishModal({
               conditionType: initialType,
               conditionGrade: initialGrade,
               familyName: initFamily,
+              gtin: p.gtin || '',
               eligible: validation.eligible,
               reasons: validation.reasons,
+              warnings: validation.warnings,
               status: 'idle',
             }
           })
@@ -166,6 +171,7 @@ export function BatchMLPublishModal({
         conditionGrade: current.conditionGrade,
         categoryAttributes,
         familyName: current.familyName,
+        gtin: current.gtin,
       })
 
       copy[index] = {
@@ -173,6 +179,7 @@ export function BatchMLPublishModal({
         title: newTitle,
         eligible: validation.eligible,
         reasons: validation.reasons,
+        warnings: validation.warnings,
       }
       return copy
     })
@@ -189,6 +196,7 @@ export function BatchMLPublishModal({
         conditionGrade: current.conditionGrade,
         categoryAttributes,
         familyName: current.familyName,
+        gtin: current.gtin,
       })
 
       copy[index] = {
@@ -196,6 +204,7 @@ export function BatchMLPublishModal({
         price: val,
         eligible: validation.eligible,
         reasons: validation.reasons,
+        warnings: validation.warnings,
       }
       return copy
     })
@@ -225,6 +234,7 @@ export function BatchMLPublishModal({
         conditionGrade: newGrade,
         categoryAttributes,
         familyName: current.familyName,
+        gtin: current.gtin,
       })
 
       copy[index] = {
@@ -234,6 +244,7 @@ export function BatchMLPublishModal({
         title: updatedTitle,
         eligible: validation.eligible,
         reasons: validation.reasons,
+        warnings: validation.warnings,
       }
       return copy
     })
@@ -256,6 +267,7 @@ export function BatchMLPublishModal({
         conditionGrade: val,
         categoryAttributes,
         familyName: current.familyName,
+        gtin: current.gtin,
       })
 
       copy[index] = {
@@ -264,6 +276,7 @@ export function BatchMLPublishModal({
         title: updatedTitle,
         eligible: validation.eligible,
         reasons: validation.reasons,
+        warnings: validation.warnings,
       }
       return copy
     })
@@ -280,6 +293,7 @@ export function BatchMLPublishModal({
         conditionGrade: current.conditionGrade,
         categoryAttributes,
         familyName: val,
+        gtin: current.gtin,
       })
 
       copy[index] = {
@@ -287,6 +301,33 @@ export function BatchMLPublishModal({
         familyName: val,
         eligible: validation.eligible,
         reasons: validation.reasons,
+        warnings: validation.warnings,
+      }
+      return copy
+    })
+  }
+
+  const handleUpdateItemGtin = (index: number, val: string) => {
+    setItems((prev) => {
+      const copy = [...prev]
+      const current = copy[index]
+      const cleanGtin = val.replace(/\D/g, '').slice(0, 14)
+      const validation = validateProductForML(current.product, {
+        title: current.title,
+        price: current.price,
+        conditionType: current.conditionType,
+        conditionGrade: current.conditionGrade,
+        categoryAttributes,
+        familyName: current.familyName,
+        gtin: cleanGtin,
+      })
+
+      copy[index] = {
+        ...current,
+        gtin: cleanGtin,
+        eligible: validation.eligible,
+        reasons: validation.reasons,
+        warnings: validation.warnings,
       }
       return copy
     })
@@ -337,6 +378,7 @@ export function BatchMLPublishModal({
           condition_type: it.conditionType,
           condition_grade: it.conditionGrade,
           family_name: it.familyName.trim(),
+          gtin: it.gtin.trim() || undefined,
         })
         if (res.success) {
           setItems((prev) => {
@@ -742,6 +784,39 @@ export function BatchMLPublishModal({
                                     ) : (
                                       <span className="text-[10px] text-amber-600 font-medium shrink-0">
                                         ! Ausente
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {/* Código de barras (GTIN/EAN) */}
+                                  <div className="flex items-center gap-2 pt-0.5 border-t border-slate-200/60">
+                                    <span className="text-[10px] text-slate-500 font-semibold shrink-0">
+                                      GTIN/EAN:
+                                    </span>
+                                    <Input
+                                      value={it.gtin}
+                                      onChange={(e) => handleUpdateItemGtin(idx, e.target.value)}
+                                      disabled={isPublishingBatch || it.status === 'success'}
+                                      placeholder="Código de fábrica (8 a 14 dígitos)"
+                                      className="h-6 text-[11px] font-mono bg-white flex-1"
+                                      maxLength={14}
+                                    />
+                                    {it.gtin ? (
+                                      /^\d{8,14}$/.test(it.gtin) ? (
+                                        <span className="text-[10px] text-emerald-700 font-medium shrink-0">
+                                          ✓ {it.gtin.length}D
+                                        </span>
+                                      ) : (
+                                        <span className="text-[10px] text-rose-600 font-medium shrink-0">
+                                          ! 8-14 dígitos
+                                        </span>
+                                      )
+                                    ) : (
+                                      <span
+                                        className="text-[10px] text-amber-700 font-medium bg-amber-100 px-1.5 py-0.5 rounded shrink-0 cursor-help"
+                                        title="Recomendado: o ML pode exigir o GTIN para notebooks. Se vazio, tentará com isenção."
+                                      >
+                                        Recomendado (GTIN)
                                       </span>
                                     )}
                                   </div>

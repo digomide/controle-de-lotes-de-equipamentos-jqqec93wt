@@ -34,6 +34,27 @@ export interface MLPublishPayload {
   condition_type?: 'novo' | 'usado' | 'recondicionado' | 'caixa_aberta'
   condition_grade?: 'excelente' | 'bom' | 'aceitavel'
   family_name?: string
+  gtin?: string
+}
+
+/**
+ * Valida formato do código GTIN/EAN (apenas dígitos, 8 a 14 caracteres)
+ */
+export function validateGTIN(gtin: string): { valid: boolean; message?: string } {
+  const trimmed = (gtin || '').trim()
+  if (!trimmed) {
+    return { valid: true } // Vazio é permitido para tentativa com isenção
+  }
+  if (!/^\d+$/.test(trimmed)) {
+    return { valid: false, message: 'O código de barras deve conter apenas números.' }
+  }
+  if (trimmed.length < 8 || trimmed.length > 14) {
+    return {
+      valid: false,
+      message: `Tamanho inválido (${trimmed.length} dígitos). O código deve ter entre 8 e 14 dígitos (EAN-8, UPC-12, EAN-13, EAN-14).`,
+    }
+  }
+  return { valid: true }
 }
 export interface MLCategoryAttributeValue {
   id: string
@@ -76,6 +97,8 @@ export function translateMLErrorMessage(rawError: string): string {
     brand: 'Marca do equipamento (BRAND)',
     model: 'Modelo do produto (MODEL)',
     line: 'Linha do produto (LINE)',
+    gtin: 'Código de barras de fábrica (GTIN/EAN)',
+    empty_gtin_reason: 'Motivo de isenção de código de barras',
     processor_brand: 'Marca do processador',
     processor_line: 'Linha do processador',
     processor_model: 'Modelo do processador',
@@ -93,6 +116,16 @@ export function translateMLErrorMessage(rawError: string): string {
     condition: 'Condição do produto',
     listing_type_id: 'Tipo de anúncio',
     category_id: 'Categoria',
+  }
+
+  // Tratamento específico de GTIN obrigatório da categoria (cause 7810 / missing_conditional_required)
+  if (
+    rawError.includes('item.attribute.missing_conditional_required') ||
+    rawError.includes('7810') ||
+    (rawError.includes('missing_conditional_required') && rawError.includes('GTIN')) ||
+    (rawError.includes('[GTIN]') && rawError.toLowerCase().includes('required'))
+  ) {
+    return "O Mercado Livre exige o código de barras de fábrica (GTIN/EAN) deste equipamento. Cole o código no campo 'Código de barras (GTIN/EAN)' do modal."
   }
 
   // Tratamento específico de erro no título
@@ -564,8 +597,9 @@ export function validateProductForML(
     conditionGrade?: string
     categoryAttributes?: MLCategoryAttribute[]
     familyName?: string
+    gtin?: string
   },
-): { eligible: boolean; reasons: string[] } {
+): { eligible: boolean; reasons: string[]; warnings?: string[] } {
   const reasons: string[] = []
 
   // 1. Status do produto
@@ -705,9 +739,25 @@ export function validateProductForML(
     }
   }
 
+  // 7. Validação do código GTIN/EAN se informado
+  const warnings: string[] = []
+  const gtinToCheck = (options?.gtin !== undefined ? options.gtin : product.gtin || '').trim()
+  if (gtinToCheck) {
+    const valResult = validateGTIN(gtinToCheck)
+    if (!valResult.valid) {
+      reasons.push(valResult.message || 'Código de barras (GTIN/EAN) inválido')
+    }
+  } else {
+    // Não bloqueia a publicação, mas recomenda
+    warnings.push(
+      'Código de barras (GTIN/EAN) não informado. Será enviada tentativa com isenção, mas o ML pode exigir o código de fábrica para notebooks.',
+    )
+  }
+
   return {
     eligible: reasons.length === 0,
     reasons,
+    warnings,
   }
 }
 
@@ -995,6 +1045,7 @@ export const mlService = {
         condition_type: payload.condition_type,
         condition_grade: payload.condition_grade,
         family_name: payload.family_name,
+        gtin: payload.gtin ? payload.gtin.trim() : undefined,
       },
     })
 

@@ -91,6 +91,9 @@ export function SingleMLPublishModal({
   // Família / Linha (LINE) editável com derivação automática inicial
   const [familyName, setFamilyName] = useState('')
 
+  // Código de barras / GTIN / EAN de fábrica (editável)
+  const [gtin, setGtin] = useState('')
+
   useEffect(() => {
     if (isOpen) {
       setErrorMessage(null)
@@ -127,6 +130,7 @@ export function SingleMLPublishModal({
       // Derivar linha/família automaticamente (ex: ThinkPad, Latitude, etc.)
       const derived = deriveProductFamily(product)
       setFamilyName(derived)
+      setGtin(product.gtin || '')
 
       // Checar status de conexão do ML e obter atributos da categoria com cache no backend
       setLoadingStatus(true)
@@ -214,6 +218,7 @@ export function SingleMLPublishModal({
     conditionGrade,
     categoryAttributes,
     familyName,
+    gtin,
   })
 
   const handlePublish = async (e: React.FormEvent) => {
@@ -247,6 +252,7 @@ export function SingleMLPublishModal({
           condition_type: conditionType,
           condition_grade: conditionGrade,
           family_name: familyName.trim(),
+          gtin: gtin.trim() || undefined,
         },
         (msg) => setPublishProgress(msg),
       )
@@ -260,6 +266,7 @@ export function SingleMLPublishModal({
         if (onPublished) {
           onPublished({
             ...product,
+            gtin: gtin.trim() || product.gtin,
             condition_type: conditionType,
             condition_grade: conditionGrade,
             ml_listing_id: res.ml_listing_id,
@@ -585,6 +592,57 @@ export function SingleMLPublishModal({
               </p>{' '}
             </div>
 
+            {/* Código de barras (GTIN/EAN) */}
+            <div className="space-y-1 p-2.5 bg-slate-50 border border-slate-200 rounded-lg">
+              <div className="flex items-center justify-between">
+                <Label className="text-slate-700 font-semibold flex items-center gap-1.5">
+                  <span>Código de barras de fábrica (GTIN/EAN)</span>
+                </Label>
+                <span className="text-[10px]">
+                  {gtin.trim() ? (
+                    /^\d{8,14}$/.test(gtin.trim()) ? (
+                      <span className="text-emerald-700 font-medium">
+                        ✓ Válido ({gtin.trim().length} dígitos)
+                      </span>
+                    ) : (
+                      <span className="text-rose-600 font-medium">
+                        Formato inválido (deve ter 8 a 14 dígitos numéricos)
+                      </span>
+                    )
+                  ) : (
+                    <span className="text-amber-700 font-medium bg-amber-100 px-1.5 py-0.5 rounded">
+                      Recomendado: o ML pode exigir o GTIN para notebooks
+                    </span>
+                  )}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  value={gtin}
+                  onChange={(e) => setGtin(e.target.value.replace(/\D/g, '').slice(0, 14))}
+                  placeholder="Cole o código EAN/GTIN da etiqueta (ex: 7891234567890 ou 193268482012)"
+                  className="text-xs bg-white h-8 font-mono"
+                  maxLength={14}
+                />
+                {gtin && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setGtin('')}
+                    className="text-[11px] h-8 px-2 text-slate-400 hover:text-slate-600"
+                  >
+                    Limpar
+                  </Button>
+                )}
+              </div>
+              <p className="text-[10px] text-slate-500">
+                Se deixado em branco, o sistema tentará publicar com motivo de isenção oficial (
+                <code>EMPTY_GTIN_REASON</code>). Caso o Mercado Livre rejeite exigindo o GTIN, cole
+                o código do fabricante aqui.
+              </p>
+            </div>
+
             {/* Linha com Preço, Categoria e Estoque */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1">
@@ -677,6 +735,22 @@ export function SingleMLPublishModal({
                       ? `Recondicionado · ${conditionGrade || 'Excelente'}`
                       : conditionType}
                   </strong>
+                </div>
+                <div className="bg-white p-2 rounded border border-slate-200 col-span-2 sm:col-span-3">
+                  <span className="text-slate-400 block text-[10px]">
+                    Código de barras (GTIN/EAN ou isenção)
+                  </span>
+                  {gtin.trim() ? (
+                    <strong className="text-emerald-700 font-mono text-[11px] block">
+                      ✓ GTIN: {gtin.trim()}
+                    </strong>
+                  ) : (
+                    <span className="text-amber-700 font-semibold text-[11px] flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" />
+                      Não informado — tentativa com isenção (Recomendado: o ML pode exigir o GTIN
+                      para notebooks)
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
