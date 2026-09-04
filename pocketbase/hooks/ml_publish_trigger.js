@@ -99,18 +99,47 @@ onRecordAfterCreateSuccess((e) => {
     return
   }
 
-  // No PocketBase JS VM, campos json em pubItem podem ser acessados via pubItem.get('payload') ou pubItem.getJson('payload')
+  // Extração robusta do campo JSON 'payload' no PocketBase v0.36 (Goja engine)
+  // Em Goja, pubItem.get('payload') retorna types.JSONRaw (slice de bytes), onde typeof === 'object'
+  // mas propriedades JS não são expostas sem JSON.parse.
   let payload = {}
   try {
-    const rawPl = pubItem.get('payload')
-    if (rawPl && typeof rawPl === 'object') {
-      payload = rawPl
-    } else if (typeof rawPl === 'string' && rawPl.trim()) {
-      payload = JSON.parse(rawPl)
+    let jsonString = ''
+    if (typeof pubItem.getString === 'function') {
+      jsonString = pubItem.getString('payload') || ''
     }
-  } catch (_) {
+    if (!jsonString) {
+      const rawPl = pubItem.get('payload')
+      if (typeof rawPl === 'string') {
+        jsonString = rawPl
+      } else if (rawPl !== undefined && rawPl !== null) {
+        jsonString = String(rawPl)
+      }
+    }
+
+    if (jsonString && jsonString.trim()) {
+      try {
+        payload = JSON.parse(jsonString)
+      } catch (parseErr) {
+        console.log('[ml_publish_hook] Erro ao parsear JSON do payload: ' + parseErr)
+        payload = {}
+      }
+    }
+
+    // Se após o parse payload.title ainda não existir, tentar direct pubItem.get('payload')
+    if (!payload || !payload.title) {
+      try {
+        const direct = pubItem.get('payload')
+        if (direct && typeof direct === 'object' && direct.title) {
+          payload = direct
+        }
+      } catch (_) {}
+    }
+  } catch (err) {
+    console.log('[ml_publish_hook] Erro ao extrair payload: ' + err)
     payload = {}
   }
+
   // Sanitizar título: dar prioridade total ao payload.title (se informado pelo usuário no modal)
   // Normalizar aspas curvas, remover caracteres inválidos/multibyte problemáticos e limitar rigorosamente a 60 chars
   let rawTitleInput = ''

@@ -227,11 +227,58 @@ cronAdd('ml_queue_worker', '@every 15s', () => {
         continue
       }
 
-      const payload = pubItem.get('payload') || {}
-      // Sanitizar título: remover quebras de linha e espaços repetidos, limitar rigorosamente a 60 caracteres
-      const rawTitleInput = (payload.title || product.getString('name') || '').toString()
+      // Extração robusta do campo JSON 'payload' no PocketBase v0.36 (Goja engine)
+      let payload = {}
+      try {
+        let jsonString = ''
+        if (typeof pubItem.getString === 'function') {
+          jsonString = pubItem.getString('payload') || ''
+        }
+        if (!jsonString) {
+          const rawPl = pubItem.get('payload')
+          if (typeof rawPl === 'string') {
+            jsonString = rawPl
+          } else if (rawPl !== undefined && rawPl !== null) {
+            jsonString = String(rawPl)
+          }
+        }
+
+        if (jsonString && jsonString.trim()) {
+          try {
+            payload = JSON.parse(jsonString)
+          } catch (parseErr) {
+            console.log('[ml_cron] Erro ao parsear JSON do payload: ' + parseErr)
+            payload = {}
+          }
+        }
+
+        if (!payload || !payload.title) {
+          try {
+            const direct = pubItem.get('payload')
+            if (direct && typeof direct === 'object' && direct.title) {
+              payload = direct
+            }
+          } catch (_) {}
+        }
+      } catch (err) {
+        console.log('[ml_cron] Erro ao extrair payload: ' + err)
+        payload = {}
+      }
+
+      // Sanitizar título: prioridade ao payload.title, remover quebras de linha e espaços repetidos, limitar a 60 chars
+      let rawTitleInput = ''
+      let titleSource = 'product.name'
+      if (payload && payload.title && typeof payload.title === 'string' && payload.title.trim()) {
+        rawTitleInput = payload.title.trim()
+        titleSource = 'payload.title'
+      } else {
+        rawTitleInput = (product.getString('name') || '').trim()
+      }
+
       const cleanTitleOneLine = rawTitleInput
         .replace(/[\r\n\t]+/g, ' ')
+        .replace(/[“”]/g, '"')
+        .replace(/[‘’]/g, "'")
         .replace(/\s+/g, ' ')
         .trim()
       const title = cleanTitleOneLine.slice(0, 60).trim()
@@ -241,7 +288,7 @@ cronAdd('ml_queue_worker', '@every 15s', () => {
           '): "' +
           title +
           '" | Origem: ' +
-          (payload.title ? 'payload.title' : 'product.name'),
+          titleSource,
       )
 
       const price =
