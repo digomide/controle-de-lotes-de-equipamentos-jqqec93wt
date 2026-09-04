@@ -1,6 +1,8 @@
 // Hook acionado imediatamente após a criação de um registro em ml_publish_queue
-// Garante token válido, consulta atributos obrigatórios da categoria no ML, monta payload com attributes e family_name, e publica anúncio no Mercado Livre
-// Tudo inline dentro do callback para respeitar a VM isolada do PocketBase
+// Suporta modelo moderno User Product do Mercado Livre (exige family_name na raiz e proíbe title)
+// e fallback para modelo tradicional (com title).
+// Executa bateria sistemática de variações reais no POST /items com GTIN válido com dígito verificador e EMPTY_GTIN_REASON
+// Tudo inline dentro do callback para respeitar a VM isolada do PocketBase v0.36 (Goja engine)
 
 onRecordAfterCreateSuccess((e) => {
   const pubItem = e.record
@@ -100,8 +102,6 @@ onRecordAfterCreateSuccess((e) => {
   }
 
   // Extração robusta do campo JSON 'payload' no PocketBase v0.36 (Goja engine)
-  // Em Goja, pubItem.get('payload') retorna types.JSONRaw (slice de bytes), onde typeof === 'object'
-  // mas propriedades JS não são expostas sem JSON.parse.
   let payload = {}
   try {
     let jsonString = ''
@@ -126,7 +126,6 @@ onRecordAfterCreateSuccess((e) => {
       }
     }
 
-    // Se após o parse payload.title ainda não existir, tentar direct pubItem.get('payload')
     if (!payload || !payload.title) {
       try {
         const direct = pubItem.get('payload')
@@ -140,8 +139,7 @@ onRecordAfterCreateSuccess((e) => {
     payload = {}
   }
 
-  // Sanitizar título: dar prioridade total ao payload.title (se informado pelo usuário no modal)
-  // Normalizar aspas curvas, remover caracteres inválidos/multibyte problemáticos e limitar rigorosamente a 60 chars
+  // Título original sugerido no modal
   let rawTitleInput = ''
   let titleSource = 'product.name'
   if (payload && payload.title && typeof payload.title === 'string' && payload.title.trim()) {
@@ -151,19 +149,18 @@ onRecordAfterCreateSuccess((e) => {
     rawTitleInput = (product.getString('name') || '').trim()
   }
 
-  // Normalizar caracteres tipográficos (ex: aspas curvas “ ” para aspas retas ou polegada ", travessões, quebras de linha)
   const cleanTitleOneLine = rawTitleInput
     .replace(/[\r\n\t]+/g, ' ')
     .replace(/[“”]/g, '"')
     .replace(/[‘’]/g, "'")
     .replace(/\s+/g, ' ')
     .trim()
-  const title = cleanTitleOneLine.slice(0, 60).trim()
+  const initialTitle = cleanTitleOneLine.slice(0, 60).trim()
   console.log(
-    '[ml_publish_hook] Título a enviar (len: ' +
-      title.length +
+    '[ml_publish_hook] Título sugerido (len: ' +
+      initialTitle.length +
       '): "' +
-      title +
+      initialTitle +
       '" | Origem: ' +
       titleSource,
   )
@@ -217,8 +214,7 @@ onRecordAfterCreateSuccess((e) => {
     return
   }
 
-  // Mapeamento ITEM_CONDITION do Mercado Livre:
-  // novo -> "new", usado -> "used", recondicionado -> "refurbished", caixa_aberta -> "clipped"
+  // Mapeamento ITEM_CONDITION
   const rawType = ((payload && payload.condition_type) || product.getString('condition_type') || '')
     .toLowerCase()
     .trim()
@@ -229,24 +225,22 @@ onRecordAfterCreateSuccess((e) => {
   )
     .toLowerCase()
     .trim()
-  let mlCondition = 'used'
+  let initialMlCondition = 'used'
   if (rawType === 'novo' || rawType === 'new') {
-    mlCondition = 'new'
+    initialMlCondition = 'new'
   } else if (rawType === 'caixa_aberta' || rawType === 'clipped') {
-    mlCondition = 'clipped'
+    initialMlCondition = 'clipped'
   } else if (rawType === 'recondicionado' || rawType === 'refurbished') {
-    mlCondition = 'refurbished'
+    initialMlCondition = 'refurbished'
   } else if (rawType === 'usado' || rawType === 'used') {
-    mlCondition = 'used'
+    initialMlCondition = 'used'
   } else {
-    // Inferência por legado se não estiver setado
     const leg = (product.getString('condition') || '').toLowerCase()
-    if (leg.includes('novo')) mlCondition = 'new'
-    else if (leg.includes('caixa')) mlCondition = 'clipped'
-    else mlCondition = 'refurbished'
+    if (leg.includes('novo')) initialMlCondition = 'new'
+    else if (leg.includes('caixa')) initialMlCondition = 'clipped'
+    else initialMlCondition = 'refurbished'
   }
 
-  // Grau em recondicionados ou usados (Excelente, Bom, Aceitável)
   const gradeLabelMap = {
     excelente: 'Excelente',
     bom: 'Bom',
@@ -254,106 +248,35 @@ onRecordAfterCreateSuccess((e) => {
   }
   const gradeLabel = gradeLabelMap[rawGrade] || ''
 
-  // 1. Obter metadados dos atributos obrigatórios da categoria no ML (consultar cache no PocketBase primeiro, refresh se >24h)
+  // Consultar atributos da categoria MLB1652 na API do ML
   let categoryAttributesMeta = []
-  let cachedCatRecord = null
-  const now = Date.now()
-  const twentyFourHoursMs = 24 * 60 * 60 * 1000
-
   try {
-    const cList = $app.findRecordsByFilter(
-      'ml_category_cache',
-      'category_id = {:cat}',
-      '-cached_at',
-      1,
-      0,
-      {
-        cat: categoryId,
-      },
+    const headers = { Accept: 'application/json' }
+    if (accessToken) headers['Authorization'] = 'Bearer ' + accessToken
+    const catAttrRes = $http.send({
+      url: 'https://api.mercadolibre.com/categories/' + categoryId + '/attributes',
+      method: 'GET',
+      headers: headers,
+      timeout: 20,
+    })
+    if (catAttrRes.statusCode === 200 && Array.isArray(catAttrRes.json)) {
+      categoryAttributesMeta = catAttrRes.json
+    }
+  } catch (cErr) {
+    console.log(
+      '[ml_publish_hook] Erro ao consultar atributos da categoria ' + categoryId + ': ' + cErr,
     )
-    if (cList && cList.length > 0) {
-      cachedCatRecord = cList[0]
-      const cachedAtStr = cachedCatRecord.getString('cached_at')
-      if (cachedAtStr && now - new Date(cachedAtStr).getTime() < twentyFourHoursMs) {
-        const cAttrs = cachedCatRecord.get('attributes')
-        if (Array.isArray(cAttrs) && cAttrs.length > 0) {
-          categoryAttributesMeta = cAttrs
-        }
-      }
-    }
-  } catch (cFindErr) {
-    console.log('[ml_publish_hook] Erro ao buscar cache de atributos: ' + cFindErr)
   }
 
-  // Se não encontrou no cache válido, buscar da API do Mercado Livre
-  if (categoryAttributesMeta.length === 0) {
-    try {
-      const headers = { Accept: 'application/json' }
-      if (accessToken) headers['Authorization'] = 'Bearer ' + accessToken
-      const catAttrRes = $http.send({
-        url: 'https://api.mercadolibre.com/categories/' + categoryId + '/attributes',
-        method: 'GET',
-        headers: headers,
-        timeout: 20,
-      })
-      if (catAttrRes.statusCode === 200 && Array.isArray(catAttrRes.json)) {
-        categoryAttributesMeta = catAttrRes.json
-        // Salvar no cache
-        try {
-          if (cachedCatRecord) {
-            cachedCatRecord.set('attributes', categoryAttributesMeta)
-            cachedCatRecord.set('cached_at', new Date().toISOString())
-            $app.save(cachedCatRecord)
-          } else {
-            const cacheCol = $app.findCollectionByNameOrId('ml_category_cache')
-            const newCacheRec = new Record(cacheCol)
-            newCacheRec.set('category_id', categoryId)
-            newCacheRec.set('attributes', categoryAttributesMeta)
-            newCacheRec.set('cached_at', new Date().toISOString())
-            $app.save(newCacheRec)
-          }
-        } catch (saveCErr) {
-          console.log('[ml_publish_hook] Erro ao salvar cache da categoria: ' + saveCErr)
-        }
-      }
-    } catch (cErr) {
-      console.log(
-        '[ml_publish_hook] Erro ao consultar atributos da categoria ' + categoryId + ': ' + cErr,
-      )
+  const categoryAttrLookup = {}
+  for (let cIdx = 0; cIdx < categoryAttributesMeta.length; cIdx++) {
+    const ca = categoryAttributesMeta[cIdx]
+    if (ca && ca.id) {
+      categoryAttrLookup[ca.id] = ca
     }
   }
 
-  // Se ainda estiver vazio, tentar usar cache expirado como fallback
-  if (categoryAttributesMeta.length === 0 && cachedCatRecord) {
-    const fallbackAttrs = cachedCatRecord.get('attributes')
-    if (Array.isArray(fallbackAttrs) && fallbackAttrs.length > 0) {
-      categoryAttributesMeta = fallbackAttrs
-    }
-  }
-
-  // Identificar atributos obrigatórios da categoria
-  // Tags a considerar: required === true, catalog_required === true
-  // Se for recondicionado, tags.conditional_required === true para GRADING
-  // Ignorar tags com read_only: true ou hidden: true (atributos de sistema/taxas que o vendedor não envia)
-  const requiredAttrMap = {}
-  for (let m = 0; m < categoryAttributesMeta.length; m++) {
-    const attrDef = categoryAttributesMeta[m] || {}
-    const tags = attrDef.tags || {}
-    if (tags.read_only === true || tags.hidden === true) {
-      continue
-    }
-    const isRequired =
-      tags.required === true ||
-      tags.catalog_required === true ||
-      (tags.conditional_required === true &&
-        mlCondition === 'refurbished' &&
-        attrDef.id === 'GRADING')
-    if (isRequired && attrDef.id) {
-      requiredAttrMap[attrDef.id] = attrDef
-    }
-  }
-
-  // Extração e normalização dos dados do equipamento
+  // Extração dos dados do equipamento
   const pBrand = (product.getString('brand') || '').trim()
   const pModel = (product.getString('model') || '').trim()
   const pProcessor = (product.getString('processor') || '').trim()
@@ -362,7 +285,7 @@ onRecordAfterCreateSuccess((e) => {
   const pScreen = (product.getString('screen_size') || '').trim()
   const pName = (product.getString('name') || '').trim()
 
-  // 1. Marca (BRAND)
+  // 1. Marca
   let brandVal = pBrand
   if (!brandVal) {
     if (pName.toLowerCase().includes('lenovo')) brandVal = 'Lenovo'
@@ -375,37 +298,30 @@ onRecordAfterCreateSuccess((e) => {
     else if (pName.toLowerCase().includes('positivo')) brandVal = 'Positivo'
   }
 
-  // 2. Modelo (MODEL)
+  // 2. Modelo
   let modelVal = pModel
   if (!modelVal) {
-    modelVal = title.replace(brandVal, '').trim() || pName.slice(0, 60)
+    modelVal = initialTitle.replace(brandVal, '').trim() || pName.slice(0, 60)
   }
 
   // 3. Família / Linha (LINE)
-  // Prioridade 1: se o payload enviou family_name explicitamente
   let familyVal = ((payload && payload.family_name) || '').toString().trim()
-
-  // Prioridade 2: derivação completa case-insensitive por modelo / nome / marca
   if (!familyVal) {
     const combinedText = (pModel + ' ' + pName).trim()
-    // Lenovo
     if (/thinkpad/i.test(combinedText)) familyVal = 'ThinkPad'
     else if (/ideapad/i.test(combinedText)) familyVal = 'IdeaPad'
     else if (/legion/i.test(combinedText)) familyVal = 'Legion'
     else if (/yoga/i.test(combinedText)) familyVal = 'Yoga'
-    // Dell
     else if (/latitude/i.test(combinedText)) familyVal = 'Latitude'
     else if (/inspiron/i.test(combinedText)) familyVal = 'Inspiron'
     else if (/vostro/i.test(combinedText)) familyVal = 'Vostro'
     else if (/precision/i.test(combinedText)) familyVal = 'Precision'
     else if (/xps/i.test(combinedText)) familyVal = 'XPS'
     else if (/alienware/i.test(combinedText)) familyVal = 'Alienware'
-    // Apple
     else if (/macbook\s*pro/i.test(combinedText)) familyVal = 'MacBook Pro'
     else if (/macbook\s*air/i.test(combinedText)) familyVal = 'MacBook Air'
     else if (/macbook/i.test(combinedText)) familyVal = 'MacBook'
     else if (/imac/i.test(combinedText)) familyVal = 'iMac'
-    // HP
     else if (/elitebook/i.test(combinedText)) familyVal = 'EliteBook'
     else if (/probook/i.test(combinedText)) familyVal = 'ProBook'
     else if (/pavilion/i.test(combinedText)) familyVal = 'Pavilion'
@@ -413,43 +329,45 @@ onRecordAfterCreateSuccess((e) => {
     else if (/spectre/i.test(combinedText)) familyVal = 'Spectre'
     else if (/envy/i.test(combinedText)) familyVal = 'Envy'
     else if (/zbook/i.test(combinedText)) familyVal = 'ZBook'
-    // Acer
     else if (/aspire/i.test(combinedText)) familyVal = 'Aspire'
     else if (/predator/i.test(combinedText)) familyVal = 'Predator'
     else if (/nitro/i.test(combinedText)) familyVal = 'Nitro'
     else if (/swift/i.test(combinedText)) familyVal = 'Swift'
     else if (/spin/i.test(combinedText)) familyVal = 'Spin'
     else if (/travelmate/i.test(combinedText)) familyVal = 'TravelMate'
-    // Asus
     else if (/expertbook/i.test(combinedText)) familyVal = 'ExpertBook'
     else if (/zenbook/i.test(combinedText)) familyVal = 'ZenBook'
     else if (/vivobook/i.test(combinedText)) familyVal = 'VivoBook'
     else if (/\brog\b/i.test(combinedText)) familyVal = 'ROG'
     else if (/\btuf\b/i.test(combinedText)) familyVal = 'TUF'
-    // Toshiba / Dynabook
     else if (/satellite/i.test(combinedText)) familyVal = 'Satellite'
     else if (/dynabook/i.test(combinedText)) familyVal = 'Dynabook'
     else if (/portege/i.test(combinedText)) familyVal = 'Portege'
     else if (/tecra/i.test(combinedText)) familyVal = 'Tecra'
-    // Samsung
     else if (/galaxy\s*book/i.test(combinedText)) familyVal = 'Galaxy Book'
-    // Microsoft
     else if (/surface/i.test(combinedText)) familyVal = 'Surface'
-    // Positivo
     else if (/unique/i.test(combinedText)) familyVal = 'Unique'
     else if (/motion/i.test(combinedText)) familyVal = 'Motion'
     else if (/master/i.test(combinedText)) familyVal = 'Master'
-    // VAIO
     else if (/\bvaio\b/i.test(combinedText)) familyVal = 'VAIO'
     else if (pModel) {
       const firstWord = pModel.split(/[\s-]+/)[0]
       familyVal = (firstWord && firstWord.length >= 2 ? firstWord : pModel).slice(0, 60)
     } else {
-      familyVal = (brandVal || title).trim().slice(0, 60)
+      familyVal = (brandVal || initialTitle).trim().slice(0, 60)
     }
   }
 
-  // 4. Processador (PROCESSOR_BRAND, PROCESSOR_LINE, PROCESSOR_MODEL)
+  let fullFamilyName = familyVal
+  if (brandVal && !fullFamilyName.toLowerCase().includes(brandVal.toLowerCase())) {
+    fullFamilyName = brandVal + ' ' + fullFamilyName
+  }
+  if (modelVal && !fullFamilyName.toLowerCase().includes(modelVal.toLowerCase())) {
+    fullFamilyName = fullFamilyName + ' ' + modelVal
+  }
+  fullFamilyName = fullFamilyName.slice(0, 60).trim()
+
+  // 4. Processador
   let procBrand = 'Intel'
   let procLine = 'Core i7'
   let procModel = ''
@@ -482,130 +400,47 @@ onRecordAfterCreateSuccess((e) => {
     else if (procCombined.includes('xeon')) procLine = 'Xeon'
   }
 
-  // Tentar extrair o modelo do processador (ex: "8550U", "8650U", "8250U", "i7-8650U" etc.)
   const modelMatch = (pProcessor + ' ' + pName).match(/\b(\d{4}[A-Z0-9]*)\b/i)
   if (modelMatch && modelMatch[1]) {
     procModel = modelMatch[1].toUpperCase()
   } else {
-    // Se for 8ª geração i7 ex: 8550U / 8650U
-    if (procLine === 'Core i7' && procCombined.includes('8')) {
-      procModel = '8550U'
-    } else if (procLine === 'Core i5' && procCombined.includes('8')) {
-      procModel = '8250U'
-    } else if (procLine === 'Core i7' && procCombined.includes('7')) {
-      procModel = '7500U'
-    } else if (procLine === 'Core i5' && procCombined.includes('7')) {
-      procModel = '7200U'
-    } else if (procLine === 'Core i7' && procCombined.includes('10')) {
-      procModel = '10510U'
-    } else if (procLine === 'Core i5' && procCombined.includes('10')) {
-      procModel = '10210U'
-    } else if (procLine === 'Core i7' && procCombined.includes('11')) {
-      procModel = '1165G7'
-    } else if (procLine === 'Core i5' && procCombined.includes('11')) {
-      procModel = '1135G7'
-    } else {
-      procModel = pProcessor.trim() || '8250U'
-    }
+    if (procLine === 'Core i7' && procCombined.includes('8')) procModel = '8550U'
+    else if (procLine === 'Core i5' && procCombined.includes('8')) procModel = '8250U'
+    else if (procLine === 'Core i7' && procCombined.includes('7')) procModel = '7500U'
+    else if (procLine === 'Core i5' && procCombined.includes('7')) procModel = '7200U'
+    else if (procLine === 'Core i7' && procCombined.includes('10')) procModel = '10510U'
+    else if (procLine === 'Core i5' && procCombined.includes('10')) procModel = '10210U'
+    else if (procLine === 'Core i7' && procCombined.includes('11')) procModel = '1165G7'
+    else if (procLine === 'Core i5' && procCombined.includes('11')) procModel = '1135G7'
+    else procModel = pProcessor.trim() || '8250U'
   }
 
-  // Mapa de atributos definidos na categoria no ML (para checar se existe e obter value_id correspondente)
-  const categoryAttrLookup = {}
-  for (let cIdx = 0; cIdx < categoryAttributesMeta.length; cIdx++) {
-    const ca = categoryAttributesMeta[cIdx]
-    if (ca && ca.id) {
-      categoryAttrLookup[ca.id] = ca
-    }
-  }
-
-  // 5. Montagem estruturada do array attributes com validação de value_id/value_name
-  const attributesMap = {}
-
-  function setAttr(id, valueName, unit) {
-    if (!id || valueName === undefined || valueName === null) return
-    const strVal = String(valueName).trim()
-    if (!strVal) return
-
-    const attrDef = categoryAttrLookup[id]
-    if (attrDef) {
-      if (attrDef.tags && (attrDef.tags.read_only === true || attrDef.tags.hidden === true)) {
-        return
-      }
-      if (Array.isArray(attrDef.values) && attrDef.values.length > 0) {
-        const lowerVal = strVal.toLowerCase()
-        for (let vi = 0; vi < attrDef.values.length; vi++) {
-          const v = attrDef.values[vi]
-          if ((v.name && v.name.toLowerCase() === lowerVal) || (v.id && String(v.id) === strVal)) {
-            attributesMap[id] = { id: id, value_id: String(v.id), value_name: v.name }
-            return
-          }
-        }
-      }
-    }
-
-    const attrObj = { id: id, value_name: strVal }
-    attributesMap[id] = attrObj
-  }
-
-  // Atributos fundamentais
-  if (brandVal) setAttr('BRAND', brandVal)
-  if (modelVal) setAttr('MODEL', modelVal)
-  if (familyVal) {
-    setAttr('LINE', familyVal)
-  }
-  if (procBrand) setAttr('PROCESSOR_BRAND', procBrand)
-  if (procLine) setAttr('PROCESSOR_LINE', procLine)
-  if (procModel) setAttr('PROCESSOR_MODEL', procModel)
-
-  // GTIN / Código de barras: para itens condition != 'new' sem código de barras no cadastro,
-  // incluir a exceção oficial no array de attributes para evitar erro de GTIN ausente/vazio
-  const pBarcode = (product.getString('code') || product.getString('sku') || '').trim()
-  const isNumericBarcode = /^\d{8,14}$/.test(pBarcode)
-  if (mlCondition !== 'new') {
-    if (isNumericBarcode) {
-      setAttr('GTIN', pBarcode)
-    } else {
-      attributesMap['EMPTY_GTIN_REASON'] = {
-        id: 'EMPTY_GTIN_REASON',
-        value_name: 'Outro motivo',
-      }
-    }
-  } else if (isNumericBarcode) {
-    setAttr('GTIN', pBarcode)
-  }
-
-  // RAM - na categoria MLB1652 o atributo oficial é RAM_MEMORY_MODULE_TOTAL_CAPACITY
+  // RAM
+  let ramVal = ''
   if (pRam) {
     const ramMatch = pRam.match(/(\d+)\s*GB/i)
-    if (ramMatch) {
-      const ramFormatted = ramMatch[1] + ' GB'
-      setAttr('RAM_MEMORY_MODULE_TOTAL_CAPACITY', ramFormatted)
-    } else {
-      setAttr('RAM_MEMORY_MODULE_TOTAL_CAPACITY', pRam)
-    }
+    ramVal = ramMatch ? ramMatch[1] + ' GB' : pRam
   }
 
-  // Storage / SSD / HD
+  // Storage
+  let storageVal = ''
+  let isHDStorage = false
   if (pStorage) {
     const storageUpper = pStorage.toUpperCase()
     const ssdMatch = pStorage.match(/(\d+)\s*(GB|TB)/i)
     if (ssdMatch) {
-      const formattedStorage = ssdMatch[1] + ' ' + ssdMatch[2].toUpperCase()
-      if (storageUpper.includes('HD') && !storageUpper.includes('SSD')) {
-        setAttr('HARD_DRIVE_DATA_STORAGE_CAPACITY', formattedStorage)
-      } else {
-        setAttr('SSD_DATA_STORAGE_CAPACITY', formattedStorage)
-      }
+      storageVal = ssdMatch[1] + ' ' + ssdMatch[2].toUpperCase()
+      isHDStorage = storageUpper.includes('HD') && !storageUpper.includes('SSD')
     }
   }
 
-  // Tela (DISPLAY_SIZE ou SCREEN_SIZE)
-  // Formato aceito pelo ML: '15.6 "' ou '14 "' ou '13.3 "'
+  // Tela
   let normalizedScreen = ''
   let rawScreenCandidate = pScreen
   if (!rawScreenCandidate) {
-    // Fallback: extrair tamanho de tela do título ou nome do equipamento
-    const screenMatch = (title + ' ' + pName).match(/(\d{2}(?:\.\d)?)\s*(?:["”']|pol|polegadas)?/i)
+    const screenMatch = (initialTitle + ' ' + pName).match(
+      /(\d{2}(?:\.\d)?)\s*(?:["”']|pol|polegadas)?/i,
+    )
     if (screenMatch && screenMatch[1]) {
       const numVal = parseFloat(screenMatch[1])
       if (numVal >= 10 && numVal <= 21) {
@@ -613,404 +448,411 @@ onRecordAfterCreateSuccess((e) => {
       }
     }
   }
-
   if (rawScreenCandidate) {
     const numOnly = rawScreenCandidate.replace(/[^0-9.]/g, '')
-    if (numOnly) {
-      normalizedScreen = numOnly + ' "'
-    } else {
-      normalizedScreen = rawScreenCandidate
-    }
-  }
-
-  if (normalizedScreen) {
-    // Enviar apenas os que existirem na categoria
-    if (categoryAttrLookup['DISPLAY_SIZE']) setAttr('DISPLAY_SIZE', normalizedScreen)
-    if (categoryAttrLookup['SCREEN_SIZE']) setAttr('SCREEN_SIZE', normalizedScreen)
-    if (!categoryAttrLookup['DISPLAY_SIZE'] && !categoryAttrLookup['SCREEN_SIZE']) {
-      setAttr('DISPLAY_SIZE', normalizedScreen)
-    }
+    normalizedScreen = numOnly ? numOnly + ' "' : rawScreenCandidate
   }
 
   // Teclado numérico
-  if (product.getBool('has_numeric_keypad') !== undefined) {
-    const isYes = product.getBool('has_numeric_keypad')
-    // MLB1652 usa WITH_NUMERIC_PAD: boolean (242085 = Sim, 242084 = Não)
-    attributesMap['WITH_NUMERIC_PAD'] = {
-      id: 'WITH_NUMERIC_PAD',
-      value_id: isYes ? '242085' : '242084',
-      value_name: isYes ? 'Sim' : 'Não',
-    }
-  }
+  const hasNumPad = product.getBool('has_numeric_keypad')
 
-  // Grau para recondicionado - MLB1652 usa atributo GRADING
-  // values: 40108830 (Excelente), 40108831 (Bom), 40108832 (Aceitável)
-  if (mlCondition === 'refurbished' && gradeLabel) {
-    const gradingValueMap = {
-      excelente: { value_id: '40108830', value_name: 'Excelente' },
-      bom: { value_id: '40108831', value_name: 'Bom' },
-      aceitavel: { value_id: '40108832', value_name: 'Aceitável' },
+  // Helper para construir atributos
+  function buildAttributesSet(mode, cond, gtinValue) {
+    const m = {}
+    function add(id, valName) {
+      if (!id || valName === undefined || valName === null) return
+      const s = String(valName).trim()
+      if (!s) return
+      const def = categoryAttrLookup[id]
+      if (def) {
+        if (def.tags && (def.tags.read_only === true || def.tags.hidden === true)) return
+        if (Array.isArray(def.values) && def.values.length > 0) {
+          const l = s.toLowerCase()
+          for (let vi = 0; vi < def.values.length; vi++) {
+            const v = def.values[vi]
+            if ((v.name && v.name.toLowerCase() === l) || (v.id && String(v.id) === s)) {
+              m[id] = { id: id, value_id: String(v.id), value_name: v.name }
+              return
+            }
+          }
+        }
+      }
+      m[id] = { id: id, value_name: s }
     }
-    const mapped = gradingValueMap[rawGrade] || { value_id: '40108830', value_name: 'Excelente' }
-    attributesMap['GRADING'] = {
-      id: 'GRADING',
-      value_id: mapped.value_id,
-      value_name: mapped.value_name,
-    }
-  }
 
-  // Validação: checar se algum atributo com required=true ficou faltando
-  // Para atributos com equivalências conhecidas (ex: DISPLAY_SIZE / SCREEN_SIZE, RAM / RAM_MEMORY_MODULE_TOTAL_CAPACITY, LINE / FAMILY_NAME / family_name)
-  const missingAttrs = []
-  const friendlyNames = {
-    BRAND: 'Marca (BRAND)',
-    MODEL: 'Modelo (MODEL)',
-    LINE: 'Linha/Família (LINE)',
-    PROCESSOR_BRAND: 'Marca do Processador',
-    PROCESSOR_LINE: 'Linha do Processador',
-    PROCESSOR_MODEL: 'Modelo do Processador',
-    RAM: 'Memória RAM',
-    RAM_MEMORY_MODULE_TOTAL_CAPACITY: 'Memória RAM',
-    DISPLAY_SIZE: 'Tamanho da tela (DISPLAY_SIZE)',
-    SCREEN_SIZE: 'Tamanho da tela (SCREEN_SIZE)',
-    family_name: 'Família do Produto (family_name)',
-    GRADING: 'Grau do recondicionado (GRADING)',
-    ITEM_GRADE: 'Grau do recondicionado (ITEM_GRADE)',
-  }
+    if (brandVal) add('BRAND', brandVal)
+    if (modelVal) add('MODEL', modelVal)
+    if (familyVal) add('LINE', familyVal)
+    if (procBrand) add('PROCESSOR_BRAND', procBrand)
+    if (procLine) add('PROCESSOR_LINE', procLine)
+    if (procModel) add('PROCESSOR_MODEL', procModel)
 
-  for (const reqId in requiredAttrMap) {
-    // Casos especiais de atributos equivalentes:
-    let isSatisfied = Boolean(attributesMap[reqId])
-    if (!isSatisfied) {
-      if (
-        (reqId === 'DISPLAY_SIZE' || reqId === 'SCREEN_SIZE') &&
-        (attributesMap['DISPLAY_SIZE'] || attributesMap['SCREEN_SIZE'])
-      ) {
-        isSatisfied = true
-      } else if (
-        (reqId === 'RAM' ||
-          reqId === 'RAM_MEMORY_MODULE_TOTAL_CAPACITY' ||
-          reqId === 'INTERNAL_MEMORY') &&
-        (attributesMap['RAM'] ||
-          attributesMap['RAM_MEMORY_MODULE_TOTAL_CAPACITY'] ||
-          attributesMap['INTERNAL_MEMORY'])
-      ) {
-        isSatisfied = true
-      } else if (
-        (reqId === 'LINE' || reqId === 'FAMILY_NAME' || reqId === 'family_name') &&
-        (attributesMap['LINE'] || attributesMap['FAMILY_NAME'] || attributesMap['family_name'])
-      ) {
-        isSatisfied = true
+    if (cond === 'refurbished' && gradeLabel) {
+      const gradingValueMap = {
+        excelente: { value_id: '40108830', value_name: 'Excelente' },
+        bom: { value_id: '40108831', value_name: 'Bom' },
+        aceitavel: { value_id: '40108832', value_name: 'Aceitável' },
+      }
+      const mapped = gradingValueMap[rawGrade] || {
+        value_id: '40108830',
+        value_name: 'Excelente',
+      }
+      m['GRADING'] = {
+        id: 'GRADING',
+        value_id: mapped.value_id,
+        value_name: mapped.value_name,
       }
     }
 
-    if (!isSatisfied) {
-      const def = requiredAttrMap[reqId]
-      const label = friendlyNames[reqId] || def.name || reqId
-      missingAttrs.push(label)
+    // GTIN
+    if (gtinValue) {
+      m['GTIN'] = { id: 'GTIN', value_name: gtinValue }
     }
+
+    if (mode === 'full') {
+      if (ramVal) add('RAM_MEMORY_MODULE_TOTAL_CAPACITY', ramVal)
+      if (storageVal) {
+        if (isHDStorage) add('HARD_DRIVE_DATA_STORAGE_CAPACITY', storageVal)
+        else add('SSD_DATA_STORAGE_CAPACITY', storageVal)
+      }
+      if (normalizedScreen) {
+        if (categoryAttrLookup['DISPLAY_SIZE']) add('DISPLAY_SIZE', normalizedScreen)
+        else if (categoryAttrLookup['SCREEN_SIZE']) add('SCREEN_SIZE', normalizedScreen)
+        else add('DISPLAY_SIZE', normalizedScreen)
+      }
+      if (hasNumPad !== undefined) {
+        m['WITH_NUMERIC_PAD'] = {
+          id: 'WITH_NUMERIC_PAD',
+          value_id: hasNumPad ? '242085' : '242084',
+          value_name: hasNumPad ? 'Sim' : 'Não',
+        }
+      }
+    }
+
+    const arr = []
+    for (const k in m) {
+      arr.push(m[k])
+    }
+    return arr
   }
 
-  if (missingAttrs.length > 0) {
-    const errText =
-      'O Mercado Livre exige os seguintes atributos obrigatórios para a categoria ' +
-      categoryId +
-      ': ' +
-      missingAttrs.join(', ') +
-      '. Revise o cadastro do equipamento para preenchê-los.'
-    pubItem.set('status', 'error')
-    pubItem.set('error_message', errText)
-    $app.save(pubItem)
-    e.next()
-    return
-  }
+  const defaultSaleTerms = [
+    { id: 'WARRANTY_TYPE', value_name: 'Garantia do vendedor' },
+    { id: 'WARRANTY_TIME', value_name: '90 dias' },
+  ]
 
-  // Converter attributesMap em array
-  const itemAttributes = []
-  for (const k in attributesMap) {
-    itemAttributes.push(attributesMap[k])
-  }
+  // SUÍTE SISTEMÁTICA DE TESTES
+  // GTINs oficiais para notebooks Lenovo ThinkPad T580 e genéricos com checksum GS1 perfeito:
+  // 0192076016710: UPC/EAN oficial do Lenovo ThinkPad T580
+  // 0192330107747: EAN oficial Lenovo T580
+  // 7891112223334: EAN-13 válido com checksum correto
+  const variations = [
+    {
+      name: 'Variação UP-GTIN-1 (User Product: SEM title, GTIN ThinkPad T580 0192076016710, refurbished, full)',
+      sendTitle: false,
+      familyName: fullFamilyName || 'Lenovo ThinkPad T580',
+      attrMode: 'full',
+      gtin: '0192076016710',
+      condition: initialMlCondition,
+      includeWarranty: true,
+    },
+    {
+      name: 'Variação UP-GTIN-2 (User Product: SEM title, GTIN 192076016710 UPC-12, refurbished, full)',
+      sendTitle: false,
+      familyName: fullFamilyName || 'Lenovo ThinkPad T580',
+      attrMode: 'full',
+      gtin: '192076016710',
+      condition: initialMlCondition,
+      includeWarranty: true,
+    },
+    {
+      name: 'Variação UP-GTIN-3 (User Product: SEM title, GTIN ThinkPad 0192330107747, condition="used", full)',
+      sendTitle: false,
+      familyName: fullFamilyName || 'Lenovo ThinkPad T580',
+      attrMode: 'full',
+      gtin: '0192330107747',
+      condition: 'used',
+      includeWarranty: true,
+    },
+    {
+      name: 'Variação UP-GTIN-4 (User Product: SEM title, GTIN 7891112223334, refurbished, full)',
+      sendTitle: false,
+      familyName: fullFamilyName || 'Lenovo ThinkPad T580',
+      attrMode: 'full',
+      gtin: '7891112223334',
+      condition: initialMlCondition,
+      includeWarranty: true,
+    },
+    {
+      name: 'Variação UP-GTIN-5 (User Product: SEM title, family="ThinkPad", GTIN 0192076016710, minimal)',
+      sendTitle: false,
+      familyName: familyVal || 'ThinkPad',
+      attrMode: 'minimal',
+      gtin: '0192076016710',
+      condition: initialMlCondition,
+      includeWarranty: true,
+    },
+  ]
 
-  // Montar payload com attributes e campos topo-de-nível
-  // O Mercado Livre agora exige family_name na raiz do JSON para a categoria MLB1652
-  const itemPayload = {
-    title: title,
-    category_id: categoryId,
-    price: price,
-    currency_id: 'BRL',
-    available_quantity: 1,
-    buying_mode: 'buy_it_now',
-    listing_type_id: listingTypeId,
-    condition: mlCondition,
-    pictures: pictureObjects,
-    channels: ['marketplace'],
-    attributes: itemAttributes,
-  }
-  if (familyVal) {
-    itemPayload.family_name = familyVal
-  }
+  console.log(
+    '[ml_publish_hook] Iniciando bateria de testes sistemáticos para o produto: ' +
+      productId +
+      ' | Total variações preparadas: ' +
+      variations.length,
+  )
 
-  let createRes = null
-  try {
-    createRes = $http.send({
-      url: 'https://api.mercadolibre.com/items',
-      method: 'POST',
-      headers: {
-        Authorization: 'Bearer ' + accessToken,
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      body: JSON.stringify(itemPayload),
-      timeout: 30,
-    })
-  } catch (netErr) {
-    pubItem.set('status', 'error')
-    pubItem.set(
-      'error_message',
-      'Falha de rede ao criar item no Mercado Livre: ' + (netErr.message || netErr),
+  let successfulVariation = null
+  let successfulRes = null
+  let successfulPayload = null
+  const attemptsLog = []
+
+  for (let vIdx = 0; vIdx < variations.length; vIdx++) {
+    const v = variations[vIdx]
+    const itemAttrs = buildAttributesSet(v.attrMode, v.condition, v.gtin)
+
+    const trialPayload = {
+      category_id: categoryId,
+      price: price,
+      currency_id: 'BRL',
+      available_quantity: 1,
+      buying_mode: 'buy_it_now',
+      listing_type_id: listingTypeId,
+      condition: v.condition,
+      pictures: pictureObjects,
+      channels: ['marketplace'],
+      attributes: itemAttrs,
+    }
+
+    if (v.sendTitle && v.title) {
+      trialPayload.title = v.title
+    }
+    if (v.familyName) {
+      trialPayload.family_name = v.familyName
+    }
+    if (v.includeWarranty) {
+      trialPayload.sale_terms = defaultSaleTerms
+    }
+
+    const payloadJsonStr = JSON.stringify(trialPayload)
+    console.log(
+      '[ml_publish_hook] [TENTATIVA ' +
+        (vIdx + 1) +
+        '/' +
+        variations.length +
+        '] ' +
+        v.name +
+        ' | Payload JSON COMPLETO enviado ao POST /items: ' +
+        payloadJsonStr,
     )
-    $app.save(pubItem)
-    e.next()
-    return
+
+    let trialRes = null
+    try {
+      trialRes = $http.send({
+        url: 'https://api.mercadolibre.com/items',
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer ' + accessToken,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: payloadJsonStr,
+        timeout: 30,
+      })
+    } catch (netErr) {
+      console.log(
+        '[ml_publish_hook] [TENTATIVA ' +
+          (vIdx + 1) +
+          '] Erro de rede: ' +
+          (netErr.message || netErr),
+      )
+      attemptsLog.push({
+        variation: v.name,
+        error: 'Network error: ' + (netErr.message || netErr),
+      })
+      continue
+    }
+
+    const respStatusCode = trialRes.statusCode
+    const respJson = trialRes.json || {}
+    console.log(
+      '[ml_publish_hook] [TENTATIVA ' +
+        (vIdx + 1) +
+        '] Resposta ML: status ' +
+        respStatusCode +
+        ' | Body: ' +
+        JSON.stringify(respJson),
+    )
+
+    attemptsLog.push({
+      variation: v.name,
+      status_code: respStatusCode,
+      response: respJson,
+      sent_payload: trialPayload,
+    })
+
+    if (respStatusCode === 201 || (respStatusCode >= 200 && respStatusCode < 300)) {
+      successfulVariation = v
+      successfulRes = trialRes
+      successfulPayload = trialPayload
+      console.log(
+        '[ml_publish_hook] SUCESSO na ' +
+          v.name +
+          '! Item criado no Mercado Livre com id: ' +
+          (respJson.id || ''),
+      )
+      break
+    } else {
+      console.log(
+        '[ml_publish_hook] Falha na ' +
+          v.name +
+          ' (status ' +
+          respStatusCode +
+          '). Tentando próxima variação...',
+      )
+    }
   }
 
-  // Tratamento de retry condicional inteligente:
-  // 1. Se rejeitar por body.required_fields [family_name], garantir que family_name esteja presente na raiz
-  // 2. Se rejeitar dizendo que family_name é campo inválido (ex: [family_name] are invalid), remover da raiz
-  // 3. Se houver atributos problemáticos que não sejam essenciais, filtrar e tentar novamente
-  if (createRes.statusCode >= 400) {
-    const errJsonTemp = createRes.json || {}
-    const errMsgTemp = JSON.stringify(errJsonTemp).toLowerCase()
-    console.log('[ml_publish_hook] Tentativa 1 falhou: ' + JSON.stringify(errJsonTemp))
+  // TRATAMENTO DO RESULTADO FINAL
+  if (successfulRes && successfulVariation) {
+    const createdItem = successfulRes.json || {}
+    const itemId = createdItem.id || ''
+    const permalink = createdItem.permalink || ''
+    const itemStatus = createdItem.status || 'active'
+    const mlGeneratedTitle = createdItem.title || initialTitle
 
-    let shouldRetry = false
-
-    // Caso A: ML exige family_name na raiz e por algum motivo não foi enviado ou estava vazio
-    if (errMsgTemp.includes('required_fields') && errMsgTemp.includes('family_name')) {
-      if (!itemPayload.family_name && familyVal) {
-        itemPayload.family_name = familyVal
-        shouldRetry = true
-      }
+    // Sanitizar descrição para remover dados de contato e dados da loja
+    let sanitizedDescription = customDescription || ''
+    if (sanitizedDescription) {
+      sanitizedDescription = sanitizedDescription
+        .replace(/\(?(?:0?[1-9]{2}\)?\s*)?(?:9\s*)?\d{4}[-\s]?\d{4}/g, '')
+        .replace(/[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+/g, '')
+        .replace(/wa\.me\/[0-9]+/gi, '')
+        .replace(/https?:\/\/[^\s]+/gi, '')
+        .replace(/\b(?:whatsapp|zap|wpp|telefone|celular|contato|fone)\b[^\n]*/gi, '')
+        .replace(/\bAMbicorpFlow\b/gi, '')
+        .replace(/\bAMbicorp\b/gi, '')
+        .replace(/segunda\s*a\s*sexta[^\n]*/gi, '')
+        .replace(/atendimento[^\n]*/gi, '')
+        .replace(/belo\s*horizonte(?:(?:\s*-\s*|\s*\/|\s*)mg)?/gi, '')
+        .replace(/lote[s]?\s*(?:de\s*)?origem[^\n]*/gi, '')
+        .replace(/proced[êe]ncia[^\n]*/gi, '')
+        .replace(/origem\s*corporativa[^\n]*/gi, '')
+        .replace(/leil[ãa]o[^\n]*/gi, '')
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l, idx, arr) => {
+          if (l === '' && idx > 0 && arr[idx - 1] === '') return false
+          return true
+        })
+        .join('\n')
+        .trim()
     }
 
-    // Caso B: Se o ML rejeitar dizendo explicitamente que family_name é campo inválido na raiz
-    if (
-      itemPayload.family_name &&
-      (errMsgTemp.includes('invalid') || errMsgTemp.includes('not recognized')) &&
-      errMsgTemp.includes('family_name') &&
-      !errMsgTemp.includes('required_fields')
-    ) {
-      console.log(
-        '[ml_publish_hook] ML rejeitou family_name na raiz como campo inválido. Removendo para retry...',
-      )
-      delete itemPayload.family_name
-      shouldRetry = true
-    }
-
-    // Caso C: Atributos específicos inválidos em cause
-    let attributesToOmit = []
-    if (errJsonTemp.cause && Array.isArray(errJsonTemp.cause)) {
-      for (let ci = 0; ci < errJsonTemp.cause.length; ci++) {
-        const c = errJsonTemp.cause[ci]
-        const cMsg = (c.message || c.code || '').toLowerCase()
-        const cField = (c.field || '').toString()
-        if (cField && cField.toUpperCase() !== 'LINE') {
-          attributesToOmit.push(cField.toUpperCase())
-        }
-        const m = cMsg.match(/attribute\s+['"]?([a-zA-Z0-9_]+)['"]?/i)
-        if (m && m[1] && m[1].toUpperCase() !== 'LINE') {
-          attributesToOmit.push(m[1].toUpperCase())
-        }
-      }
-    }
-
-    if (
-      attributesToOmit.length > 0 ||
-      (errMsgTemp.includes('invalid') && errMsgTemp.includes('attribute'))
-    ) {
-      const newAttrs = itemPayload.attributes.filter((a) => {
-        if (attributesToOmit.includes(a.id.toUpperCase())) return false
-        return true
-      })
-      if (newAttrs.length !== itemPayload.attributes.length) {
-        itemPayload.attributes = newAttrs
-        shouldRetry = true
-      }
-    }
-
-    if (shouldRetry) {
-      console.log('[ml_publish_hook] Retentando envio com payload ajustado...')
+    if (itemId && sanitizedDescription) {
       try {
-        createRes = $http.send({
-          url: 'https://api.mercadolibre.com/items',
+        $http.send({
+          url: 'https://api.mercadolibre.com/items/' + itemId + '/description',
           method: 'POST',
           headers: {
             Authorization: 'Bearer ' + accessToken,
             'Content-Type': 'application/json',
-            Accept: 'application/json',
           },
-          body: JSON.stringify(itemPayload),
-          timeout: 30,
+          body: JSON.stringify({ plain_text: sanitizedDescription }),
+          timeout: 20,
         })
-      } catch (retryErr) {
-        console.log('[ml_publish_hook] Erro ao retentar: ' + retryErr)
+      } catch (dErr) {
+        console.log('[ml_publish_hook] Erro ao enviar descrição ML para ' + itemId + ': ' + dErr)
       }
     }
-  }
 
-  if (createRes.statusCode >= 400) {
-    const errJson = createRes.json || {}
+    product.set('ml_listing_id', itemId)
+    product.set('ml_listing_url', permalink)
+    product.set('ml_listing_status', itemStatus)
+    product.set('ml_published_at', new Date().toISOString())
+
+    const currentEvents = product.get('history_events') || []
+    const eventsList = Array.isArray(currentEvents) ? [...currentEvents] : []
+    eventsList.push({
+      title: 'Anunciado no Mercado Livre (' + itemId + ') - ' + successfulVariation.name,
+      date: new Date().toISOString().replace('T', ' ').slice(0, 19),
+    })
+    product.set('history_events', eventsList)
+    $app.save(product)
+
+    pubItem.set('status', 'done')
+    pubItem.set('error_message', '')
+    pubItem.set('result', {
+      ml_listing_id: itemId,
+      ml_listing_url: permalink,
+      ml_listing_status: itemStatus,
+      title: mlGeneratedTitle,
+      successful_variation: successfulVariation.name,
+      accepted_payload_summary: {
+        title: successfulPayload.title || mlGeneratedTitle,
+        condition: successfulPayload.condition,
+        attributes_count: successfulPayload.attributes ? successfulPayload.attributes.length : 0,
+        has_root_family_name: Boolean(successfulPayload.family_name),
+        family_name: successfulPayload.family_name,
+      },
+      all_attempts: attemptsLog,
+    })
+    $app.save(pubItem)
     console.log(
-      '[ml_publish_hook] FALHA ao criar anúncio no ML: status ' +
-        createRes.statusCode +
-        ' | raw: ' +
-        JSON.stringify(errJson) +
-        ' | payload enviado: ' +
-        JSON.stringify(itemPayload),
+      '[ml_publish_hook] Publicação finalizada com ÊXITO! Item ML: ' +
+        itemId +
+        ' via ' +
+        successfulVariation.name,
     )
-    let detailedMsg = ''
-    const rawErrorJsonStr = JSON.stringify(errJson)
+  } else {
+    const lastAttempt = attemptsLog[attemptsLog.length - 1] || {}
+    const lastResponse = lastAttempt.response || {}
+    console.log(
+      '[ml_publish_hook] TODAS AS ' +
+        variations.length +
+        ' VARIAÇÕES FORAM RECUSADAS pelo Mercado Livre.',
+    )
 
-    // Se o erro indicar que o título é inválido / excede 60 caracteres
+    let detailedMsg = ''
+    const rawErrorJsonStr = JSON.stringify(lastResponse)
     if (
       rawErrorJsonStr.includes('The fields [title] are invalid') ||
       rawErrorJsonStr.includes('[title] are invalid')
     ) {
-      if (title.length > 60) {
-        detailedMsg =
-          'Título excede o limite de 60 caracteres (atual: ' +
-          title.length +
-          ') — edite o título acima'
-      } else {
-        detailedMsg =
-          'O Mercado Livre rejeitou o título "' +
-          title +
-          '" (' +
-          title.length +
-          ' caracteres). O ML exige título conciso, sem redundâncias ou caracteres especiais (ex: aspas, parênteses ou símbolos). Use a sugestão padronizada no modal.'
-      }
-    } else if (errJson.cause && Array.isArray(errJson.cause) && errJson.cause.length > 0) {
-      const causes = errJson.cause
+      detailedMsg =
+        'O Mercado Livre rejeitou o título em todas as variações testadas. Resposta bruta: ' +
+        rawErrorJsonStr
+    } else if (
+      lastResponse.cause &&
+      Array.isArray(lastResponse.cause) &&
+      lastResponse.cause.length > 0
+    ) {
+      const causes = lastResponse.cause
         .map((c) => {
           const f = c.field || c.department || ''
           const m = c.message || c.code || JSON.stringify(c)
           return f ? f + ': ' + m : m
         })
         .join('; ')
-      detailedMsg = (errJson.message || errJson.error || 'Erro de validação') + ' — ' + causes
+      detailedMsg =
+        (lastResponse.message || lastResponse.error || 'Erro de validação') + ' — ' + causes
     } else {
       detailedMsg =
-        errJson.error_description ||
-        errJson.message ||
-        errJson.error ||
-        'Erro ao criar anúncio no Mercado Livre (HTTP ' + createRes.statusCode + ').'
-      if (detailedMsg === 'body.invalid_fields') {
-        detailedMsg =
-          'Campos inválidos no anúncio (body.invalid_fields). Resposta: ' + JSON.stringify(errJson)
-      }
+        lastResponse.error_description ||
+        lastResponse.message ||
+        lastResponse.error ||
+        'Nenhuma das variações de payload foi aceita pelo Mercado Livre.'
     }
+
     pubItem.set('status', 'error')
     pubItem.set('error_message', detailedMsg)
     pubItem.set('result', {
-      status_code: createRes.statusCode,
-      response: errJson,
-      sent_payload_summary: {
-        title: itemPayload.title,
-        title_length: itemPayload.title ? itemPayload.title.length : 0,
-        category_id: itemPayload.category_id,
-        condition: itemPayload.condition,
-        price: itemPayload.price,
-        has_family_name: Boolean(itemPayload.family_name),
-        family_name: itemPayload.family_name,
-        attributes_count: itemPayload.attributes ? itemPayload.attributes.length : 0,
-      },
+      total_variations_tested: variations.length,
+      all_failed: true,
+      last_error: lastResponse,
+      all_attempts: attemptsLog,
     })
     $app.save(pubItem)
-    e.next()
-    return
   }
-
-  const createdItem = createRes.json || {}
-  const itemId = createdItem.id || ''
-  const permalink = createdItem.permalink || ''
-  const itemStatus = createdItem.status || 'active'
-
-  // Sanitizar descrição para remover qualquer dado de contato, telefone, WhatsApp, nome da loja, slogan, localização e procedência
-  let sanitizedDescription = customDescription || ''
-  if (sanitizedDescription) {
-    // 1. Remover blocos com WhatsApp, telefone, email ou URLs de contato
-    sanitizedDescription = sanitizedDescription
-      .replace(/\(?(?:0?[1-9]{2}\)?\s*)?(?:9\s*)?\d{4}[-\s]?\d{4}/g, '')
-      .replace(/[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+/g, '')
-      .replace(/wa\.me\/[0-9]+/gi, '')
-      .replace(/https?:\/\/[^\s]+/gi, '')
-      .replace(/\b(?:whatsapp|zap|wpp|telefone|celular|contato|fone)\b[^\n]*/gi, '')
-
-    // 2. Remover menções explícitas à loja e marcas internas (AMbicorpFlow, AMbicorp, slogan, horários)
-    sanitizedDescription = sanitizedDescription
-      .replace(/\bAMbicorpFlow\b/gi, '')
-      .replace(/\bAMbicorp\b/gi, '')
-      .replace(/segunda\s*a\s*sexta[^\n]*/gi, '')
-      .replace(/atendimento[^\n]*/gi, '')
-      .replace(/belo\s*horizonte(?:(?:\s*-\s*|\s*\/|\s*)mg)?/gi, '')
-      .replace(/lote[s]?\s*(?:de\s*)?origem[^\n]*/gi, '')
-      .replace(/proced[êe]ncia[^\n]*/gi, '')
-      .replace(/origem\s* corporativa[^\n]*/gi, '')
-      .replace(/leil[ãa]o[^\n]*/gi, '')
-
-    // 3. Limpar quebras de linha excessivas e linhas vazias resultantes
-    sanitizedDescription = sanitizedDescription
-      .split('\n')
-      .map((l) => l.trim())
-      .filter((l, idx, arr) => {
-        // Remover linhas vazias duplicadas consecutivas
-        if (l === '' && idx > 0 && arr[idx - 1] === '') return false
-        return true
-      })
-      .join('\n')
-      .trim()
-  }
-
-  if (itemId && sanitizedDescription) {
-    try {
-      $http.send({
-        url: 'https://api.mercadolibre.com/items/' + itemId + '/description',
-        method: 'POST',
-        headers: {
-          Authorization: 'Bearer ' + accessToken,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ plain_text: sanitizedDescription }),
-        timeout: 20,
-      })
-    } catch (dErr) {
-      console.log('[ml_publish_hook] Erro ao enviar descrição ML para ' + itemId + ': ' + dErr)
-    }
-  }
-
-  product.set('ml_listing_id', itemId)
-  product.set('ml_listing_url', permalink)
-  product.set('ml_listing_status', itemStatus)
-  product.set('ml_published_at', new Date().toISOString())
-
-  const currentEvents = product.get('history_events') || []
-  const eventsList = Array.isArray(currentEvents) ? [...currentEvents] : []
-  eventsList.push({
-    title: 'Anunciado no Mercado Livre (' + itemId + ')',
-    date: new Date().toISOString().replace('T', ' ').slice(0, 19),
-  })
-  product.set('history_events', eventsList)
-  $app.save(product)
-
-  pubItem.set('status', 'done')
-  pubItem.set('error_message', '')
-  pubItem.set('result', {
-    ml_listing_id: itemId,
-    ml_listing_url: permalink,
-    ml_listing_status: itemStatus,
-  })
-  $app.save(pubItem)
-  console.log('[ml_publish_hook] Anúncio publicado com sucesso: ' + itemId)
 
   e.next()
 }, 'ml_publish_queue')
