@@ -2,14 +2,22 @@
 // Rota: POST /api/products/{id}/reorder-photos
 // Evita o diff do REST API padrão que ignora reordenação de arrays de arquivos idênticos
 
+// Hook PocketBase para reordenar fotos (photos e images) de um produto diretamente
+// Rota: POST /api/products/{id}/reorder-photos
+// Evita o diff do REST API padrão que ignora reordenação de arrays de arquivos idênticos
+
 routerAdd(
   'POST',
   '/api/products/{id}/reorder-photos',
   (e) => {
     // 1. Extrair ID do produto do path
-    let productId = (e.request.pathValue('id') || '').trim()
+    let productId = ''
+    try {
+      productId = (e.request.pathValue('id') || '').trim()
+    } catch (_) {}
+
     if (!productId) {
-      const rawUrl = e.request.url ? e.request.url.path || '' : ''
+      const rawUrl = e.request && e.request.url ? e.request.url.path || '' : ''
       const match = rawUrl.match(/\/api\/products\/([^/?#]+)\/reorder-photos/)
       if (match && match[1]) {
         productId = match[1].trim()
@@ -43,6 +51,13 @@ routerAdd(
 
     if (data.images && Array.isArray(data.images)) {
       record.set('images', data.images)
+    }
+
+    // Atualizar photo_order se existir o campo
+    if (data.photo_order && Array.isArray(data.photo_order)) {
+      try {
+        record.set('photo_order', data.photo_order)
+      } catch (_) {}
     }
 
     // 5. Salvar registro

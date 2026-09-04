@@ -596,6 +596,67 @@ export function generateMLDescription(
 export function getProductImageUrls(product: Product): string[] {
   const urls: string[] = []
 
+  // Se houver photo_order configurado, respeitar essa sequência prioritária
+  if (product.photo_order && Array.isArray(product.photo_order) && product.photo_order.length > 0) {
+    const validPhotosSet = new Set(Array.isArray(product.photos) ? product.photos : [])
+    const validImagesSet = new Set(Array.isArray(product.images) ? product.images : [])
+    const visitedPhotos = new Set<string>()
+    const visitedImages = new Set<string>()
+
+    for (const item of product.photo_order) {
+      if (!item || !item.value) continue
+      if (item.type === 'photo' && validPhotosSet.has(item.value)) {
+        const fileUrl = pb.files.getURL(product, item.value)
+        const fullUrl =
+          fileUrl.startsWith('http://') || fileUrl.startsWith('https://')
+            ? fileUrl
+            : `${window.location.origin}${fileUrl}`
+        urls.push(fullUrl)
+        visitedPhotos.add(item.value)
+      } else if (
+        item.type === 'image' &&
+        (validImagesSet.has(item.value) || item.value.startsWith('http'))
+      ) {
+        const trimmed = item.value.trim()
+        if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+          urls.push(trimmed)
+          visitedImages.add(trimmed)
+        }
+      }
+    }
+
+    if (product.photos && Array.isArray(product.photos)) {
+      for (const file of product.photos) {
+        if (file && !visitedPhotos.has(file)) {
+          const fileUrl = pb.files.getURL(product, file)
+          const fullUrl =
+            fileUrl.startsWith('http://') || fileUrl.startsWith('https://')
+              ? fileUrl
+              : `${window.location.origin}${fileUrl}`
+          urls.push(fullUrl)
+        }
+      }
+    }
+
+    if (product.images && Array.isArray(product.images)) {
+      for (const img of product.images) {
+        if (img && typeof img === 'string') {
+          const trimmed = img.trim()
+          if (
+            (trimmed.startsWith('http://') || trimmed.startsWith('https://')) &&
+            !visitedImages.has(trimmed)
+          ) {
+            urls.push(trimmed)
+          }
+        }
+      }
+    }
+
+    if (urls.length > 0) {
+      return urls
+    }
+  }
+
   // 1. Fotos do storage PocketBase (gerar URL absoluta)
   if (product.photos && Array.isArray(product.photos)) {
     for (const file of product.photos) {

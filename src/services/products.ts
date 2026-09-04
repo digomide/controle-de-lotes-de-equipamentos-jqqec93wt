@@ -61,15 +61,46 @@ export const productsService = {
     return await pb.collection('products').update<Product>(id, { status })
   },
 
-  async reorderPhotos(id: string, photos: string[], images: string[]): Promise<Product> {
-    const raw = await pb.send<any>(`/api/products/${encodeURIComponent(id)}/reorder-photos`, {
-      method: 'POST',
-      body: {
-        photos,
-        images,
-      },
+  async reorderPhotos(
+    id: string,
+    photos: string[],
+    images: string[],
+    photoOrder?: Array<{ type: 'photo' | 'image'; value: string }>,
+  ): Promise<Product> {
+    // 1. Tentar salvar via PATCH padrão no PocketBase atualizando photo_order e images
+    // photo_order é um campo JSON que preserva a sequência exata intercalada de fotos locais e URLs externas
+    // images é um array de URLs que o PocketBase atualiza sem problemas de diff de arquivos
+    const orderPayload = photoOrder || [
+      ...photos.map((p) => ({ type: 'photo' as const, value: p })),
+      ...images.map((img) => ({ type: 'image' as const, value: img })),
+    ]
+
+    try {
+      // Primeiro tenta o endpoint customizado se estiver disponível
+      const raw = await pb.send<any>(`/api/products/${encodeURIComponent(id)}/reorder-photos`, {
+        method: 'POST',
+        body: {
+          photos,
+          images,
+          photo_order: orderPayload,
+        },
+      })
+      if (raw && raw.id) {
+        return raw as Product
+      }
+    } catch (err: any) {
+      // Se der 404 (rota customizada indisponível/não registrada no router do PB), faz o fallback elegante
+      // gravando photo_order e images diretamente no registro via coleção padrão
+      console.warn(
+        'Endpoint customizado de reordenação indisponível, usando fallback photo_order:',
+        err?.message || err,
+      )
+    }
+
+    return await pb.collection('products').update<Product>(id, {
+      photo_order: orderPayload,
+      images,
     })
-    return raw as Product
   },
 
   async delete(id: string): Promise<boolean> {

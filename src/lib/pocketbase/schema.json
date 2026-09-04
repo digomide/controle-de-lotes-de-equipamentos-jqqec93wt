@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-04T22:34:07.049Z",
+  "generatedAt": "2026-09-04T22:48:45.095Z",
   "collections": [
     {
       "name": "users",
@@ -275,6 +275,12 @@
         {
           "name": "gtin",
           "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "photo_order",
+          "type": "json",
           "required": false,
           "system": false
         }

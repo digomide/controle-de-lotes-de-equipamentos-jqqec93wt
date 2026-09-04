@@ -151,9 +151,51 @@ export default function LojaPublica() {
     minPrice !== '' ||
     maxPrice !== ''
 
-  // Helper para extrair a lista completa de fotos do equipamento
+  // Helper para extrair a lista completa de fotos do equipamento respeitando photo_order se houver
   const getProductPhotos = (p: Product): string[] => {
     const list: string[] = []
+
+    if (p.photo_order && Array.isArray(p.photo_order) && p.photo_order.length > 0) {
+      const validPhotosSet = new Set(Array.isArray(p.photos) ? p.photos : [])
+      const validImagesSet = new Set(Array.isArray(p.images) ? p.images : [])
+      const visitedPhotos = new Set<string>()
+      const visitedImages = new Set<string>()
+
+      for (const item of p.photo_order) {
+        if (!item || !item.value) continue
+        if (item.type === 'photo') {
+          if (validPhotosSet.has(item.value)) {
+            list.push(pb.files.getURL(p, item.value))
+            visitedPhotos.add(item.value)
+          }
+        } else if (item.type === 'image') {
+          if (validImagesSet.has(item.value) || item.value.startsWith('http')) {
+            list.push(item.value.trim())
+            visitedImages.add(item.value)
+          }
+        }
+      }
+
+      if (p.photos && Array.isArray(p.photos)) {
+        p.photos.forEach((fileName) => {
+          if (fileName && !visitedPhotos.has(fileName)) {
+            list.push(pb.files.getURL(p, fileName))
+          }
+        })
+      }
+      if (p.images && Array.isArray(p.images)) {
+        p.images.forEach((url) => {
+          if (url && !visitedImages.has(url.trim())) {
+            list.push(url.trim())
+          }
+        })
+      }
+
+      if (list.length > 0) {
+        return list
+      }
+    }
+
     if (p.photos && Array.isArray(p.photos)) {
       p.photos.forEach((fileName) => {
         if (fileName) {

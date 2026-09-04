@@ -112,11 +112,69 @@ export default function LojaDetalhe() {
     }
   }, [id])
 
-  // Lista consolidada de fotos (PocketBase uploads + JSON images)
+  // Lista consolidada de fotos (PocketBase uploads + JSON images) respeitando photo_order se houver
   const photos = useMemo(() => {
     const list: string[] = []
+    if (!product) {
+      return [
+        'https://img.usecurling.com/p/800/600?q=laptop',
+        'https://img.usecurling.com/p/800/600?q=keyboard',
+        'https://img.usecurling.com/p/800/600?q=ports',
+      ]
+    }
 
-    if (product?.photos && Array.isArray(product.photos)) {
+    // Se houver sequência salva explicitamente em photo_order, seguir essa ordem prioritariamente
+    if (
+      product.photo_order &&
+      Array.isArray(product.photo_order) &&
+      product.photo_order.length > 0
+    ) {
+      const validPhotosSet = new Set(Array.isArray(product.photos) ? product.photos : [])
+      const validImagesSet = new Set(Array.isArray(product.images) ? product.images : [])
+      const visitedPhotos = new Set<string>()
+      const visitedImages = new Set<string>()
+
+      for (const item of product.photo_order) {
+        if (!item || !item.value) continue
+        if (item.type === 'photo') {
+          if (validPhotosSet.has(item.value)) {
+            list.push(productsService.getFileUrl(product, item.value))
+            visitedPhotos.add(item.value)
+          }
+        } else if (item.type === 'image') {
+          if (validImagesSet.has(item.value) || item.value.startsWith('http')) {
+            list.push(item.value.trim())
+            visitedImages.add(item.value)
+          }
+        }
+      }
+
+      if (product.photos && Array.isArray(product.photos)) {
+        for (const fn of product.photos) {
+          if (fn && !visitedPhotos.has(fn)) {
+            list.push(productsService.getFileUrl(product, fn))
+          }
+        }
+      }
+      if (product.images && Array.isArray(product.images)) {
+        for (const url of product.images) {
+          if (
+            url &&
+            typeof url === 'string' &&
+            url.trim().length > 0 &&
+            !visitedImages.has(url.trim())
+          ) {
+            list.push(url.trim())
+          }
+        }
+      }
+
+      if (list.length > 0) {
+        return list
+      }
+    }
+
+    if (product.photos && Array.isArray(product.photos)) {
       for (const fn of product.photos) {
         if (fn) {
           list.push(productsService.getFileUrl(product, fn))
@@ -124,7 +182,7 @@ export default function LojaDetalhe() {
       }
     }
 
-    if (product?.images && Array.isArray(product.images)) {
+    if (product.images && Array.isArray(product.images)) {
       for (const url of product.images) {
         if (url && typeof url === 'string' && url.trim().length > 0) {
           list.push(url.trim())

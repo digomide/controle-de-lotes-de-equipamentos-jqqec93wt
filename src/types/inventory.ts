@@ -61,6 +61,7 @@ export interface Product extends RecordModel {
   status?: ProductStatus
   images?: string[]
   photos?: string[]
+  photo_order?: Array<{ type: 'photo' | 'image'; value: string }>
   technical_checklist?: TechnicalChecklistItem[]
   history_events?: EquipmentHistoryEvent[]
   purchase_batch_id?: string

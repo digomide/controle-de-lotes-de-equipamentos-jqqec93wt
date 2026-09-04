@@ -288,11 +288,70 @@ export default function CatalogoDetalhe() {
     }
   }
 
-  // Lista combinada de fotos (uploads PocketBase + URLs json)
+  // Lista combinada de fotos (uploads PocketBase + URLs json) respeitando photo_order se presente
   const photos = useMemo(() => {
     const list: string[] = []
+    if (!product) {
+      return [
+        'https://img.usecurling.com/p/800/600?q=laptop',
+        'https://img.usecurling.com/p/800/600?q=keyboard',
+        'https://img.usecurling.com/p/800/600?q=ports',
+      ]
+    }
 
-    if (product?.photos && Array.isArray(product.photos)) {
+    // Se houver sequência salva explicitamente em photo_order, seguir essa ordem prioritariamente
+    if (
+      product.photo_order &&
+      Array.isArray(product.photo_order) &&
+      product.photo_order.length > 0
+    ) {
+      const validPhotosSet = new Set(Array.isArray(product.photos) ? product.photos : [])
+      const validImagesSet = new Set(Array.isArray(product.images) ? product.images : [])
+      const visitedPhotos = new Set<string>()
+      const visitedImages = new Set<string>()
+
+      for (const item of product.photo_order) {
+        if (!item || !item.value) continue
+        if (item.type === 'photo') {
+          if (validPhotosSet.has(item.value)) {
+            list.push(productsService.getFileUrl(product, item.value))
+            visitedPhotos.add(item.value)
+          }
+        } else if (item.type === 'image') {
+          if (validImagesSet.has(item.value) || item.value.startsWith('http')) {
+            list.push(item.value.trim())
+            visitedImages.add(item.value)
+          }
+        }
+      }
+
+      // Adicionar eventuais fotos ou imagens novas ainda não presentes no photo_order
+      if (product.photos && Array.isArray(product.photos)) {
+        for (const fn of product.photos) {
+          if (fn && !visitedPhotos.has(fn)) {
+            list.push(productsService.getFileUrl(product, fn))
+          }
+        }
+      }
+      if (product.images && Array.isArray(product.images)) {
+        for (const url of product.images) {
+          if (
+            url &&
+            typeof url === 'string' &&
+            url.trim().length > 0 &&
+            !visitedImages.has(url.trim())
+          ) {
+            list.push(url.trim())
+          }
+        }
+      }
+
+      if (list.length > 0) {
+        return list
+      }
+    }
+
+    if (product.photos && Array.isArray(product.photos)) {
       for (const fn of product.photos) {
         if (fn) {
           list.push(productsService.getFileUrl(product, fn))
@@ -300,7 +359,7 @@ export default function CatalogoDetalhe() {
       }
     }
 
-    if (product?.images && Array.isArray(product.images)) {
+    if (product.images && Array.isArray(product.images)) {
       for (const url of product.images) {
         if (url && typeof url === 'string' && url.trim().length > 0) {
           list.push(url.trim())
@@ -504,6 +563,58 @@ export default function CatalogoDetalhe() {
       return
     }
     const combined: Array<{ type: 'photo' | 'image'; value: string; originalIndex: number }> = []
+
+    // Se já tiver photo_order salvo, usar essa sequência exata
+    if (prod.photo_order && Array.isArray(prod.photo_order) && prod.photo_order.length > 0) {
+      const validPhotosSet = new Set(Array.isArray(prod.photos) ? prod.photos : [])
+      const validImagesSet = new Set(Array.isArray(prod.images) ? prod.images : [])
+      const visitedPhotos = new Set<string>()
+      const visitedImages = new Set<string>()
+
+      prod.photo_order.forEach((item, idx) => {
+        if (!item || !item.value) return
+        if (item.type === 'photo' && validPhotosSet.has(item.value)) {
+          combined.push({ type: 'photo', value: item.value, originalIndex: idx })
+          visitedPhotos.add(item.value)
+        } else if (
+          item.type === 'image' &&
+          (validImagesSet.has(item.value) || item.value.startsWith('http'))
+        ) {
+          combined.push({ type: 'image', value: item.value.trim(), originalIndex: idx })
+          visitedImages.add(item.value)
+        }
+      })
+
+      // Adicionar fotos que não estavam em photo_order
+      if (prod.photos && Array.isArray(prod.photos)) {
+        prod.photos.forEach((fn, idx) => {
+          if (fn && !visitedPhotos.has(fn)) {
+            combined.push({ type: 'photo', value: fn, originalIndex: combined.length + idx })
+          }
+        })
+      }
+      // Adicionar imagens que não estavam em photo_order
+      if (prod.images && Array.isArray(prod.images)) {
+        prod.images.forEach((url, idx) => {
+          if (
+            url &&
+            typeof url === 'string' &&
+            url.trim().length > 0 &&
+            !visitedImages.has(url.trim())
+          ) {
+            combined.push({
+              type: 'image',
+              value: url.trim(),
+              originalIndex: combined.length + idx,
+            })
+          }
+        })
+      }
+
+      setLocalModalPhotos(combined)
+      return
+    }
+
     if (prod.photos && Array.isArray(prod.photos)) {
       prod.photos.forEach((fn, idx) => {
         if (fn) {
@@ -602,11 +713,16 @@ export default function CatalogoDetalhe() {
 
     setIsUploadingPhoto(true)
     try {
+      const remainingOrder = (product.photo_order || []).filter(
+        (it) => !(it.type === targetItem.type && it.value === targetItem.value),
+      )
+
       if (targetItem.type === 'photo') {
         const targetFilename = targetItem.value
-        // Utilizar photos- no PocketBase para exclusão atômica e segura do arquivo específico
+        // Utilizar photos- no PocketBase para exclusão atômica e atualizar photo_order
         const updated = await productsService.update(product.id, {
           'photos-': [targetFilename],
+          photo_order: remainingOrder,
         } as any)
         setProduct(updated)
         initLocalModalPhotos(updated)
@@ -615,6 +731,7 @@ export default function CatalogoDetalhe() {
         const filteredImages = currentImages.filter((img) => img !== targetItem.value)
         const updated = await productsService.update(product.id, {
           images: filteredImages,
+          photo_order: remainingOrder,
         })
         setProduct(updated)
         initLocalModalPhotos(updated)
@@ -647,8 +764,10 @@ export default function CatalogoDetalhe() {
     try {
       const newPhotosOrder: string[] = []
       const newImagesOrder: string[] = []
+      const newPhotoOrderItems: Array<{ type: 'photo' | 'image'; value: string }> = []
 
       for (const item of localModalPhotos) {
+        newPhotoOrderItems.push({ type: item.type, value: item.value })
         if (item.type === 'photo') {
           newPhotosOrder.push(item.value)
         } else if (item.type === 'image') {
@@ -656,11 +775,12 @@ export default function CatalogoDetalhe() {
         }
       }
 
-      // Usa endpoint dedicado para persistência direta da ordem sem diff ignorado pelo PocketBase
+      // Salva ordem passando nova lista ordenada e photo_order completo
       const updated = await productsService.reorderPhotos(
         product.id,
         newPhotosOrder,
         newImagesOrder,
+        newPhotoOrderItems,
       )
       setProduct(updated)
       initLocalModalPhotos(updated)
