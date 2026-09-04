@@ -3,7 +3,7 @@
 
 routerAdd(
   'GET',
-  '/api/ml/item/{id}',
+  '/api/ml/item-detail/{id}',
   (e) => {
     const itemId = e.request.pathValue('id')
     if (!itemId) {
@@ -60,7 +60,7 @@ routerAdd(
 
 routerAdd(
   'POST',
-  '/api/ml/item/{id}/status',
+  '/api/ml/item-detail/{id}/status',
   (e) => {
     const itemId = e.request.pathValue('id')
     const body = e.requestInfo().body || {}
