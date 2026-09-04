@@ -61,6 +61,17 @@ export const productsService = {
     return await pb.collection('products').update<Product>(id, { status })
   },
 
+  async reorderPhotos(id: string, photos: string[], images: string[]): Promise<Product> {
+    const raw = await pb.send<any>(`/api/products/${encodeURIComponent(id)}/reorder-photos`, {
+      method: 'POST',
+      body: {
+        photos,
+        images,
+      },
+    })
+    return raw as Product
+  },
+
   async delete(id: string): Promise<boolean> {
     return await pb.collection('products').delete(id)
   },

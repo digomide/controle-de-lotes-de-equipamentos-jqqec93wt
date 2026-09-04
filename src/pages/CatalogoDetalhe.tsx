@@ -656,13 +656,16 @@ export default function CatalogoDetalhe() {
         }
       }
 
-      const updated = await productsService.update(product.id, {
-        photos: newPhotosOrder,
-        images: newImagesOrder,
-      })
+      // Usa endpoint dedicado para persistência direta da ordem sem diff ignorado pelo PocketBase
+      const updated = await productsService.reorderPhotos(
+        product.id,
+        newPhotosOrder,
+        newImagesOrder,
+      )
       setProduct(updated)
       initLocalModalPhotos(updated)
       setPhotoModalOpen(false)
+      await loadData()
       toast({
         title: 'Ordem das fotos atualizada!',
         description: 'A nova sequência das fotos foi gravada com sucesso.',
@@ -2894,8 +2897,8 @@ export default function CatalogoDetalhe() {
       <Dialog
         open={photoModalOpen}
         onOpenChange={(open) => {
-          if (!open) {
-            // Cancelar descarta estado local
+          if (!open && !isSavingPhotoOrder) {
+            // Cancelar descarta estado local somente se não estiver salvando
             initLocalModalPhotos(product)
           }
           setPhotoModalOpen(open)
