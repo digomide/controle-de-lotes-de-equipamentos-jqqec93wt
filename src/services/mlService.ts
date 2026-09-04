@@ -49,6 +49,55 @@ export interface MLPublishResponse {
 export function translateMLErrorMessage(rawError: string): string {
   if (!rawError) return 'Falha desconhecida ao comunicar com o Mercado Livre.'
 
+  const friendlyDict: Record<string, string> = {
+    family_name: 'Família do produto (family_name / Linha)',
+    brand: 'Marca do equipamento (BRAND)',
+    model: 'Modelo do produto (MODEL)',
+    line: 'Linha do produto (LINE)',
+    processor_brand: 'Marca do processador',
+    processor_line: 'Linha do processador',
+    processor_model: 'Modelo do processador',
+    ram: 'Memória RAM',
+    ram_memory_module_total_capacity: 'Memória RAM',
+    ssd_data_storage_capacity: 'Capacidade do SSD',
+    hard_drive_data_storage_capacity: 'Capacidade do HD',
+    display_size: 'Tamanho da tela',
+    screen_size: 'Tamanho da tela',
+    grading: 'Grau do recondicionado (GRADING)',
+    item_grade: 'Grau de estado',
+    with_numeric_pad: 'Teclado numérico',
+    pictures: 'Fotos do anúncio',
+    price: 'Preço de venda',
+    condition: 'Condição do produto',
+    listing_type_id: 'Tipo de anúncio',
+    category_id: 'Categoria',
+  }
+
+  // Tratamento específico de body.invalid_fields
+  if (rawError.includes('body.invalid_fields')) {
+    // Se vier com cause ou detalhes listados
+    if (rawError.includes('Detalhes:') || rawError.includes(' — ')) {
+      const parts = rawError.split(/Detalhes:\s*|—\s*/)
+      if (parts[1]) {
+        const causes = parts[1]
+          .split(';')
+          .map((c) => c.trim())
+          .filter(Boolean)
+          .map((c) => {
+            // Se tiver formato "CAMPO: mensagem"
+            const matchColon = c.match(/^([a-zA-Z0-9_]+)\s*:\s*(.*)$/)
+            if (matchColon) {
+              const fieldName = friendlyDict[matchColon[1].toLowerCase()] || matchColon[1]
+              return `Campo ${fieldName}: ${matchColon[2]}`
+            }
+            return c
+          })
+        return `O Mercado Livre rejeitou alguns campos do anúncio:\n• ${causes.join('\n• ')}`
+      }
+    }
+    return 'O Mercado Livre rejeitou campos do anúncio (body.invalid_fields). Verifique se todos os atributos como Marca, Modelo, Processador, Memória e Grau de estado estão preenchidos corretamente.'
+  }
+
   // Erro específico de body.required_fields [family_name] ou outros atributos faltantes
   if (
     rawError.includes('body.required_fields') ||
@@ -58,26 +107,12 @@ export function translateMLErrorMessage(rawError: string): string {
     const fieldsMatch = rawError.match(/\[(.*?)\]/)
     const rawFields = fieldsMatch ? fieldsMatch[1].split(',').map((s) => s.trim()) : []
 
-    const friendlyDict: Record<string, string> = {
-      family_name: 'família do produto (family_name / linha)',
-      brand: 'marca do equipamento (BRAND)',
-      model: 'modelo do produto (MODEL)',
-      line: 'linha do produto (LINE)',
-      processor_brand: 'marca do processador',
-      processor_line: 'linha do processador',
-      processor_model: 'modelo do processador',
-      ram_memory_module_total_capacity: 'memória RAM',
-      ssd_data_storage_capacity: 'capacidade do SSD',
-      item_grade: 'grau de estado',
-      grading: 'grau de recondicionamento',
-    }
-
     if (rawFields.length > 0) {
       const translated = rawFields.map((f) => friendlyDict[f.toLowerCase()] || f).join(', ')
-      return `O Mercado Livre exige os seguintes campos obrigatórios: ${translated}. O sistema agora preenche isso automaticamente com base nas especificações cadastradas; revise o cadastro do equipamento se faltar alguma informação.`
+      return `O Mercado Livre exige os seguintes campos obrigatórios: ${translated}. Revise o cadastro do equipamento para preenchê-los.`
     }
 
-    return 'O Mercado Livre exige campos obrigatórios que não foram informados (ex: família do produto ou marca/modelo). O sistema agora preenche isso automaticamente; revise o cadastro se faltar alguma especificação.'
+    return 'O Mercado Livre exige campos obrigatórios que não foram informados (ex: família do produto ou marca/modelo). Revise o cadastro se faltar alguma especificação.'
   }
 
   // Erros de token expirado ou permissão
@@ -86,6 +121,12 @@ export function translateMLErrorMessage(rawError: string): string {
     (rawError.toLowerCase().includes('expired') || rawError.toLowerCase().includes('invalid'))
   ) {
     return 'A autorização do Mercado Livre expirou. Acesse Configurações e reconecte sua conta.'
+  }
+
+  // Se houver lista de "Detalhes:" legível
+  if (rawError.includes('Detalhes:')) {
+    const [header, details] = rawError.split('Detalhes:')
+    return `${header.trim()}\nDetalhes: ${details.trim()}`
   }
 
   return rawError

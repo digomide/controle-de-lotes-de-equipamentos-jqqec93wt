@@ -644,9 +644,9 @@ export function BatchMLPublishModal({
                         )}
 
                         {it.status === 'error' && it.errorMsg && (
-                          <p className="text-[11px] text-rose-700 bg-rose-100/60 p-1.5 rounded">
+                          <div className="text-[11px] text-rose-700 bg-rose-100/60 p-2 rounded whitespace-pre-line leading-relaxed">
                             {it.errorMsg}
-                          </p>
+                          </div>
                         )}
                       </div>
                     </div>

@@ -338,13 +338,42 @@ onRecordAfterCreateSuccess((e) => {
     }
   }
 
-  // 5. Montagem estruturada do array attributes
+  // Mapa de atributos definidos na categoria no ML (para checar se existe e obter value_id correspondente)
+  const categoryAttrLookup = {}
+  for (let cIdx = 0; cIdx < categoryAttributesMeta.length; cIdx++) {
+    const ca = categoryAttributesMeta[cIdx]
+    if (ca && ca.id) {
+      categoryAttrLookup[ca.id] = ca
+    }
+  }
+
+  // 5. Montagem estruturada do array attributes com validação de value_id/value_name
   const attributesMap = {}
 
-  function setAttr(id, valueName) {
-    if (id && valueName !== undefined && valueName !== null && String(valueName).trim() !== '') {
-      attributesMap[id] = { id: id, value_name: String(valueName).trim() }
+  function setAttr(id, valueName, unit) {
+    if (!id || valueName === undefined || valueName === null) return
+    const strVal = String(valueName).trim()
+    if (!strVal) return
+
+    const attrDef = categoryAttrLookup[id]
+    if (attrDef) {
+      if (attrDef.tags && (attrDef.tags.read_only === true || attrDef.tags.hidden === true)) {
+        return
+      }
+      if (Array.isArray(attrDef.values) && attrDef.values.length > 0) {
+        const lowerVal = strVal.toLowerCase()
+        for (let vi = 0; vi < attrDef.values.length; vi++) {
+          const v = attrDef.values[vi]
+          if ((v.name && v.name.toLowerCase() === lowerVal) || (v.id && String(v.id) === strVal)) {
+            attributesMap[id] = { id: id, value_id: String(v.id), value_name: v.name }
+            return
+          }
+        }
+      }
     }
+
+    const attrObj = { id: id, value_name: strVal }
+    attributesMap[id] = attrObj
   }
 
   // Atributos fundamentais
@@ -352,23 +381,18 @@ onRecordAfterCreateSuccess((e) => {
   if (modelVal) setAttr('MODEL', modelVal)
   if (familyVal) {
     setAttr('LINE', familyVal)
-    setAttr('FAMILY_NAME', familyVal)
   }
   if (procBrand) setAttr('PROCESSOR_BRAND', procBrand)
   if (procLine) setAttr('PROCESSOR_LINE', procLine)
   if (procModel) setAttr('PROCESSOR_MODEL', procModel)
 
-  // RAM - enviar variações e capacidades
+  // RAM - na categoria MLB1652 o atributo oficial é RAM_MEMORY_MODULE_TOTAL_CAPACITY
   if (pRam) {
     const ramMatch = pRam.match(/(\d+)\s*GB/i)
     if (ramMatch) {
       const ramFormatted = ramMatch[1] + ' GB'
       setAttr('RAM_MEMORY_MODULE_TOTAL_CAPACITY', ramFormatted)
-      setAttr('RAM', ramFormatted)
-      setAttr('INTERNAL_MEMORY', ramFormatted)
     } else {
-      setAttr('RAM', pRam)
-      setAttr('INTERNAL_MEMORY', pRam)
       setAttr('RAM_MEMORY_MODULE_TOTAL_CAPACITY', pRam)
     }
   }
@@ -381,17 +405,13 @@ onRecordAfterCreateSuccess((e) => {
       const formattedStorage = ssdMatch[1] + ' ' + ssdMatch[2].toUpperCase()
       if (storageUpper.includes('HD') && !storageUpper.includes('SSD')) {
         setAttr('HARD_DRIVE_DATA_STORAGE_CAPACITY', formattedStorage)
-        setAttr('STORAGE_CAPACITY', formattedStorage)
-        setAttr('STORAGE_TYPE', 'HD')
       } else {
         setAttr('SSD_DATA_STORAGE_CAPACITY', formattedStorage)
-        setAttr('STORAGE_CAPACITY', formattedStorage)
-        setAttr('STORAGE_TYPE', 'SSD')
       }
     }
   }
 
-  // Tela (DISPLAY_SIZE e SCREEN_SIZE com fallback no título / nome)
+  // Tela (DISPLAY_SIZE ou SCREEN_SIZE)
   // Formato aceito pelo ML: '15.6 "' ou '14 "' ou '13.3 "'
   let normalizedScreen = ''
   let rawScreenCandidate = pScreen
@@ -416,19 +436,39 @@ onRecordAfterCreateSuccess((e) => {
   }
 
   if (normalizedScreen) {
-    setAttr('DISPLAY_SIZE', normalizedScreen)
-    setAttr('SCREEN_SIZE', normalizedScreen)
+    // Enviar apenas os que existirem na categoria
+    if (categoryAttrLookup['DISPLAY_SIZE']) setAttr('DISPLAY_SIZE', normalizedScreen)
+    if (categoryAttrLookup['SCREEN_SIZE']) setAttr('SCREEN_SIZE', normalizedScreen)
+    if (!categoryAttrLookup['DISPLAY_SIZE'] && !categoryAttrLookup['SCREEN_SIZE']) {
+      setAttr('DISPLAY_SIZE', normalizedScreen)
+    }
   }
 
   // Teclado numérico
   if (product.getBool('has_numeric_keypad') !== undefined) {
-    setAttr('WITH_NUMERIC_PAD', product.getBool('has_numeric_keypad') ? 'Sim' : 'Não')
+    const isYes = product.getBool('has_numeric_keypad')
+    // MLB1652 usa WITH_NUMERIC_PAD: boolean (242085 = Sim, 242084 = Não)
+    attributesMap['WITH_NUMERIC_PAD'] = {
+      id: 'WITH_NUMERIC_PAD',
+      value_id: isYes ? '242085' : '242084',
+      value_name: isYes ? 'Sim' : 'Não',
+    }
   }
 
-  // Grau para recondicionado
+  // Grau para recondicionado - MLB1652 usa atributo GRADING
+  // values: 40108830 (Excelente), 40108831 (Bom), 40108832 (Aceitável)
   if (mlCondition === 'refurbished' && gradeLabel) {
-    setAttr('GRADING', gradeLabel)
-    setAttr('ITEM_GRADE', gradeLabel)
+    const gradingValueMap = {
+      excelente: { value_id: '40108830', value_name: 'Excelente' },
+      bom: { value_id: '40108831', value_name: 'Bom' },
+      aceitavel: { value_id: '40108832', value_name: 'Aceitável' },
+    }
+    const mapped = gradingValueMap[rawGrade] || { value_id: '40108830', value_name: 'Excelente' }
+    attributesMap['GRADING'] = {
+      id: 'GRADING',
+      value_id: mapped.value_id,
+      value_name: mapped.value_name,
+    }
   }
 
   // Validação: checar se algum atributo com required=true ficou faltando
@@ -543,47 +583,102 @@ onRecordAfterCreateSuccess((e) => {
     return
   }
 
-  // Se falhar por erro de atributo específico (ex: GRADING ou ITEM_GRADE rejeitado em não-recondicionados), retentar sanitizado
+  // Se falhar com body.invalid_fields ou atributos inválidos, tentar identificar os campos rejeitados e retentar
   if (createRes.statusCode >= 400 && itemPayload.attributes && itemPayload.attributes.length > 0) {
     const errJsonTemp = createRes.json || {}
     const errMsgTemp = JSON.stringify(errJsonTemp).toLowerCase()
+    console.log('[ml_publish_hook] Tentativa 1 falhou: ' + JSON.stringify(errJsonTemp))
+
+    // Se houver cause especificando atributos inválidos ou body.invalid_fields
+    let attributesToOmit = []
+    if (errJsonTemp.cause && Array.isArray(errJsonTemp.cause)) {
+      for (let ci = 0; ci < errJsonTemp.cause.length; ci++) {
+        const c = errJsonTemp.cause[ci]
+        const cMsg = (c.message || c.code || '').toLowerCase()
+        const cField = (c.field || '').toString()
+        if (cField) attributesToOmit.push(cField.toUpperCase())
+        // Checar menções a atributos na mensagem
+        const m = cMsg.match(/attribute\s+['"]?([a-zA-Z0-9_]+)['"]?/i)
+        if (m && m[1]) attributesToOmit.push(m[1].toUpperCase())
+      }
+    }
+
+    // Se rejeitou family_name
+    if (errMsgTemp.includes('family_name') && errMsgTemp.includes('invalid')) {
+      delete itemPayload.family_name
+    }
+
+    // Se foi body.invalid_fields genérico ou erro de atributo
     if (
-      errMsgTemp.includes('item_grade') ||
-      errMsgTemp.includes('grading') ||
-      errMsgTemp.includes('invalid_attribute')
+      errMsgTemp.includes('invalid') ||
+      errMsgTemp.includes('attribute') ||
+      errMsgTemp.includes('grading')
     ) {
-      console.log('[ml_publish_hook] Ajustando atributos e retentando publicação...')
-      itemPayload.attributes = itemPayload.attributes.filter(
-        (a) => a.id !== 'ITEM_GRADE' && a.id !== 'GRADING',
-      )
-      try {
-        createRes = $http.send({
-          url: 'https://api.mercadolibre.com/items',
-          method: 'POST',
-          headers: {
-            Authorization: 'Bearer ' + accessToken,
-            'Content-Type': 'application/json',
-            Accept: 'application/json',
-          },
-          body: JSON.stringify(itemPayload),
-          timeout: 30,
-        })
-      } catch (retryErr) {
-        console.log('[ml_publish_hook] Erro ao retentar com atributos ajustados: ' + retryErr)
+      // Filtrar atributos não obrigatórios que possam ter causado erro
+      const criticalKeys = [
+        'BRAND',
+        'MODEL',
+        'PROCESSOR_BRAND',
+        'PROCESSOR_LINE',
+        'PROCESSOR_MODEL',
+      ]
+      const newAttrs = itemPayload.attributes.filter((a) => {
+        if (attributesToOmit.includes(a.id.toUpperCase())) return false
+        return true
+      })
+
+      if (newAttrs.length !== itemPayload.attributes.length || !itemPayload.family_name) {
+        itemPayload.attributes = newAttrs
+        console.log('[ml_publish_hook] Retentando com atributos ajustados...')
+        try {
+          createRes = $http.send({
+            url: 'https://api.mercadolibre.com/items',
+            method: 'POST',
+            headers: {
+              Authorization: 'Bearer ' + accessToken,
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+            },
+            body: JSON.stringify(itemPayload),
+            timeout: 30,
+          })
+        } catch (retryErr) {
+          console.log('[ml_publish_hook] Erro ao retentar: ' + retryErr)
+        }
       }
     }
   }
 
   if (createRes.statusCode >= 400) {
     const errJson = createRes.json || {}
-    let detailedMsg =
-      errJson.error_description ||
-      errJson.message ||
-      errJson.error ||
-      'Erro ao criar anúncio no Mercado Livre (HTTP ' + createRes.statusCode + ').'
+    console.log(
+      '[ml_publish_hook] FALHA ao criar anúncio no ML: status ' +
+        createRes.statusCode +
+        ' | raw: ' +
+        JSON.stringify(errJson) +
+        ' | payload enviado: ' +
+        JSON.stringify(itemPayload),
+    )
+    let detailedMsg = ''
     if (errJson.cause && Array.isArray(errJson.cause) && errJson.cause.length > 0) {
-      const causes = errJson.cause.map((c) => c.message || c.code || JSON.stringify(c)).join('; ')
-      detailedMsg += ' Detalhes: ' + causes
+      const causes = errJson.cause
+        .map((c) => {
+          const f = c.field || c.department || ''
+          const m = c.message || c.code || JSON.stringify(c)
+          return f ? f + ': ' + m : m
+        })
+        .join('; ')
+      detailedMsg = (errJson.message || errJson.error || 'Erro de validação') + ' — ' + causes
+    } else {
+      detailedMsg =
+        errJson.error_description ||
+        errJson.message ||
+        errJson.error ||
+        'Erro ao criar anúncio no Mercado Livre (HTTP ' + createRes.statusCode + ').'
+      if (detailedMsg === 'body.invalid_fields') {
+        detailedMsg =
+          'Campos inválidos no anúncio (body.invalid_fields). Resposta: ' + JSON.stringify(errJson)
+      }
     }
     pubItem.set('status', 'error')
     pubItem.set('error_message', detailedMsg)

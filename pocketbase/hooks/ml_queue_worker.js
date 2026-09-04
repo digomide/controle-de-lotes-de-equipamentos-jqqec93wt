@@ -452,39 +452,60 @@ cronAdd('ml_queue_worker', '@every 15s', () => {
         }
       }
 
+      // Mapa de atributos definidos na categoria no ML
+      const categoryAttrLookup = {}
+      for (let cIdx = 0; cIdx < categoryAttributesMeta.length; cIdx++) {
+        const ca = categoryAttributesMeta[cIdx]
+        if (ca && ca.id) {
+          categoryAttrLookup[ca.id] = ca
+        }
+      }
+
       const attributesMap = {}
       function setAttr(id, valueName) {
-        if (
-          id &&
-          valueName !== undefined &&
-          valueName !== null &&
-          String(valueName).trim() !== ''
-        ) {
-          attributesMap[id] = { id: id, value_name: String(valueName).trim() }
+        if (!id || valueName === undefined || valueName === null) return
+        const strVal = String(valueName).trim()
+        if (!strVal) return
+
+        const attrDef = categoryAttrLookup[id]
+        if (attrDef) {
+          if (attrDef.tags && (attrDef.tags.read_only === true || attrDef.tags.hidden === true)) {
+            return
+          }
+          if (Array.isArray(attrDef.values) && attrDef.values.length > 0) {
+            const lowerVal = strVal.toLowerCase()
+            for (let vi = 0; vi < attrDef.values.length; vi++) {
+              const v = attrDef.values[vi]
+              if (
+                (v.name && v.name.toLowerCase() === lowerVal) ||
+                (v.id && String(v.id) === strVal)
+              ) {
+                attributesMap[id] = { id: id, value_id: String(v.id), value_name: v.name }
+                return
+              }
+            }
+          }
         }
+
+        attributesMap[id] = { id: id, value_name: strVal }
       }
 
       if (brandVal) setAttr('BRAND', brandVal)
       if (modelVal) setAttr('MODEL', modelVal)
       if (familyVal) {
         setAttr('LINE', familyVal)
-        setAttr('FAMILY_NAME', familyVal)
       }
       if (procBrand) setAttr('PROCESSOR_BRAND', procBrand)
       if (procLine) setAttr('PROCESSOR_LINE', procLine)
       if (procModel) setAttr('PROCESSOR_MODEL', procModel)
 
-      // RAM - enviar variações e capacidades
+      // RAM
       if (pRam) {
         const ramMatch = pRam.match(/(\d+)\s*GB/i)
         if (ramMatch) {
           const ramFormatted = ramMatch[1] + ' GB'
           setAttr('RAM_MEMORY_MODULE_TOTAL_CAPACITY', ramFormatted)
-          setAttr('RAM', ramFormatted)
-          setAttr('INTERNAL_MEMORY', ramFormatted)
         } else {
-          setAttr('RAM', pRam)
-          setAttr('INTERNAL_MEMORY', pRam)
           setAttr('RAM_MEMORY_MODULE_TOTAL_CAPACITY', pRam)
         }
       }
@@ -497,22 +518,16 @@ cronAdd('ml_queue_worker', '@every 15s', () => {
           const formattedStorage = ssdMatch[1] + ' ' + ssdMatch[2].toUpperCase()
           if (storageUpper.includes('HD') && !storageUpper.includes('SSD')) {
             setAttr('HARD_DRIVE_DATA_STORAGE_CAPACITY', formattedStorage)
-            setAttr('STORAGE_CAPACITY', formattedStorage)
-            setAttr('STORAGE_TYPE', 'HD')
           } else {
             setAttr('SSD_DATA_STORAGE_CAPACITY', formattedStorage)
-            setAttr('STORAGE_CAPACITY', formattedStorage)
-            setAttr('STORAGE_TYPE', 'SSD')
           }
         }
       }
 
-      // Tela (DISPLAY_SIZE e SCREEN_SIZE com fallback no título / nome)
-      // Formato aceito pelo ML: '15.6 "' ou '14 "' ou '13.3 "'
+      // Tela (DISPLAY_SIZE e SCREEN_SIZE)
       let normalizedScreen = ''
       let rawScreenCandidate = pScreen
       if (!rawScreenCandidate) {
-        // Fallback: extrair tamanho de tela do título ou nome do equipamento
         const screenMatch = (title + ' ' + pName).match(
           /(\d{2}(?:\.\d)?)\s*(?:["”']|pol|polegadas)?/i,
         )
@@ -534,17 +549,37 @@ cronAdd('ml_queue_worker', '@every 15s', () => {
       }
 
       if (normalizedScreen) {
-        setAttr('DISPLAY_SIZE', normalizedScreen)
-        setAttr('SCREEN_SIZE', normalizedScreen)
+        if (categoryAttrLookup['DISPLAY_SIZE']) setAttr('DISPLAY_SIZE', normalizedScreen)
+        if (categoryAttrLookup['SCREEN_SIZE']) setAttr('SCREEN_SIZE', normalizedScreen)
+        if (!categoryAttrLookup['DISPLAY_SIZE'] && !categoryAttrLookup['SCREEN_SIZE']) {
+          setAttr('DISPLAY_SIZE', normalizedScreen)
+        }
       }
 
       if (product.getBool('has_numeric_keypad') !== undefined) {
-        setAttr('WITH_NUMERIC_PAD', product.getBool('has_numeric_keypad') ? 'Sim' : 'Não')
+        const isYes = product.getBool('has_numeric_keypad')
+        attributesMap['WITH_NUMERIC_PAD'] = {
+          id: 'WITH_NUMERIC_PAD',
+          value_id: isYes ? '242085' : '242084',
+          value_name: isYes ? 'Sim' : 'Não',
+        }
       }
 
       if (mlCondition === 'refurbished' && gradeLabel) {
-        setAttr('GRADING', gradeLabel)
-        setAttr('ITEM_GRADE', gradeLabel)
+        const gradingValueMap = {
+          excelente: { value_id: '40108830', value_name: 'Excelente' },
+          bom: { value_id: '40108831', value_name: 'Bom' },
+          aceitavel: { value_id: '40108832', value_name: 'Aceitável' },
+        }
+        const mapped = gradingValueMap[rawGrade] || {
+          value_id: '40108830',
+          value_name: 'Excelente',
+        }
+        attributesMap['GRADING'] = {
+          id: 'GRADING',
+          value_id: mapped.value_id,
+          value_name: mapped.value_name,
+        }
       }
 
       const missingAttrs = []
@@ -659,45 +694,84 @@ cronAdd('ml_queue_worker', '@every 15s', () => {
       ) {
         const errJsonTemp = createRes.json || {}
         const errMsgTemp = JSON.stringify(errJsonTemp).toLowerCase()
+        let attributesToOmit = []
+        if (errJsonTemp.cause && Array.isArray(errJsonTemp.cause)) {
+          for (let ci = 0; ci < errJsonTemp.cause.length; ci++) {
+            const c = errJsonTemp.cause[ci]
+            const cMsg = (c.message || c.code || '').toLowerCase()
+            const cField = (c.field || '').toString()
+            if (cField) attributesToOmit.push(cField.toUpperCase())
+            const m = cMsg.match(/attribute\s+['"]?([a-zA-Z0-9_]+)['"]?/i)
+            if (m && m[1]) attributesToOmit.push(m[1].toUpperCase())
+          }
+        }
+
+        if (errMsgTemp.includes('family_name') && errMsgTemp.includes('invalid')) {
+          delete itemPayload.family_name
+        }
+
         if (
-          errMsgTemp.includes('item_grade') ||
-          errMsgTemp.includes('grading') ||
-          errMsgTemp.includes('invalid_attribute')
+          errMsgTemp.includes('invalid') ||
+          errMsgTemp.includes('attribute') ||
+          errMsgTemp.includes('grading')
         ) {
-          console.log('[ml_cron] Ajustando atributos e retentando publicação...')
-          itemPayload.attributes = itemPayload.attributes.filter(
-            (a) => a.id !== 'ITEM_GRADE' && a.id !== 'GRADING',
-          )
-          try {
-            createRes = $http.send({
-              url: 'https://api.mercadolibre.com/items',
-              method: 'POST',
-              headers: {
-                Authorization: 'Bearer ' + accessToken,
-                'Content-Type': 'application/json',
-                Accept: 'application/json',
-              },
-              body: JSON.stringify(itemPayload),
-              timeout: 30,
-            })
-          } catch (retryErr) {
-            console.log('[ml_cron] Erro ao retentar com atributos ajustados: ' + retryErr)
+          const newAttrs = itemPayload.attributes.filter((a) => {
+            if (attributesToOmit.includes(a.id.toUpperCase())) return false
+            return true
+          })
+
+          if (newAttrs.length !== itemPayload.attributes.length || !itemPayload.family_name) {
+            itemPayload.attributes = newAttrs
+            try {
+              createRes = $http.send({
+                url: 'https://api.mercadolibre.com/items',
+                method: 'POST',
+                headers: {
+                  Authorization: 'Bearer ' + accessToken,
+                  'Content-Type': 'application/json',
+                  Accept: 'application/json',
+                },
+                body: JSON.stringify(itemPayload),
+                timeout: 30,
+              })
+            } catch (retryErr) {
+              console.log('[ml_cron] Erro ao retentar com atributos ajustados: ' + retryErr)
+            }
           }
         }
       }
 
       if (createRes.statusCode >= 400) {
         const errJson = createRes.json || {}
-        let detailedMsg =
-          errJson.error_description ||
-          errJson.message ||
-          errJson.error ||
-          'Erro ao criar anúncio no Mercado Livre (HTTP ' + createRes.statusCode + ').'
+        console.log(
+          '[ml_cron] FALHA ao criar anúncio no ML: status ' +
+            createRes.statusCode +
+            ' | raw: ' +
+            JSON.stringify(errJson) +
+            ' | payload enviado: ' +
+            JSON.stringify(itemPayload),
+        )
+        let detailedMsg = ''
         if (errJson.cause && Array.isArray(errJson.cause) && errJson.cause.length > 0) {
           const causes = errJson.cause
-            .map((c) => c.message || c.code || JSON.stringify(c))
+            .map((c) => {
+              const f = c.field || c.department || ''
+              const m = c.message || c.code || JSON.stringify(c)
+              return f ? f + ': ' + m : m
+            })
             .join('; ')
-          detailedMsg += ' Detalhes: ' + causes
+          detailedMsg = (errJson.message || errJson.error || 'Erro de validação') + ' — ' + causes
+        } else {
+          detailedMsg =
+            errJson.error_description ||
+            errJson.message ||
+            errJson.error ||
+            'Erro ao criar anúncio no Mercado Livre (HTTP ' + createRes.statusCode + ').'
+          if (detailedMsg === 'body.invalid_fields') {
+            detailedMsg =
+              'Campos inválidos no anúncio (body.invalid_fields). Resposta: ' +
+              JSON.stringify(errJson)
+          }
         }
         pubItem.set('status', 'error')
         pubItem.set('error_message', detailedMsg)

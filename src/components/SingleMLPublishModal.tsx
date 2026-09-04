@@ -351,9 +351,11 @@ export function SingleMLPublishModal({
             {errorMessage && (
               <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg flex items-start gap-2 text-rose-800">
                 <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                <div className="space-y-1">
+                <div className="space-y-1 flex-1">
                   <p className="font-bold">Não foi possível publicar no Mercado Livre:</p>
-                  <p className="text-[11px] leading-relaxed">{errorMessage}</p>
+                  <div className="text-[11px] leading-relaxed whitespace-pre-line">
+                    {errorMessage}
+                  </div>
                 </div>
               </div>
             )}
