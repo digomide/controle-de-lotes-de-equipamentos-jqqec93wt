@@ -389,12 +389,19 @@ export function SingleMLPublishModal({
                   <Sparkles className="w-3.5 h-3.5 text-amber-500" />
                   Condição do Equipamento no Mercado Livre
                 </span>
-                <span className="text-[10px] text-slate-500">
-                  API: <code>{getMLItemCondition(conditionType)}</code>
+                <span className="text-[10px] text-slate-500 flex items-center gap-1">
+                  <span>ML:</span>
+                  <code className="text-slate-700 bg-slate-100 px-1 py-0.5 rounded">
+                    {conditionType === 'recondicionado'
+                      ? 'used (recondicionado)'
+                      : getMLItemCondition(conditionType)}
+                  </code>
                   {conditionGrade && allowsGrade && (
                     <>
                       {' · '}
-                      <code>ITEM_GRADE: {conditionGrade}</code>
+                      <code className="text-slate-700 bg-slate-100 px-1 py-0.5 rounded">
+                        ITEM_GRADE: {conditionGrade}
+                      </code>
                     </>
                   )}
                 </span>
@@ -479,19 +486,32 @@ export function SingleMLPublishModal({
                 </div>
               </div>
 
-              {/* Dica oficial ML do tipo selecionado */}
-              <p className="text-[11px] text-slate-500 leading-relaxed bg-white/70 p-2 rounded border border-slate-200/60">
-                {currentTypeOpt?.description}
-                {allowsGrade && conditionGrade && (
-                  <>
-                    {' — '}
-                    <strong>
-                      {CONDITION_GRADE_OPTIONS.find((g) => g.value === conditionGrade)?.label}:
-                    </strong>{' '}
-                    {CONDITION_GRADE_OPTIONS.find((g) => g.value === conditionGrade)?.description}
-                  </>
+              {/* Dica oficial ML do tipo selecionado e nota de canal */}
+              <div className="space-y-1">
+                <p className="text-[11px] text-slate-500 leading-relaxed bg-white/70 p-2 rounded border border-slate-200/60">
+                  {currentTypeOpt?.description}
+                  {allowsGrade && conditionGrade && (
+                    <>
+                      {' — '}
+                      <strong>
+                        {CONDITION_GRADE_OPTIONS.find((g) => g.value === conditionGrade)?.label}:
+                      </strong>{' '}
+                      {CONDITION_GRADE_OPTIONS.find((g) => g.value === conditionGrade)?.description}
+                    </>
+                  )}
+                </p>
+                {conditionType === 'recondicionado' && (
+                  <p className="text-[10px] text-blue-700 bg-blue-50/70 p-1.5 rounded border border-blue-200/50 flex items-center gap-1">
+                    <Info className="w-3 h-3 shrink-0" />
+                    <span>
+                      O Mercado Livre exige condição base <strong>usado</strong> no canal
+                      marketplace com atributo de grau{' '}
+                      <strong>ITEM_GRADE: {conditionGrade || 'excelente'}</strong> para exibição
+                      como recondicionado aos compradores.
+                    </span>
+                  </p>
                 )}
-              </p>
+              </div>
             </div>
 
             {/* Título do Anúncio (máximo 60 caracteres, editável pelo usuário com contador) */}

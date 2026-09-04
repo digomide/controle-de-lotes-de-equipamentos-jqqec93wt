@@ -801,7 +801,24 @@ export const mlService = {
   async getCategoryAttributes(categoryId: string = 'MLB1652'): Promise<MLCategoryAttribute[]> {
     const cleanId = (categoryId || 'MLB1652').trim()
 
-    // 1. Tenta chamar o endpoint de cache do backend
+    // 1. Consulta prioritária na coleção ml_category_cache
+    try {
+      const list = await pb.collection('ml_category_cache').getList(1, 1, {
+        filter: `category_id = "${cleanId}"`,
+        sort: '-cached_at',
+      })
+      if (
+        list.items.length > 0 &&
+        Array.isArray(list.items[0].attributes) &&
+        list.items[0].attributes.length > 0
+      ) {
+        return list.items[0].attributes
+      }
+    } catch {
+      /* intentionally ignored */
+    }
+
+    // 2. Tenta chamar o endpoint customizado do backend
     try {
       const res = await pb.send(`/api/ml/category-attributes/${encodeURIComponent(cleanId)}`, {
         method: 'GET',
@@ -810,20 +827,7 @@ export const mlService = {
         return res.attributes
       }
     } catch (_) {
-      // Falha de rede ou endpoint, tentar consulta direta na coleção PocketBase
-    }
-
-    // 2. Consulta direta na coleção ml_category_cache se o endpoint falhou
-    try {
-      const list = await pb.collection('ml_category_cache').getList(1, 1, {
-        filter: `category_id = "${cleanId}"`,
-        sort: '-cached_at',
-      })
-      if (list.items.length > 0 && Array.isArray(list.items[0].attributes)) {
-        return list.items[0].attributes
-      }
-    } catch {
-      /* intentionally ignored */
+      // Falha de rede ou endpoint
     }
 
     return []

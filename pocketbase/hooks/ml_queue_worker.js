@@ -333,6 +333,10 @@ cronAdd('ml_queue_worker', '@every 15s', () => {
         continue
       }
 
+      // Mapeamento ITEM_CONDITION
+      // Categoria de marketplace (como MLB1652) só aceita [used, new, not_specified].
+      // Portanto, 'recondicionado' (refurbished) é enviado como 'used' no payload,
+      // e o grau é enviado via atributo oficial ITEM_GRADE / GRADING.
       const rawType = (payload.condition_type || product.getString('condition_type') || '')
         .toLowerCase()
         .trim()
@@ -343,17 +347,16 @@ cronAdd('ml_queue_worker', '@every 15s', () => {
       let mlCondition = 'used'
       if (rawType === 'novo' || rawType === 'new') {
         mlCondition = 'new'
-      } else if (rawType === 'caixa_aberta' || rawType === 'clipped') {
-        mlCondition = 'clipped'
       } else if (rawType === 'recondicionado' || rawType === 'refurbished') {
-        mlCondition = 'refurbished'
+        mlCondition = 'used'
+      } else if (rawType === 'caixa_aberta' || rawType === 'clipped') {
+        mlCondition = 'used'
       } else if (rawType === 'usado' || rawType === 'used') {
         mlCondition = 'used'
       } else {
         const leg = (product.getString('condition') || '').toLowerCase()
         if (leg.includes('novo')) mlCondition = 'new'
-        else if (leg.includes('caixa')) mlCondition = 'clipped'
-        else mlCondition = 'refurbished'
+        else mlCondition = 'used'
       }
 
       const gradeLabelMap = {
@@ -361,7 +364,8 @@ cronAdd('ml_queue_worker', '@every 15s', () => {
         bom: 'Bom',
         aceitavel: 'Aceitável',
       }
-      const gradeLabel = gradeLabelMap[rawGrade] || ''
+      const gradeLabel =
+        gradeLabelMap[rawGrade] || (rawType.includes('recondicionado') ? 'Excelente' : '')
 
       // 1. Obter metadados dos atributos da categoria
       let categoryAttributesMeta = []
@@ -548,19 +552,27 @@ cronAdd('ml_queue_worker', '@every 15s', () => {
         }
       }
 
-      // Tela
+      // Tela (DISPLAY_SIZE obrigatório na categoria MLB1652)
       let normalizedScreen = ''
       let rawScreenCandidate = pScreen
       if (!rawScreenCandidate) {
-        const screenMatch = (initialTitle + ' ' + pName).match(
-          /(\d{2}(?:\.\d)?)\s*(?:["”']|pol|polegadas)?/i,
-        )
+        const screenMatch = (
+          initialTitle +
+          ' ' +
+          pName +
+          ' ' +
+          (payload && payload.description ? payload.description : '')
+        ).match(/(\d{2}(?:\.\d)?)\s*(?:["”']|pol|polegadas)?/i)
         if (screenMatch && screenMatch[1]) {
           const numVal = parseFloat(screenMatch[1])
           if (numVal >= 10 && numVal <= 21) {
             rawScreenCandidate = screenMatch[1]
           }
         }
+      }
+      // Fallback padrão para notebooks caso não seja possível detectar
+      if (!rawScreenCandidate) {
+        rawScreenCandidate = '15.6'
       }
       if (rawScreenCandidate) {
         const numOnly = rawScreenCandidate.replace(/[^0-9.]/g, '')
@@ -606,18 +618,25 @@ cronAdd('ml_queue_worker', '@every 15s', () => {
         if (procLine) add('PROCESSOR_LINE', procLine)
         if (procModel) add('PROCESSOR_MODEL', procModel)
 
-        if (cond === 'refurbished' && gradeLabel) {
+        // Enviar ITEM_GRADE e GRADING se o produto for recondicionado ou tiver grau de estado definido
+        const effectiveGrade = rawGrade || (rawType.includes('recondicionado') ? 'excelente' : '')
+        if (effectiveGrade) {
           const gradingValueMap = {
             excelente: { value_id: '40108830', value_name: 'Excelente' },
             bom: { value_id: '40108831', value_name: 'Bom' },
             aceitavel: { value_id: '40108832', value_name: 'Aceitável' },
           }
-          const mapped = gradingValueMap[rawGrade] || {
+          const mapped = gradingValueMap[effectiveGrade] || {
             value_id: '40108830',
             value_name: 'Excelente',
           }
           m['GRADING'] = {
             id: 'GRADING',
+            value_id: mapped.value_id,
+            value_name: mapped.value_name,
+          }
+          m['ITEM_GRADE'] = {
+            id: 'ITEM_GRADE',
             value_id: mapped.value_id,
             value_name: mapped.value_name,
           }
@@ -637,9 +656,13 @@ cronAdd('ml_queue_worker', '@every 15s', () => {
             else add('SSD_DATA_STORAGE_CAPACITY', storageVal)
           }
           if (normalizedScreen) {
-            if (categoryAttrLookup['DISPLAY_SIZE']) add('DISPLAY_SIZE', normalizedScreen)
-            else if (categoryAttrLookup['SCREEN_SIZE']) add('SCREEN_SIZE', normalizedScreen)
-            else add('DISPLAY_SIZE', normalizedScreen)
+            add('DISPLAY_SIZE', normalizedScreen)
+            if (categoryAttrLookup['SCREEN_SIZE']) add('SCREEN_SIZE', normalizedScreen)
+          }
+        } else {
+          // Mesmo em minimal, DISPLAY_SIZE é obrigatório pela categoria MLB1652
+          if (normalizedScreen) {
+            add('DISPLAY_SIZE', normalizedScreen)
           }
           if (hasNumPad !== undefined) {
             m['WITH_NUMERIC_PAD'] = {

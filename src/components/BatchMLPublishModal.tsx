@@ -765,6 +765,13 @@ export function BatchMLPublishModal({
                                     </div>
                                   </div>
 
+                                  {it.conditionType === 'recondicionado' && (
+                                    <div className="text-[9px] text-blue-700 bg-blue-50/70 p-1 rounded border border-blue-200/50">
+                                      Canal ML: enviado como usado com atributo ITEM_GRADE (
+                                      {it.conditionGrade || 'excelente'})
+                                    </div>
+                                  )}
+
                                   {/* Linha / Família (LINE) */}
                                   <div className="flex items-center gap-2 pt-0.5 border-t border-slate-200/60">
                                     <span className="text-[10px] text-slate-500 font-semibold shrink-0">
