@@ -78,6 +78,7 @@ import { salesService } from '@/services/sales'
 import { EtiquetaModal } from '@/components/EtiquetaModal'
 import { CloneEquipmentModal } from '@/components/CloneEquipmentModal'
 import { ZoomableImage } from '@/components/ZoomableImage'
+import { ImageLightboxModal } from '@/components/ImageLightboxModal'
 import { ChevronLeft, ChevronRight, ZoomIn } from 'lucide-react'
 import type {
   Product,
@@ -1080,7 +1081,7 @@ export default function CatalogoDetalhe() {
                 onClick={() => setZoomModalOpen(true)}
               />
 
-              <div className="absolute top-3 left-3 bg-slate-900/80 backdrop-blur-xs text-white text-xs px-2.5 py-1 rounded-md font-mono font-semibold flex items-center gap-2 pointer-events-none z-10">
+              <div className="absolute top-3 left-28 sm:left-32 bg-slate-900/80 backdrop-blur-xs text-white text-xs px-2.5 py-1 rounded-md font-mono font-semibold flex items-center gap-2 pointer-events-none z-10">
                 <ImageIcon className="w-3.5 h-3.5 text-slate-300" />
                 Foto {selectedPhotoIndex + 1} de {photos.length}
               </div>
@@ -1140,7 +1141,6 @@ export default function CatalogoDetalhe() {
                 </>
               )}
             </div>
-
             {/* Miniaturas da Galeria */}
             {photos.length > 1 && (
               <div className="p-3 bg-slate-50/70 border-t border-slate-100 flex gap-2.5 overflow-x-auto">
@@ -1158,12 +1158,12 @@ export default function CatalogoDetalhe() {
                     <img
                       src={url}
                       alt={`Thumb ${idx + 1}`}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-cover transition-all"
                     />
                   </button>
                 ))}
               </div>
-            )}
+            )}{' '}
           </div>
 
           {/* Lote e Rastreabilidade Física */}
@@ -2779,92 +2779,15 @@ export default function CatalogoDetalhe() {
         }}
       />
 
-      {/* DIALOG DE ZOOM / LIGHTBOX DE FOTOS EM TELA CHEIA */}
-      <Dialog open={zoomModalOpen} onOpenChange={setZoomModalOpen}>
-        <DialogContent className="max-w-5xl w-full p-0 bg-slate-950 border-slate-800 text-white overflow-hidden rounded-2xl shadow-2xl">
-          <div className="relative flex flex-col h-[85vh]">
-            {/* Header do Zoom */}
-            <div className="flex items-center justify-between p-4 bg-slate-900/90 border-b border-slate-800 z-10">
-              <div className="flex items-center gap-3">
-                <span className="font-bold text-white text-sm sm:text-base truncate max-w-md">
-                  {product?.name}
-                </span>
-                <span className="text-xs text-slate-400 font-mono">
-                  Foto {selectedPhotoIndex + 1} de {photos.length}
-                </span>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setZoomModalOpen(false)}
-                className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center transition-colors"
-                title="Fechar zoom (Esc)"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Imagem Ampliada com Navegação */}
-            <div className="flex-1 relative flex items-center justify-center p-4 bg-black/60 overflow-hidden">
-              <img
-                src={photos[selectedPhotoIndex] || photos[0]}
-                alt={product?.name || 'Foto ampliada'}
-                className="max-w-full max-h-full object-contain select-none"
-              />
-
-              {photos.length > 1 && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setSelectedPhotoIndex((prev) => (prev > 0 ? prev - 1 : photos.length - 1))
-                    }
-                    className="absolute left-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-slate-900/80 hover:bg-slate-900 text-white flex items-center justify-center shadow-lg transition-all"
-                    title="Foto anterior (Seta esquerda)"
-                  >
-                    <ChevronLeft className="w-6 h-6" />
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setSelectedPhotoIndex((prev) => (prev < photos.length - 1 ? prev + 1 : 0))
-                    }
-                    className="absolute right-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-slate-900/80 hover:bg-slate-900 text-white flex items-center justify-center shadow-lg transition-all"
-                    title="Próxima foto (Seta direita)"
-                  >
-                    <ChevronRight className="w-6 h-6" />
-                  </button>
-                </>
-              )}
-            </div>
-
-            {/* Miniaturas no Rodapé do Zoom */}
-            {photos.length > 1 && (
-              <div className="p-3 bg-slate-900 border-t border-slate-800 flex gap-2 overflow-x-auto justify-center">
-                {photos.map((url, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => setSelectedPhotoIndex(idx)}
-                    className={`w-16 h-12 rounded-lg overflow-hidden border-2 transition-all shrink-0 ${
-                      selectedPhotoIndex === idx
-                        ? 'border-emerald-500 ring-2 ring-emerald-500/20'
-                        : 'border-slate-700 opacity-60 hover:opacity-100'
-                    }`}
-                  >
-                    <img
-                      src={url}
-                      alt={`Thumb zoom ${idx + 1}`}
-                      className="w-full h-full object-cover"
-                    />
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* DIALOG DE ZOOM / LIGHTBOX DE FOTOS EM TELA CHEIA COM AJUSTE DE LUZ */}
+      <ImageLightboxModal
+        open={zoomModalOpen}
+        onOpenChange={setZoomModalOpen}
+        photos={photos}
+        currentIndex={selectedPhotoIndex}
+        onIndexChange={setSelectedPhotoIndex}
+        title={product?.name}
+      />
 
       {/* AlertDialog: Confirmação de Exclusão de Equipamento */}
       <AlertDialog open={deleteProductDialogOpen} onOpenChange={setDeleteProductDialogOpen}>

@@ -1,5 +1,8 @@
 import React, { useState, useRef, useCallback } from 'react'
-import { ZoomIn } from 'lucide-react'
+import { ZoomIn, SlidersHorizontal, Sun } from 'lucide-react'
+import { useImageAdjustments } from '@/lib/imageAdjustments'
+import { ImageAdjustControls } from '@/components/ImageAdjustControls'
+import { ImageFilterSvg } from '@/components/ImageFilterSvg'
 
 export interface ZoomableImageProps {
   src: string
@@ -11,7 +14,9 @@ export interface ZoomableImageProps {
   showHint?: boolean
   showScaleControl?: boolean
   storageKey?: string
-  /** Modo compacto para cards de listagem (desativa controle inline para não poluir mini-cards) */
+  /** Exibe botão e painel de melhoria de luz/nitidez (padrão true quando não for compact) */
+  showAdjustControl?: boolean
+  /** Modo compacto para cards de listagem (desativa controles inline para manter cards limpos) */
   compact?: boolean
 }
 
@@ -36,12 +41,20 @@ export const ZoomableImage: React.FC<ZoomableImageProps> = ({
   showHint = true,
   showScaleControl = true,
   storageKey = STORAGE_DEFAULT_KEY,
+  showAdjustControl,
   compact = false,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const [isZoomed, setIsZoomed] = useState(false)
   const [origin, setOrigin] = useState({ x: 50, y: 50 })
   const [imgSrc, setImgSrc] = useState(src)
+  const [adjustPanelOpen, setAdjustPanelOpen] = useState(false)
+
+  // Hook central de melhoria de luz sincronizado
+  const { adjustments, setAdjustments, resetAdjustments, filterString, isModified } =
+    useImageAdjustments()
+
+  const canShowAdjust = !compact && (showAdjustControl ?? true)
 
   // Recupera zoom persistido no localStorage (padrão 2.5x)
   const readSavedScale = useCallback((): number => {
@@ -159,6 +172,8 @@ export const ZoomableImage: React.FC<ZoomableImageProps> = ({
       onClick={onClick}
       className={`relative w-full h-full overflow-hidden cursor-zoom-in select-none ${className}`}
     >
+      <ImageFilterSvg sharpness={adjustments.sharpness} />
+
       <img
         src={imgSrc}
         alt={alt}
@@ -173,8 +188,68 @@ export const ZoomableImage: React.FC<ZoomableImageProps> = ({
           transform: isZoomed ? `scale(${currentScale})` : 'scale(1)',
           transitionDuration: isZoomed ? '75ms' : '200ms',
           transitionTimingFunction: 'cubic-bezier(0.2, 0, 0.2, 1)',
+          filter: filterString,
         }}
       />
+
+      {/* Botão de Toggle do Painel de Ajustes de Imagem (Luz / Nitidez) */}
+      {canShowAdjust && (
+        <div
+          className="absolute top-3 left-3 z-20 flex items-center gap-1.5"
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+          }}
+        >
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              setAdjustPanelOpen((prev) => !prev)
+            }}
+            title={
+              adjustPanelOpen ? 'Fechar controles de iluminação' : 'Melhorar luz e nitidez da foto'
+            }
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold shadow-md backdrop-blur-md transition-all ${
+              adjustPanelOpen
+                ? 'bg-amber-500 text-slate-950 ring-2 ring-amber-400 font-bold'
+                : isModified
+                  ? 'bg-slate-950/85 text-amber-300 border border-amber-500/40 hover:bg-slate-900'
+                  : 'bg-slate-950/75 hover:bg-slate-900 text-white border border-white/10'
+            }`}
+          >
+            {isModified ? (
+              <Sun className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+            ) : (
+              <SlidersHorizontal className="w-3.5 h-3.5 text-amber-400" />
+            )}
+            <span className="hidden sm:inline">{isModified ? 'Luz Ajustada' : 'Ajustar Luz'}</span>
+            <span className="sm:hidden">Luz</span>
+            {isModified && <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />}
+          </button>
+        </div>
+      )}
+
+      {/* Painel Flutuante de Ajustes */}
+      {canShowAdjust && adjustPanelOpen && (
+        <div
+          className="absolute top-12 left-3 z-30 w-72 max-w-[calc(100%-24px)]"
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+          }}
+        >
+          <ImageAdjustControls
+            adjustments={adjustments}
+            onChange={setAdjustments}
+            onReset={resetAdjustments}
+            onClose={() => setAdjustPanelOpen(false)}
+            isModified={isModified}
+            theme="dark"
+          />
+        </div>
+      )}
 
       {/* Seletor de grau de zoom discreto no canto inferior direito quando ativo ou em hover */}
       {showScaleControl && !compact && (
