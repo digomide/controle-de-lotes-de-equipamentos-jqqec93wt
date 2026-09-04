@@ -1,6 +1,5 @@
 import pb from '@/lib/pocketbase/client'
 import type { Product } from '@/types/inventory'
-import { STORE_CONFIG } from '@/lib/storeConfig'
 import { getMLItemCondition, getMLGradeLabel } from '@/lib/condition'
 export { getMLItemCondition, getMLGradeLabel }
 
@@ -117,6 +116,30 @@ export function generateMLTitle(
   const ram = (product.ram || '').trim()
   const storage = (product.storage || '').trim()
 
+  const condType = (overrides?.conditionType || product.condition_type || '').toLowerCase()
+  const condGrade = (overrides?.conditionGrade || product.condition_grade || '').toLowerCase()
+  const isRefurbished = condType === 'recondicionado' || condType === 'refurbished'
+  const gradeShort =
+    condGrade === 'excelente'
+      ? 'Excelente'
+      : condGrade === 'bom'
+        ? 'Bom'
+        : condGrade === 'aceitavel'
+          ? 'Aceitável'
+          : ''
+
+  // Se for recondicionado e tiver grau, tentar incluir "Recondicionado - Grau" se couber
+  if (isRefurbished && gradeShort) {
+    const candidate1 = `${brand} ${model} ${proc} ${ram} Recondicionado - ${gradeShort}`.trim()
+    if (candidate1.length <= 60 && candidate1.length > 10) return candidate1
+
+    const candidate2 = `${brand} ${model} ${proc} Recondicionado - ${gradeShort}`.trim()
+    if (candidate2.length <= 60 && candidate2.length > 10) return candidate2
+
+    const candidate3 = `${brand} ${model} Recondicionado - ${gradeShort}`.trim()
+    if (candidate3.length <= 60 && candidate3.length > 10) return candidate3
+  }
+
   // Tentativa 1: Marca + Modelo + Processador + RAM + Storage (ex: "Dell Latitude 5320 i7 16GB 256GB SSD")
   let title = [brand, model, proc, ram, storage].filter(Boolean).join(' ')
   if (title.length <= 60 && title.length > 5) {
@@ -132,18 +155,6 @@ export function generateMLTitle(
   title = [brand, model, proc, ram].filter(Boolean).join(' ')
   if (title.length <= 60 && title.length > 5) {
     return title
-  }
-
-  // Se for recondicionado e couber grau de estado, enriquecer
-  const condType = (overrides?.conditionType || product.condition_type || '').toLowerCase()
-  const condGrade = (overrides?.conditionGrade || product.condition_grade || '').toLowerCase()
-  if (condType === 'recondicionado' && condGrade) {
-    const gradeShort =
-      condGrade === 'excelente' ? 'Excelente' : condGrade === 'bom' ? 'Bom' : 'Aceitável'
-    const enriched = `${brand} ${model} ${proc} ${ram} Recondicionado ${gradeShort}`.trim()
-    if (enriched.length <= 60 && enriched.length > title.length) {
-      return enriched
-    }
   }
 
   // Fallback seguro truncado em 60 chars
@@ -222,14 +233,13 @@ export function generateMLDescription(
   }
 
   lines.push('')
-  lines.push('--- INFORMAÇÕES DA LOJA & PROCEDÊNCIA ---')
-  lines.push(`Loja: ${STORE_CONFIG.name}`)
-  lines.push(`Slogan: ${STORE_CONFIG.tagline}`)
-  lines.push(`WhatsApp Comercial: ${STORE_CONFIG.whatsappDisplay}`)
-  lines.push(`Atendimento: ${STORE_CONFIG.businessHours}`)
-  lines.push(`Localização: ${STORE_CONFIG.location}`)
-  lines.push('')
-  lines.push('Todos os nossos equipamentos são testados, higienizados e embalados com segurança.')
+  lines.push('--- GARANTIA & CONDIÇÕES GERAIS ---')
+  lines.push('• Garantia de 90 dias contra qualquer defeito de funcionamento.')
+  lines.push('• Equipamento revisado e aprovado em checklist técnico detalhado de 16 itens.')
+  lines.push('• Nota fiscal emitida com garantia.')
+  lines.push(
+    '• Produto cuidadosamente higienizado e embalado com proteção antichoque para envio rápido e seguro.',
+  )
 
   return lines.join('\n')
 }

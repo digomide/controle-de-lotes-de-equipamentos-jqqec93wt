@@ -144,7 +144,13 @@ export function SingleMLPublishModal({
       setConditionGrade('excelente')
     }
 
-    // Atualiza automaticamente a descrição para refletir a nova condição escolhida
+    // Atualiza automaticamente título e descrição para refletir a nova condição escolhida
+    setTitle(
+      generateMLTitle(product, {
+        conditionType: newType,
+        conditionGrade: newGrade,
+      }),
+    )
     setDescription(
       generateMLDescription(product, {
         conditionType: newType,
@@ -156,6 +162,12 @@ export function SingleMLPublishModal({
   // Ao alterar o grau
   const handleGradeChange = (newGrade?: ConditionGrade) => {
     setConditionGrade(newGrade)
+    setTitle(
+      generateMLTitle(product, {
+        conditionType,
+        conditionGrade: newGrade,
+      }),
+    )
     setDescription(
       generateMLDescription(product, {
         conditionType,
@@ -590,7 +602,8 @@ export function SingleMLPublishModal({
               />
               <p className="text-[11px] text-slate-400 flex items-center gap-1">
                 <Info className="w-3 h-3" />
-                Inclui especificações, checklist dos 16 itens e dados de contato da AMbicorpFlow.
+                Texto neutro e seguro sem dados de contato, em conformidade com as regras do Mercado
+                Livre.
               </p>
             </div>
 
