@@ -121,18 +121,21 @@ export function BatchMLPublishModal({
     })
   }
 
-  // Publicação sequencial 1 a 1 via API
+  // Publicação sequencial 1 a 1 via fila do servidor PocketBase
   const handleStartPublish = async () => {
     if (eligibleItems.length === 0) return
 
     setIsPublishingBatch(true)
     setPublishFinished(false)
 
+    let eligibleProcessed = 0
+
     for (let i = 0; i < items.length; i++) {
       const it = items[i]
       if (!it.eligible) continue
 
-      setCurrentIndex(i)
+      eligibleProcessed++
+      setCurrentIndex(eligibleProcessed - 1)
 
       // Marcar como publicando
       setItems((prev) => {
@@ -177,7 +180,7 @@ export function BatchMLPublishModal({
           })
         }
       } catch (err: any) {
-        const msg = err?.data?.error || err?.message || 'Erro de comunicação'
+        const msg = err?.data?.error || err?.message || 'Erro de comunicação com o servidor'
         setItems((prev) => {
           const copy = [...prev]
           copy[i] = {

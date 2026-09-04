@@ -58,6 +58,7 @@ export function SingleMLPublishModal({
   const [loadingStatus, setLoadingStatus] = useState(true)
   const [mlStatus, setMlStatus] = useState<MLStatusResponse | null>(null)
   const [publishing, setPublishing] = useState(false)
+  const [publishProgress, setPublishProgress] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   // Campos do formulário de anúncio
@@ -114,15 +115,19 @@ export function SingleMLPublishModal({
     }
 
     setPublishing(true)
+    setPublishProgress('Enviando anúncio para processamento no servidor...')
     try {
-      const res = await mlService.publish({
-        product_id: product.id,
-        title: title.trim(),
-        price: Number(price),
-        category_id: categoryId,
-        description: description.trim(),
-        pictures: photos,
-      })
+      const res = await mlService.publish(
+        {
+          product_id: product.id,
+          title: title.trim(),
+          price: Number(price),
+          category_id: categoryId,
+          description: description.trim(),
+          pictures: photos,
+        },
+        (msg) => setPublishProgress(msg),
+      )
 
       if (res.success) {
         toast({
@@ -149,6 +154,7 @@ export function SingleMLPublishModal({
         err?.data?.error || err?.message || 'Erro ao comunicar com a API do Mercado Livre.'
       setErrorMessage(msg)
     } finally {
+      setPublishProgress(null)
       setPublishing(false)
     }
   }
@@ -382,12 +388,12 @@ export function SingleMLPublishModal({
               <Button
                 type="submit"
                 disabled={publishing || photos.length === 0}
-                className="bg-[#ffe600] hover:bg-[#ebd300] text-slate-950 font-bold text-xs h-9 gap-1.5 shadow-sm"
+                className="bg-[#ffe600] hover:bg-[#ebd300] text-slate-950 font-bold text-xs h-9 gap-1.5 shadow-sm min-w-[200px]"
               >
                 {publishing ? (
                   <>
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    Enviando ao Mercado Livre...
+                    {publishProgress || 'Processando no servidor...'}
                   </>
                 ) : (
                   <>

@@ -30,6 +30,7 @@ export function MercadoLivreConfigCard() {
   const [saving, setSaving] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
   const [status, setStatus] = useState<MLStatusResponse | null>(null)
+  const [exchangeProgress, setExchangeProgress] = useState<string | null>(null)
 
   const [clientId, setClientId] = useState('')
   const [clientSecret, setClientSecret] = useState('')
@@ -106,9 +107,12 @@ export function MercadoLivreConfigCard() {
   const handleExchangeCode = async (code: string, explicitRedirect?: string) => {
     setLoading(true)
     setAuthErrorDetails(null)
+    setExchangeProgress('Iniciando processamento da autorização...')
     try {
       const targetRedirect = explicitRedirect || redirectUri || defaultRedirect
-      const res = await mlService.exchangeAuthCode(code, targetRedirect)
+      const res = await mlService.exchangeAuthCode(code, targetRedirect, (progressMsg) => {
+        setExchangeProgress(progressMsg)
+      })
       toast({
         title: 'Mercado Livre conectado com sucesso!',
         description: res.nickname
@@ -126,6 +130,7 @@ export function MercadoLivreConfigCard() {
         variant: 'destructive',
       })
     } finally {
+      setExchangeProgress(null)
       setLoading(false)
     }
   }
@@ -265,7 +270,16 @@ export function MercadoLivreConfigCard() {
         {loading ? (
           <div className="py-8 flex flex-col items-center justify-center text-slate-400 gap-2">
             <Loader2 className="w-6 h-6 animate-spin text-amber-500" />
-            <span className="text-xs">Consultando status da integração...</span>
+            {exchangeProgress ? (
+              <div className="text-center space-y-1">
+                <p className="text-xs font-semibold text-amber-900">{exchangeProgress}</p>
+                <p className="text-[11px] text-slate-500">
+                  Aguardando confirmação do servidor e troca de credenciais com o Mercado Livre...
+                </p>
+              </div>
+            ) : (
+              <span className="text-xs">Consultando status da integração...</span>
+            )}
           </div>
         ) : (
           <>
