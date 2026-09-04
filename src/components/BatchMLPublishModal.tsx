@@ -115,7 +115,7 @@ export function BatchMLPublishModal({
               conditionType: initialType,
               conditionGrade: initialGrade,
             })
-            const initFamily = deriveProductFamily(p)
+            const initFamily = deriveProductFamily(p) || (p.model || '').split(/[\s-]+/)[0] || ''
             const validation = validateProductForML(p, {
               title: genTitle,
               price: Number(p.unit_price) || 0,

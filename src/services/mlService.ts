@@ -159,12 +159,16 @@ export function translateMLErrorMessage(rawError: string): string {
     const fieldsMatch = rawError.match(/\[(.*?)\]/)
     const rawFields = fieldsMatch ? fieldsMatch[1].split(',').map((s) => s.trim()) : []
 
-    if (rawFields.length > 0) {
-      const translated = rawFields.map((f) => friendlyDict[f.toLowerCase()] || f).join(', ')
-      return `O Mercado Livre exige os seguintes campos obrigatórios: ${translated}. Revise o cadastro do equipamento para preenchê-los.`
+    if (rawFields.some((f) => f.toLowerCase() === 'family_name')) {
+      return 'Família/Linha do produto: confirme no campo editável do anúncio (pré-preenchido automaticamente).'
     }
 
-    return 'O Mercado Livre exige campos obrigatórios que não foram informados (ex: família do produto ou marca/modelo). Revise o cadastro se faltar alguma especificação.'
+    if (rawFields.length > 0) {
+      const translated = rawFields.map((f) => friendlyDict[f.toLowerCase()] || f).join(', ')
+      return `O Mercado Livre exige os seguintes campos obrigatórios: ${translated}. Revise o anúncio para preenchê-los.`
+    }
+
+    return 'O Mercado Livre exige campos obrigatórios que não foram informados (ex: família do produto ou marca/modelo). Revise as informações do anúncio.'
   }
 
   // Erros de token expirado ou permissão
@@ -658,9 +662,10 @@ export function validateProductForML(
         } else if (attr.id === 'MODEL') {
           isPresent = Boolean(rawModel || rawName)
         } else if (attr.id === 'LINE' || attr.id === 'family_name') {
-          // Derivar automaticamente se não informado explicitamente
-          const derived = deriveProductFamily(product, options?.familyName)
-          isPresent = Boolean(derived)
+          // Validação flexível: nunca exige campo gravado no banco;
+          // valida valor de override digitado no modal ou derivação automática
+          const family = (options?.familyName || deriveProductFamily(product) || '').trim()
+          isPresent = Boolean(family)
         } else if (attr.id === 'PROCESSOR_BRAND' || attr.id === 'PROCESSOR_LINE') {
           isPresent = Boolean(
             rawProc || /intel|amd|ryzen|core|i3|i5|i7|i9|celeron|m1|m2|m3/i.test(rawName),

@@ -537,13 +537,17 @@ export function SingleMLPublishModal({
             <div className="space-y-1 p-2.5 bg-slate-50 border border-slate-200 rounded-lg">
               <div className="flex items-center justify-between">
                 <Label className="text-slate-700 font-semibold flex items-center gap-1.5">
-                  <span>Família / Linha do Produto (LINE) *</span>
+                  <span>Família / Linha do Produto (family_name / Linha) *</span>
                 </Label>
                 <span className="text-[10px] text-slate-500 font-normal">
-                  {familyName ? (
-                    <span className="text-emerald-700 font-medium">✓ Reconhecido</span>
+                  {familyName.trim() ? (
+                    <span className="text-emerald-700 font-medium">
+                      ✓ Reconhecido: {familyName.trim()}
+                    </span>
                   ) : (
-                    <span className="text-amber-600 font-medium">Preencha caso o ML exija</span>
+                    <span className="text-rose-600 font-medium">
+                      Obrigatório pelo Mercado Livre
+                    </span>
                   )}
                 </span>
               </div>
@@ -552,13 +556,22 @@ export function SingleMLPublishModal({
                   value={familyName}
                   onChange={(e) => setFamilyName(e.target.value)}
                   placeholder="Ex: ThinkPad, Latitude, Inspiron, MacBook Pro, Aspire..."
-                  className="text-xs bg-white h-8"
+                  className={`text-xs bg-white h-8 ${
+                    !familyName.trim() ? 'border-rose-400 focus-visible:ring-rose-400' : ''
+                  }`}
+                  required
                 />
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => setFamilyName(deriveProductFamily(product))}
+                  onClick={() =>
+                    setFamilyName(
+                      deriveProductFamily(product) ||
+                        (product.model || '').split(/[\s-]+/)[0] ||
+                        '',
+                    )
+                  }
                   className="text-[11px] h-8 px-2.5 shrink-0"
                   title="Restaurar sugestão automática de Linha/Família"
                 >
@@ -566,10 +579,10 @@ export function SingleMLPublishModal({
                 </Button>
               </div>
               <p className="text-[10px] text-slate-400">
-                Atributo enviado em <code>LINE</code>. Derivado automaticamente de modelos
-                conhecidos (ex: ThinkPad, IdeaPad, Latitude, Inspiron, Vostro, MacBook, etc.) ou
-                digitado manualmente.
-              </p>
+                Enviado na raiz como <code>family_name</code> e em <code>attributes</code> como{' '}
+                <code>LINE</code>. Pré-preenchido automaticamente a partir do modelo/nome ou
+                editável acima.
+              </p>{' '}
             </div>
 
             {/* Linha com Preço, Categoria e Estoque */}

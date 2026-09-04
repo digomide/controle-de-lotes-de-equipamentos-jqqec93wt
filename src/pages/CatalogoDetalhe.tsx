@@ -104,7 +104,12 @@ import {
   type ConditionGrade,
 } from '@/lib/condition'
 import { SingleMLPublishModal } from '@/components/SingleMLPublishModal'
-import { validateProductForML, mlService, type MLItemResponse } from '@/services/mlService'
+import {
+  validateProductForML,
+  mlService,
+  deriveProductFamily,
+  type MLItemResponse,
+} from '@/services/mlService'
 import { ShoppingBag, PauseCircle, PlayCircle, XCircle } from 'lucide-react'
 
 export default function CatalogoDetalhe() {
@@ -1140,7 +1145,11 @@ export default function CatalogoDetalhe() {
             </div>
           ) : (
             (() => {
-              const validation = validateProductForML(product)
+              // Passar família derivada para que a validação não bloqueie a abertura do modal
+              const derivedFamily = deriveProductFamily(product)
+              const validation = validateProductForML(product, {
+                familyName: derivedFamily,
+              })
               return (
                 <Button
                   size="sm"

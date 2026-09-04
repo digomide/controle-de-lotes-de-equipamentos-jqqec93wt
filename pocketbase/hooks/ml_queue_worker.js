@@ -614,6 +614,23 @@ cronAdd('ml_queue_worker', '@every 15s', () => {
       if (procLine) setAttr('PROCESSOR_LINE', procLine)
       if (procModel) setAttr('PROCESSOR_MODEL', procModel)
 
+      // GTIN / Código de barras: para itens condition != 'new' sem código de barras no cadastro,
+      // incluir a exceção oficial no array de attributes para evitar erro de GTIN ausente/vazio
+      const pBarcode = (product.getString('code') || product.getString('sku') || '').trim()
+      const isNumericBarcode = /^\d{8,14}$/.test(pBarcode)
+      if (mlCondition !== 'new') {
+        if (isNumericBarcode) {
+          setAttr('GTIN', pBarcode)
+        } else {
+          attributesMap['EMPTY_GTIN_REASON'] = {
+            id: 'EMPTY_GTIN_REASON',
+            value_name: 'Outro motivo',
+          }
+        }
+      } else if (isNumericBarcode) {
+        setAttr('GTIN', pBarcode)
+      }
+
       // RAM
       if (pRam) {
         const ramMatch = pRam.match(/(\d+)\s*GB/i)
@@ -777,6 +794,9 @@ cronAdd('ml_queue_worker', '@every 15s', () => {
         channels: ['marketplace'],
         attributes: itemAttributes,
       }
+      if (familyVal) {
+        itemPayload.family_name = familyVal
+      }
 
       let createRes = null
       try {
@@ -801,56 +821,84 @@ cronAdd('ml_queue_worker', '@every 15s', () => {
         continue
       }
 
-      if (
-        createRes.statusCode >= 400 &&
-        itemPayload.attributes &&
-        itemPayload.attributes.length > 0
-      ) {
+      // Tratamento de retry condicional inteligente no worker cron
+      if (createRes.statusCode >= 400) {
         const errJsonTemp = createRes.json || {}
         const errMsgTemp = JSON.stringify(errJsonTemp).toLowerCase()
+        console.log('[ml_cron] Tentativa 1 falhou: ' + JSON.stringify(errJsonTemp))
+
+        let shouldRetry = false
+
+        // Caso A: ML exige family_name na raiz e por algum motivo não foi enviado ou estava vazio
+        if (errMsgTemp.includes('required_fields') && errMsgTemp.includes('family_name')) {
+          if (!itemPayload.family_name && familyVal) {
+            itemPayload.family_name = familyVal
+            shouldRetry = true
+          }
+        }
+
+        // Caso B: Se o ML rejeitar dizendo explicitamente que family_name é campo inválido na raiz
+        if (
+          itemPayload.family_name &&
+          (errMsgTemp.includes('invalid') || errMsgTemp.includes('not recognized')) &&
+          errMsgTemp.includes('family_name') &&
+          !errMsgTemp.includes('required_fields')
+        ) {
+          console.log(
+            '[ml_cron] ML rejeitou family_name na raiz como campo inválido. Removendo para retry...',
+          )
+          delete itemPayload.family_name
+          shouldRetry = true
+        }
+
+        // Caso C: Atributos específicos inválidos em cause
         let attributesToOmit = []
         if (errJsonTemp.cause && Array.isArray(errJsonTemp.cause)) {
           for (let ci = 0; ci < errJsonTemp.cause.length; ci++) {
             const c = errJsonTemp.cause[ci]
             const cMsg = (c.message || c.code || '').toLowerCase()
             const cField = (c.field || '').toString()
-            if (cField) attributesToOmit.push(cField.toUpperCase())
+            if (cField && cField.toUpperCase() !== 'LINE') {
+              attributesToOmit.push(cField.toUpperCase())
+            }
             const m = cMsg.match(/attribute\s+['"]?([a-zA-Z0-9_]+)['"]?/i)
-            if (m && m[1]) attributesToOmit.push(m[1].toUpperCase())
+            if (m && m[1] && m[1].toUpperCase() !== 'LINE') {
+              attributesToOmit.push(m[1].toUpperCase())
+            }
           }
         }
 
-        if (errMsgTemp.includes('family_name') && errMsgTemp.includes('invalid')) {
-          delete itemPayload.family_name
-        }
-
         if (
-          errMsgTemp.includes('invalid') ||
-          errMsgTemp.includes('attribute') ||
-          errMsgTemp.includes('grading')
+          attributesToOmit.length > 0 ||
+          (errMsgTemp.includes('invalid') && errMsgTemp.includes('attribute'))
         ) {
           const newAttrs = itemPayload.attributes.filter((a) => {
             if (attributesToOmit.includes(a.id.toUpperCase())) return false
             return true
           })
 
-          if (newAttrs.length !== itemPayload.attributes.length || !itemPayload.family_name) {
+          if (newAttrs.length !== itemPayload.attributes.length) {
             itemPayload.attributes = newAttrs
-            try {
-              createRes = $http.send({
-                url: 'https://api.mercadolibre.com/items',
-                method: 'POST',
-                headers: {
-                  Authorization: 'Bearer ' + accessToken,
-                  'Content-Type': 'application/json',
-                  Accept: 'application/json',
-                },
-                body: JSON.stringify(itemPayload),
-                timeout: 30,
-              })
-            } catch (retryErr) {
-              console.log('[ml_cron] Erro ao retentar com atributos ajustados: ' + retryErr)
-            }
+            shouldRetry = true
+          }
+        }
+
+        if (shouldRetry) {
+          console.log('[ml_cron] Retentando envio com payload ajustado...')
+          try {
+            createRes = $http.send({
+              url: 'https://api.mercadolibre.com/items',
+              method: 'POST',
+              headers: {
+                Authorization: 'Bearer ' + accessToken,
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+              },
+              body: JSON.stringify(itemPayload),
+              timeout: 30,
+            })
+          } catch (retryErr) {
+            console.log('[ml_cron] Erro ao retentar com atributos ajustados: ' + retryErr)
           }
         }
       }
