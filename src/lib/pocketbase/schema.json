@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-04T17:58:33.948Z",
+  "generatedAt": "2026-09-04T18:30:16.327Z",
   "collections": [
     {
       "name": "users",
@@ -1024,6 +1024,54 @@
         }
       ],
       "indexes": []
+    },
+    {
+      "name": "ml_category_cache",
+      "type": "base",
+      "apiRules": {
+        "list": "",
+        "view": "",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\"",
+        "delete": "@request.auth.id != \"\""
+      },
+      "fields": [
+        {
+          "name": "category_id",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "attributes",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cached_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_ml_category_cache_category ON ml_category_cache (category_id)"
+      ]
     }
   ]
 }

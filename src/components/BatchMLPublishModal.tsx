@@ -28,6 +28,7 @@ import {
   getProductImageUrls,
   translateMLErrorMessage,
   type MLStatusResponse,
+  type MLCategoryAttribute,
 } from '@/services/mlService'
 import {
   CONDITION_TYPE_OPTIONS,
@@ -80,6 +81,7 @@ export function BatchMLPublishModal({
 
   const [loadingStatus, setLoadingStatus] = useState(true)
   const [mlStatus, setMlStatus] = useState<MLStatusResponse | null>(null)
+  const [categoryAttributes, setCategoryAttributes] = useState<MLCategoryAttribute[]>([])
   const [items, setItems] = useState<EditableMLItem[]>([])
   const [isPublishingBatch, setIsPublishingBatch] = useState(false)
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -91,37 +93,52 @@ export function BatchMLPublishModal({
       setCurrentIndex(0)
       setPublishFinished(false)
 
-      // Inicializa os itens com validação prévia e condição normalizada
-      const list: EditableMLItem[] = selectedProducts.map((p) => {
-        const resolved = resolveCondition(p.condition_type, p.condition_grade, p.condition)
-        const initialType = resolved.type
-        const initialGrade =
-          resolved.grade || (initialType === 'recondicionado' ? 'excelente' : undefined)
-        const validation = validateProductForML(p)
-
-        return {
-          product: p,
-          title: generateMLTitle(p, {
-            conditionType: initialType,
-            conditionGrade: initialGrade,
-          }),
-          price: Number(p.unit_price) || 0,
-          categoryId: 'MLB1652',
-          conditionType: initialType,
-          conditionGrade: initialGrade,
-          eligible: validation.eligible,
-          reasons: validation.reasons,
-          status: 'idle',
-        }
-      })
-      setItems(list)
-
-      // Carrega status da conexão
+      // Carrega status da conexão e atributos da categoria
       setLoadingStatus(true)
-      mlService
-        .getStatus()
-        .then((st) => setMlStatus(st))
-        .catch(() => setMlStatus(null))
+      Promise.all([
+        mlService.getStatus(),
+        mlService.getCategoryAttributes('MLB1652').catch(() => []),
+      ])
+        .then(([st, attrs]) => {
+          setMlStatus(st)
+          setCategoryAttributes(attrs)
+
+          // Inicializa os itens com validação prévia considerando os atributos oficiais
+          const list: EditableMLItem[] = selectedProducts.map((p) => {
+            const resolved = resolveCondition(p.condition_type, p.condition_grade, p.condition)
+            const initialType = resolved.type
+            const initialGrade =
+              resolved.grade || (initialType === 'recondicionado' ? 'excelente' : undefined)
+            const genTitle = generateMLTitle(p, {
+              conditionType: initialType,
+              conditionGrade: initialGrade,
+            })
+            const validation = validateProductForML(p, {
+              title: genTitle,
+              price: Number(p.unit_price) || 0,
+              conditionType: initialType,
+              conditionGrade: initialGrade,
+              categoryAttributes: attrs,
+            })
+
+            return {
+              product: p,
+              title: genTitle,
+              price: Number(p.unit_price) || 0,
+              categoryId: 'MLB1652',
+              conditionType: initialType,
+              conditionGrade: initialGrade,
+              eligible: validation.eligible,
+              reasons: validation.reasons,
+              status: 'idle',
+            }
+          })
+          setItems(list)
+        })
+        .catch(() => {
+          setMlStatus(null)
+          setCategoryAttributes([])
+        })
         .finally(() => setLoadingStatus(false))
     }
   }, [isOpen, selectedProducts])
@@ -135,7 +152,22 @@ export function BatchMLPublishModal({
   const handleUpdateItemTitle = (index: number, val: string) => {
     setItems((prev) => {
       const copy = [...prev]
-      copy[index] = { ...copy[index], title: val.slice(0, 60) }
+      const current = copy[index]
+      const newTitle = val
+      const validation = validateProductForML(current.product, {
+        title: newTitle,
+        price: current.price,
+        conditionType: current.conditionType,
+        conditionGrade: current.conditionGrade,
+        categoryAttributes,
+      })
+
+      copy[index] = {
+        ...current,
+        title: newTitle,
+        eligible: validation.eligible,
+        reasons: validation.reasons,
+      }
       return copy
     })
   }
@@ -143,7 +175,21 @@ export function BatchMLPublishModal({
   const handleUpdateItemPrice = (index: number, val: number) => {
     setItems((prev) => {
       const copy = [...prev]
-      copy[index] = { ...copy[index], price: val }
+      const current = copy[index]
+      const validation = validateProductForML(current.product, {
+        title: current.title,
+        price: val,
+        conditionType: current.conditionType,
+        conditionGrade: current.conditionGrade,
+        categoryAttributes,
+      })
+
+      copy[index] = {
+        ...current,
+        price: val,
+        eligible: validation.eligible,
+        reasons: validation.reasons,
+      }
       return copy
     })
   }
@@ -160,16 +206,17 @@ export function BatchMLPublishModal({
         newGrade = 'excelente'
       }
 
-      const isGradeMissing = Boolean(opt?.requiresGrade && !newGrade)
-      const validation = validateProductForML(current.product)
-      const baseReasons = validation.reasons.filter((r) => !r.includes('grau'))
-      if (isGradeMissing) {
-        baseReasons.push('Recondicionados exigem grau de estado (Excelente, Bom ou Aceitável)')
-      }
-
       const updatedTitle = generateMLTitle(current.product, {
         conditionType: val,
         conditionGrade: newGrade,
+      })
+
+      const validation = validateProductForML(current.product, {
+        title: updatedTitle,
+        price: current.price,
+        conditionType: val,
+        conditionGrade: newGrade,
+        categoryAttributes,
       })
 
       copy[index] = {
@@ -177,8 +224,8 @@ export function BatchMLPublishModal({
         conditionType: val,
         conditionGrade: newGrade,
         title: updatedTitle,
-        eligible: validation.eligible && !isGradeMissing,
-        reasons: baseReasons,
+        eligible: validation.eligible,
+        reasons: validation.reasons,
       }
       return copy
     })
@@ -188,25 +235,26 @@ export function BatchMLPublishModal({
     setItems((prev) => {
       const copy = [...prev]
       const current = copy[index]
-      const typeOpt = CONDITION_TYPE_OPTIONS.find((t) => t.value === current.conditionType)
-      const isGradeMissing = Boolean(typeOpt?.requiresGrade && !val)
-      const validation = validateProductForML(current.product)
-      const baseReasons = validation.reasons.filter((r) => !r.includes('grau'))
-      if (isGradeMissing) {
-        baseReasons.push('Recondicionados exigem grau de estado (Excelente, Bom ou Aceitável)')
-      }
 
       const updatedTitle = generateMLTitle(current.product, {
         conditionType: current.conditionType,
         conditionGrade: val,
       })
 
+      const validation = validateProductForML(current.product, {
+        title: updatedTitle,
+        price: current.price,
+        conditionType: current.conditionType,
+        conditionGrade: val,
+        categoryAttributes,
+      })
+
       copy[index] = {
         ...copy[index],
         conditionGrade: val,
         title: updatedTitle,
-        eligible: validation.eligible && !isGradeMissing,
-        reasons: baseReasons,
+        eligible: validation.eligible,
+        reasons: validation.reasons,
       }
       return copy
     })
@@ -242,9 +290,10 @@ export function BatchMLPublishModal({
           conditionGrade: it.conditionGrade,
         })
 
+        const safeTitle = it.title.trim().slice(0, 60)
         const res = await mlService.publish({
           product_id: it.product.id,
-          title: it.title.trim(),
+          title: safeTitle,
           price: it.price,
           category_id: it.categoryId,
           condition_type: it.conditionType,
@@ -499,22 +548,30 @@ export function BatchMLPublishModal({
                             <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 items-center">
                               {/* Título do Anúncio */}
                               <div className="sm:col-span-3 space-y-0.5">
-                                <div className="flex justify-between text-[10px] text-slate-400">
-                                  <span>Título ML (máx. 60)</span>
+                                <div className="flex justify-between items-center text-[10px]">
+                                  <span className="text-slate-600 font-semibold">
+                                    Título ML (máx. 60)
+                                  </span>
                                   <span
-                                    className={
-                                      it.title.length > 60 ? 'text-rose-600 font-bold' : ''
-                                    }
+                                    className={`font-mono font-bold px-1 rounded ${
+                                      it.title.length > 60
+                                        ? 'text-rose-700 bg-rose-100'
+                                        : 'text-emerald-700 bg-emerald-100'
+                                    }`}
                                   >
-                                    {it.title.length}/60
+                                    {it.title.length}/60 chars
                                   </span>
                                 </div>
                                 <Input
                                   value={it.title}
                                   onChange={(e) => handleUpdateItemTitle(idx, e.target.value)}
                                   disabled={isPublishingBatch || it.status === 'success'}
-                                  maxLength={60}
-                                  className="h-8 text-xs bg-white"
+                                  maxLength={100}
+                                  className={`h-8 text-xs bg-white ${
+                                    it.title.length > 60
+                                      ? 'border-rose-500 focus-visible:ring-rose-500'
+                                      : ''
+                                  }`}
                                 />
                               </div>
 

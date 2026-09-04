@@ -307,24 +307,78 @@ cronAdd('ml_queue_worker', '@every 15s', () => {
       }
       const gradeLabel = gradeLabelMap[rawGrade] || ''
 
-      // 1. Obter metadados dos atributos obrigatórios da categoria no ML via GET /categories/{category_id}/attributes
+      // 1. Obter metadados dos atributos obrigatórios da categoria no ML (consultar cache no PocketBase primeiro, refresh se >24h)
       let categoryAttributesMeta = []
+      let cachedCatRecord = null
+      const now = Date.now()
+      const twentyFourHoursMs = 24 * 60 * 60 * 1000
+
       try {
-        const catAttrRes = $http.send({
-          url: 'https://api.mercadolibre.com/categories/' + categoryId + '/attributes',
-          method: 'GET',
-          headers: {
-            Accept: 'application/json',
+        const cList = $app.findRecordsByFilter(
+          'ml_category_cache',
+          'category_id = {:cat}',
+          '-cached_at',
+          1,
+          0,
+          {
+            cat: categoryId,
           },
-          timeout: 15,
-        })
-        if (catAttrRes.statusCode === 200 && Array.isArray(catAttrRes.json)) {
-          categoryAttributesMeta = catAttrRes.json
-        }
-      } catch (cErr) {
-        console.log(
-          '[ml_cron] Erro ao consultar atributos da categoria ' + categoryId + ': ' + cErr,
         )
+        if (cList && cList.length > 0) {
+          cachedCatRecord = cList[0]
+          const cachedAtStr = cachedCatRecord.getString('cached_at')
+          if (cachedAtStr && now - new Date(cachedAtStr).getTime() < twentyFourHoursMs) {
+            const cAttrs = cachedCatRecord.get('attributes')
+            if (Array.isArray(cAttrs) && cAttrs.length > 0) {
+              categoryAttributesMeta = cAttrs
+            }
+          }
+        }
+      } catch (cFindErr) {
+        console.log('[ml_cron] Erro ao buscar cache de atributos: ' + cFindErr)
+      }
+
+      if (categoryAttributesMeta.length === 0) {
+        try {
+          const headers = { Accept: 'application/json' }
+          if (accessToken) headers['Authorization'] = 'Bearer ' + accessToken
+          const catAttrRes = $http.send({
+            url: 'https://api.mercadolibre.com/categories/' + categoryId + '/attributes',
+            method: 'GET',
+            headers: headers,
+            timeout: 20,
+          })
+          if (catAttrRes.statusCode === 200 && Array.isArray(catAttrRes.json)) {
+            categoryAttributesMeta = catAttrRes.json
+            try {
+              if (cachedCatRecord) {
+                cachedCatRecord.set('attributes', categoryAttributesMeta)
+                cachedCatRecord.set('cached_at', new Date().toISOString())
+                $app.save(cachedCatRecord)
+              } else {
+                const cacheCol = $app.findCollectionByNameOrId('ml_category_cache')
+                const newCacheRec = new Record(cacheCol)
+                newCacheRec.set('category_id', categoryId)
+                newCacheRec.set('attributes', categoryAttributesMeta)
+                newCacheRec.set('cached_at', new Date().toISOString())
+                $app.save(newCacheRec)
+              }
+            } catch (saveCErr) {
+              console.log('[ml_cron] Erro ao salvar cache da categoria: ' + saveCErr)
+            }
+          }
+        } catch (cErr) {
+          console.log(
+            '[ml_cron] Erro ao consultar atributos da categoria ' + categoryId + ': ' + cErr,
+          )
+        }
+      }
+
+      if (categoryAttributesMeta.length === 0 && cachedCatRecord) {
+        const fallbackAttrs = cachedCatRecord.get('attributes')
+        if (Array.isArray(fallbackAttrs) && fallbackAttrs.length > 0) {
+          categoryAttributesMeta = fallbackAttrs
+        }
       }
 
       const requiredAttrMap = {}
@@ -752,7 +806,15 @@ cronAdd('ml_queue_worker', '@every 15s', () => {
             JSON.stringify(itemPayload),
         )
         let detailedMsg = ''
-        if (errJson.cause && Array.isArray(errJson.cause) && errJson.cause.length > 0) {
+        const rawErrorJsonStr = JSON.stringify(errJson)
+
+        if (
+          rawErrorJsonStr.includes('The fields [title] are invalid') ||
+          rawErrorJsonStr.includes('[title] are invalid') ||
+          (errJson.error && String(errJson.error).includes('[title]'))
+        ) {
+          detailedMsg = 'Título excede o limite de 60 caracteres — edite o título acima'
+        } else if (errJson.cause && Array.isArray(errJson.cause) && errJson.cause.length > 0) {
           const causes = errJson.cause
             .map((c) => {
               const f = c.field || c.department || ''

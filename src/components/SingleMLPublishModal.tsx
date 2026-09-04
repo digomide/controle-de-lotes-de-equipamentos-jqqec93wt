@@ -27,8 +27,10 @@ import {
   generateMLDescription,
   getProductImageUrls,
   translateMLErrorMessage,
+  validateProductForML,
   ML_CATEGORIES,
   type MLStatusResponse,
+  type MLCategoryAttribute,
 } from '@/services/mlService'
 import {
   CONDITION_TYPE_OPTIONS,
@@ -71,6 +73,9 @@ export function SingleMLPublishModal({
   const [publishProgress, setPublishProgress] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
+  // Cache de atributos da categoria
+  const [categoryAttributes, setCategoryAttributes] = useState<MLCategoryAttribute[]>([])
+
   // Campos do formulário de anúncio
   const [title, setTitle] = useState('')
   const [price, setPrice] = useState<number>(0)
@@ -100,12 +105,11 @@ export function SingleMLPublishModal({
       setConditionType(initialType)
       setConditionGrade(initialGrade)
 
-      setTitle(
-        generateMLTitle(product, {
-          conditionType: initialType,
-          conditionGrade: initialGrade,
-        }),
-      )
+      const initialTitle = generateMLTitle(product, {
+        conditionType: initialType,
+        conditionGrade: initialGrade,
+      })
+      setTitle(initialTitle)
       setPrice(Number(product.unit_price) || 0)
       setCategoryId('MLB1652')
       setDescription(
@@ -116,12 +120,20 @@ export function SingleMLPublishModal({
       )
       setPhotos(getProductImageUrls(product))
 
-      // Checar status de conexão do ML
+      // Checar status de conexão do ML e obter atributos da categoria com cache no backend
       setLoadingStatus(true)
-      mlService
-        .getStatus()
-        .then((st) => setMlStatus(st))
-        .catch(() => setMlStatus(null))
+      Promise.all([
+        mlService.getStatus(),
+        mlService.getCategoryAttributes('MLB1652').catch(() => []),
+      ])
+        .then(([st, attrs]) => {
+          setMlStatus(st)
+          setCategoryAttributes(attrs)
+        })
+        .catch(() => {
+          setMlStatus(null)
+          setCategoryAttributes([])
+        })
         .finally(() => setLoadingStatus(false))
     }
   }, [isOpen, product])
@@ -186,38 +198,27 @@ export function SingleMLPublishModal({
     )
   }
 
+  // Validação proativa local antes de permitir o clique no botão publicar
+  const localValidation = validateProductForML(product, {
+    title,
+    price,
+    conditionType,
+    conditionGrade,
+    categoryAttributes,
+  })
+
   const handlePublish = async (e: React.FormEvent) => {
     e.preventDefault()
     setErrorMessage(null)
 
-    if (!title.trim()) {
-      setErrorMessage('O título do anúncio é obrigatório.')
-      return
-    }
-
-    if (title.length > 60) {
+    if (!localValidation.eligible) {
       setErrorMessage(
-        `O título excede 60 caracteres (atual: ${title.length}). Encurte para prosseguir.`,
+        'Corrija as pendências antes de publicar:\n• ' + localValidation.reasons.join('\n• '),
       )
       return
     }
 
-    if (!price || price <= 0) {
-      setErrorMessage('Informe um preço de venda válido maior que zero.')
-      return
-    }
-
-    if (photos.length === 0) {
-      setErrorMessage('É obrigatório ter pelo menos 1 foto acessível publicamente.')
-      return
-    }
-
-    if (requiresGrade && !conditionGrade) {
-      setErrorMessage(
-        'Produtos recondicionados exigem selecionar o Grau de estado (Excelente, Bom ou Aceitável).',
-      )
-      return
-    }
+    const cleanTitle = title.trim().slice(0, 60)
 
     setPublishing(true)
     setPublishProgress('Enviando anúncio para processamento no servidor...')
@@ -225,7 +226,7 @@ export function SingleMLPublishModal({
       const res = await mlService.publish(
         {
           product_id: product.id,
-          title: title.trim(),
+          title: cleanTitle,
           price: Number(price),
           category_id: categoryId,
           description: description.trim(),
@@ -472,7 +473,7 @@ export function SingleMLPublishModal({
               </p>
             </div>
 
-            {/* Título do Anúncio (máximo 60 caracteres) */}
+            {/* Título do Anúncio (máximo 60 caracteres, editável pelo usuário com contador) */}
             <div className="space-y-1">
               <div className="flex items-center justify-between">
                 <Label className="text-slate-700 font-semibold flex items-center gap-2">
@@ -481,33 +482,40 @@ export function SingleMLPublishModal({
                     type="button"
                     onClick={handleRegenerateTitle}
                     className="text-[10px] text-blue-600 hover:underline font-normal"
-                    title="Regerar título com as especificações e condição atual"
+                    title="Regerar sugestão de título padronizado (≤60 chars)"
                   >
-                    Regerar título
+                    Regerar sugestão
                   </button>
                 </Label>
                 <span
-                  className={`text-[11px] font-mono ${
+                  className={`text-[11px] font-mono font-bold px-1.5 py-0.5 rounded ${
                     title.length > 60
-                      ? 'text-rose-600 font-bold'
-                      : title.length >= 50
-                        ? 'text-amber-600 font-semibold'
-                        : 'text-slate-400'
+                      ? 'text-rose-700 bg-rose-100'
+                      : 'text-emerald-700 bg-emerald-100'
                   }`}
                 >
-                  {title.length}/60
+                  {title.length}/60 caracteres
                 </span>
               </div>
               <Input
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                maxLength={60}
-                className="text-xs bg-white h-9"
-                placeholder="Ex: Dell Latitude 5320 Core i7 16GB SSD 256GB"
+                maxLength={100}
+                className={`text-xs bg-white h-9 ${
+                  title.length > 60 ? 'border-rose-500 focus-visible:ring-rose-500' : ''
+                }`}
+                placeholder='Ex: Notebook Lenovo ThinkPad T580 i7 16GB SSD 256 15.6"'
                 required
               />
-              <p className="text-[11px] text-slate-400">
-                O Mercado Livre exige título claro com marca, modelo e specs principais.
+              <p className="text-[11px] text-slate-400 flex items-center justify-between">
+                <span>
+                  Formato padronizado: "Notebook" + Marca + Modelo + Processador + RAM + SSD + Tela
+                </span>
+                {title.length > 60 && (
+                  <span className="text-rose-600 font-semibold">
+                    Excede 60 caracteres! Reduza para publicar.
+                  </span>
+                )}
               </p>
             </div>
 
@@ -609,6 +617,24 @@ export function SingleMLPublishModal({
               </p>
             </div>
 
+            {/* Alerta de Validação Proativa se houver pendências locais */}
+            {!localValidation.eligible && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg space-y-1.5 text-amber-900">
+                <div className="flex items-center gap-1.5 font-bold text-xs text-amber-800">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                  Pendências para publicar no Mercado Livre:
+                </div>
+                <ul className="list-disc pl-5 space-y-0.5 text-[11px] text-amber-800">
+                  {localValidation.reasons.map((r, i) => (
+                    <li key={i}>{r}</li>
+                  ))}
+                </ul>
+                <p className="text-[10px] text-amber-700 italic pt-0.5">
+                  Ajuste o título, preço ou condição acima para liberar o botão de publicação.
+                </p>
+              </div>
+            )}
+
             <DialogFooter className="flex sm:justify-between items-center gap-2 pt-3 border-t border-slate-100">
               <Button
                 type="button"
@@ -621,7 +647,7 @@ export function SingleMLPublishModal({
               </Button>
               <Button
                 type="submit"
-                disabled={publishing || photos.length === 0}
+                disabled={publishing || !localValidation.eligible}
                 className="bg-[#ffe600] hover:bg-[#ebd300] text-slate-950 font-bold text-xs h-9 gap-1.5 shadow-sm min-w-[200px]"
               >
                 {publishing ? (

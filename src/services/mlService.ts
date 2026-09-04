@@ -35,6 +35,28 @@ export interface MLPublishPayload {
   condition_grade?: 'excelente' | 'bom' | 'aceitavel'
 }
 
+export interface MLCategoryAttributeValue {
+  id: string
+  name: string
+}
+
+export interface MLCategoryAttribute {
+  id: string
+  name: string
+  tags?: {
+    required?: boolean
+    catalog_required?: boolean
+    conditional_required?: boolean
+    read_only?: boolean
+    hidden?: boolean
+    allow_custom_value?: boolean
+    [key: string]: any
+  }
+  value_type?: string
+  values?: MLCategoryAttributeValue[]
+  [key: string]: any
+}
+
 export interface MLPublishResponse {
   success: boolean
   ml_listing_id: string
@@ -73,18 +95,43 @@ export function translateMLErrorMessage(rawError: string): string {
     category_id: 'Categoria',
   }
 
+  // Tratamento específico de erro no título
+  if (
+    rawError.includes('The fields [title] are invalid') ||
+    rawError.includes('fields [title] are invalid') ||
+    rawError.includes('[title] are invalid') ||
+    rawError.includes('title: invalid') ||
+    rawError.includes('title is invalid')
+  ) {
+    return 'Título excede o limite de 60 caracteres — edite o título acima para no máximo 60 caracteres.'
+  }
+
   // Tratamento específico de body.invalid_fields
   if (rawError.includes('body.invalid_fields')) {
+    // Checar se o erro específico foi no título
+    if (rawError.toLowerCase().includes('title')) {
+      return 'Título excede o limite de 60 caracteres — edite o título acima para no máximo 60 caracteres.'
+    }
+
     // Se vier com cause ou detalhes listados
-    if (rawError.includes('Detalhes:') || rawError.includes(' — ')) {
-      const parts = rawError.split(/Detalhes:\s*|—\s*/)
-      if (parts[1]) {
-        const causes = parts[1]
+    if (
+      rawError.includes('Detalhes:') ||
+      rawError.includes(' — ') ||
+      rawError.includes('Resposta:')
+    ) {
+      const parts = rawError.split(/Detalhes:\s*|—\s*|Resposta:\s*/)
+      const detailStr = parts[1] || ''
+
+      if (detailStr.toLowerCase().includes('title')) {
+        return 'Título excede o limite de 60 caracteres — edite o título acima para no máximo 60 caracteres.'
+      }
+
+      if (detailStr) {
+        const causes = detailStr
           .split(';')
           .map((c) => c.trim())
           .filter(Boolean)
           .map((c) => {
-            // Se tiver formato "CAMPO: mensagem"
             const matchColon = c.match(/^([a-zA-Z0-9_]+)\s*:\s*(.*)$/)
             if (matchColon) {
               const fieldName = friendlyDict[matchColon[1].toLowerCase()] || matchColon[1]
@@ -92,7 +139,9 @@ export function translateMLErrorMessage(rawError: string): string {
             }
             return c
           })
-        return `O Mercado Livre rejeitou alguns campos do anúncio:\n• ${causes.join('\n• ')}`
+        if (causes.length > 0) {
+          return `O Mercado Livre rejeitou alguns campos do anúncio:\n• ${causes.join('\n• ')}`
+        }
       }
     }
     return 'O Mercado Livre rejeitou campos do anúncio (body.invalid_fields). Verifique se todos os atributos como Marca, Modelo, Processador, Memória e Grau de estado estão preenchidos corretamente.'
@@ -142,64 +191,134 @@ export const ML_CATEGORIES = [
 ]
 
 /**
- * Gera título otimizado respeitando o limite máximo de 60 caracteres da API do Mercado Livre
+ * Extrai e simplifica tokens essenciais para gerar título de no máximo 60 caracteres.
+ * Formato preferido do usuário (confirmado):
+ * "Notebook Lenovo ThinkPad T580 i7 16GB SSD 256 15.6\""
+ * Regras: "Notebook" + Marca + Modelo/Linha + Processador curto (i5/i7/i9/Celeron/Ryzen 5) +
+ * Memória RAM curta + Armazenamento curto (SSD 256, HD 500) + Tela curta (15.6", 14")
+ * Remove redundâncias ("8ª Geração", "Nvme" → "SSD", parênteses, aspas extras).
  */
 export function generateMLTitle(
   product: Product,
-  overrides?: {
+  _overrides?: {
     conditionType?: 'novo' | 'usado' | 'recondicionado' | 'caixa_aberta'
     conditionGrade?: 'excelente' | 'bom' | 'aceitavel'
   },
 ): string {
-  const brand = (product.brand || '').trim()
-  const model = (product.model || '').trim()
-  const proc = (product.processor || '').replace(/Processador\s*/i, '').trim()
-  const ram = (product.ram || '').trim()
-  const storage = (product.storage || '').trim()
-
-  const condType = (overrides?.conditionType || product.condition_type || '').toLowerCase()
-  const condGrade = (overrides?.conditionGrade || product.condition_grade || '').toLowerCase()
-  const isRefurbished = condType === 'recondicionado' || condType === 'refurbished'
-  const gradeShort =
-    condGrade === 'excelente'
-      ? 'Excelente'
-      : condGrade === 'bom'
-        ? 'Bom'
-        : condGrade === 'aceitavel'
-          ? 'Aceitável'
-          : ''
-
-  // Se for recondicionado e tiver grau, tentar incluir "Recondicionado - Grau" se couber
-  if (isRefurbished && gradeShort) {
-    const candidate1 = `${brand} ${model} ${proc} ${ram} Recondicionado - ${gradeShort}`.trim()
-    if (candidate1.length <= 60 && candidate1.length > 10) return candidate1
-
-    const candidate2 = `${brand} ${model} ${proc} Recondicionado - ${gradeShort}`.trim()
-    if (candidate2.length <= 60 && candidate2.length > 10) return candidate2
-
-    const candidate3 = `${brand} ${model} Recondicionado - ${gradeShort}`.trim()
-    if (candidate3.length <= 60 && candidate3.length > 10) return candidate3
+  // 1. Marca
+  let brand = (product.brand || '').trim()
+  const rawName = (product.name || '').trim()
+  if (!brand) {
+    if (/lenovo/i.test(rawName)) brand = 'Lenovo'
+    else if (/dell/i.test(rawName)) brand = 'Dell'
+    else if (/hp/i.test(rawName)) brand = 'HP'
+    else if (/apple/i.test(rawName)) brand = 'Apple'
+    else if (/acer/i.test(rawName)) brand = 'Acer'
+    else if (/asus/i.test(rawName)) brand = 'Asus'
+    else if (/samsung/i.test(rawName)) brand = 'Samsung'
+    else if (/positivo/i.test(rawName)) brand = 'Positivo'
   }
 
-  // Tentativa 1: Marca + Modelo + Processador + RAM + Storage (ex: "Dell Latitude 5320 i7 16GB 256GB SSD")
-  let title = [brand, model, proc, ram, storage].filter(Boolean).join(' ')
-  if (title.length <= 60 && title.length > 5) {
-    return title
+  // 2. Modelo / Linha curto
+  let model = (product.model || '').trim()
+  if (!model) {
+    // Tentar extrair do nome: ex: ThinkPad T580, Latitude 5320
+    const m = rawName.match(
+      /(ThinkPad\s+[A-Za-z0-9]+|Latitude\s+[A-Za-z0-9]+|Inspiron\s+[A-Za-z0-9]+|Vostro\s+[A-Za-z0-9]+|EliteBook\s+[A-Za-z0-9]+|ProBook\s+[A-Za-z0-9]+|MacBook\s+(?:Pro|Air)?(?:\s+[A-Za-z0-9]+)?)/i,
+    )
+    if (m && m[1]) {
+      model = m[1].trim()
+    }
+  }
+  // Se o modelo já inclui a marca, remover duplicação (ex: "Lenovo ThinkPad T580")
+  if (brand && model.toLowerCase().startsWith(brand.toLowerCase())) {
+    model = model.slice(brand.length).trim()
   }
 
-  // Tentativa 2: Nome do produto resumido
-  if (product.name && product.name.length <= 60) {
-    return product.name
+  // 3. Processador curto (ex: i7, i5, i3, i9, Ryzen 5, Celeron, M1, M2)
+  const fullProc = (product.processor || '' + ' ' + rawName).trim()
+  let shortProc = ''
+  if (/i7|core\s*i7/i.test(fullProc)) shortProc = 'i7'
+  else if (/i5|core\s*i5/i.test(fullProc)) shortProc = 'i5'
+  else if (/i3|core\s*i3/i.test(fullProc)) shortProc = 'i3'
+  else if (/i9|core\s*i9/i.test(fullProc)) shortProc = 'i9'
+  else if (/ryzen\s*7/i.test(fullProc)) shortProc = 'Ryzen 7'
+  else if (/ryzen\s*5/i.test(fullProc)) shortProc = 'Ryzen 5'
+  else if (/ryzen\s*3/i.test(fullProc)) shortProc = 'Ryzen 3'
+  else if (/ryzen\s*9/i.test(fullProc)) shortProc = 'Ryzen 9'
+  else if (/celeron/i.test(fullProc)) shortProc = 'Celeron'
+  else if (/xeon/i.test(fullProc)) shortProc = 'Xeon'
+  else if (/\bm3\b/i.test(fullProc)) shortProc = 'M3'
+  else if (/\bm2\b/i.test(fullProc)) shortProc = 'M2'
+  else if (/\bm1\b/i.test(fullProc)) shortProc = 'M1'
+
+  // 4. Memória RAM curta (ex: "16GB", "8GB", "32GB")
+  const fullRam = (product.ram || '' + ' ' + rawName).trim()
+  let shortRam = ''
+  const ramMatch = fullRam.match(/(\d+)\s*GB/i)
+  if (ramMatch && ramMatch[1]) {
+    shortRam = `${ramMatch[1]}GB`
   }
 
-  // Tentativa 3: Encurtar strings
-  title = [brand, model, proc, ram].filter(Boolean).join(' ')
-  if (title.length <= 60 && title.length > 5) {
-    return title
+  // 5. Armazenamento curto: "SSD 256", "SSD 512", "HD 500"
+  const fullStorage = (product.storage || '' + ' ' + rawName).trim()
+  let shortStorage = ''
+  const storageCapMatch = fullStorage.match(/(\d+)\s*(GB|TB|Nvme)?/i)
+  const isHD = /HD\b|Hard\s*Drive/i.test(fullStorage) && !/SSD/i.test(fullStorage)
+  if (storageCapMatch && storageCapMatch[1]) {
+    const typeLabel = isHD ? 'HD' : 'SSD'
+    shortStorage = `${typeLabel} ${storageCapMatch[1]}`
   }
 
-  // Fallback seguro truncado em 60 chars
-  const fallback = (product.name || `${brand} ${model}`).trim()
+  // 6. Tela curta: '15.6"', '14"', '13.3"'
+  const fullScreen = (product.screen_size || '' + ' ' + rawName).trim()
+  let shortScreen = ''
+  const screenMatch = fullScreen.match(/(\d{2}(?:\.\d)?)\s*(?:["”']|pol|polegadas)?/i)
+  if (screenMatch && screenMatch[1]) {
+    const val = parseFloat(screenMatch[1])
+    if (val >= 10 && val <= 21) {
+      shortScreen = `${screenMatch[1]}"`
+    }
+  }
+
+  // Montagem progressiva do título testando tamanho <= 60 caracteres
+  // Nível 1: Completo com Notebook + Marca + Modelo + Proc + RAM + Storage + Tela
+  const tokensLevel1 = [
+    'Notebook',
+    brand,
+    model,
+    shortProc,
+    shortRam,
+    shortStorage,
+    shortScreen,
+  ].filter(Boolean)
+  let candidate = tokensLevel1.join(' ')
+  if (candidate.length <= 60) return candidate
+
+  // Nível 2: Sem tela se exceder 60
+  const tokensLevel2 = ['Notebook', brand, model, shortProc, shortRam, shortStorage].filter(Boolean)
+  candidate = tokensLevel2.join(' ')
+  if (candidate.length <= 60) return candidate
+
+  // Nível 3: Sem palavra "Notebook" se ainda exceder
+  const tokensLevel3 = [brand, model, shortProc, shortRam, shortStorage, shortScreen].filter(
+    Boolean,
+  )
+  candidate = tokensLevel3.join(' ')
+  if (candidate.length <= 60) return candidate
+
+  // Nível 4: Sem tela
+  const tokensLevel4 = [brand, model, shortProc, shortRam, shortStorage].filter(Boolean)
+  candidate = tokensLevel4.join(' ')
+  if (candidate.length <= 60) return candidate
+
+  // Nível 5: Sem storage
+  const tokensLevel5 = [brand, model, shortProc, shortRam].filter(Boolean)
+  candidate = tokensLevel5.join(' ')
+  if (candidate.length <= 60) return candidate
+
+  // Fallback seguro truncado em 60
+  const fallback = `Notebook ${brand} ${model}`.trim()
   return fallback.slice(0, 60)
 }
 
@@ -323,36 +442,147 @@ export function getProductImageUrls(product: Product): string[] {
 /**
  * Validação de requisitos para anúncio no ML
  */
-export function validateProductForML(product: Product): { eligible: boolean; reasons: string[] } {
+/**
+ * Validação profunda de requisitos para anúncio no ML com base nos atributos oficiais da categoria
+ */
+export function validateProductForML(
+  product: Product,
+  options?: {
+    title?: string
+    price?: number
+    conditionType?: string
+    conditionGrade?: string
+    categoryAttributes?: MLCategoryAttribute[]
+  },
+): { eligible: boolean; reasons: string[] } {
   const reasons: string[] = []
 
+  // 1. Status do produto
   if (product.status !== 'Disponível') {
     reasons.push(`Status atual é "${product.status || 'Indefinido'}" (exige "Disponível")`)
   }
 
-  const price = Number(product.unit_price) || 0
+  // 2. Preço de venda
+  const price =
+    options?.price !== undefined ? Number(options.price) : Number(product.unit_price) || 0
   if (price <= 0) {
-    reasons.push('Preço de venda não configurado ou zero')
+    reasons.push('Preço de venda não configurado ou zero (deve ser maior que zero)')
   }
 
+  // 3. Fotos
   const photos = getProductImageUrls(product)
   if (photos.length === 0) {
-    reasons.push('Equipamento não possui nenhuma foto cadastrada')
+    reasons.push(
+      'Equipamento não possui nenhuma foto cadastrada (exige pelo menos 1 imagem pública)',
+    )
   }
 
-  const resolvedType =
+  // 4. Título do anúncio
+  const currentTitle = (
+    options?.title !== undefined ? options.title : generateMLTitle(product)
+  ).trim()
+  if (!currentTitle) {
+    reasons.push('Título do anúncio é obrigatório')
+  } else if (currentTitle.length > 60) {
+    reasons.push(`Título excede 60 caracteres (atual: ${currentTitle.length} caracteres)`)
+  }
+
+  // 5. Condição e Grau
+  const resolvedType = (
+    options?.conditionType ||
     product.condition_type ||
     (product.condition?.toLowerCase().includes('novo') ? 'novo' : 'recondicionado')
-  const resolvedGrade = product.condition_grade
-  if (resolvedType === 'recondicionado' && !resolvedGrade) {
-    // Não bloqueia mais no batch se o usuário puder escolher no modal;
-    // mas se ambos faltarem, avisa:
-    reasons.push('Recondicionados exigem grau de estado (Excelente, Bom ou Aceitável)')
+  ).toLowerCase()
+  const resolvedGrade = options?.conditionGrade || product.condition_grade
+
+  if ((resolvedType === 'recondicionado' || resolvedType === 'refurbished') && !resolvedGrade) {
+    reasons.push(
+      'Equipamentos recondicionados exigem o Grau de estado (Excelente, Bom ou Aceitável)',
+    )
   }
 
-  // Verificar se possui marca e modelo para satisfazer BRAND/MODEL da categoria do ML
-  if (!product.brand?.trim() && !product.name?.trim()) {
-    reasons.push('Marca do equipamento não informada')
+  // 6. Atributos obrigatórios da categoria (se fornecidos pelo cache)
+  const catAttrs = options?.categoryAttributes || []
+  if (catAttrs.length > 0) {
+    const rawBrand = (product.brand || '').trim()
+    const rawModel = (product.model || '').trim()
+    const rawProc = (product.processor || '').trim()
+    const rawRam = (product.ram || '').trim()
+    const rawStorage = (product.storage || '').trim()
+    const rawScreen = (product.screen_size || '').trim()
+    const rawName = (product.name || '').trim()
+
+    // Friendly labels para atributos comuns
+    const attrLabels: Record<string, string> = {
+      BRAND: 'Marca (BRAND)',
+      MODEL: 'Modelo (MODEL)',
+      LINE: 'Linha/Família (LINE)',
+      PROCESSOR_BRAND: 'Marca do Processador',
+      PROCESSOR_LINE: 'Linha do Processador',
+      PROCESSOR_MODEL: 'Modelo do Processador',
+      RAM: 'Memória RAM',
+      RAM_MEMORY_MODULE_TOTAL_CAPACITY: 'Capacidade total da memória RAM',
+      SSD_DATA_STORAGE_CAPACITY: 'Capacidade do SSD',
+      HARD_DRIVE_DATA_STORAGE_CAPACITY: 'Capacidade do HD',
+      DISPLAY_SIZE: 'Tamanho da tela (ex: 15.6")',
+      SCREEN_SIZE: 'Tamanho da tela',
+      GRADING: 'Grau do recondicionado',
+      ITEM_GRADE: 'Grau do estado',
+    }
+
+    for (const attr of catAttrs) {
+      const tags = attr.tags || {}
+      if (tags.read_only === true || tags.hidden === true) continue
+
+      const isRequired =
+        tags.required === true ||
+        tags.catalog_required === true ||
+        (tags.conditional_required === true &&
+          (resolvedType === 'recondicionado' || resolvedType === 'refurbished') &&
+          attr.id === 'GRADING')
+
+      if (isRequired) {
+        let isPresent = false
+
+        if (attr.id === 'BRAND') {
+          isPresent = Boolean(
+            rawBrand || /lenovo|dell|hp|apple|acer|asus|samsung|positivo/i.test(rawName),
+          )
+        } else if (attr.id === 'MODEL') {
+          isPresent = Boolean(rawModel || rawName)
+        } else if (attr.id === 'LINE') {
+          isPresent = Boolean(rawModel || rawBrand || rawName)
+        } else if (attr.id === 'PROCESSOR_BRAND' || attr.id === 'PROCESSOR_LINE') {
+          isPresent = Boolean(
+            rawProc || /intel|amd|ryzen|core|i3|i5|i7|i9|celeron|m1|m2|m3/i.test(rawName),
+          )
+        } else if (attr.id === 'PROCESSOR_MODEL') {
+          isPresent = Boolean(rawProc || rawName)
+        } else if (attr.id === 'RAM' || attr.id === 'RAM_MEMORY_MODULE_TOTAL_CAPACITY') {
+          isPresent = Boolean(rawRam || /\d+\s*GB/i.test(rawName))
+        } else if (attr.id === 'DISPLAY_SIZE' || attr.id === 'SCREEN_SIZE') {
+          isPresent = Boolean(rawScreen || /\d{2}(?:\.\d)?\s*["”']/i.test(rawName))
+        } else if (attr.id === 'GRADING' || attr.id === 'ITEM_GRADE') {
+          isPresent = Boolean(resolvedGrade)
+        } else {
+          // Atributo genérico não mapeado: checar se há dados
+          isPresent = true
+        }
+
+        if (!isPresent) {
+          const label = attrLabels[attr.id] || attr.name || attr.id
+          reasons.push(`Atributo obrigatório ausente: ${label}`)
+        }
+      }
+    }
+  } else {
+    // Validação básica se não houver cache carregado no momento
+    if (!product.brand?.trim() && !product.name?.trim()) {
+      reasons.push('Marca do equipamento não informada')
+    }
+    if (!product.model?.trim() && !product.name?.trim()) {
+      reasons.push('Modelo do equipamento não informado')
+    }
   }
 
   return {
@@ -394,6 +624,41 @@ async function getSettingsRecord() {
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 export const mlService = {
+  /**
+   * Consulta atributos da categoria no Mercado Livre com cache no backend (>24h).
+   * Usa o endpoint local /api/ml/category-attributes/:id ou fallback para a coleção ml_category_cache.
+   */
+  async getCategoryAttributes(categoryId: string = 'MLB1652'): Promise<MLCategoryAttribute[]> {
+    const cleanId = (categoryId || 'MLB1652').trim()
+
+    // 1. Tenta chamar o endpoint de cache do backend
+    try {
+      const res = await pb.send(`/api/ml/category-attributes/${encodeURIComponent(cleanId)}`, {
+        method: 'GET',
+      })
+      if (res && Array.isArray(res.attributes) && res.attributes.length > 0) {
+        return res.attributes
+      }
+    } catch (_) {
+      // Falha de rede ou endpoint, tentar consulta direta na coleção PocketBase
+    }
+
+    // 2. Consulta direta na coleção ml_category_cache se o endpoint falhou
+    try {
+      const list = await pb.collection('ml_category_cache').getList(1, 1, {
+        filter: `category_id = "${cleanId}"`,
+        sort: '-cached_at',
+      })
+      if (list.items.length > 0 && Array.isArray(list.items[0].attributes)) {
+        return list.items[0].attributes
+      }
+    } catch {
+      /* intentionally ignored */
+    }
+
+    return []
+  },
+
   /**
    * Consulta status da conexão e configuração do Mercado Livre lendo a coleção ml_settings
    */
@@ -579,6 +844,12 @@ export const mlService = {
       throw new Error('ID do produto é obrigatório para publicar.')
     }
 
+    // Truncar o título explicitamente para segurança máxima de 60 chars
+    const safeTitle = (payload.title || '').trim().slice(0, 60)
+    if (!safeTitle) {
+      throw new Error('Título do anúncio não pode estar vazio.')
+    }
+
     if (onProgress) {
       onProgress('Adicionando à fila de publicação...')
     }
@@ -587,7 +858,7 @@ export const mlService = {
       product: payload.product_id,
       status: 'pending',
       payload: {
-        title: payload.title,
+        title: safeTitle,
         price: payload.price,
         category_id: payload.category_id || 'MLB1652',
         description: payload.description,
