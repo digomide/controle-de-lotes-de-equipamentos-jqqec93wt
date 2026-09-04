@@ -907,6 +907,8 @@ export default function LoteEntradaDetalhe() {
                           <div>{p.processor || 'Não inf.'}</div>
                           <div className="text-slate-400">
                             {p.ram || '8GB'} • {p.storage || 'SSD 256GB'}
+                            {p.screen_size ? ` • ${p.screen_size}` : ''}
+                            {p.has_numeric_keypad ? ' • Tecl. Num.' : ''}
                           </div>
                         </td>
 

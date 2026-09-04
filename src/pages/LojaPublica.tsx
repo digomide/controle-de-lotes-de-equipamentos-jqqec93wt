@@ -8,6 +8,8 @@ import {
   Cpu,
   CircuitBoard,
   HardDrive,
+  Monitor,
+  Keyboard,
   Eye,
   MessageSquare,
   CheckCircle2,
@@ -583,6 +585,29 @@ export default function LojaPublica() {
                                   <HardDrive className="w-3.5 h-3.5 text-slate-500" /> Armazenamento
                                 </span>
                                 <span className="font-semibold text-slate-800">{p.storage}</span>
+                              </div>
+                            )}
+
+                            {p.screen_size && (
+                              <div className="flex items-center justify-between">
+                                <span className="text-slate-400 flex items-center gap-1.5">
+                                  <Monitor className="w-3.5 h-3.5 text-slate-500" /> Tela
+                                </span>
+                                <span className="font-semibold text-slate-800">
+                                  {p.screen_size}
+                                </span>
+                              </div>
+                            )}
+
+                            {p.has_numeric_keypad !== undefined && (
+                              <div className="flex items-center justify-between">
+                                <span className="text-slate-400 flex items-center gap-1.5">
+                                  <Keyboard className="w-3.5 h-3.5 text-slate-500" /> Teclado
+                                  numérico
+                                </span>
+                                <span className="font-semibold text-slate-800">
+                                  {p.has_numeric_keypad ? 'Sim' : 'Não'}
+                                </span>
                               </div>
                             )}
                           </div>

@@ -184,6 +184,7 @@ export function CloneEquipmentModal({
           aesthetic_grade: product.aesthetic_grade || 'A - Excelente',
           battery_health: product.battery_health || '100%',
           screen_size: product.screen_size,
+          has_numeric_keypad: product.has_numeric_keypad,
           includes_charger: product.includes_charger,
           bench_notes: product.bench_notes,
           description: product.description,

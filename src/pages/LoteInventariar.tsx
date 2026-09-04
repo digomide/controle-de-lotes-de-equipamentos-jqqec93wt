@@ -76,6 +76,8 @@ export default function LoteInventariar() {
   const [processor, setProcessor] = useState('Core i5 8ª ger')
   const [ram, setRam] = useState('8GB DDR4')
   const [storage, setStorage] = useState('SSD 256GB')
+  const [screenSize, setScreenSize] = useState('14"')
+  const [hasNumericKeypad, setHasNumericKeypad] = useState<boolean>(false)
   const [batteryHealth, setBatteryHealth] = useState('Boa (85%)')
   const [aestheticGrade, setAestheticGrade] = useState('B - Bom')
   const [includesCharger, setIncludesCharger] = useState(true)
@@ -252,6 +254,8 @@ export default function LoteInventariar() {
       formData.append('processor', processor)
       formData.append('ram', ram)
       formData.append('storage', storage)
+      formData.append('screen_size', screenSize)
+      formData.append('has_numeric_keypad', String(hasNumericKeypad))
       formData.append('battery_health', batteryHealth)
       formData.append('aesthetic_grade', aestheticGrade)
       formData.append('condition', condition)
@@ -536,6 +540,42 @@ export default function LoteInventariar() {
                   onChange={(e) => setStorage(e.target.value)}
                   className="bg-white border-slate-300 text-sm h-10 mt-1"
                 />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="screen" className="text-xs font-semibold text-slate-700">
+                  Tamanho da Tela
+                </Label>
+                <Input
+                  id="screen"
+                  placeholder='14", 15.6"'
+                  value={screenSize}
+                  onChange={(e) => setScreenSize(e.target.value)}
+                  className="bg-white border-slate-300 text-sm h-10 mt-1"
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="numericKeypad" className="text-xs font-semibold text-slate-700">
+                  Teclado Numérico
+                </Label>
+                <Select
+                  value={hasNumericKeypad ? 'sim' : 'nao'}
+                  onValueChange={(v) => setHasNumericKeypad(v === 'sim')}
+                >
+                  <SelectTrigger
+                    id="numericKeypad"
+                    className="bg-white border-slate-300 text-sm h-10 mt-1"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="sim">Sim (Possui teclado numérico)</SelectItem>
+                    <SelectItem value="nao">Não (Sem teclado numérico)</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 

@@ -55,6 +55,7 @@ export interface Product extends RecordModel {
   aesthetic_grade?: string
   battery_health?: string
   screen_size?: string
+  has_numeric_keypad?: boolean
   status?: ProductStatus
   images?: string[]
   photos?: string[]

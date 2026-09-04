@@ -14,6 +14,8 @@ import {
   Cpu,
   HardDrive,
   CircuitBoard,
+  Monitor,
+  Keyboard,
   Sparkles,
   ExternalLink,
   ChevronRight,
@@ -90,6 +92,7 @@ export default function Catalogo() {
   const [aestheticGrade, setAestheticGrade] = useState('A - Excelente')
   const [batteryHealth, setBatteryHealth] = useState('100%')
   const [screenSize, setScreenSize] = useState('14"')
+  const [hasNumericKeypad, setHasNumericKeypad] = useState<boolean>(false)
   const [unitPrice, setUnitPrice] = useState<number>(0)
   const [costPrice, setCostPrice] = useState<number>(0)
   const [status, setStatus] = useState<ProductStatus>('Disponível')
@@ -235,6 +238,7 @@ export default function Catalogo() {
     setAestheticGrade('A - Excelente')
     setBatteryHealth('100%')
     setScreenSize('14"')
+    setHasNumericKeypad(false)
     setUnitPrice(2500)
     setCostPrice(1500)
     setStatus('Disponível')
@@ -258,6 +262,7 @@ export default function Catalogo() {
     setAestheticGrade(p.aesthetic_grade || 'A - Excelente')
     setBatteryHealth(p.battery_health || '')
     setScreenSize(p.screen_size || '')
+    setHasNumericKeypad(Boolean(p.has_numeric_keypad))
     setUnitPrice(Number(p.unit_price) || 0)
     setCostPrice(Number(p.cost_price) || 0)
     setStatus(p.status || 'Disponível')
@@ -298,6 +303,7 @@ export default function Catalogo() {
         aesthetic_grade: aestheticGrade,
         battery_health: batteryHealth,
         screen_size: screenSize,
+        has_numeric_keypad: hasNumericKeypad,
         unit_price: Number(unitPrice) || 0,
         cost_price: Number(costPrice) || 0,
         status,
@@ -768,6 +774,24 @@ export default function Catalogo() {
                             <span className="font-medium text-slate-800">{p.storage}</span>
                           </div>
                         )}
+                        {p.screen_size && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-400 flex items-center gap-1.5">
+                              <Monitor className="w-3.5 h-3.5 text-slate-500" /> Tela
+                            </span>
+                            <span className="font-medium text-slate-800">{p.screen_size}</span>
+                          </div>
+                        )}
+                        {p.has_numeric_keypad !== undefined && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-400 flex items-center gap-1.5">
+                              <Keyboard className="w-3.5 h-3.5 text-slate-500" /> Teclado numérico
+                            </span>
+                            <span className="font-medium text-slate-800">
+                              {p.has_numeric_keypad ? 'Sim' : 'Não'}
+                            </span>
+                          </div>
+                        )}
                       </div>
 
                       {/* Financial control: Custo x Venda x Margem (visível para Admin) */}
@@ -1229,6 +1253,22 @@ export default function Catalogo() {
                   value={screenSize}
                   onChange={(e) => setScreenSize(e.target.value)}
                 />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-slate-700">Teclado Numérico</Label>
+                <Select
+                  value={hasNumericKeypad ? 'sim' : 'nao'}
+                  onValueChange={(v) => setHasNumericKeypad(v === 'sim')}
+                >
+                  <SelectTrigger className="h-10 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="sim">Sim (Possui teclado numérico)</SelectItem>
+                    <SelectItem value="nao">Não (Sem teclado numérico)</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="space-y-1">

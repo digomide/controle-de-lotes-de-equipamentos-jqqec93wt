@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-04T02:21:32.795Z",
+  "generatedAt": "2026-09-04T10:45:07.251Z",
   "collections": [
     {
       "name": "users",
@@ -225,6 +225,12 @@
         {
           "name": "bench_notes",
           "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "has_numeric_keypad",
+          "type": "bool",
           "required": false,
           "system": false
         }

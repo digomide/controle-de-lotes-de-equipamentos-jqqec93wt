@@ -527,6 +527,15 @@ export default function LojaDetalhe() {
 
                       <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
                         <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-bold">
+                          Teclado Numérico
+                        </span>
+                        <span className="font-semibold text-slate-800 block mt-0.5">
+                          {product.has_numeric_keypad ? 'Sim (Possui teclado numérico)' : 'Não'}
+                        </span>
+                      </div>
+
+                      <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                        <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-bold">
                           Carregador
                         </span>
                         <span className="font-semibold text-slate-800 block mt-0.5">
