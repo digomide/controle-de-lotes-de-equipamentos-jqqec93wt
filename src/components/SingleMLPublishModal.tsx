@@ -218,7 +218,11 @@ export function SingleMLPublishModal({
       return
     }
 
-    const cleanTitle = title.trim().slice(0, 60)
+    const cleanTitle = title
+      .replace(/[\r\n\t]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 60)
 
     setPublishing(true)
     setPublishProgress('Enviando anúncio para processamento no servidor...')

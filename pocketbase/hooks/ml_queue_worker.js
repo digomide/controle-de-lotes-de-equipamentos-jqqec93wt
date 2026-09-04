@@ -228,7 +228,22 @@ cronAdd('ml_queue_worker', '@every 15s', () => {
       }
 
       const payload = pubItem.get('payload') || {}
-      const title = (payload.title || product.getString('name') || '').trim().slice(0, 60)
+      // Sanitizar título: remover quebras de linha e espaços repetidos, limitar rigorosamente a 60 caracteres
+      const rawTitleInput = (payload.title || product.getString('name') || '').toString()
+      const cleanTitleOneLine = rawTitleInput
+        .replace(/[\r\n\t]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+      const title = cleanTitleOneLine.slice(0, 60).trim()
+      console.log(
+        '[ml_cron] Título a enviar (len: ' +
+          title.length +
+          '): "' +
+          title +
+          '" | Origem: ' +
+          (payload.title ? 'payload.title' : 'product.name'),
+      )
+
       const price =
         !isNaN(Number(payload.price)) && Number(payload.price) > 0
           ? Number(payload.price)
@@ -714,7 +729,6 @@ cronAdd('ml_queue_worker', '@every 15s', () => {
         condition: mlCondition,
         pictures: pictureObjects,
         channels: ['marketplace'],
-        family_name: familyVal || title.slice(0, 60),
         attributes: itemAttributes,
       }
 
@@ -810,10 +824,21 @@ cronAdd('ml_queue_worker', '@every 15s', () => {
 
         if (
           rawErrorJsonStr.includes('The fields [title] are invalid') ||
-          rawErrorJsonStr.includes('[title] are invalid') ||
-          (errJson.error && String(errJson.error).includes('[title]'))
+          rawErrorJsonStr.includes('[title] are invalid')
         ) {
-          detailedMsg = 'Título excede o limite de 60 caracteres — edite o título acima'
+          if (title.length > 60) {
+            detailedMsg =
+              'Título excede o limite de 60 caracteres (atual: ' +
+              title.length +
+              ') — edite o título acima'
+          } else {
+            detailedMsg =
+              'O Mercado Livre rejeitou o título "' +
+              title +
+              '" (' +
+              title.length +
+              ' caracteres). Verifique se o formato atende às regras da categoria ou edite o título.'
+          }
         } else if (errJson.cause && Array.isArray(errJson.cause) && errJson.cause.length > 0) {
           const causes = errJson.cause
             .map((c) => {

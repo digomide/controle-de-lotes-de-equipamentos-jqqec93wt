@@ -103,16 +103,11 @@ export function translateMLErrorMessage(rawError: string): string {
     rawError.includes('title: invalid') ||
     rawError.includes('title is invalid')
   ) {
-    return 'Título excede o limite de 60 caracteres — edite o título acima para no máximo 60 caracteres.'
+    return 'O Mercado Livre rejeitou o título do anúncio. Verifique se o título atende às políticas da categoria (máximo 60 caracteres, sem quebras de linha ou caracteres especiais).'
   }
 
   // Tratamento específico de body.invalid_fields
   if (rawError.includes('body.invalid_fields')) {
-    // Checar se o erro específico foi no título
-    if (rawError.toLowerCase().includes('title')) {
-      return 'Título excede o limite de 60 caracteres — edite o título acima para no máximo 60 caracteres.'
-    }
-
     // Se vier com cause ou detalhes listados
     if (
       rawError.includes('Detalhes:') ||
@@ -122,8 +117,11 @@ export function translateMLErrorMessage(rawError: string): string {
       const parts = rawError.split(/Detalhes:\s*|—\s*|Resposta:\s*/)
       const detailStr = parts[1] || ''
 
-      if (detailStr.toLowerCase().includes('title')) {
-        return 'Título excede o limite de 60 caracteres — edite o título acima para no máximo 60 caracteres.'
+      if (
+        detailStr.includes('The fields [title] are invalid') ||
+        detailStr.includes('[title] are invalid')
+      ) {
+        return 'O Mercado Livre rejeitou o título do anúncio. Verifique se o título atende às políticas da categoria (máximo 60 caracteres, sem quebras de linha ou caracteres especiais).'
       }
 
       if (detailStr) {
@@ -144,6 +142,11 @@ export function translateMLErrorMessage(rawError: string): string {
         }
       }
     }
+
+    if (rawError.toLowerCase().includes('title')) {
+      return 'O Mercado Livre rejeitou o título do anúncio. Verifique se o título atende às regras da categoria (máximo 60 caracteres).'
+    }
+
     return 'O Mercado Livre rejeitou campos do anúncio (body.invalid_fields). Verifique se todos os atributos como Marca, Modelo, Processador, Memória e Grau de estado estão preenchidos corretamente.'
   }
 
@@ -844,8 +847,13 @@ export const mlService = {
       throw new Error('ID do produto é obrigatório para publicar.')
     }
 
-    // Truncar o título explicitamente para segurança máxima de 60 chars
-    const safeTitle = (payload.title || '').trim().slice(0, 60)
+    // Truncar e normalizar o título explicitamente para segurança máxima de 60 chars
+    const cleanTitleInput = (payload.title || '')
+      .toString()
+      .replace(/[\r\n\t]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+    const safeTitle = cleanTitleInput.slice(0, 60).trim()
     if (!safeTitle) {
       throw new Error('Título do anúncio não pode estar vazio.')
     }

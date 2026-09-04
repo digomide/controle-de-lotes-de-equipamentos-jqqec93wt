@@ -290,18 +290,21 @@ export function BatchMLPublishModal({
           conditionGrade: it.conditionGrade,
         })
 
-        const safeTitle = it.title.trim().slice(0, 60)
+        const safeTitle = it.title
+          .replace(/[\r\n\t]+/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 60)
         const res = await mlService.publish({
           product_id: it.product.id,
           title: safeTitle,
           price: it.price,
           category_id: it.categoryId,
-          condition_type: it.conditionType,
-          condition_grade: it.conditionGrade,
           description: desc,
           pictures: pictures,
+          condition_type: it.conditionType,
+          condition_grade: it.conditionGrade,
         })
-
         if (res.success) {
           setItems((prev) => {
             const copy = [...prev]
