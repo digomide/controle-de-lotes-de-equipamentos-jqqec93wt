@@ -159,10 +159,26 @@ export function BatchMLPublishModal({
       } else if (opt?.requiresGrade && !current.conditionGrade) {
         newGrade = 'excelente'
       }
+
+      const isGradeMissing = Boolean(opt?.requiresGrade && !newGrade)
+      const validation = validateProductForML(current.product)
+      const baseReasons = validation.reasons.filter((r) => !r.includes('grau'))
+      if (isGradeMissing) {
+        baseReasons.push('Recondicionados exigem grau de estado (Excelente, Bom ou Aceitável)')
+      }
+
+      const updatedTitle = generateMLTitle(current.product, {
+        conditionType: val,
+        conditionGrade: newGrade,
+      })
+
       copy[index] = {
         ...current,
         conditionType: val,
         conditionGrade: newGrade,
+        title: updatedTitle,
+        eligible: validation.eligible && !isGradeMissing,
+        reasons: baseReasons,
       }
       return copy
     })
@@ -171,9 +187,26 @@ export function BatchMLPublishModal({
   const handleUpdateItemConditionGrade = (index: number, val?: ConditionGrade) => {
     setItems((prev) => {
       const copy = [...prev]
+      const current = copy[index]
+      const typeOpt = CONDITION_TYPE_OPTIONS.find((t) => t.value === current.conditionType)
+      const isGradeMissing = Boolean(typeOpt?.requiresGrade && !val)
+      const validation = validateProductForML(current.product)
+      const baseReasons = validation.reasons.filter((r) => !r.includes('grau'))
+      if (isGradeMissing) {
+        baseReasons.push('Recondicionados exigem grau de estado (Excelente, Bom ou Aceitável)')
+      }
+
+      const updatedTitle = generateMLTitle(current.product, {
+        conditionType: current.conditionType,
+        conditionGrade: val,
+      })
+
       copy[index] = {
         ...copy[index],
         conditionGrade: val,
+        title: updatedTitle,
+        eligible: validation.eligible && !isGradeMissing,
+        reasons: baseReasons,
       }
       return copy
     })

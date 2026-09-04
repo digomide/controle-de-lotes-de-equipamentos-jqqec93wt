@@ -331,6 +331,9 @@ cronAdd('ml_queue_worker', '@every 15s', () => {
       for (let m = 0; m < categoryAttributesMeta.length; m++) {
         const attrDef = categoryAttributesMeta[m] || {}
         const tags = attrDef.tags || {}
+        if (tags.read_only === true || tags.hidden === true) {
+          continue
+        }
         const isRequired =
           tags.required === true ||
           tags.catalog_required === true ||
@@ -471,25 +474,68 @@ cronAdd('ml_queue_worker', '@every 15s', () => {
       if (procLine) setAttr('PROCESSOR_LINE', procLine)
       if (procModel) setAttr('PROCESSOR_MODEL', procModel)
 
+      // RAM - enviar variações e capacidades
       if (pRam) {
         const ramMatch = pRam.match(/(\d+)\s*GB/i)
         if (ramMatch) {
-          setAttr('RAM_MEMORY_MODULE_TOTAL_CAPACITY', ramMatch[1] + ' GB')
-          setAttr('RAM', ramMatch[1] + ' GB')
+          const ramFormatted = ramMatch[1] + ' GB'
+          setAttr('RAM_MEMORY_MODULE_TOTAL_CAPACITY', ramFormatted)
+          setAttr('RAM', ramFormatted)
+          setAttr('INTERNAL_MEMORY', ramFormatted)
         } else {
           setAttr('RAM', pRam)
+          setAttr('INTERNAL_MEMORY', pRam)
+          setAttr('RAM_MEMORY_MODULE_TOTAL_CAPACITY', pRam)
         }
       }
 
+      // Storage / SSD / HD
       if (pStorage) {
+        const storageUpper = pStorage.toUpperCase()
         const ssdMatch = pStorage.match(/(\d+)\s*(GB|TB)/i)
         if (ssdMatch) {
-          setAttr('SSD_DATA_STORAGE_CAPACITY', ssdMatch[1] + ' ' + ssdMatch[2].toUpperCase())
+          const formattedStorage = ssdMatch[1] + ' ' + ssdMatch[2].toUpperCase()
+          if (storageUpper.includes('HD') && !storageUpper.includes('SSD')) {
+            setAttr('HARD_DRIVE_DATA_STORAGE_CAPACITY', formattedStorage)
+            setAttr('STORAGE_CAPACITY', formattedStorage)
+            setAttr('STORAGE_TYPE', 'HD')
+          } else {
+            setAttr('SSD_DATA_STORAGE_CAPACITY', formattedStorage)
+            setAttr('STORAGE_CAPACITY', formattedStorage)
+            setAttr('STORAGE_TYPE', 'SSD')
+          }
         }
       }
 
-      if (pScreen) {
-        setAttr('SCREEN_SIZE', pScreen)
+      // Tela (DISPLAY_SIZE e SCREEN_SIZE com fallback no título / nome)
+      // Formato aceito pelo ML: '15.6 "' ou '14 "' ou '13.3 "'
+      let normalizedScreen = ''
+      let rawScreenCandidate = pScreen
+      if (!rawScreenCandidate) {
+        // Fallback: extrair tamanho de tela do título ou nome do equipamento
+        const screenMatch = (title + ' ' + pName).match(
+          /(\d{2}(?:\.\d)?)\s*(?:["”']|pol|polegadas)?/i,
+        )
+        if (screenMatch && screenMatch[1]) {
+          const numVal = parseFloat(screenMatch[1])
+          if (numVal >= 10 && numVal <= 21) {
+            rawScreenCandidate = screenMatch[1]
+          }
+        }
+      }
+
+      if (rawScreenCandidate) {
+        const numOnly = rawScreenCandidate.replace(/[^0-9.]/g, '')
+        if (numOnly) {
+          normalizedScreen = numOnly + ' "'
+        } else {
+          normalizedScreen = rawScreenCandidate
+        }
+      }
+
+      if (normalizedScreen) {
+        setAttr('DISPLAY_SIZE', normalizedScreen)
+        setAttr('SCREEN_SIZE', normalizedScreen)
       }
 
       if (product.getBool('has_numeric_keypad') !== undefined) {
@@ -510,11 +556,40 @@ cronAdd('ml_queue_worker', '@every 15s', () => {
         PROCESSOR_LINE: 'Linha do Processador',
         PROCESSOR_MODEL: 'Modelo do Processador',
         RAM: 'Memória RAM',
+        RAM_MEMORY_MODULE_TOTAL_CAPACITY: 'Memória RAM',
+        DISPLAY_SIZE: 'Tamanho da tela (DISPLAY_SIZE)',
+        SCREEN_SIZE: 'Tamanho da tela (SCREEN_SIZE)',
         family_name: 'Família do Produto (family_name)',
+        GRADING: 'Grau do recondicionado (GRADING)',
+        ITEM_GRADE: 'Grau do recondicionado (ITEM_GRADE)',
       }
 
       for (const reqId in requiredAttrMap) {
-        if (!attributesMap[reqId]) {
+        let isSatisfied = Boolean(attributesMap[reqId])
+        if (!isSatisfied) {
+          if (
+            (reqId === 'DISPLAY_SIZE' || reqId === 'SCREEN_SIZE') &&
+            (attributesMap['DISPLAY_SIZE'] || attributesMap['SCREEN_SIZE'])
+          ) {
+            isSatisfied = true
+          } else if (
+            (reqId === 'RAM' ||
+              reqId === 'RAM_MEMORY_MODULE_TOTAL_CAPACITY' ||
+              reqId === 'INTERNAL_MEMORY') &&
+            (attributesMap['RAM'] ||
+              attributesMap['RAM_MEMORY_MODULE_TOTAL_CAPACITY'] ||
+              attributesMap['INTERNAL_MEMORY'])
+          ) {
+            isSatisfied = true
+          } else if (
+            (reqId === 'LINE' || reqId === 'FAMILY_NAME') &&
+            (attributesMap['LINE'] || attributesMap['FAMILY_NAME'])
+          ) {
+            isSatisfied = true
+          }
+        }
+
+        if (!isSatisfied) {
           const def = requiredAttrMap[reqId]
           const label = friendlyNames[reqId] || def.name || reqId
           missingAttrs.push(label)
@@ -635,7 +710,35 @@ cronAdd('ml_queue_worker', '@every 15s', () => {
       const permalink = createdItem.permalink || ''
       const itemStatus = createdItem.status || 'active'
 
-      if (itemId && customDescription) {
+      // Sanitizar descrição para remover qualquer dado de contato, telefone, WhatsApp, nome da loja, slogan, localização e procedência
+      let sanitizedDescription = customDescription || ''
+      if (sanitizedDescription) {
+        sanitizedDescription = sanitizedDescription
+          .replace(/\(?(?:0?[1-9]{2}\)?\s*)?(?:9\s*)?\d{4}[-\s]?\d{4}/g, '')
+          .replace(/[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+/g, '')
+          .replace(/wa\.me\/[0-9]+/gi, '')
+          .replace(/https?:\/\/[^\s]+/gi, '')
+          .replace(/\b(?:whatsapp|zap|wpp|telefone|celular|contato|fone)\b[^\n]*/gi, '')
+          .replace(/\bAMbicorpFlow\b/gi, '')
+          .replace(/\bAMbicorp\b/gi, '')
+          .replace(/segunda\s*a\s*sexta[^\n]*/gi, '')
+          .replace(/atendimento[^\n]*/gi, '')
+          .replace(/belo\s*horizonte(?:(?:\s*-\s*|\s*\/|\s*)mg)?/gi, '')
+          .replace(/lote[s]?\s*(?:de\s*)?origem[^\n]*/gi, '')
+          .replace(/proced[êe]ncia[^\n]*/gi, '')
+          .replace(/origem\s*corporativa[^\n]*/gi, '')
+          .replace(/leil[ãa]o[^\n]*/gi, '')
+          .split('\n')
+          .map((l) => l.trim())
+          .filter((l, idx, arr) => {
+            if (l === '' && idx > 0 && arr[idx - 1] === '') return false
+            return true
+          })
+          .join('\n')
+          .trim()
+      }
+
+      if (itemId && sanitizedDescription) {
         try {
           $http.send({
             url: 'https://api.mercadolibre.com/items/' + itemId + '/description',
@@ -644,7 +747,7 @@ cronAdd('ml_queue_worker', '@every 15s', () => {
               Authorization: 'Bearer ' + accessToken,
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ plain_text: customDescription }),
+            body: JSON.stringify({ plain_text: sanitizedDescription }),
             timeout: 20,
           })
         } catch (dErr) {
