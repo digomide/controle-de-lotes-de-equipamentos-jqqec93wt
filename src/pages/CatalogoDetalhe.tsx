@@ -156,6 +156,7 @@ export default function CatalogoDetalhe() {
   const [editBatteryHealth, setEditBatteryHealth] = useState('100%')
   const [editScreenSize, setEditScreenSize] = useState('14"')
   const [editHasNumericKeypad, setEditHasNumericKeypad] = useState<boolean>(false)
+  const [editIncludesCharger, setEditIncludesCharger] = useState<boolean>(true)
   const [editUnitPrice, setEditUnitPrice] = useState<number>(0)
   const [editCostPrice, setEditCostPrice] = useState<number>(0)
   const [editStatus, setEditStatus] = useState<ProductStatus>('Disponível')
@@ -333,6 +334,7 @@ export default function CatalogoDetalhe() {
     setEditBatteryHealth(product.battery_health || '100%')
     setEditScreenSize(product.screen_size || '14"')
     setEditHasNumericKeypad(Boolean(product.has_numeric_keypad))
+    setEditIncludesCharger(Boolean(product.includes_charger))
     setEditUnitPrice(Number(product.unit_price) || 0)
     setEditCostPrice(Number(product.cost_price) || 0)
     setEditStatus(product.status || 'Disponível')
@@ -375,6 +377,7 @@ export default function CatalogoDetalhe() {
         battery_health: editBatteryHealth,
         screen_size: editScreenSize,
         has_numeric_keypad: editHasNumericKeypad,
+        includes_charger: editIncludesCharger,
         unit_price: Number(editUnitPrice) || 0,
         cost_price: Number(editCostPrice) || 0,
         status: editStatus,
@@ -2485,6 +2488,22 @@ export default function CatalogoDetalhe() {
                   <SelectContent>
                     <SelectItem value="sim">Sim (Possui teclado numérico)</SelectItem>
                     <SelectItem value="nao">Não (Sem teclado numérico)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-slate-700">Acompanha carregador</Label>
+                <Select
+                  value={editIncludesCharger ? 'sim' : 'nao'}
+                  onValueChange={(v) => setEditIncludesCharger(v === 'sim')}
+                >
+                  <SelectTrigger className="h-10 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="sim">Sim (Acompanha)</SelectItem>
+                    <SelectItem value="nao">Não acompanha</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

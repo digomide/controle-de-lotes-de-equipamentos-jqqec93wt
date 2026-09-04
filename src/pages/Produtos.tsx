@@ -108,6 +108,7 @@ export default function Catalogo() {
   const [batteryHealth, setBatteryHealth] = useState('100%')
   const [screenSize, setScreenSize] = useState('14"')
   const [hasNumericKeypad, setHasNumericKeypad] = useState<boolean>(false)
+  const [includesCharger, setIncludesCharger] = useState<boolean>(true)
   const [unitPrice, setUnitPrice] = useState<number>(0)
   const [costPrice, setCostPrice] = useState<number>(0)
   const [status, setStatus] = useState<ProductStatus>('Disponível')
@@ -269,6 +270,7 @@ export default function Catalogo() {
     setBatteryHealth('100%')
     setScreenSize('14"')
     setHasNumericKeypad(false)
+    setIncludesCharger(true)
     setUnitPrice(2500)
     setCostPrice(1500)
     setStatus('Disponível')
@@ -298,6 +300,7 @@ export default function Catalogo() {
     setBatteryHealth(p.battery_health || '')
     setScreenSize(p.screen_size || '')
     setHasNumericKeypad(Boolean(p.has_numeric_keypad))
+    setIncludesCharger(p.includes_charger !== undefined ? Boolean(p.includes_charger) : true)
     setUnitPrice(Number(p.unit_price) || 0)
     setCostPrice(Number(p.cost_price) || 0)
     setStatus(p.status || 'Disponível')
@@ -341,6 +344,7 @@ export default function Catalogo() {
         battery_health: batteryHealth,
         screen_size: screenSize,
         has_numeric_keypad: hasNumericKeypad,
+        includes_charger: includesCharger,
         unit_price: Number(unitPrice) || 0,
         cost_price: Number(costPrice) || 0,
         status,
@@ -1375,6 +1379,22 @@ export default function Catalogo() {
                   <SelectContent>
                     <SelectItem value="sim">Sim (Possui teclado numérico)</SelectItem>
                     <SelectItem value="nao">Não (Sem teclado numérico)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-slate-700">Acompanha carregador</Label>
+                <Select
+                  value={includesCharger ? 'sim' : 'nao'}
+                  onValueChange={(v) => setIncludesCharger(v === 'sim')}
+                >
+                  <SelectTrigger className="h-10 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="sim">Sim (Acompanha)</SelectItem>
+                    <SelectItem value="nao">Não acompanha</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
