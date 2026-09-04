@@ -35,6 +35,7 @@ export function MercadoLivreConfigCard() {
   const [clientSecret, setClientSecret] = useState('')
   const [redirectUri, setRedirectUri] = useState('')
   const [showInstructions, setShowInstructions] = useState(false)
+  const [authErrorDetails, setAuthErrorDetails] = useState<string | null>(null)
 
   const defaultRedirect = getDefaultMLRedirectUri()
 
@@ -52,36 +53,76 @@ export function MercadoLivreConfigCard() {
   }
 
   useEffect(() => {
-    loadStatus()
+    const init = async () => {
+      // 1. Carrega dados salvos primeiro para ter certeza do redirect_uri correto salvo no banco
+      let currentRedirect = defaultRedirect
+      try {
+        const data = await mlService.getStatus()
+        setStatus(data)
+        setClientId(data.client_id || '')
+        if (data.redirect_uri) {
+          currentRedirect = data.redirect_uri
+          setRedirectUri(data.redirect_uri)
+        } else {
+          setRedirectUri(defaultRedirect)
+        }
+      } catch (err) {
+        console.error('Erro ao consultar status ML inicial:', err)
+      } finally {
+        setLoading(false)
+      }
 
-    // Verificar se a página recebeu ?code= do callback OAuth do Mercado Livre
-    const urlParams = new URLSearchParams(window.location.search)
-    const authCode = urlParams.get('code')
-    if (authCode) {
-      // Limpar da URL para não reenviar ao atualizar a página
-      const cleanUrl = window.location.pathname
-      window.history.replaceState({}, document.title, cleanUrl)
+      // 2. Verificar se a página recebeu ?code= ou ?error= do callback OAuth do Mercado Livre
+      const urlParams = new URLSearchParams(window.location.search)
+      const authCode = urlParams.get('code')
+      const oauthError = urlParams.get('error')
+      const oauthErrorDescription = urlParams.get('error_description')
 
-      handleExchangeCode(authCode)
+      if (oauthError) {
+        // Limpar URL
+        window.history.replaceState({}, document.title, window.location.pathname)
+        const errMsg = oauthErrorDescription
+          ? `${oauthError}: ${oauthErrorDescription}`
+          : `O Mercado Livre recusou a autorização (${oauthError}).`
+        setAuthErrorDetails(errMsg)
+        toast({
+          title: 'Autorização recusada no Mercado Livre',
+          description: errMsg,
+          variant: 'destructive',
+        })
+        return
+      }
+
+      if (authCode) {
+        // Limpar da URL para não reenviar em F5
+        window.history.replaceState({}, document.title, window.location.pathname)
+        await handleExchangeCode(authCode, currentRedirect)
+      }
     }
+
+    init()
   }, [])
 
-  const handleExchangeCode = async (code: string) => {
+  const handleExchangeCode = async (code: string, explicitRedirect?: string) => {
     setLoading(true)
+    setAuthErrorDetails(null)
     try {
-      const res = await mlService.exchangeAuthCode(code, redirectUri || defaultRedirect)
+      const targetRedirect = explicitRedirect || redirectUri || defaultRedirect
+      const res = await mlService.exchangeAuthCode(code, targetRedirect)
       toast({
-        title: 'Mercado Livre conectado!',
+        title: 'Mercado Livre conectado com sucesso!',
         description: res.nickname
-          ? `Conta vinculada com sucesso como ${res.nickname}.`
+          ? `Conta vinculada como vendedor "${res.nickname}".`
           : 'Conta vinculada com sucesso!',
       })
       await loadStatus()
     } catch (err: any) {
-      console.error('Erro no callback OAuth ML:', err)
+      console.error('Erro detalhado no callback OAuth ML:', err)
+      const message = err?.message || 'Código de autorização inválido ou expirado.'
+      setAuthErrorDetails(message)
       toast({
-        title: 'Falha na autorização do Mercado Livre',
-        description: err?.message || 'Código de autorização inválido ou expirado.',
+        title: 'Falha na conexão com Mercado Livre',
+        description: message,
         variant: 'destructive',
       })
     } finally {
@@ -228,6 +269,36 @@ export function MercadoLivreConfigCard() {
           </div>
         ) : (
           <>
+            {/* Alerta de erro detalhado na conexão OAuth */}
+            {authErrorDetails && (
+              <div className="p-4 bg-rose-50 rounded-xl border border-rose-200 text-xs space-y-2">
+                <div className="flex items-center gap-2 text-rose-800 font-bold">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>Erro ao finalizar autenticação OAuth</span>
+                </div>
+                <p className="text-rose-700 break-words leading-relaxed">{authErrorDetails}</p>
+                <div className="pt-1 flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setAuthErrorDetails(null)}
+                    className="h-7 text-[11px] text-rose-800 border-rose-300 hover:bg-rose-100"
+                  >
+                    Dispensar
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleConnectOAuth}
+                    className="h-7 text-[11px] bg-rose-600 hover:bg-rose-700 text-white font-medium"
+                  >
+                    Tentar autorizar novamente
+                  </Button>
+                </div>
+              </div>
+            )}
+
             {/* Bloco de Status da Conta Conectada */}
             {status?.connected ? (
               <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">

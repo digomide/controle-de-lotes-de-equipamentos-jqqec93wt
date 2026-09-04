@@ -142,12 +142,11 @@ export function generateMLDescription(product: Product): string {
 export function getProductImageUrls(product: Product): string[] {
   const urls: string[] = []
 
-  // 1. Fotos do storage PocketBase (gerar URL absoluta se possível)
+  // 1. Fotos do storage PocketBase (gerar URL absoluta)
   if (product.photos && Array.isArray(product.photos)) {
     for (const file of product.photos) {
       if (file) {
         const fileUrl = pb.files.getURL(product, file)
-        // Se a URL for relativa, converter em absoluta com origin
         if (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) {
           urls.push(fileUrl)
         } else {
@@ -218,371 +217,434 @@ export function buildMLAuthUrl(clientId: string, redirectUri: string): string {
   return `${base}?${params.toString()}`
 }
 
+/**
+ * Helper para obter o registro de configuração do Mercado Livre
+ */
+async function getSettingsRecord() {
+  const list = await pb.collection('ml_settings').getList(1, 1, {
+    sort: '-created',
+  })
+  return list.items.length > 0 ? list.items[0] : null
+}
+
+/**
+ * Helper interno para renovar o access_token se estiver expirado ou perto de expirar (menos de 5 min)
+ */
+async function ensureValidAccessToken(settingsRecord?: any): Promise<string> {
+  const settings = settingsRecord || (await getSettingsRecord())
+  if (!settings) {
+    throw new Error('Configurações do Mercado Livre não encontradas.')
+  }
+
+  const accessToken = settings.access_token || ''
+  const refreshToken = settings.refresh_token || ''
+  const clientId = settings.client_id || ''
+  const clientSecret = settings.client_secret || ''
+
+  if (!accessToken) {
+    throw new Error('Mercado Livre não está conectado. Conecte sua conta em Configurações.')
+  }
+
+  // Verifica se o token expirou ou expira nos próximos 5 minutos
+  let isExpiredOrClose = false
+  if (settings.token_expires_at) {
+    const expTime = new Date(settings.token_expires_at).getTime()
+    if (Date.now() + 5 * 60 * 1000 >= expTime) {
+      isExpiredOrClose = true
+    }
+  }
+
+  if (!isExpiredOrClose) {
+    return accessToken
+  }
+
+  if (!refreshToken || !clientId || !clientSecret) {
+    return accessToken
+  }
+
+  // Tenta renovar via POST https://api.mercadolibre.com/oauth/token com grant_type=refresh_token
+  try {
+    const bodyParams = new URLSearchParams({
+      grant_type: 'refresh_token',
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: refreshToken,
+    })
+
+    const resp = await fetch('https://api.mercadolibre.com/oauth/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Accept: 'application/json',
+      },
+      body: bodyParams.toString(),
+    })
+
+    if (resp.ok) {
+      const data = await resp.json()
+      const newAccess = data.access_token || accessToken
+      const newRefresh = data.refresh_token || refreshToken
+      const expiresIn = Number(data.expires_in) || 21600
+      const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString()
+
+      await pb.collection('ml_settings').update(settings.id, {
+        access_token: newAccess,
+        refresh_token: newRefresh,
+        token_expires_at: expiresAt,
+      })
+
+      return newAccess
+    } else {
+      const errData = await resp.json().catch(() => ({}))
+      console.warn('Falha ao renovar token ML:', resp.status, errData)
+      return accessToken
+    }
+  } catch (refreshErr) {
+    console.warn('Erro de rede ao renovar token ML:', refreshErr)
+    return accessToken
+  }
+}
+
 export const mlService = {
   /**
-   * Consulta status da conexão e configuração do Mercado Livre
+   * Consulta status da conexão e configuração do Mercado Livre direto da coleção ml_settings
    */
   async getStatus(): Promise<MLStatusResponse> {
-    try {
-      return await pb.send<MLStatusResponse>('/api/ml/status', {
-        method: 'GET',
-      })
-    } catch (err: any) {
-      // Fallback direto via coleção ml_settings se a rota customizada retornar 404
-      if (err?.status === 404 || err?.statusCode === 404) {
-        try {
-          const list = await pb.collection('ml_settings').getList(1, 1, {
-            sort: '-created',
-          })
-          if (list.items.length > 0) {
-            const item = list.items[0]
-            const clientId = (item.client_id || '').toString().trim()
-            const accessToken = (item.access_token || '').toString().trim()
-            return {
-              configured: Boolean(clientId),
-              connected: Boolean(accessToken),
-              client_id: clientId,
-              redirect_uri: item.redirect_uri || '',
-              nickname: item.nickname || '',
-              user_id_ml: item.user_id_ml || '',
-              permalink_seller: item.permalink_seller || '',
-            }
-          }
-          return {
-            configured: false,
-            connected: false,
-            client_id: '',
-            redirect_uri: '',
-            nickname: '',
-            user_id_ml: '',
-            permalink_seller: '',
-          }
-        } catch (dbErr) {
-          console.warn('Fallback getStatus ml_settings failed:', dbErr)
-        }
+    const settings = await getSettingsRecord()
+    if (!settings) {
+      return {
+        configured: false,
+        connected: false,
+        client_id: '',
+        redirect_uri: '',
+        nickname: '',
+        user_id_ml: '',
+        permalink_seller: '',
       }
-      throw err
+    }
+
+    const clientId = (settings.client_id || '').toString().trim()
+    const accessToken = (settings.access_token || '').toString().trim()
+
+    return {
+      configured: Boolean(clientId),
+      connected: Boolean(accessToken),
+      client_id: clientId,
+      redirect_uri: settings.redirect_uri || '',
+      nickname: settings.nickname || '',
+      user_id_ml: settings.user_id_ml || '',
+      permalink_seller: settings.permalink_seller || '',
     }
   },
 
   /**
-   * Salva Client ID, Client Secret e Redirect URI
+   * Salva Client ID, Client Secret e Redirect URI diretamente na coleção ml_settings
    */
   async saveConfig(clientId: string, clientSecret: string, redirectUri: string): Promise<any> {
-    try {
-      return await pb.send('/api/ml/config', {
-        method: 'POST',
-        body: {
-          client_id: clientId,
-          client_secret: clientSecret,
-          redirect_uri: redirectUri,
-        },
-      })
-    } catch (err: any) {
-      // Fallback direto via coleção ml_settings se a rota customizada retornar 404
-      if (err?.status === 404 || err?.statusCode === 404) {
-        const list = await pb.collection('ml_settings').getList(1, 1, {
-          sort: '-created',
-        })
-        const cleanClientId = clientId.trim()
-        const cleanRedirect = redirectUri.trim()
-        const cleanSecret = clientSecret.trim()
+    const settings = await getSettingsRecord()
+    const cleanClientId = clientId.trim()
+    const cleanRedirect = redirectUri.trim()
+    const cleanSecret = clientSecret.trim()
 
-        if (list.items.length > 0) {
-          const existing = list.items[0]
-          const updateData: Record<string, any> = {
-            client_id: cleanClientId,
-            redirect_uri: cleanRedirect,
-          }
-          if (cleanSecret) {
-            updateData.client_secret = cleanSecret
-          }
-          await pb.collection('ml_settings').update(existing.id, updateData)
-        } else {
-          await pb.collection('ml_settings').create({
-            client_id: cleanClientId,
-            client_secret: cleanSecret,
-            redirect_uri: cleanRedirect,
-          })
-        }
-
-        return {
-          success: true,
-          configured: Boolean(cleanClientId),
-          client_id: cleanClientId,
-          redirect_uri: cleanRedirect,
-        }
+    if (settings) {
+      const updateData: Record<string, any> = {
+        client_id: cleanClientId,
+        redirect_uri: cleanRedirect,
       }
-      throw err
+      if (cleanSecret) {
+        updateData.client_secret = cleanSecret
+      }
+      await pb.collection('ml_settings').update(settings.id, updateData)
+    } else {
+      await pb.collection('ml_settings').create({
+        client_id: cleanClientId,
+        client_secret: cleanSecret,
+        redirect_uri: cleanRedirect,
+      })
+    }
+
+    return {
+      success: true,
+      configured: Boolean(cleanClientId),
+      client_id: cleanClientId,
+      redirect_uri: cleanRedirect,
     }
   },
 
   /**
-   * Troca authorization_code retornado pelo ML por access_token e refresh_token
+   * Troca authorization_code retornado pelo ML por access_token e refresh_token.
+   * Realiza POST direto para https://api.mercadolibre.com/oauth/token com application/x-www-form-urlencoded.
+   * Em seguida, busca nickname via GET https://api.mercadolibre.com/users/me e salva tudo na coleção ml_settings.
    */
   async exchangeAuthCode(
     code: string,
     redirectUri?: string,
-  ): Promise<{ success: boolean; nickname?: string }> {
+  ): Promise<{ success: boolean; nickname?: string; user_id_ml?: string }> {
+    const settings = await getSettingsRecord()
+    if (!settings) {
+      throw new Error(
+        'Configurações do Mercado Livre não encontradas no sistema. Salve o Client ID e Secret primeiro.',
+      )
+    }
+
+    const clientId = (settings.client_id || '').toString().trim()
+    const clientSecret = (settings.client_secret || '').toString().trim()
+    const finalRedirect = (redirectUri || settings.redirect_uri || getDefaultMLRedirectUri()).trim()
+
+    if (!clientId) {
+      throw new Error('Client ID (App ID) do Mercado Livre não configurado.')
+    }
+    if (!clientSecret) {
+      throw new Error(
+        'Client Secret do Mercado Livre não configurado. Por favor, reintroduza o Client Secret em Configurações.',
+      )
+    }
+
+    const cleanCode = code.trim()
+
+    // Preparar corpo form-urlencoded conforme especificação oficial do Mercado Livre
+    const formParams = new URLSearchParams({
+      grant_type: 'authorization_code',
+      client_id: clientId,
+      client_secret: clientSecret,
+      code: cleanCode,
+      redirect_uri: finalRedirect,
+    })
+
+    let tokenResp: Response
     try {
-      return await pb.send('/api/ml/oauth/exchange', {
+      tokenResp = await fetch('https://api.mercadolibre.com/oauth/token', {
         method: 'POST',
-        body: {
-          code,
-          redirect_uri: redirectUri,
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Accept: 'application/json',
+        },
+        body: formParams.toString(),
+      })
+    } catch (networkError: any) {
+      // Falha de rede ou CORS do navegador
+      console.error('Erro de rede ou CORS no POST /oauth/token do ML:', networkError)
+      const isCorsOrOffline =
+        networkError?.message?.includes('Failed to fetch') || networkError?.name === 'TypeError'
+      const detail = isCorsOrOffline
+        ? 'Possível bloqueio de CORS pelo navegador ou erro de rede ao chamar a API do Mercado Livre (api.mercadolibre.com/oauth/token).'
+        : networkError?.message || 'Falha de conexão com a API do Mercado Livre.'
+      throw new Error(
+        `Falha na requisição ao Mercado Livre: ${detail} (Verifique no console as mensagens de rede do navegador)`,
+      )
+    }
+
+    let tokenData: any = {}
+    try {
+      tokenData = await tokenResp.json()
+    } catch {
+      tokenData = {}
+    }
+
+    if (!tokenResp.ok) {
+      console.error('Resposta de erro do ML /oauth/token:', tokenResp.status, tokenData)
+      let errorMsg =
+        tokenData.message ||
+        tokenData.error_description ||
+        tokenData.error ||
+        `Erro HTTP ${tokenResp.status} retornado pelo Mercado Livre.`
+
+      if (tokenData.cause && Array.isArray(tokenData.cause) && tokenData.cause.length > 0) {
+        const causes = tokenData.cause
+          .map((c: any) => c.message || c.code || JSON.stringify(c))
+          .join('; ')
+        errorMsg += ` Detalhes: ${causes}`
+      }
+
+      throw new Error(`Mercado Livre (${tokenResp.status}): ${errorMsg}`)
+    }
+
+    const accessToken = tokenData.access_token || ''
+    const refreshToken = tokenData.refresh_token || ''
+    const expiresIn = Number(tokenData.expires_in) || 21600
+    const userId = (tokenData.user_id || '').toString()
+    const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString()
+
+    if (!accessToken) {
+      throw new Error('Mercado Livre não retornou access_token válido na resposta.')
+    }
+
+    // Buscar nickname e informações do vendedor no Mercado Livre
+    let nickname = ''
+    let permalink = ''
+    try {
+      const userResp = await fetch('https://api.mercadolibre.com/users/me', {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/json',
         },
       })
-    } catch (err: any) {
-      if (err?.status === 404 || err?.statusCode === 404) {
-        // Fallback: faz o exchange diretamente via fetch da API pública do Mercado Livre
-        const list = await pb.collection('ml_settings').getList(1, 1, { sort: '-created' })
-        if (list.items.length === 0) {
-          throw new Error('Configurações do Mercado Livre não encontradas no sistema.')
-        }
-        const settings = list.items[0]
-        const clientId = settings.client_id
-        const clientSecret = settings.client_secret
-        const finalRedirect = redirectUri || settings.redirect_uri
-
-        if (!clientId || !clientSecret) {
-          throw new Error('Client ID ou Client Secret do Mercado Livre não configurados.')
-        }
-
-        const tokenResp = await fetch('https://api.mercadolibre.com/oauth/token', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Accept: 'application/json',
-          },
-          body: JSON.stringify({
-            grant_type: 'authorization_code',
-            client_id: clientId,
-            client_secret: clientSecret,
-            code: code.trim(),
-            redirect_uri: finalRedirect,
-          }),
-        })
-
-        const tokenData = await tokenResp.json()
-        if (!tokenResp.ok) {
-          throw new Error(
-            tokenData.message ||
-              tokenData.error_description ||
-              'Falha ao autenticar com o Mercado Livre.',
-          )
-        }
-
-        const accessToken = tokenData.access_token || ''
-        const refreshToken = tokenData.refresh_token || ''
-        const expiresIn = Number(tokenData.expires_in) || 21600
-        const userId = (tokenData.user_id || '').toString()
-        const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString()
-
-        let nickname = ''
-        let permalink = ''
-        try {
-          const userResp = await fetch('https://api.mercadolibre.com/users/me', {
-            headers: { Authorization: `Bearer ${accessToken}` },
-          })
-          if (userResp.ok) {
-            const userData = await userResp.json()
-            nickname = userData.nickname || ''
-            permalink = userData.permalink || ''
-          }
-        } catch {
-          /* intentionally ignored */
-        }
-
-        await pb.collection('ml_settings').update(settings.id, {
-          access_token: accessToken,
-          refresh_token: refreshToken,
-          token_expires_at: expiresAt,
-          user_id_ml: userId,
-          nickname,
-          permalink_seller: permalink,
-        })
-
-        return {
-          success: true,
-          nickname,
-        }
+      if (userResp.ok) {
+        const userData = await userResp.json()
+        nickname = userData.nickname || ''
+        permalink = userData.permalink || ''
+      } else {
+        console.warn('Não foi possível obter nickname do ML (status):', userResp.status)
       }
-      throw err
+    } catch (uErr) {
+      console.warn('Erro ao consultar /users/me do ML:', uErr)
+    }
+
+    // Atualiza registro no PocketBase
+    await pb.collection('ml_settings').update(settings.id, {
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      token_expires_at: expiresAt,
+      user_id_ml: userId,
+      nickname: nickname || settings.nickname || '',
+      permalink_seller: permalink || settings.permalink_seller || '',
+      redirect_uri: finalRedirect,
+    })
+
+    return {
+      success: true,
+      nickname,
+      user_id_ml: userId,
     }
   },
 
   /**
-   * Desconecta e revoga tokens locais da conta
+   * Desconecta e limpa tokens da conta Mercado Livre em ml_settings
    */
   async disconnect(): Promise<any> {
-    try {
-      return await pb.send('/api/ml/disconnect', {
-        method: 'POST',
+    const settings = await getSettingsRecord()
+    if (settings) {
+      await pb.collection('ml_settings').update(settings.id, {
+        access_token: '',
+        refresh_token: '',
+        token_expires_at: null,
+        nickname: '',
+        user_id_ml: '',
+        permalink_seller: '',
       })
-    } catch (err: any) {
-      if (err?.status === 404 || err?.statusCode === 404) {
-        const list = await pb.collection('ml_settings').getList(1, 1, { sort: '-created' })
-        if (list.items.length > 0) {
-          await pb.collection('ml_settings').update(list.items[0].id, {
-            access_token: '',
-            refresh_token: '',
-            token_expires_at: null,
-            nickname: '',
-            user_id_ml: '',
-            permalink_seller: '',
-          })
-        }
-        return { success: true, connected: false }
-      }
-      throw err
     }
+    return { success: true, connected: false }
   },
 
   /**
-   * Publica 1 item no Mercado Livre
+   * Publica 1 item no Mercado Livre diretamente via API oficial (com renovação de token se expirado)
    */
   async publish(payload: MLPublishPayload): Promise<MLPublishResponse> {
+    const settings = await getSettingsRecord()
+    if (!settings || !settings.access_token) {
+      throw new Error(
+        'Mercado Livre não está conectado. Acesse Configurações para conectar sua conta.',
+      )
+    }
+
+    // Obtém token válido garantindo refresh automático
+    const accessToken = await ensureValidAccessToken(settings)
+
+    const product = await pb.collection('products').getOne(payload.product_id)
+    const title = (payload.title || product.name || '').slice(0, 60)
+    const price =
+      payload.price && payload.price > 0 ? payload.price : Number(product.unit_price) || 0
+    const categoryId = payload.category_id || 'MLB1652'
+
+    let pictures: Array<{ source: string }> = []
+    if (payload.pictures && payload.pictures.length > 0) {
+      pictures = payload.pictures.map((u) => ({ source: u }))
+    } else {
+      const urls = getProductImageUrls(product as any)
+      pictures = urls.map((u) => ({ source: u }))
+    }
+
+    if (pictures.length === 0) {
+      throw new Error('O anúncio exige pelo menos uma foto com URL pública válida.')
+    }
+
+    const itemPayload = {
+      title,
+      category_id: categoryId,
+      price,
+      currency_id: 'BRL',
+      available_quantity: 1,
+      buying_mode: 'buy_it_now',
+      listing_type_id: 'gold_special',
+      condition: 'used',
+      pictures,
+      channels: ['marketplace'],
+    }
+
+    let itemResp: Response
     try {
-      return await pb.send<MLPublishResponse>('/api/ml/publish', {
+      itemResp = await fetch('https://api.mercadolibre.com/items', {
         method: 'POST',
-        body: payload,
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify(itemPayload),
       })
-    } catch (err: any) {
-      if (err?.status === 404 || err?.statusCode === 404) {
-        // Fallback direto via API do Mercado Livre
-        const list = await pb.collection('ml_settings').getList(1, 1, { sort: '-created' })
-        if (list.items.length === 0 || !list.items[0].access_token) {
-          throw new Error(
-            'Mercado Livre não está conectado. Acesse Configurações para conectar sua conta.',
-          )
-        }
+    } catch (netErr: any) {
+      throw new Error(
+        `Falha de rede ou CORS ao conectar à API do Mercado Livre: ${netErr?.message || netErr}`,
+      )
+    }
 
-        const settings = list.items[0]
-        let accessToken = settings.access_token
+    let itemData: any = {}
+    try {
+      itemData = await itemResp.json()
+    } catch {
+      itemData = {}
+    }
 
-        // Refresh token se necessário
-        if (settings.token_expires_at) {
-          const expTime = new Date(settings.token_expires_at).getTime()
-          if (Date.now() + 5 * 60 * 1000 >= expTime && settings.refresh_token) {
-            try {
-              const rResp = await fetch('https://api.mercadolibre.com/oauth/token', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  grant_type: 'refresh_token',
-                  client_id: settings.client_id,
-                  client_secret: settings.client_secret,
-                  refresh_token: settings.refresh_token,
-                }),
-              })
-              if (rResp.ok) {
-                const rData = await rResp.json()
-                accessToken = rData.access_token || accessToken
-                const expIn = Number(rData.expires_in) || 21600
-                await pb.collection('ml_settings').update(settings.id, {
-                  access_token: accessToken,
-                  refresh_token: rData.refresh_token || settings.refresh_token,
-                  token_expires_at: new Date(Date.now() + expIn * 1000).toISOString(),
-                })
-              }
-            } catch {
-              /* intentionally ignored */
-            }
-          }
-        }
+    if (!itemResp.ok) {
+      let msg =
+        itemData.message || `Erro HTTP ${itemResp.status} ao criar anúncio no Mercado Livre.`
+      if (itemData.cause && Array.isArray(itemData.cause)) {
+        msg += ' Detalhes: ' + itemData.cause.map((c: any) => c.message || c.code || '').join('; ')
+      }
+      throw new Error(msg)
+    }
 
-        const product = await pb.collection('products').getOne(payload.product_id)
-        const title = (payload.title || product.name || '').slice(0, 60)
-        const price =
-          payload.price && payload.price > 0 ? payload.price : Number(product.unit_price) || 0
-        const categoryId = payload.category_id || 'MLB1652'
+    const itemId = itemData.id || ''
+    const permalink = itemData.permalink || ''
+    const status = itemData.status || 'active'
 
-        let pictures: Array<{ source: string }> = []
-        if (payload.pictures && payload.pictures.length > 0) {
-          pictures = payload.pictures.map((u) => ({ source: u }))
-        } else {
-          const urls = getProductImageUrls(product as any)
-          pictures = urls.map((u) => ({ source: u }))
-        }
-
-        if (pictures.length === 0) {
-          throw new Error('O anúncio exige pelo menos uma foto com URL pública válida.')
-        }
-
-        const itemPayload = {
-          title,
-          category_id: categoryId,
-          price,
-          currency_id: 'BRL',
-          available_quantity: 1,
-          buying_mode: 'buy_it_now',
-          listing_type_id: 'gold_special',
-          condition: 'used',
-          pictures,
-          channels: ['marketplace'],
-        }
-
-        const itemResp = await fetch('https://api.mercadolibre.com/items', {
+    // Publicar descrição em texto simples se fornecida
+    if (itemId && payload.description) {
+      try {
+        await fetch(`https://api.mercadolibre.com/items/${itemId}/description`, {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
-            Accept: 'application/json',
           },
-          body: JSON.stringify(itemPayload),
+          body: JSON.stringify({ plain_text: payload.description }),
         })
-
-        const itemData = await itemResp.json()
-        if (!itemResp.ok) {
-          let msg = itemData.message || 'Erro desconhecido ao criar anúncio no Mercado Livre.'
-          if (itemData.cause && Array.isArray(itemData.cause)) {
-            msg += ' ' + itemData.cause.map((c: any) => c.message || c.code || '').join('; ')
-          }
-          throw new Error(msg)
-        }
-
-        const itemId = itemData.id || ''
-        const permalink = itemData.permalink || ''
-        const status = itemData.status || 'active'
-
-        if (itemId && payload.description) {
-          try {
-            await fetch(`https://api.mercadolibre.com/items/${itemId}/description`, {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${accessToken}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({ plain_text: payload.description }),
-            })
-          } catch {
-            /* intentionally ignored */
-          }
-        }
-
-        const currentEvents = (product.history_events as any[]) || []
-        const eventsList = Array.isArray(currentEvents) ? [...currentEvents] : []
-        eventsList.push({
-          title: `Anunciado no Mercado Livre (${itemId})`,
-          date: new Date().toISOString().replace('T', ' ').slice(0, 19),
-        })
-
-        await pb.collection('products').update(product.id, {
-          ml_listing_id: itemId,
-          ml_listing_url: permalink,
-          ml_listing_status: status,
-          ml_published_at: new Date().toISOString(),
-          history_events: eventsList,
-        })
-
-        return {
-          success: true,
-          ml_listing_id: itemId,
-          ml_listing_url: permalink,
-          ml_listing_status: status,
-        }
+      } catch (descErr) {
+        console.warn('Aviso: falha ao enviar descrição do item ML:', descErr)
       }
-      throw err
+    }
+
+    // Atualiza produto no PocketBase com dados do anúncio ML
+    const currentEvents = (product.history_events as any[]) || []
+    const eventsList = Array.isArray(currentEvents) ? [...currentEvents] : []
+    eventsList.push({
+      title: `Anunciado no Mercado Livre (${itemId})`,
+      date: new Date().toISOString().replace('T', ' ').slice(0, 19),
+    })
+
+    await pb.collection('products').update(product.id, {
+      ml_listing_id: itemId,
+      ml_listing_url: permalink,
+      ml_listing_status: status,
+      ml_published_at: new Date().toISOString(),
+      history_events: eventsList,
+    })
+
+    return {
+      success: true,
+      ml_listing_id: itemId,
+      ml_listing_url: permalink,
+      ml_listing_status: status,
     }
   },
 
@@ -590,40 +652,45 @@ export const mlService = {
    * Consulta dados ao vivo do anúncio no ML
    */
   async getItem(mlItemId: string): Promise<MLItemResponse> {
-    try {
-      return await pb.send<MLItemResponse>(`/api/ml/item/${encodeURIComponent(mlItemId)}`, {
-        method: 'GET',
-      })
-    } catch (err: any) {
-      if (err?.status === 404 || err?.statusCode === 404) {
-        const list = await pb.collection('ml_settings').getList(1, 1, { sort: '-created' })
-        const accessToken = list.items.length > 0 ? list.items[0].access_token : ''
-        const headers: Record<string, string> = {}
-        if (accessToken) headers.Authorization = `Bearer ${accessToken}`
+    const settings = await getSettingsRecord()
+    let headers: Record<string, string> = { Accept: 'application/json' }
 
-        const res = await fetch(
-          `https://api.mercadolibre.com/items/${encodeURIComponent(mlItemId)}`,
-          {
-            headers,
-          },
-        )
-        const data = await res.json()
-        if (!res.ok) {
-          throw new Error(data.message || 'Item não encontrado no Mercado Livre.')
-        }
-
-        return {
-          id: data.id,
-          title: data.title,
-          price: data.price,
-          status: data.status,
-          sub_status: data.sub_status,
-          permalink: data.permalink,
-          available_quantity: data.available_quantity,
-          sold_quantity: data.sold_quantity,
-        }
+    if (settings && settings.access_token) {
+      try {
+        const validToken = await ensureValidAccessToken(settings)
+        headers.Authorization = `Bearer ${validToken}`
+      } catch {
+        /* continua com requisição pública */
       }
-      throw err
+    }
+
+    let res: Response
+    try {
+      res = await fetch(`https://api.mercadolibre.com/items/${encodeURIComponent(mlItemId)}`, {
+        headers,
+      })
+    } catch (netErr: any) {
+      throw new Error(
+        `Falha de conexão ao buscar anúncio no Mercado Livre: ${netErr?.message || netErr}`,
+      )
+    }
+
+    const data = await res.json()
+    if (!res.ok) {
+      throw new Error(
+        data.message || `Item ${mlItemId} não encontrado no Mercado Livre (status ${res.status}).`,
+      )
+    }
+
+    return {
+      id: data.id,
+      title: data.title,
+      price: data.price,
+      status: data.status,
+      sub_status: data.sub_status,
+      permalink: data.permalink,
+      available_quantity: data.available_quantity,
+      sold_quantity: data.sold_quantity,
     }
   },
 
@@ -635,55 +702,51 @@ export const mlService = {
     status: 'active' | 'paused' | 'closed',
     productId?: string,
   ): Promise<any> {
+    const settings = await getSettingsRecord()
+    if (!settings || !settings.access_token) {
+      throw new Error('Mercado Livre não está conectado.')
+    }
+
+    const accessToken = await ensureValidAccessToken(settings)
+
+    let res: Response
     try {
-      return await pb.send(`/api/ml/item/${encodeURIComponent(mlItemId)}/status`, {
-        method: 'POST',
-        body: {
-          status,
-          product_id: productId,
+      res = await fetch(`https://api.mercadolibre.com/items/${encodeURIComponent(mlItemId)}`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
         },
+        body: JSON.stringify({ status }),
       })
-    } catch (err: any) {
-      if (err?.status === 404 || err?.statusCode === 404) {
-        const list = await pb.collection('ml_settings').getList(1, 1, { sort: '-created' })
-        if (list.items.length === 0 || !list.items[0].access_token) {
-          throw new Error('Mercado Livre não conectado.')
-        }
-        const accessToken = list.items[0].access_token
+    } catch (netErr: any) {
+      throw new Error(`Falha ao alterar status no Mercado Livre: ${netErr?.message || netErr}`)
+    }
 
-        const res = await fetch(
-          `https://api.mercadolibre.com/items/${encodeURIComponent(mlItemId)}`,
-          {
-            method: 'PUT',
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ status }),
-          },
-        )
-        const data = await res.json()
-        if (!res.ok) {
-          throw new Error(data.message || 'Falha ao alterar status no Mercado Livre.')
-        }
-
-        if (productId) {
-          try {
-            await pb.collection('products').update(productId, {
-              ml_listing_status: status,
-            })
-          } catch {
-            /* intentionally ignored */
-          }
-        }
-
-        return {
-          success: true,
-          id: mlItemId,
-          status,
-        }
+    const data = await res.json()
+    if (!res.ok) {
+      let msg = data.message || `Falha ao alterar status no Mercado Livre (HTTP ${res.status}).`
+      if (data.cause && Array.isArray(data.cause)) {
+        msg += ' ' + data.cause.map((c: any) => c.message || c.code || '').join('; ')
       }
-      throw err
+      throw new Error(msg)
+    }
+
+    if (productId) {
+      try {
+        await pb.collection('products').update(productId, {
+          ml_listing_status: status,
+        })
+      } catch (dbErr) {
+        console.warn('Aviso: falha ao atualizar status local do produto:', dbErr)
+      }
+    }
+
+    return {
+      success: true,
+      id: mlItemId,
+      status,
     }
   },
 }
