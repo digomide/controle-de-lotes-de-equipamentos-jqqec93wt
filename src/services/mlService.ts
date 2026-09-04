@@ -26,15 +26,15 @@ export interface MLItemResponse {
 
 export interface MLPublishPayload {
   product_id: string
-  title?: string
-  price?: number
+  title: string
+  price: number
   category_id?: string
   description?: string
   pictures?: string[]
   condition_type?: 'novo' | 'usado' | 'recondicionado' | 'caixa_aberta'
   condition_grade?: 'excelente' | 'bom' | 'aceitavel'
+  family_name?: string
 }
-
 export interface MLCategoryAttributeValue {
   id: string
   name: string
@@ -192,6 +192,109 @@ export const ML_CATEGORIES = [
   { id: 'MLB431427', label: 'Notebooks Corporativos / Outros (MLB431427)' },
   { id: 'MLB1649', label: 'Computadores e Servidores (MLB1649)' },
 ]
+
+/**
+ * Mapeamento e derivação automática de família/linha (LINE) a partir dos dados do equipamento
+ * Cobre: ThinkPad, IdeaPad, Legion (Lenovo), Inspiron, Latitude, Vostro, XPS, Precision, Alienware (Dell),
+ * MacBook Air, MacBook Pro, iMac, MacBook (Apple), Pavilion, EliteBook, ProBook, Omen, Spectre, Envy, ZBook (HP),
+ * Aspire, Predator, Nitro, Swift, Spin, TravelMate (Acer), Satellite, Dynabook, Portege, Tecra (Toshiba/Dynabook),
+ * VivoBook, ZenBook, TUF, ROG, ExpertBook (Asus), VAIO, Motion, Unique, Master (Positivo), Galaxy Book (Samsung), Surface (Microsoft).
+ */
+export function deriveProductFamily(
+  product: { name?: string; model?: string; brand?: string },
+  customFamily?: string,
+): string {
+  const explicit = (customFamily || '').trim()
+  if (explicit) return explicit
+
+  const pModel = (product.model || '').trim()
+  const pName = (product.name || '').trim()
+  const pBrand = (product.brand || '').trim()
+  const combined = `${pModel} ${pName}`.trim()
+
+  // Lenovo
+  if (/thinkpad/i.test(combined)) return 'ThinkPad'
+  if (/ideapad/i.test(combined)) return 'IdeaPad'
+  if (/legion/i.test(combined)) return 'Legion'
+  if (/yoga/i.test(combined)) return 'Yoga'
+
+  // Dell
+  if (/latitude/i.test(combined)) return 'Latitude'
+  if (/inspiron/i.test(combined)) return 'Inspiron'
+  if (/vostro/i.test(combined)) return 'Vostro'
+  if (/precision/i.test(combined)) return 'Precision'
+  if (/xps/i.test(combined)) return 'XPS'
+  if (/alienware/i.test(combined)) return 'Alienware'
+
+  // Apple
+  if (/macbook\s*pro/i.test(combined)) return 'MacBook Pro'
+  if (/macbook\s*air/i.test(combined)) return 'MacBook Air'
+  if (/macbook/i.test(combined)) return 'MacBook'
+  if (/imac/i.test(combined)) return 'iMac'
+
+  // HP
+  if (/elitebook/i.test(combined)) return 'EliteBook'
+  if (/probook/i.test(combined)) return 'ProBook'
+  if (/pavilion/i.test(combined)) return 'Pavilion'
+  if (/omen/i.test(combined)) return 'Omen'
+  if (/spectre/i.test(combined)) return 'Spectre'
+  if (/envy/i.test(combined)) return 'Envy'
+  if (/zbook/i.test(combined)) return 'ZBook'
+
+  // Acer
+  if (/aspire/i.test(combined)) return 'Aspire'
+  if (/predator/i.test(combined)) return 'Predator'
+  if (/nitro/i.test(combined)) return 'Nitro'
+  if (/swift/i.test(combined)) return 'Swift'
+  if (/spin/i.test(combined)) return 'Spin'
+  if (/travelmate/i.test(combined)) return 'TravelMate'
+
+  // Asus
+  if (/vivobook/i.test(combined)) return 'VivoBook'
+  if (/zenbook/i.test(combined)) return 'ZenBook'
+  if (/expertbook/i.test(combined)) return 'ExpertBook'
+  if (/\brog\b/i.test(combined)) return 'ROG'
+  if (/\btuf\b/i.test(combined)) return 'TUF'
+
+  // Toshiba / Dynabook
+  if (/satellite/i.test(combined)) return 'Satellite'
+  if (/dynabook/i.test(combined)) return 'Dynabook'
+  if (/portege/i.test(combined)) return 'Portege'
+  if (/tecra/i.test(combined)) return 'Tecra'
+
+  // Samsung
+  if (/galaxy\s*book/i.test(combined)) return 'Galaxy Book'
+
+  // Microsoft
+  if (/surface/i.test(combined)) return 'Surface'
+
+  // Positivo
+  if (/unique/i.test(combined)) return 'Unique'
+  if (/motion/i.test(combined)) return 'Motion'
+  if (/master/i.test(combined)) return 'Master'
+
+  // VAIO
+  if (/\bvaio\b/i.test(combined)) return 'VAIO'
+
+  // Se houver modelo preenchido, usa as primeiras palavras do modelo
+  if (pModel) {
+    const firstWord = pModel.split(/[\s-]+/)[0]
+    if (firstWord && firstWord.length >= 2) return firstWord
+    return pModel
+  }
+
+  // Fallback para marca ou primeira palavra representativa do nome
+  if (pBrand) return pBrand
+  if (pName) {
+    const words = pName.split(/\s+/).filter(Boolean)
+    if (words.length > 1 && words[0].toLowerCase() === 'notebook') {
+      return words[1]
+    }
+    if (words.length > 0) return words[0]
+  }
+
+  return ''
+}
 
 /**
  * Extrai e simplifica tokens essenciais para gerar título de no máximo 60 caracteres.
@@ -456,6 +559,7 @@ export function validateProductForML(
     conditionType?: string
     conditionGrade?: string
     categoryAttributes?: MLCategoryAttribute[]
+    familyName?: string
   },
 ): { eligible: boolean; reasons: string[] } {
   const reasons: string[] = []
@@ -553,8 +657,10 @@ export function validateProductForML(
           )
         } else if (attr.id === 'MODEL') {
           isPresent = Boolean(rawModel || rawName)
-        } else if (attr.id === 'LINE') {
-          isPresent = Boolean(rawModel || rawBrand || rawName)
+        } else if (attr.id === 'LINE' || attr.id === 'family_name') {
+          // Derivar automaticamente se não informado explicitamente
+          const derived = deriveProductFamily(product, options?.familyName)
+          isPresent = Boolean(derived)
         } else if (attr.id === 'PROCESSOR_BRAND' || attr.id === 'PROCESSOR_LINE') {
           isPresent = Boolean(
             rawProc || /intel|amd|ryzen|core|i3|i5|i7|i9|celeron|m1|m2|m3/i.test(rawName),
@@ -874,6 +980,7 @@ export const mlService = {
         listing_type_id: 'gold_special',
         condition_type: payload.condition_type,
         condition_grade: payload.condition_grade,
+        family_name: payload.family_name,
       },
     })
 

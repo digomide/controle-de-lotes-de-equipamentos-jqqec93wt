@@ -28,6 +28,7 @@ import {
   getProductImageUrls,
   translateMLErrorMessage,
   validateProductForML,
+  deriveProductFamily,
   ML_CATEGORIES,
   type MLStatusResponse,
   type MLCategoryAttribute,
@@ -87,6 +88,9 @@ export function SingleMLPublishModal({
   const [conditionType, setConditionType] = useState<ConditionType>('recondicionado')
   const [conditionGrade, setConditionGrade] = useState<ConditionGrade | undefined>('excelente')
 
+  // Família / Linha (LINE) editável com derivação automática inicial
+  const [familyName, setFamilyName] = useState('')
+
   useEffect(() => {
     if (isOpen) {
       setErrorMessage(null)
@@ -119,6 +123,10 @@ export function SingleMLPublishModal({
         }),
       )
       setPhotos(getProductImageUrls(product))
+
+      // Derivar linha/família automaticamente (ex: ThinkPad, Latitude, etc.)
+      const derived = deriveProductFamily(product)
+      setFamilyName(derived)
 
       // Checar status de conexão do ML e obter atributos da categoria com cache no backend
       setLoadingStatus(true)
@@ -205,6 +213,7 @@ export function SingleMLPublishModal({
     conditionType,
     conditionGrade,
     categoryAttributes,
+    familyName,
   })
 
   const handlePublish = async (e: React.FormEvent) => {
@@ -237,6 +246,7 @@ export function SingleMLPublishModal({
           pictures: photos,
           condition_type: conditionType,
           condition_grade: conditionGrade,
+          family_name: familyName.trim(),
         },
         (msg) => setPublishProgress(msg),
       )
@@ -520,6 +530,45 @@ export function SingleMLPublishModal({
                     Excede 60 caracteres! Reduza para publicar.
                   </span>
                 )}
+              </p>
+            </div>
+
+            {/* Linha / Família do Produto (LINE / Atributo Obrigatório da Categoria ML) */}
+            <div className="space-y-1 p-2.5 bg-slate-50 border border-slate-200 rounded-lg">
+              <div className="flex items-center justify-between">
+                <Label className="text-slate-700 font-semibold flex items-center gap-1.5">
+                  <span>Família / Linha do Produto (LINE) *</span>
+                </Label>
+                <span className="text-[10px] text-slate-500 font-normal">
+                  {familyName ? (
+                    <span className="text-emerald-700 font-medium">✓ Reconhecido</span>
+                  ) : (
+                    <span className="text-amber-600 font-medium">Preencha caso o ML exija</span>
+                  )}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  value={familyName}
+                  onChange={(e) => setFamilyName(e.target.value)}
+                  placeholder="Ex: ThinkPad, Latitude, Inspiron, MacBook Pro, Aspire..."
+                  className="text-xs bg-white h-8"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setFamilyName(deriveProductFamily(product))}
+                  className="text-[11px] h-8 px-2.5 shrink-0"
+                  title="Restaurar sugestão automática de Linha/Família"
+                >
+                  Sugerir
+                </Button>
+              </div>
+              <p className="text-[10px] text-slate-400">
+                Atributo enviado em <code>LINE</code>. Derivado automaticamente de modelos
+                conhecidos (ex: ThinkPad, IdeaPad, Latitude, Inspiron, Vostro, MacBook, etc.) ou
+                digitado manualmente.
               </p>
             </div>
 

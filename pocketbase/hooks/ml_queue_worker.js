@@ -439,26 +439,72 @@ cronAdd('ml_queue_worker', '@every 15s', () => {
         modelVal = title.replace(brandVal, '').trim() || pName.slice(0, 60)
       }
 
-      let familyVal = ''
-      const combinedText = (pModel + ' ' + pName).trim()
-      if (/thinkpad/i.test(combinedText)) familyVal = 'ThinkPad'
-      else if (/ideapad/i.test(combinedText)) familyVal = 'IdeaPad'
-      else if (/latitude/i.test(combinedText)) familyVal = 'Latitude'
-      else if (/inspiron/i.test(combinedText)) familyVal = 'Inspiron'
-      else if (/vostro/i.test(combinedText)) familyVal = 'Vostro'
-      else if (/precision/i.test(combinedText)) familyVal = 'Precision'
-      else if (/elitebook/i.test(combinedText)) familyVal = 'EliteBook'
-      else if (/probook/i.test(combinedText)) familyVal = 'ProBook'
-      else if (/macbook pro/i.test(combinedText)) familyVal = 'MacBook Pro'
-      else if (/macbook air/i.test(combinedText)) familyVal = 'MacBook Air'
-      else if (/macbook/i.test(combinedText)) familyVal = 'MacBook'
-      else if (/aspire/i.test(combinedText)) familyVal = 'Aspire'
-      else if (/expertbook/i.test(combinedText)) familyVal = 'ExpertBook'
-      else if (/zenbook/i.test(combinedText)) familyVal = 'ZenBook'
-      else if (/vivobook/i.test(combinedText)) familyVal = 'VivoBook'
-      else if (/galaxy book/i.test(combinedText)) familyVal = 'Galaxy Book'
-      else {
-        familyVal = (pModel || brandVal || title).trim().slice(0, 60)
+      // 3. Família / Linha (LINE)
+      // Prioridade 1: se o payload enviou family_name explicitamente
+      let familyVal = (payload.family_name || '').toString().trim()
+
+      // Prioridade 2: derivação completa case-insensitive por modelo / nome / marca
+      if (!familyVal) {
+        const combinedText = (pModel + ' ' + pName).trim()
+        // Lenovo
+        if (/thinkpad/i.test(combinedText)) familyVal = 'ThinkPad'
+        else if (/ideapad/i.test(combinedText)) familyVal = 'IdeaPad'
+        else if (/legion/i.test(combinedText)) familyVal = 'Legion'
+        else if (/yoga/i.test(combinedText)) familyVal = 'Yoga'
+        // Dell
+        else if (/latitude/i.test(combinedText)) familyVal = 'Latitude'
+        else if (/inspiron/i.test(combinedText)) familyVal = 'Inspiron'
+        else if (/vostro/i.test(combinedText)) familyVal = 'Vostro'
+        else if (/precision/i.test(combinedText)) familyVal = 'Precision'
+        else if (/xps/i.test(combinedText)) familyVal = 'XPS'
+        else if (/alienware/i.test(combinedText)) familyVal = 'Alienware'
+        // Apple
+        else if (/macbook\s*pro/i.test(combinedText)) familyVal = 'MacBook Pro'
+        else if (/macbook\s*air/i.test(combinedText)) familyVal = 'MacBook Air'
+        else if (/macbook/i.test(combinedText)) familyVal = 'MacBook'
+        else if (/imac/i.test(combinedText)) familyVal = 'iMac'
+        // HP
+        else if (/elitebook/i.test(combinedText)) familyVal = 'EliteBook'
+        else if (/probook/i.test(combinedText)) familyVal = 'ProBook'
+        else if (/pavilion/i.test(combinedText)) familyVal = 'Pavilion'
+        else if (/omen/i.test(combinedText)) familyVal = 'Omen'
+        else if (/spectre/i.test(combinedText)) familyVal = 'Spectre'
+        else if (/envy/i.test(combinedText)) familyVal = 'Envy'
+        else if (/zbook/i.test(combinedText)) familyVal = 'ZBook'
+        // Acer
+        else if (/aspire/i.test(combinedText)) familyVal = 'Aspire'
+        else if (/predator/i.test(combinedText)) familyVal = 'Predator'
+        else if (/nitro/i.test(combinedText)) familyVal = 'Nitro'
+        else if (/swift/i.test(combinedText)) familyVal = 'Swift'
+        else if (/spin/i.test(combinedText)) familyVal = 'Spin'
+        else if (/travelmate/i.test(combinedText)) familyVal = 'TravelMate'
+        // Asus
+        else if (/expertbook/i.test(combinedText)) familyVal = 'ExpertBook'
+        else if (/zenbook/i.test(combinedText)) familyVal = 'ZenBook'
+        else if (/vivobook/i.test(combinedText)) familyVal = 'VivoBook'
+        else if (/\brog\b/i.test(combinedText)) familyVal = 'ROG'
+        else if (/\btuf\b/i.test(combinedText)) familyVal = 'TUF'
+        // Toshiba / Dynabook
+        else if (/satellite/i.test(combinedText)) familyVal = 'Satellite'
+        else if (/dynabook/i.test(combinedText)) familyVal = 'Dynabook'
+        else if (/portege/i.test(combinedText)) familyVal = 'Portege'
+        else if (/tecra/i.test(combinedText)) familyVal = 'Tecra'
+        // Samsung
+        else if (/galaxy\s*book/i.test(combinedText)) familyVal = 'Galaxy Book'
+        // Microsoft
+        else if (/surface/i.test(combinedText)) familyVal = 'Surface'
+        // Positivo
+        else if (/unique/i.test(combinedText)) familyVal = 'Unique'
+        else if (/motion/i.test(combinedText)) familyVal = 'Motion'
+        else if (/master/i.test(combinedText)) familyVal = 'Master'
+        // VAIO
+        else if (/\bvaio\b/i.test(combinedText)) familyVal = 'VAIO'
+        else if (pModel) {
+          const firstWord = pModel.split(/[\s-]+/)[0]
+          familyVal = (firstWord && firstWord.length >= 2 ? firstWord : pModel).slice(0, 60)
+        } else {
+          familyVal = (brandVal || title).trim().slice(0, 60)
+        }
       }
 
       let procBrand = 'Intel'
@@ -686,8 +732,8 @@ cronAdd('ml_queue_worker', '@every 15s', () => {
           ) {
             isSatisfied = true
           } else if (
-            (reqId === 'LINE' || reqId === 'FAMILY_NAME') &&
-            (attributesMap['LINE'] || attributesMap['FAMILY_NAME'])
+            (reqId === 'LINE' || reqId === 'FAMILY_NAME' || reqId === 'family_name') &&
+            (attributesMap['LINE'] || attributesMap['FAMILY_NAME'] || attributesMap['family_name'])
           ) {
             isSatisfied = true
           }
