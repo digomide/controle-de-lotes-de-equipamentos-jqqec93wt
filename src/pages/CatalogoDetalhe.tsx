@@ -95,6 +95,9 @@ import {
   normalizeChecklistStatus,
   getChecklistStatusStyles,
 } from '@/lib/checklist'
+import { SingleMLPublishModal } from '@/components/SingleMLPublishModal'
+import { validateProductForML, mlService, type MLItemResponse } from '@/services/mlService'
+import { ShoppingBag, PauseCircle, PlayCircle, XCircle } from 'lucide-react'
 
 export default function CatalogoDetalhe() {
   const { id } = useParams<{ id: string }>()
@@ -108,6 +111,9 @@ export default function CatalogoDetalhe() {
   // Modais
   const [zoomModalOpen, setZoomModalOpen] = useState(false)
   const [etiquetaModalOpen, setEtiquetaModalOpen] = useState(false)
+  const [mlPublishModalOpen, setMlPublishModalOpen] = useState(false)
+  const [liveMLItem, setLiveMLItem] = useState<MLItemResponse | null>(null)
+  const [updatingMLStatus, setUpdatingMLStatus] = useState(false)
   const [cloneModalOpen, setCloneModalOpen] = useState(false)
   const [deleteProductDialogOpen, setDeleteProductDialogOpen] = useState(false)
   const [deletingProduct, setDeletingProduct] = useState(false)
@@ -218,6 +224,42 @@ export default function CatalogoDetalhe() {
   useEffect(() => {
     loadData()
   }, [id])
+
+  // Se o produto já possui anúncio no Mercado Livre, consultar o status ao vivo
+  useEffect(() => {
+    if (product?.ml_listing_id) {
+      mlService
+        .getItem(product.ml_listing_id)
+        .then((res) => setLiveMLItem(res))
+        .catch(() => setLiveMLItem(null))
+    } else {
+      setLiveMLItem(null)
+    }
+  }, [product?.ml_listing_id])
+
+  const handleUpdateMLStatus = async (newStatus: 'active' | 'paused' | 'closed') => {
+    if (!product?.ml_listing_id) return
+    setUpdatingMLStatus(true)
+    try {
+      await mlService.updateItemStatus(product.ml_listing_id, newStatus, product.id)
+      toast({
+        title: 'Status atualizado no Mercado Livre!',
+        description: `O anúncio foi marcado como "${newStatus}".`,
+      })
+      if (liveMLItem) {
+        setLiveMLItem({ ...liveMLItem, status: newStatus })
+      }
+      setProduct((prev) => (prev ? { ...prev, ml_listing_status: newStatus } : null))
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao alterar status no Mercado Livre',
+        description: err?.message || 'Não foi possível atualizar o anúncio.',
+        variant: 'destructive',
+      })
+    } finally {
+      setUpdatingMLStatus(false)
+    }
+  }
 
   // Lista combinada de fotos (uploads PocketBase + URLs json)
   const photos = useMemo(() => {
@@ -1033,6 +1075,69 @@ export default function CatalogoDetalhe() {
 
         {/* Botões Operacionais */}
         <div className="flex items-center gap-2 flex-wrap">
+          {/* Botão Anunciar no Mercado Livre ou Badge se já anunciado */}
+          {product.ml_listing_id ? (
+            <div className="flex items-center gap-1.5 bg-[#ffe600]/20 border border-amber-400/80 px-2.5 py-1 rounded-md text-xs">
+              <ShoppingBag className="w-4 h-4 text-slate-900" />
+              <div className="flex items-center gap-1">
+                <span className="font-bold text-slate-900">Anunciado no ML</span>
+                {liveMLItem?.status && (
+                  <Badge
+                    variant="outline"
+                    className={`text-[10px] px-1.5 py-0 ${
+                      liveMLItem.status === 'active'
+                        ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                        : liveMLItem.status === 'paused'
+                          ? 'bg-amber-100 text-amber-800 border-amber-300'
+                          : 'bg-slate-200 text-slate-700 border-slate-300'
+                    }`}
+                  >
+                    {liveMLItem.status === 'active'
+                      ? 'Ativo'
+                      : liveMLItem.status === 'paused'
+                        ? 'Pausado'
+                        : 'Finalizado'}
+                  </Badge>
+                )}
+              </div>
+              <a
+                href={
+                  product.ml_listing_url ||
+                  `https://produto.mercadolivre.com.br/${product.ml_listing_id}`
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-slate-900 hover:text-amber-900 ml-1 font-semibold flex items-center gap-0.5 underline text-[11px]"
+              >
+                Abrir <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+          ) : (
+            (() => {
+              const validation = validateProductForML(product)
+              return (
+                <Button
+                  size="sm"
+                  onClick={() => setMlPublishModalOpen(true)}
+                  disabled={!validation.eligible}
+                  title={
+                    validation.eligible
+                      ? 'Publicar anúncio oficial no Mercado Livre'
+                      : `Não publicável no ML:\n• ${validation.reasons.join('\n• ')}`
+                  }
+                  className={`text-xs h-9 gap-1.5 font-bold shadow-xs transition-all ${
+                    validation.eligible
+                      ? 'bg-[#ffe600] hover:bg-[#ebd300] text-slate-950 border border-amber-400'
+                      : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                  }`}
+                >
+                  <ShoppingBag className="w-3.5 h-3.5 text-slate-950" />
+                  Anunciar no ML
+                </Button>
+              )
+            })()
+          )}
+
           <Button
             variant="default"
             size="sm"
@@ -1548,6 +1653,109 @@ export default function CatalogoDetalhe() {
                   </span>
                 </div>
               </div>
+
+              {/* Bloco de Gestão do Mercado Livre se já anunciado */}
+              {product.ml_listing_id && (
+                <div className="p-3.5 bg-gradient-to-r from-amber-50 to-yellow-50/50 rounded-xl border border-amber-200/80 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
+                      <ShoppingBag className="w-4 h-4 text-amber-600" />
+                      Anúncio no Mercado Livre
+                    </span>
+                    <Badge
+                      variant="outline"
+                      className={
+                        (liveMLItem?.status || product.ml_listing_status) === 'active'
+                          ? 'bg-emerald-100 text-emerald-800 border-emerald-300 font-semibold'
+                          : 'bg-amber-100 text-amber-800 border-amber-300 font-semibold'
+                      }
+                    >
+                      {(liveMLItem?.status || product.ml_listing_status) === 'active'
+                        ? 'Ativo no ML'
+                        : (liveMLItem?.status || product.ml_listing_status) === 'paused'
+                          ? 'Pausado'
+                          : 'Encerrado'}
+                    </Badge>
+                  </div>
+
+                  <p className="text-[11px] text-slate-600 font-mono">
+                    ID: {product.ml_listing_id}
+                  </p>
+
+                  <div className="flex items-center gap-2 flex-wrap pt-1">
+                    <a
+                      href={
+                        product.ml_listing_url ||
+                        `https://produto.mercadolivre.com.br/${product.ml_listing_id}`
+                      }
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:underline"
+                    >
+                      Abrir no Mercado Livre <ExternalLink className="w-3 h-3" />
+                    </a>
+
+                    {(liveMLItem?.status || product.ml_listing_status) === 'active' ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleUpdateMLStatus('paused')}
+                        disabled={updatingMLStatus}
+                        className="text-xs h-7 gap-1 border-amber-300 text-amber-800 hover:bg-amber-100/50 ml-auto"
+                      >
+                        <PauseCircle className="w-3 h-3" />
+                        Pausar anúncio
+                      </Button>
+                    ) : (liveMLItem?.status || product.ml_listing_status) === 'paused' ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleUpdateMLStatus('active')}
+                        disabled={updatingMLStatus}
+                        className="text-xs h-7 gap-1 border-emerald-300 text-emerald-800 hover:bg-emerald-100/50 ml-auto"
+                      >
+                        <PlayCircle className="w-3 h-3" />
+                        Reativar anúncio
+                      </Button>
+                    ) : null}
+
+                    {(liveMLItem?.status || product.ml_listing_status) !== 'closed' && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleUpdateMLStatus('closed')}
+                        disabled={updatingMLStatus}
+                        className="text-xs h-7 text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                        title="Encerrar o anúncio permanentemente no ML"
+                      >
+                        <XCircle className="w-3 h-3" />
+                        Encerrar
+                      </Button>
+                    )}
+                  </div>
+
+                  {statusVal === 'Vendido' &&
+                    (liveMLItem?.status || product.ml_listing_status) === 'active' && (
+                      <div className="p-2 bg-rose-50 border border-rose-200 rounded text-[11px] text-rose-800 flex items-center justify-between">
+                        <span>
+                          Equipamento vendido no sistema. Encerre o anúncio no ML para evitar
+                          compras indevidas.
+                        </span>
+                        <Button
+                          size="sm"
+                          onClick={() => handleUpdateMLStatus('closed')}
+                          disabled={updatingMLStatus}
+                          className="bg-rose-600 hover:bg-rose-700 text-white text-[10px] h-6 px-2"
+                        >
+                          Encerrar agora
+                        </Button>
+                      </div>
+                    )}
+                </div>
+              )}
 
               {/* Ações de Venda */}
               <div className="space-y-2">
@@ -2802,6 +3010,19 @@ export default function CatalogoDetalhe() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Modal Anunciar no Mercado Livre */}
+      {product && (
+        <SingleMLPublishModal
+          isOpen={mlPublishModalOpen}
+          onClose={() => setMlPublishModalOpen(false)}
+          product={product}
+          onPublished={(updated) => {
+            setProduct(updated)
+            loadData()
+          }}
+        />
+      )}
 
       {/* MODAL CLONAR EQUIPAMENTO */}
       <CloneEquipmentModal

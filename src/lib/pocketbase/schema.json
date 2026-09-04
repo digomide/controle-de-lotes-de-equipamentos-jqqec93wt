@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-04T10:45:07.251Z",
+  "generatedAt": "2026-09-04T11:11:43.195Z",
   "collections": [
     {
       "name": "users",
@@ -231,6 +231,30 @@
         {
           "name": "has_numeric_keypad",
           "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ml_listing_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ml_listing_url",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ml_listing_status",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ml_published_at",
+          "type": "date",
           "required": false,
           "system": false
         }
@@ -714,6 +738,94 @@
           "type": "text",
           "required": false,
           "system": false
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "ml_settings",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "client_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "client_secret",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "redirect_uri",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "access_token",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "refresh_token",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "token_expires_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "user_id_ml",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "nickname",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "permalink_seller",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "site_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
         }
       ],
       "indexes": []

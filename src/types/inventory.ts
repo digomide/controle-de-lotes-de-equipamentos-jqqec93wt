@@ -65,6 +65,10 @@ export interface Product extends RecordModel {
   serial_number?: string
   includes_charger?: boolean
   bench_notes?: string
+  ml_listing_id?: string
+  ml_listing_url?: string
+  ml_listing_status?: 'active' | 'paused' | 'closed' | string
+  ml_published_at?: string
   expand?: {
     purchase_batch_id?: PurchaseBatch
   }

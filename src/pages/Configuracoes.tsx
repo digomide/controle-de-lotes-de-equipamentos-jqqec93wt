@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { useAuth } from '@/contexts/AuthContext'
 import { User, ShieldCheck, Mail, Database, Server, CheckCircle2, Lock } from 'lucide-react'
+import { MercadoLivreConfigCard } from '@/components/MercadoLivreConfigCard'
 
 export default function Configuracoes() {
   const { user, isAdmin, logout } = useAuth()
@@ -84,6 +85,9 @@ export default function Configuracoes() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Integração Mercado Livre */}
+      <MercadoLivreConfigCard />
 
       {/* Database & Integrations Status */}
       <Card className="border-slate-200 shadow-sm">

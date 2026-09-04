@@ -27,7 +27,9 @@ import {
   FileSpreadsheet,
   Laptop,
   Boxes,
+  ShoppingBag,
 } from 'lucide-react'
+import { BatchMLPublishModal } from '@/components/BatchMLPublishModal'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -75,6 +77,7 @@ export default function Catalogo() {
   // Multi-seleção de propostas (como no Replit)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [proposalModalOpen, setProposalModalOpen] = useState(false)
+  const [mlBatchModalOpen, setMlBatchModalOpen] = useState(false)
 
   // Modal Novo / Editar Equipamento
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -478,6 +481,15 @@ export default function Catalogo() {
               className="text-slate-300 hover:text-white hover:bg-slate-800 text-xs"
             >
               Limpar seleção
+            </Button>
+            <Button
+              type="button"
+              onClick={() => setMlBatchModalOpen(true)}
+              className="bg-[#ffe600] hover:bg-[#ebd300] text-slate-950 font-bold text-xs gap-1.5 shadow-sm"
+              title="Anunciar os notebooks selecionados no Mercado Livre"
+            >
+              <ShoppingBag className="w-3.5 h-3.5" />
+              Anunciar no ML ({selectedIds.size})
             </Button>
             <Button
               onClick={() => setProposalModalOpen(true)}
@@ -1061,6 +1073,16 @@ export default function Catalogo() {
           </CardContent>
         </Card>
       )}
+
+      {/* MODAL DE PUBLICAÇÃO EM MASSA NO MERCADO LIVRE */}
+      <BatchMLPublishModal
+        isOpen={mlBatchModalOpen}
+        onClose={() => setMlBatchModalOpen(false)}
+        selectedProducts={selectedProducts}
+        onSuccessFinished={() => {
+          loadData()
+        }}
+      />
 
       {/* MODAL: REVISE ANTES DE ENVIAR / PROPOSTA COMERCIAL */}
       <Dialog open={proposalModalOpen} onOpenChange={setProposalModalOpen}>
