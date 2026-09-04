@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   Search,
   Filter,
@@ -33,10 +33,12 @@ import {
 } from '@/components/ui/select'
 import { PublicStoreHeader, PublicStoreFooter } from '@/components/PublicStoreLayout'
 import { STORE_CONFIG, buildWhatsAppLink } from '@/lib/storeConfig'
+import { ZoomableImage } from '@/components/ZoomableImage'
 import pb from '@/lib/pocketbase/client'
 import type { Product } from '@/types/inventory'
 
 export default function LojaPublica() {
+  const navigate = useNavigate()
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -431,19 +433,19 @@ export default function LojaPublica() {
                       key={p.id}
                       className="overflow-hidden border border-slate-200/90 rounded-2xl bg-white shadow-xs hover:shadow-xl transition-all duration-300 flex flex-col group"
                     >
-                      {/* Foto e Badges Superiores com Mini-Galeria Interativa */}
+                      {/* Foto e Badges Superiores com Mini-Galeria Interativa e Zoom por Lente */}
                       <div className="relative w-full aspect-16/10 h-48 sm:h-52 bg-slate-100 overflow-hidden shrink-0 select-none">
-                        <Link to={detailUrl} className="block w-full h-full">
-                          <img
-                            src={activePhoto}
-                            alt={`${p.name} - Foto ${currentIndex + 1}`}
-                            className="w-full h-full object-cover object-center block group-hover:scale-105 transition-transform duration-500"
-                            onError={(e) => {
-                              ;(e.target as HTMLImageElement).src =
-                                'https://img.usecurling.com/p/600/400?q=laptop'
-                            }}
-                          />
-                        </Link>
+                        <ZoomableImage
+                          src={activePhoto}
+                          alt={`${p.name} - Foto ${currentIndex + 1}`}
+                          compact={true}
+                          showScaleControl={false}
+                          showHint={false}
+                          onClick={() => {
+                            // Ao clicar na foto (desktop ou mobile), navega via SPA para o detalhe
+                            navigate(detailUrl)
+                          }}
+                        />
 
                         {/* Tag de Condição (Excelente / Bom) */}
                         <div className="absolute top-3 left-3 flex items-center gap-1.5 z-10 pointer-events-none">

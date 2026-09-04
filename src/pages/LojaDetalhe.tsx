@@ -284,6 +284,7 @@ export default function LojaDetalhe() {
                       src={photos[selectedPhotoIndex] || photos[0]}
                       alt={product.name}
                       showScaleControl={true}
+                      showHint={true}
                       onClick={() => setZoomModalOpen(true)}
                     />
 
@@ -311,7 +312,7 @@ export default function LojaDetalhe() {
                         <button
                           type="button"
                           onClick={handlePrevPhoto}
-                          className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/80 hover:bg-white text-slate-800 flex items-center justify-center shadow-md transition-all opacity-0 group-hover:opacity-100 z-10"
+                          className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/85 hover:bg-white text-slate-800 flex items-center justify-center shadow-md transition-all opacity-0 group-hover:opacity-100 z-10"
                           title="Foto anterior"
                         >
                           <ChevronLeft className="w-5 h-5" />
@@ -319,7 +320,7 @@ export default function LojaDetalhe() {
                         <button
                           type="button"
                           onClick={handleNextPhoto}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/80 hover:bg-white text-slate-800 flex items-center justify-center shadow-md transition-all opacity-0 group-hover:opacity-100 z-10"
+                          className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/85 hover:bg-white text-slate-800 flex items-center justify-center shadow-md transition-all opacity-0 group-hover:opacity-100 z-10"
                           title="Próxima foto"
                         >
                           <ChevronRight className="w-5 h-5" />
