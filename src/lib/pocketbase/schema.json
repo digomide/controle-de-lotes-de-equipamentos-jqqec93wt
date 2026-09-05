@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-05T16:21:05.341Z",
+  "generatedAt": "2026-09-05T16:30:59.948Z",
   "collections": [
     {
       "name": "users",
@@ -1989,6 +1989,459 @@
       "indexes": [
         "CREATE INDEX idx_ml_ads_fetch_jobs_status ON ml_ads_fetch_jobs (status)",
         "CREATE INDEX idx_ml_ads_fetch_jobs_created ON ml_ads_fetch_jobs (created DESC)"
+      ]
+    },
+    {
+      "name": "ml_competitors",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "seller_id",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "nickname",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "active",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "permalink",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "last_synced_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_ml_competitors_seller ON ml_competitors (seller_id)",
+        "CREATE INDEX idx_ml_competitors_created ON ml_competitors (created DESC)"
+      ]
+    },
+    {
+      "name": "ml_competitor_ads",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "mlb_item_id",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "seller_id",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "seller_nickname",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "title",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "current_price",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "initial_price",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "sold_quantity",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "available_quantity",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["active", "paused", "closed", "under_review"]
+        },
+        {
+          "name": "permalink",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "thumbnail",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "condition",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "brand",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "model",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "gtin",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "last_checked",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_ml_competitor_ads_item ON ml_competitor_ads (mlb_item_id)",
+        "CREATE INDEX idx_ml_competitor_ads_seller ON ml_competitor_ads (seller_id)",
+        "CREATE INDEX idx_ml_competitor_ads_status ON ml_competitor_ads (status)",
+        "CREATE INDEX idx_ml_competitor_ads_last_checked ON ml_competitor_ads (last_checked DESC)"
+      ]
+    },
+    {
+      "name": "ml_price_history",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": null,
+        "update": null,
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "mlb_item_id",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "seller_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "price",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "sold_quantity",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "available_quantity",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "checked_at",
+          "type": "date",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_ml_price_history_item_checked ON ml_price_history (mlb_item_id, checked_at DESC)",
+        "CREATE INDEX idx_ml_price_history_seller ON ml_price_history (seller_id)"
+      ]
+    },
+    {
+      "name": "ml_competitor_events",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": null,
+        "update": null,
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "mlb_item_id",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "seller_id",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "seller_nickname",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ad_title",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "event_type",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": [
+            "price_change",
+            "sold_progress",
+            "new_ad",
+            "ad_paused",
+            "ad_closed",
+            "stock_change"
+          ]
+        },
+        {
+          "name": "old_value",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "new_value",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "difference_num",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_ml_comp_events_item ON ml_competitor_events (mlb_item_id)",
+        "CREATE INDEX idx_ml_comp_events_seller ON ml_competitor_events (seller_id)",
+        "CREATE INDEX idx_ml_comp_events_type ON ml_competitor_events (event_type)",
+        "CREATE INDEX idx_ml_comp_events_created ON ml_competitor_events (created DESC)"
+      ]
+    },
+    {
+      "name": "ml_competitor_jobs",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": null,
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "action",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["resolve_competitor", "sync_competitor", "sync_all", "search_query"]
+        },
+        {
+          "name": "query",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "seller_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "seller_nickname",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["pending", "processing", "done", "error"]
+        },
+        {
+          "name": "status_code",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "error_message",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "result_data",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "requested_by",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_ml_comp_jobs_status ON ml_competitor_jobs (status)",
+        "CREATE INDEX idx_ml_comp_jobs_created ON ml_competitor_jobs (created DESC)"
       ]
     }
   ]

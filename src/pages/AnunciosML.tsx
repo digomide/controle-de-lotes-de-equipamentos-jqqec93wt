@@ -220,6 +220,14 @@ export default function AnunciosML() {
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-amber-600' : ''}`} />
             Atualizar
           </Button>
+          <Link to="/radar-ml">
+            <Button
+              size="sm"
+              className="text-xs h-9 bg-[#d9532f] hover:bg-[#c24624] text-white gap-1.5 font-medium shadow-xs"
+            >
+              Radar de Concorrência
+            </Button>
+          </Link>
           <Link to="/configuracoes">
             <Button
               variant="outline"

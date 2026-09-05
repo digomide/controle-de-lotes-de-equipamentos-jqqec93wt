@@ -21,6 +21,7 @@ import {
   Building2,
   Megaphone,
   Video,
+  Radar,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -51,6 +52,7 @@ export default function Layout() {
     { title: 'Catálogo de Notebooks', path: '/produtos', icon: Package },
     { title: 'Marketing', path: '/marketing', icon: Megaphone },
     { title: 'Anúncios ML', path: '/anuncios-ml', icon: ShoppingBag },
+    { title: 'Radar ML', path: '/radar-ml', icon: Radar },
     { title: 'Post Insta', path: '/post-instagram', icon: Instagram },
     { title: 'Post TikTok', path: '/post-tiktok', icon: Video },
     { title: 'Cotações Corporativas', path: '/cotacoes', icon: Building2 },
@@ -70,6 +72,7 @@ export default function Layout() {
     if (p.startsWith('/vendas')) return 'Gestão de Vendas'
     if (p.startsWith('/marketing')) return 'Módulo de Marketing Automatizado'
     if (p.startsWith('/anuncios-ml')) return 'Anúncios Mercado Livre (Visualização)'
+    if (p.startsWith('/radar-ml')) return 'Radar de Concorrência Mercado Livre'
     if (p.startsWith('/post-instagram')) return 'Estúdio de Post para Instagram'
     if (p.startsWith('/post-tiktok')) return 'Estúdio de Post TikTok & Seller Center'
     if (p.startsWith('/cotacoes')) return 'Cotações Corporativas & Lotes'
@@ -361,6 +364,18 @@ export default function Layout() {
           >
             <Megaphone className="w-4 h-4" />
             Marketing
+          </NavLink>
+          <NavLink
+            to="/radar-ml"
+            className={({ isActive }) =>
+              cn(
+                'flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-2 rounded',
+                isActive ? 'text-orange-600 font-bold' : 'text-slate-500',
+              )
+            }
+          >
+            <Radar className="w-4 h-4" />
+            Radar ML
           </NavLink>
           <NavLink
             to="/post-instagram"
