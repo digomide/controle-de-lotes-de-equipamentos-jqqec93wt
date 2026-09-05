@@ -684,7 +684,7 @@ export function AnunciosCatalogoTab() {
         </CardContent>
       </Card>
 
-      {/* Box Informativo Permanente: Como funciona a classificação no catálogo */}
+      {/* Box Informativo Permanente: Regras da Categoria MLB1652 e Classificação no Catálogo */}
       <Card className="border-amber-200 bg-gradient-to-r from-amber-50/80 via-orange-50/40 to-amber-50/60 shadow-xs">
         <CardContent className="p-4 sm:p-5">
           <div className="flex items-start gap-3">
@@ -694,43 +694,50 @@ export function AnunciosCatalogoTab() {
             <div className="space-y-2 text-xs leading-relaxed text-slate-700">
               <div className="flex items-center gap-2 flex-wrap">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-amber-950">
-                  Como funciona a classificação no catálogo do Mercado Livre
+                  Regra do Mercado Livre para Notebooks (Categoria MLB1652)
                 </h4>
                 <Badge
                   variant="outline"
                   className="text-[10px] bg-white border-amber-300 text-amber-900 font-medium"
                 >
-                  Guia do Vendedor
+                  Regra Oficial do Canal Marketplace
                 </Badge>
               </div>
-              <p>
-                Cada posição do catálogo tem{' '}
-                <strong>condição fixa definida pelo Mercado Livre</strong> (Novo, Recondicionado ou
-                Usado). Você não altera a classificação de uma posição — você escolhe em qual
-                posição publicar sua oferta. Posições recondicionadas são produtos de catálogo
-                separados dentro do mesmo domínio.
+              <p className="font-semibold text-slate-800">
+                Para notebooks, o Mercado Livre só aceita:{' '}
+                <span className="text-emerald-700 font-bold">Novo</span>,{' '}
+                <span className="text-amber-700 font-bold">Usado</span> ou{' '}
+                <span className="text-slate-600 font-bold">Não especificado</span>. Seu
+                recondicionado excelente entra como{' '}
+                <span className="underline decoration-amber-500 font-black text-amber-900">
+                  USADO
+                </span>{' '}
+                — o &ldquo;Excelente&rdquo; vai na descrição e nas fotos.
               </p>
               <p className="text-slate-600">
-                <strong>Importante sobre a condição:</strong> Anúncios de catálogo{' '}
-                <strong>não aceitam &ldquo;Excelente&rdquo;</strong> como condição na API do Mercado
-                Livre. No ML existem apenas <em>Novo (new)</em>,{' '}
-                <em>Recondicionado (refurbished)</em> e <em>Usado (used)</em>. A classificação{' '}
-                <strong>&ldquo;Excelente&rdquo;</strong> é do nosso controle interno de triagem
-                técnica de estoque (entra na descrição ou no anúncio tradicional comum).
+                A API do Mercado Livre no canal marketplace não suporta a condição{' '}
+                <code className="text-rose-700 bg-rose-50 px-1 py-0.2 rounded font-mono font-bold">
+                  refurbished
+                </code>{' '}
+                na categoria de notebooks. Se você enviar &ldquo;Recondicionado&rdquo;, o sistema
+                possui <strong>fallback automático</strong>: ao detectar a recusa pela regra da
+                categoria, ele retenta automaticamente como <strong>Usado</strong> antes de
+                registrar qualquer falha.
               </p>
               <div className="flex items-center gap-2 pt-1 text-[11px] text-amber-900 font-medium flex-wrap">
                 <span className="inline-flex items-center gap-1 bg-white/90 px-2 py-0.5 rounded border border-amber-200">
-                  <span className="w-2 h-2 rounded-full bg-purple-600" />
-                  <strong>Recondicionado:</strong> Posição oficial com garantia/recondicionamento
-                  ML.
+                  <span className="w-2 h-2 rounded-full bg-amber-500" />
+                  <strong>Usado:</strong> Recomendado para notebooks recondicionados de excelente
+                  estado no catálogo ML.
                 </span>
                 <span className="inline-flex items-center gap-1 bg-white/90 px-2 py-0.5 rounded border border-amber-200">
                   <span className="w-2 h-2 rounded-full bg-emerald-600" />
-                  <strong>Novo:</strong> Exige produto lacrado de fábrica.
+                  <strong>Novo:</strong> Exclusivo para notebooks lacrados de fábrica.
                 </span>
                 <span className="inline-flex items-center gap-1 bg-white/90 px-2 py-0.5 rounded border border-amber-200">
-                  <span className="w-2 h-2 rounded-full bg-amber-500" />
-                  <strong>Usado:</strong> Posições abertas a seminovos.
+                  <span className="w-2 h-2 rounded-full bg-purple-600" />
+                  <strong>Recondicionado:</strong> Mantido para outras categorias que ofereçam o
+                  programa oficial.
                 </span>
               </div>
             </div>
@@ -1003,7 +1010,7 @@ export function AnunciosCatalogoTab() {
 
             <div className="flex items-center gap-2 w-full md:w-auto justify-between md:justify-end flex-wrap">
               {/* Seletor de Condição em Lote para itens selecionados */}
-              <div className="flex items-center gap-1.5">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-1.5">
                 <span className="text-[11px] font-semibold text-slate-600 whitespace-nowrap">
                   Condição em lote:
                 </span>
@@ -1024,9 +1031,9 @@ export function AnunciosCatalogoTab() {
                     Alterar selecionadas...
                   </option>
                   <option value="catalog_auto">Nova do catálogo (padrão)</option>
+                  <option value="used">Usado (recomendado p/ Notebooks)</option>
                   <option value="new">Novo</option>
-                  <option value="refurbished">Recondicionado</option>
-                  <option value="used">Usado</option>
+                  <option value="refurbished">Recondicionado (ver aviso)</option>
                 </select>
               </div>
 
@@ -1408,9 +1415,9 @@ export function AnunciosCatalogoTab() {
                               aria-label="Condição de publicação no Mercado Livre"
                             >
                               <option value="catalog_auto">Nova do catálogo</option>
+                              <option value="used">Usado (recomendado p/ Notebooks)</option>
                               <option value="new">Novo</option>
                               <option value="refurbished">Recondicionado</option>
-                              <option value="used">Usado</option>
                             </select>
                           </div>
 
@@ -1457,19 +1464,18 @@ export function AnunciosCatalogoTab() {
                         </div>
 
                         {/* Avisos inline contextuais sobre a condição escolhida */}
-                        {(cat.condition === 'new' || !cat.condition) &&
-                          item.formCondition === 'refurbished' && (
-                            <div className="p-2 rounded bg-amber-50 border border-amber-200 text-[11px] text-amber-900 leading-snug flex items-start gap-1.5">
-                              <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
-                              <span>
-                                Esta posição é classificada como <strong>Novo</strong> pelo ML.
-                                Publicar como <strong>Recondicionado</strong> pode ser recusado (
-                                <em>item.catalog_listing.not_eligible</em>) — você pode tentar; se
-                                recusar, busque a posição recondicionada equivalente no mesmo
-                                domínio.
-                              </span>
-                            </div>
-                          )}
+                        {item.formCondition === 'refurbished' && (
+                          <div className="p-2 rounded bg-amber-50 border border-amber-300 text-[11px] text-amber-950 leading-snug flex items-start gap-1.5">
+                            <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                            <span>
+                              <strong>Aviso sobre notebooks:</strong> Para notebooks (categoria
+                              MLB1652), o ML não aceita &ldquo;refurbished&rdquo; no canal
+                              marketplace — use <strong>&ldquo;Usado&rdquo;</strong> e destaque
+                              &ldquo;Excelente&rdquo; na descrição. O sistema tentará retentar
+                              automaticamente como Usado se o ML recusar.
+                            </span>
+                          </div>
+                        )}
 
                         {cat.condition === 'refurbished' &&
                           (item.formCondition === 'refurbished' ||
@@ -1636,9 +1642,9 @@ export function AnunciosCatalogoTab() {
                                   aria-label="Condição de publicação no Mercado Livre"
                                 >
                                   <option value="catalog_auto">Nova do catálogo</option>
+                                  <option value="used">Usado (recomendado p/ Notebooks)</option>
                                   <option value="new">Novo</option>
                                   <option value="refurbished">Recondicionado</option>
-                                  <option value="used">Usado</option>
                                 </select>
                               </div>
 
@@ -1682,17 +1688,16 @@ export function AnunciosCatalogoTab() {
                             </div>
 
                             {/* Avisos inline parciais */}
-                            {(cat.condition === 'new' || !cat.condition) &&
-                              item.formCondition === 'refurbished' && (
-                                <div className="p-1.5 rounded bg-amber-50 border border-amber-200 text-[10px] text-amber-900 leading-snug flex items-start gap-1">
-                                  <AlertCircle className="w-3 h-3 text-amber-600 shrink-0 mt-0.5" />
-                                  <span>
-                                    Posição Novo: publicar como Recondicionado pode ser recusado
-                                    pelo ML (item_not_new_nor_refurbished).
-                                  </span>
-                                </div>
-                              )}
-
+                            {item.formCondition === 'refurbished' && (
+                              <div className="p-1.5 rounded bg-amber-50 border border-amber-300 text-[10px] text-amber-950 leading-snug flex items-start gap-1">
+                                <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                                <span>
+                                  Para notebooks, o ML não aceita &ldquo;refurbished&rdquo; — use{' '}
+                                  <strong>Usado</strong> e destaque &ldquo;Excelente&rdquo; na
+                                  descrição.
+                                </span>
+                              </div>
+                            )}
                             {cat.condition === 'refurbished' &&
                               (item.formCondition === 'refurbished' ||
                                 item.formCondition === 'catalog_auto') && (

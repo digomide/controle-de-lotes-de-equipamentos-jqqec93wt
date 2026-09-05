@@ -246,6 +246,7 @@ onRecordAfterCreateSuccess((e) => {
   let successfulPayload = null
   let lastErrorData = null
   let lastStatusCode = 400
+  let fallbackFromCondition = '' // Registra se houve fallback de condição (ex.: refurbished -> used)
 
   for (let vIdx = 0; vIdx < variationsToTry.length; vIdx++) {
     const curVar = variationsToTry[vIdx]
@@ -296,11 +297,47 @@ onRecordAfterCreateSuccess((e) => {
         )
 
         const resStr = JSON.stringify(resJson)
+
+        // RETRY / FALLBACK AUTOMÁTICO:
+        // Se a tentativa foi com 'refurbished' e o ML recusou por condição não suportada na categoria
+        // (ex: "Category MLB1652 for channel marketplace only supports conditions: [used, new, not_specified]")
+        // ou item.condition.invalid que lista used como suportado,
+        // retentamos automaticamente com a condição "used" antes de registrar erro!
+        const isConditionInvalid =
+          resStr.indexOf('item.condition.invalid') >= 0 ||
+          resStr.indexOf('only supports conditions') >= 0
+        const isRefurbishedAttempt = payloadToSend.condition === 'refurbished'
+
+        if (isRefurbishedAttempt && isConditionInvalid) {
+          const alreadyQueuedFallback = variationsToTry.some(function (v) {
+            return v.name === 'fallback_auto_used'
+          })
+          if (!alreadyQueuedFallback) {
+            console.log(
+              '[ml_catalog_publish] Detectada recusa de refurbished pelo ML para ' +
+                catalogProductId +
+                '. Enfileirando retentativa automática com condição "used"...',
+            )
+            const fallbackPayload = JSON.parse(JSON.stringify(payloadToSend))
+            fallbackPayload.condition = 'used'
+            variationsToTry.push({
+              name: 'fallback_auto_used',
+              payload: fallbackPayload,
+              fallbackFrom: 'refurbished',
+            })
+            fallbackFromCondition = 'refurbished'
+            continue
+          }
+        }
+
         const isNotEligibleUsed =
           resStr.indexOf('item_not_new_nor_refurbished') >= 0 ||
           resStr.indexOf('catalog_listing.not_eligible') >= 0
         if (!isNotEligibleUsed && variationsToTry.length > vIdx + 1) {
-          break
+          // Se não há outra variação queued, sai do loop
+          if (vIdx === variationsToTry.length - 1) {
+            break
+          }
         }
       }
     } catch (errSend) {
@@ -321,7 +358,16 @@ onRecordAfterCreateSuccess((e) => {
     rec.set('ml_listing_id', listingId)
     rec.set('ml_listing_url', listingUrl)
     rec.set('result_data', finalResponse)
-    rec.set('error_message', '')
+
+    // Se houve fallback automático de condição com sucesso, registrar mensagem informativa
+    if (fallbackFromCondition && successfulPayload && successfulPayload.condition === 'used') {
+      const fallbackNote =
+        'Recusado como "Recondicionado" (não suportado na categoria MLB1652 do ML), republicado automaticamente como "Usado" com sucesso.'
+      rec.set('error_message', fallbackNote)
+      console.log('[ml_catalog_publish] ' + fallbackNote + ' ID: ' + listingId)
+    } else {
+      rec.set('error_message', '')
+    }
     appId.save(rec)
 
     // Atualizar o produto local correspondente
@@ -341,6 +387,12 @@ onRecordAfterCreateSuccess((e) => {
           const curHist = localProduct.get('history_events')
           if (Array.isArray(curHist)) history.push.apply(history, curHist)
         } catch (_) {}
+        const condInfo = successfulPayload
+          ? ' (condição: ' +
+            successfulPayload.condition +
+            (fallbackFromCondition ? ' - fallback automático de ' + fallbackFromCondition : '') +
+            ')'
+          : ''
         history.push({
           date: new Date().toISOString().replace('T', ' ').substring(0, 19),
           title: 'Anúncio de Catálogo publicado no Mercado Livre',
@@ -351,7 +403,7 @@ onRecordAfterCreateSuccess((e) => {
             catalogProductId +
             ' por R$ ' +
             price +
-            (successfulPayload ? ' (condição: ' + successfulPayload.condition + ')' : ''),
+            condInfo,
         })
         localProduct.set('history_events', history)
 
@@ -389,17 +441,55 @@ onRecordAfterCreateSuccess((e) => {
       userMsg = 'Campos inválidos enviados ao Mercado Livre para este anúncio de catálogo.'
     } else if (rawErrorStr.indexOf('item_not_new_nor_refurbished') >= 0) {
       userMsg =
-        'Este produto de catálogo no Mercado Livre exige condição Novo ou Recondicionado oficial elegível.'
+        'Esta posição de catálogo exige condição Novo ou Recondicionado oficial. Posições de notebooks no canal marketplace aceitam "Novo" ou "Usado" (a categoria MLB1652 não aceita recondicionado no catálogo).'
     } else if (errBody.message) {
       userMsg = errBody.message
     }
 
     if (Array.isArray(errBody.cause) && errBody.cause.length > 0) {
+      // Filtrar avisos secundários de frete/shipping que não são erros impeditivos
       const errorCauses = errBody.cause.filter(function (c) {
-        return c.type !== 'warning' || (c.code && c.code.indexOf('lost_me1') === -1)
+        if (c.type === 'warning') return false
+        if (
+          c.code &&
+          (c.code.indexOf('lost_me1') !== -1 || c.code.indexOf('mandatory_free_shipping') !== -1)
+        )
+          return false
+        return true
       })
 
       const targetCauses = errorCauses.length > 0 ? errorCauses : errBody.cause
+
+      // Se houver causa de condição inválida (item.condition.invalid), o ML envia em conjunto um erro genérico
+      // body.missing_fields com references: ["condition"] ("Missing fields").
+      // Esse "Missing fields" é um artefato redundante gerado pelo validador do ML porque ele rejeitou o valor da condição.
+      // Ocultamos "Missing fields" para condition quando a causa da recusa de condição já está presente e clara.
+      const hasConditionInvalidCause = targetCauses.some(function (c) {
+        return (
+          c.code === 'item.condition.invalid' ||
+          (c.message && c.message.indexOf('only supports conditions') >= 0)
+        )
+      })
+
+      const filteredCauses = targetCauses.filter(function (c) {
+        if (hasConditionInvalidCause) {
+          const isMissingCondition =
+            c.code === 'body.missing_fields' &&
+            Array.isArray(c.references) &&
+            c.references.indexOf('condition') >= 0
+          if (
+            isMissingCondition ||
+            (c.message === 'Missing fields' &&
+              (!c.references || c.references.indexOf('condition') >= 0))
+          ) {
+            return false
+          }
+        }
+        return true
+      })
+
+      const finalCausesToTranslate = filteredCauses.length > 0 ? filteredCauses : targetCauses
+
       const condLabelPt =
         itemCondition === 'refurbished'
           ? 'Recondicionado'
@@ -407,7 +497,7 @@ onRecordAfterCreateSuccess((e) => {
             ? 'Usado'
             : 'Novo'
 
-      const translatedList = targetCauses.map(function (c) {
+      const translatedList = finalCausesToTranslate.map(function (c) {
         if (c.code === 'item.price.invalid' || (c.message && c.message.indexOf('price') >= 0)) {
           return 'Preço informado (R$ ' + price + ') incompatível com as regras deste catálogo.'
         }
@@ -423,32 +513,58 @@ onRecordAfterCreateSuccess((e) => {
           if (c.cause && typeof c.cause === 'string') {
             acceptedConds = c.cause
           } else if (c.message && c.message.indexOf('item_not_new_nor_refurbished') >= 0) {
-            acceptedConds = 'Novo (ou programa de recondicionados elegível)'
+            acceptedConds = 'Novo (a posição não aceita publicação de usado/recondicionado)'
           }
           return (
-            'O ML recusou a condição "' +
-            condLabelPt +
-            '" nesta posição. ' +
-            'A posição ' +
+            'O ML recusou a publicação nesta posição (' +
             catalogProductId +
-            ' aceita somente: ' +
+            '). Motivo: esta posição do catálogo exige condição ' +
             acceptedConds +
-            '. ' +
-            'Procure no explorador a posição recondicionada equivalente deste produto e publique nela.'
+            '.'
           )
         }
-        if (c.code === 'item.condition.invalid') {
-          return (
-            'O ML recusou a condição "' +
+        if (
+          c.code === 'item.condition.invalid' ||
+          (c.message && c.message.indexOf('only supports conditions') >= 0)
+        ) {
+          // Extrair condições suportadas da mensagem do ML, ex: [used, new, not_specified]
+          let supportedConds = ''
+          const matchConds = (c.message || '').match(/supports conditions:\s*\[(.*?)\]/)
+          if (matchConds) {
+            supportedConds = matchConds[1]
+              .split(',')
+              .map(function (s) {
+                const tr = s.trim()
+                if (tr === 'used') return 'Usado (used)'
+                if (tr === 'new') return 'Novo (new)'
+                if (tr === 'not_specified') return 'Não especificado'
+                return tr
+              })
+              .join(', ')
+          } else {
+            supportedConds = c.message || 'Novo ou Usado'
+          }
+
+          let msg =
+            'O Mercado Livre não aceita a condição "' +
             condLabelPt +
-            '" nesta posição. ' +
-            'A posição ' +
-            catalogProductId +
-            ' aceita somente: ' +
-            (c.message || 'não informado pelo ML') +
-            '. ' +
-            'Procure no explorador a posição recondicionada equivalente deste produto e publique nela.'
-          )
+            '" para notebooks (categoria MLB1652). Condições aceitas pelo ML nesta categoria: ' +
+            supportedConds +
+            '.'
+
+          if (fallbackFromCondition) {
+            msg += ' Tentativa automática com "Usado" também não foi aceita nesta posição.'
+          } else {
+            msg += ' Utilize a condição "Usado" e destaque "Excelente" na descrição/fotos.'
+          }
+          return msg
+        }
+        if (
+          c.code === 'body.missing_fields' ||
+          (c.message && c.message.indexOf('Missing fields') >= 0)
+        ) {
+          const refList = Array.isArray(c.references) ? c.references.join(', ') : ''
+          return 'Campos obrigatórios ausentes: ' + (refList || c.message)
         }
         if (c.message && c.message.indexOf('The fields') >= 0) {
           return 'Campos inválidos para anúncio de catálogo: ' + c.message
@@ -459,6 +575,10 @@ onRecordAfterCreateSuccess((e) => {
       if (translatedList.length > 0) {
         userMsg = translatedList.join(' | ')
       }
+    }
+
+    if (fallbackFromCondition) {
+      userMsg = 'Recusado como "Recondicionado" pelo ML. ' + userMsg
     }
 
     rec.set('error_message', userMsg)
