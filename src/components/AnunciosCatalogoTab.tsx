@@ -194,9 +194,18 @@ export function AnunciosCatalogoTab() {
       }
     } catch (err: any) {
       console.error('Erro na busca de catálogo:', err)
+      const rawMsg = err?.message || ''
+      let friendlyMsg = 'Não foi possível consultar as posições do Mercado Livre.'
+      if (rawMsg.includes('Failed to create record')) {
+        friendlyMsg =
+          'Erro temporário de comunicação ao registrar a busca profunda. Tente novamente em alguns segundos.'
+      } else if (rawMsg) {
+        friendlyMsg = rawMsg
+      }
+
       toast({
         title: 'Erro na busca de catálogo',
-        description: err.message || 'Não foi possível consultar as posições do Mercado Livre.',
+        description: friendlyMsg,
         variant: 'destructive',
       })
     } finally {

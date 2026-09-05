@@ -117,6 +117,23 @@ onRecordAfterCreateSuccess((e) => {
             thumb = p.thumbnail
           }
 
+          const leanDirectAttributes = []
+          if (Array.isArray(p.attributes)) {
+            for (let a = 0; a < p.attributes.length; a++) {
+              const attr = p.attributes[a]
+              if (!attr || !attr.id) continue
+              const attrIdUpper = String(attr.id).toUpperCase()
+              if (attrIdUpper === 'BRAND' || attrIdUpper === 'MODEL' || attrIdUpper === 'LINE') {
+                leanDirectAttributes.push({
+                  id: attrIdUpper,
+                  name: attr.name || attrIdUpper,
+                  value_id: attr.value_id || null,
+                  value_name: attr.value_name || null,
+                })
+              }
+            }
+          }
+
           itemsFound.push({
             id: p.id,
             catalog_product_id: p.id,
@@ -126,7 +143,7 @@ onRecordAfterCreateSuccess((e) => {
             thumbnail: thumb,
             buy_box_winner_price: bestPrice,
             min_price: bestPrice,
-            attributes: p.attributes || [],
+            attributes: leanDirectAttributes,
             status: p.status || 'active',
             source: 'ml_product_direct',
           })
@@ -279,6 +296,24 @@ onRecordAfterCreateSuccess((e) => {
             }
             const bestPrice = prod.buy_box_winner ? prod.buy_box_winner.price : prod.price || null
 
+            // Normalizar atributos: manter apenas os essenciais (BRAND, MODEL, LINE) de forma enxuta
+            const leanAttributes = []
+            if (Array.isArray(prod.attributes)) {
+              for (let a = 0; a < prod.attributes.length; a++) {
+                const attr = prod.attributes[a]
+                if (!attr || !attr.id) continue
+                const attrIdUpper = String(attr.id).toUpperCase()
+                if (attrIdUpper === 'BRAND' || attrIdUpper === 'MODEL' || attrIdUpper === 'LINE') {
+                  leanAttributes.push({
+                    id: attrIdUpper,
+                    name: attr.name || attrIdUpper,
+                    value_id: attr.value_id || null,
+                    value_name: attr.value_name || null,
+                  })
+                }
+              }
+            }
+
             itemsFound.push({
               id: prod.id,
               catalog_product_id: prod.id,
@@ -288,7 +323,7 @@ onRecordAfterCreateSuccess((e) => {
               thumbnail: thumb,
               buy_box_winner_price: bestPrice,
               min_price: bestPrice,
-              attributes: prod.attributes || [],
+              attributes: leanAttributes,
               status: prod.status || 'active',
               source: 'ml_products_search',
             })
@@ -429,6 +464,27 @@ onRecordAfterCreateSuccess((e) => {
               const pRes = $http.send({ url: prodUrl, method: 'GET', headers: h, timeout: 8 })
               if (pRes.statusCode === 200 && pRes.json) {
                 const p = pRes.json
+                const leanScrapeAttrs = []
+                if (Array.isArray(p.attributes)) {
+                  for (let a = 0; a < p.attributes.length; a++) {
+                    const attr = p.attributes[a]
+                    if (!attr || !attr.id) continue
+                    const attrIdUpper = String(attr.id).toUpperCase()
+                    if (
+                      attrIdUpper === 'BRAND' ||
+                      attrIdUpper === 'MODEL' ||
+                      attrIdUpper === 'LINE'
+                    ) {
+                      leanScrapeAttrs.push({
+                        id: attrIdUpper,
+                        name: attr.name || attrIdUpper,
+                        value_id: attr.value_id || null,
+                        value_name: attr.value_name || null,
+                      })
+                    }
+                  }
+                }
+
                 itemsFound.push({
                   id: p.id,
                   catalog_product_id: p.id,
@@ -441,7 +497,7 @@ onRecordAfterCreateSuccess((e) => {
                       : p.thumbnail || '',
                   buy_box_winner_price: p.buy_box_winner ? p.buy_box_winner.price : null,
                   min_price: p.buy_box_winner ? p.buy_box_winner.price : null,
-                  attributes: p.attributes || [],
+                  attributes: leanScrapeAttrs,
                   status: p.status || 'active',
                   source: 'ml_catalog_scrape_and_enrich',
                 })
@@ -499,21 +555,100 @@ onRecordAfterCreateSuccess((e) => {
         strategyUsed,
     )
 
-    rec.set('status', 'done')
-    rec.set('status_code', 200)
-    rec.set('strategy_used', strategyUsed)
-    rec.set('results', itemsFound)
-    rec.set('progress_text', finalProgressMsg)
-    rec.set('paging', pagingSummary)
-    rec.set('raw_debug', debugLog)
-    appId.save(rec)
+    // Tentar gravar o resultado completo normalizado
+    // Se falhar (ex: payload ainda exceder limite do banco), aplicar degradações graduais para SEMPRE salvar e concluir como 'done'
+    let saveSuccess = false
+    let currentPayload = itemsFound
+    let attempt = 1
+
+    while (!saveSuccess && attempt <= 4) {
+      try {
+        rec.set('status', 'done')
+        rec.set('status_code', 200)
+        rec.set('strategy_used', strategyUsed)
+        rec.set('results', currentPayload)
+        rec.set('progress_text', finalProgressMsg)
+        rec.set('paging', pagingSummary)
+        // Reduz debugLog se tiver muitas linhas
+        const trimmedDebug = debugLog.length > 50 ? debugLog.slice(-50) : debugLog
+        rec.set('raw_debug', trimmedDebug)
+        appId.save(rec)
+        saveSuccess = true
+      } catch (errSave) {
+        attempt++
+        console.warn(
+          '[ml_catalog_search] Falha na gravação do resultado (tentativa ' +
+            (attempt - 1) +
+            '): ' +
+            String(errSave),
+        )
+        debugLog.push(
+          'Falha no save dos resultados (tentativa ' + (attempt - 1) + '): ' + String(errSave),
+        )
+
+        if (attempt === 2) {
+          // Fallback 1: remover permalink e enxugar ainda mais atributos (manter apenas BRAND e MODEL)
+          currentPayload = currentPayload.map(function (item) {
+            return {
+              id: item.id,
+              catalog_product_id: item.catalog_product_id,
+              title: item.title,
+              domain_id: item.domain_id,
+              permalink: 'https://www.mercadolivre.com.br/p/' + item.catalog_product_id,
+              thumbnail: item.thumbnail,
+              buy_box_winner_price: item.buy_box_winner_price,
+              min_price: item.min_price,
+              attributes: (item.attributes || []).filter(function (a) {
+                return a.id === 'BRAND' || a.id === 'MODEL'
+              }),
+              status: item.status || 'active',
+              source: item.source || 'ml_products_search',
+            }
+          })
+        } else if (attempt === 3) {
+          // Fallback 2: limitar a 150 itens mais relevantes
+          currentPayload = currentPayload.slice(0, 150)
+          pagingSummary.items_count = currentPayload.length
+        } else if (attempt === 4) {
+          // Fallback 3: limitar a 75 itens sem atributos complexos
+          currentPayload = currentPayload.slice(0, 75).map(function (item) {
+            return {
+              id: item.id,
+              catalog_product_id: item.catalog_product_id,
+              title: item.title,
+              domain_id: item.domain_id,
+              permalink: 'https://www.mercadolivre.com.br/p/' + item.catalog_product_id,
+              thumbnail: item.thumbnail,
+              buy_box_winner_price: item.buy_box_winner_price,
+              min_price: item.min_price,
+              attributes: [],
+              status: 'active',
+            }
+          })
+          pagingSummary.items_count = currentPayload.length
+        }
+      }
+    }
+
+    if (!saveSuccess) {
+      // Se após todas as tentativas de redução falhar, salvar pelo menos status error com mensagem explicativa
+      rec.set('status', 'error')
+      rec.set('status_code', 500)
+      rec.set('error_message', 'Excedido limite de tamanho ao persistir resultados no banco.')
+      rec.set('progress_text', 'Falha ao salvar os ' + itemsFound.length + ' anúncios coletados.')
+      rec.set('results', [])
+      rec.set('raw_debug', debugLog.slice(-30))
+      appId.save(rec)
+    }
   } catch (errGlobal) {
     debugLog.push('Erro fatal: ' + String(errGlobal))
-    rec.set('status', 'error')
-    rec.set('status_code', 500)
-    rec.set('error_message', String(errGlobal))
-    rec.set('progress_text', 'Erro durante a busca profunda no catálogo')
-    rec.set('raw_debug', debugLog)
-    appId.save(rec)
+    try {
+      rec.set('status', 'error')
+      rec.set('status_code', 500)
+      rec.set('error_message', String(errGlobal))
+      rec.set('progress_text', 'Erro durante a busca profunda no catálogo')
+      rec.set('raw_debug', debugLog.slice(-30))
+      appId.save(rec)
+    } catch (_) {}
   }
 }, 'ml_catalog_search_jobs')

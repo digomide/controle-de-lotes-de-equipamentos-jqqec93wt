@@ -77,13 +77,23 @@ export const mlCatalogService = {
     domainId: string = 'MLB-NOTEBOOKS',
   ): Promise<MLCatalogSearchJob> {
     const userId = pb.authStore.model?.id || null
-    const job = await pb.collection('ml_catalog_search_jobs').create({
-      query: query.trim(),
-      domain_id: domainId.trim() || 'MLB-NOTEBOOKS',
-      status: 'pending',
-      requested_by: userId,
-    })
-    return job as unknown as MLCatalogSearchJob
+    try {
+      const job = await pb.collection('ml_catalog_search_jobs').create({
+        query: query.trim(),
+        domain_id: domainId.trim() || 'MLB-NOTEBOOKS',
+        status: 'pending',
+        requested_by: userId,
+      })
+      return job as unknown as MLCatalogSearchJob
+    } catch (err: any) {
+      const errMsg = err?.message || String(err)
+      if (errMsg.includes('Failed to create record') || err?.status === 400) {
+        throw new Error(
+          'Não foi possível iniciar o job de busca no Mercado Livre. Verifique a conexão com o servidor ou tente novamente.',
+        )
+      }
+      throw err
+    }
   },
 
   /**
@@ -111,7 +121,18 @@ export const mlCatalogService = {
       }
       await new Promise((r) => setTimeout(r, 800))
     }
-    throw new Error('A busca no catálogo do Mercado Livre excedeu o tempo limite. Tente novamente.')
+    // Ao estourar tempo limite, verificar se há resultados parciais salvos
+    try {
+      const lastJob = await this.getSearchJob(jobId)
+      if (lastJob && lastJob.results && lastJob.results.length > 0) {
+        return lastJob
+      }
+    } catch {
+      /* intentionally ignored */
+    }
+    throw new Error(
+      'A busca no catálogo do Mercado Livre excedeu o tempo limite aguardando os resultados. Tente refazer a busca.',
+    )
   },
 
   /**
