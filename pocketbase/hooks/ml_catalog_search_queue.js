@@ -4,20 +4,15 @@
  * Hook de fila para busca profunda no catálogo do Mercado Livre
  * Executa de forma assíncrona ao criar um registro em ml_catalog_search_jobs.
  * Implementa:
- * 1. Busca profunda com paginação (limit + offset) e deduplicação por catalog_product_id.
- * 2. Extração inteligente de Condição / Classificação do produto no catálogo do ML:
- *    - Atributos ITEM_CONDITION / CONDITION (value_id / value_name).
- *    - Buy Box Winner condition ("new", "refurbished", "used").
- *    - Heurística por texto do título / tags / domain_id / modelo.
- *    - Padrão do catálogo ML no Brasil para notebooks eletrônicos de marcas oficiais: Novo (novo de fábrica).
- * 3. Informações completas de disputa e concorrência na Buy Box:
- *    - Preço atual da Buy Box (buy_box_winner_price).
- *    - Vencedor atual da Buy Box (vendedor / item).
- *    - Menor preço concorrente ativo (min_price).
- *    - Status de estoque concorrente (buy_box_winner_stock / stock_status: "1+ un.", "Disponível", "Estoque não público").
- *    - Enriquecimento leve das primeiras posições com /products/{id} caso falte preço na busca.
- * 4. Gravação resiliente com quedas graduais de payload para NUNCA estourar limite do banco de dados
- *    e NUNCA deixar o job preso em status 'processing'.
+ * 1. Mineração antecipada da conta do vendedor (ml_ads_fetch_jobs e coleção products):
+ *    - Anúncios próprios que já possuem catalog_product_id.
+ *    - Casamento flexível por tokens de busca e condição solicitada (refurbished / used).
+ *    - Enriquecimento completo via GET /products/{id} (fotos, Buy Box, GRADING).
+ *    - Injeção das posições próprias no TOPO com `is_own_account: true` e `own_ad_id`.
+ * 2. Early Stop com busca aberta:
+ *    - Quando condition === 'refurbished' || condition === 'used', limita a varredura aberta a 2–3 páginas.
+ * 3. Extração resiliente de Condição / GRADING / Classificação.
+ * 4. Gravação resiliente com quedas graduais de payload para NUNCA estourar limite do banco de dados.
  */
 
 onRecordAfterCreateSuccess((e) => {
@@ -107,16 +102,6 @@ onRecordAfterCreateSuccess((e) => {
   function extractProductCondition(prod) {
     if (!prod) return { condition: 'new', condition_label: 'Novo' }
 
-    // DOCUMENTAÇÃO (verificado com espécime real MLB2097858038 - Latitude 5420 Recondicionado):
-    // No catálogo oficial do Mercado Livre (/products/{id} e /products/search):
-    // 1. O ML cria produtos de catálogo dedicados para posições recondicionadas (mesma família, ex: "Dell Latitude 5420").
-    // 2. A condição NÃO mora apenas em ITEM_CONDITION; ela é expressa nos seguintes campos do catalog_product:
-    //    a) prod.refurbished_info (objeto presente contendo imagem/selo de recondicionado).
-    //    b) Atributo "GRADING" ("Status do recondicionado"), com value_name (ex: "Excelente", "Bom", "Aceitável").
-    //    c) Atributos "RECONDITIONED_STATUS", "REFURBISHED_STATUS" ou ITEM_CONDITION="2230581".
-    //    d) Título/nome do produto de catálogo com "(Recondicionado)" e o grau ("Excelente", "Bom").
-    //    e) buy_box_winner.condition ("refurbished") e prod.condition ("refurbished").
-
     let gradeFound = ''
 
     // (1) Atributos GRADING, RECONDITIONED_STATUS, ITEM_CONDITION ou CONDITION no array attributes
@@ -185,9 +170,8 @@ onRecordAfterCreateSuccess((e) => {
       }
     }
 
-    // (2) Presença do campo raiz refurbished_info (objeto que o ML coloca em produtos de catálogo recondicionados)
+    // (2) Presença do campo raiz refurbished_info
     if (prod.refurbished_info) {
-      // Tentar extrair o grau pelo título se disponível
       const titleLowerForGrade = String(prod.name || prod.title || '').toLowerCase()
       let inferredGrade = ''
       if (titleLowerForGrade.includes('excelente')) inferredGrade = 'Excelente'
@@ -264,7 +248,6 @@ onRecordAfterCreateSuccess((e) => {
       return { condition: 'used', condition_label: 'Usado' }
     }
 
-    // Se a busca direcionada foi por usado e o título contém indícios
     if (requestedCondition === 'used') {
       return { condition: 'unknown', condition_label: 'Condição não informada' }
     }
@@ -330,9 +313,296 @@ onRecordAfterCreateSuccess((e) => {
     items_count: 0,
   }
 
+  // Helper simples para normalizar texto e tokens
+  function tokenizeText(text) {
+    if (!text) return []
+    const clean = String(text)
+      .toLowerCase()
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim()
+    const stopWords = {
+      notebook: 1,
+      notebooks: 1,
+      laptop: 1,
+      laptops: 1,
+      pc: 1,
+      computador: 1,
+      de: 1,
+      da: 1,
+      do: 1,
+      para: 1,
+      com: 1,
+      e: 1,
+      recondicionado: 1,
+      usado: 1,
+      novo: 1,
+    }
+    const words = clean.split(/\s+/).filter(Boolean)
+    const filtered = words.filter(function (w) {
+      return !stopWords[w]
+    })
+    return filtered.length > 0 ? filtered : words
+  }
+
   try {
-    // 1. Se fornecido catalog_product_id direto:
-    if (directCatalogId) {
+    // =========================================================================
+    // ETAPA 0: MINERAÇÃO DE ANÚNCIOS PRÓPRIOS (ml_ads_fetch_jobs e products)
+    // =========================================================================
+    // Garante que posições recondicionadas/usadas que já existem na conta do vendedor
+    // (ex.: Dell Latitude 5420 -> MLB2097858038) SEJAM SEMPRE ENCONTRADAS e colocadas
+    // no TOPO, contornando o teto de paginação de 1.000 itens da /products/search da API ML.
+    const queryTokens = tokenizeText(queryRaw)
+    const ownCandidates = []
+    const seenCandidateCatalogIds = {}
+
+    debugLog.push(
+      'Etapa 0: Minerando anúncios próprios para tokens: [' + queryTokens.join(', ') + ']',
+    )
+
+    // 0a. Minerar o último ml_ads_fetch_jobs com status='done'
+    try {
+      const adsJobs = appId.findRecordsByFilter(
+        'ml_ads_fetch_jobs',
+        "status = 'done' && items_count > 0",
+        '-created',
+        1,
+        0,
+      )
+      if (adsJobs && adsJobs.length > 0) {
+        let rawAdsItems = adsJobs[0].getString('items')
+        if (!rawAdsItems) {
+          const rawAny = adsJobs[0].get('items')
+          if (typeof rawAny === 'string') rawAdsItems = rawAny
+        }
+
+        let parsedAds = []
+        if (typeof rawAdsItems === 'string' && rawAdsItems.length > 0) {
+          try {
+            parsedAds = JSON.parse(rawAdsItems)
+          } catch (eParse) {
+            debugLog.push('Falha no JSON.parse de items: ' + String(eParse))
+          }
+        } else if (Array.isArray(rawAdsItems)) {
+          parsedAds = rawAdsItems
+        }
+
+        debugLog.push(
+          'Encontrado ml_ads_fetch_jobs com ' + parsedAds.length + ' anúncios sincronizados.',
+        )
+
+        for (let i = 0; i < parsedAds.length; i++) {
+          const ad = parsedAds[i]
+          if (!ad || !ad.catalog_product_id) continue
+
+          const catId = String(ad.catalog_product_id).trim()
+          if (!catId || seenCandidateCatalogIds[catId]) continue
+
+          const adTitle = String(ad.title || '').toLowerCase()
+          const adBrand = String(ad.brand || '').toLowerCase()
+          const adModel = String(ad.model || '').toLowerCase()
+          const adText = adTitle + ' ' + adBrand + ' ' + adModel + ' ' + catId.toLowerCase()
+
+          // Casamento de tokens
+          let matchesTokens = true
+          if (queryTokens.length > 0) {
+            for (let t = 0; t < queryTokens.length; t++) {
+              if (adText.indexOf(queryTokens[t]) === -1) {
+                matchesTokens = false
+                break
+              }
+            }
+          }
+
+          if (matchesTokens) {
+            seenCandidateCatalogIds[catId] = true
+            ownCandidates.push({
+              catalog_product_id: catId,
+              own_ad_id: ad.id,
+              title: ad.title || '',
+              condition: ad.condition || '',
+              condition_grade: ad.condition_grade || '',
+              price: ad.price || null,
+              source: 'own_account_ads_fetch',
+            })
+          }
+        }
+      }
+    } catch (errAdsMining) {
+      debugLog.push('Aviso na mineração de ml_ads_fetch_jobs: ' + String(errAdsMining))
+    }
+
+    // 0b. Minerar a coleção local `products`
+    try {
+      const localProducts = appId.findRecordsByFilter(
+        'products',
+        "catalog_product_id != ''",
+        '-updated',
+        50,
+        0,
+      )
+      if (localProducts && localProducts.length > 0) {
+        for (let lp = 0; lp < localProducts.length; lp++) {
+          const prodRec = localProducts[lp]
+          const catId = prodRec.getString('catalog_product_id')
+          if (!catId || seenCandidateCatalogIds[catId]) continue
+
+          const pName = (prodRec.getString('name') || '').toLowerCase()
+          const pModel = (prodRec.getString('model') || '').toLowerCase()
+          const pBrand = (prodRec.getString('brand') || '').toLowerCase()
+          const pText = pName + ' ' + pModel + ' ' + pBrand
+
+          let matchesTokens = true
+          if (queryTokens.length > 0) {
+            for (let t = 0; t < queryTokens.length; t++) {
+              if (pText.indexOf(queryTokens[t]) === -1) {
+                matchesTokens = false
+                break
+              }
+            }
+          }
+
+          if (matchesTokens) {
+            seenCandidateCatalogIds[catId] = true
+            ownCandidates.push({
+              catalog_product_id: catId,
+              own_ad_id: prodRec.getString('ml_listing_id') || undefined,
+              title: prodRec.getString('name') || '',
+              condition: prodRec.getString('condition_type') || '',
+              condition_grade: prodRec.getString('condition_grade') || '',
+              price: prodRec.getNumber('unit_price') || null,
+              source: 'own_account_local_product',
+            })
+          }
+        }
+      }
+    } catch (errProdMining) {
+      debugLog.push('Aviso na mineração de local products: ' + String(errProdMining))
+    }
+
+    debugLog.push('Candidatos próprios encontrados: ' + ownCandidates.length)
+
+    // 0c. Enriquecer posições próprias via GET /products/{id} e injetar no TOPO
+    if (ownCandidates.length > 0 && token) {
+      rec.set(
+        'progress_text',
+        'Encontrada(s) ' +
+          ownCandidates.length +
+          ' posição(ões) de catálogo na sua conta. Enriquecendo via Mercado Livre...',
+      )
+      appId.save(rec)
+
+      for (let oc = 0; oc < ownCandidates.length; oc++) {
+        const cand = ownCandidates[oc]
+        const catId = cand.catalog_product_id
+        if (seenCatalogIds[catId]) continue
+
+        try {
+          const enrichUrl = 'https://api.mercadolibre.com/products/' + catId
+          const enrichRes = $http.send({
+            url: enrichUrl,
+            method: 'GET',
+            headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+            timeout: 10,
+          })
+
+          debugLog.push(
+            'Enriquecimento de posição própria ' + catId + ': status ' + enrichRes.statusCode,
+          )
+
+          if (enrichRes.statusCode === 200 && enrichRes.json) {
+            const p = enrichRes.json
+            const condInfo = extractProductCondition(p)
+            const compInfo = extractCompetitionData(p)
+
+            let thumb = ''
+            if (p.pictures && p.pictures.length > 0) {
+              thumb = p.pictures[0].url || p.pictures[0].secure_url
+            } else if (p.thumbnail) {
+              thumb = p.thumbnail
+            }
+
+            const leanAttrs = []
+            if (Array.isArray(p.attributes)) {
+              for (let a = 0; a < p.attributes.length; a++) {
+                const attr = p.attributes[a]
+                if (!attr || !attr.id) continue
+                const attrIdUpper = String(attr.id).toUpperCase()
+                if (
+                  attrIdUpper === 'BRAND' ||
+                  attrIdUpper === 'MODEL' ||
+                  attrIdUpper === 'LINE' ||
+                  attrIdUpper === 'GRADING' ||
+                  attrIdUpper === 'ITEM_CONDITION'
+                ) {
+                  leanAttrs.push({
+                    id: attrIdUpper,
+                    name: attr.name || attrIdUpper,
+                    value_id: attr.value_id || null,
+                    value_name: attr.value_name || null,
+                  })
+                }
+              }
+            }
+
+            // Usar condição detectada da API ou da conta do vendedor
+            const finalCond =
+              condInfo.condition !== 'new'
+                ? condInfo.condition
+                : cand.condition === 'recondicionado' || cand.condition === 'refurbished'
+                  ? 'refurbished'
+                  : cand.condition === 'usado' || cand.condition === 'used'
+                    ? 'used'
+                    : condInfo.condition
+
+            const finalGrade =
+              condInfo.condition_grade ||
+              cand.condition_grade ||
+              (finalCond === 'refurbished' ? 'Excelente' : undefined)
+
+            const finalCondLabel =
+              finalCond === 'refurbished'
+                ? 'Recondicionado'
+                : finalCond === 'used'
+                  ? 'Usado'
+                  : condInfo.condition_label || 'Novo'
+
+            seenCatalogIds[catId] = true
+            itemsFound.push({
+              id: p.id || catId,
+              catalog_product_id: catId,
+              title: p.name || p.title || cand.title || 'Posição ' + catId,
+              domain_id: p.domain_id || domainId || '',
+              permalink: p.permalink || 'https://www.mercadolivre.com.br/p/' + catId,
+              thumbnail: thumb,
+              buy_box_winner_price: compInfo.buy_box_winner_price || cand.price,
+              min_price: compInfo.min_price || cand.price,
+              buy_box_winner_seller_id: compInfo.buy_box_winner_seller_id,
+              buy_box_winner_item_id: compInfo.buy_box_winner_item_id || cand.own_ad_id,
+              buy_box_winner_stock: compInfo.buy_box_winner_stock,
+              stock_status: compInfo.stock_status,
+              competition_status: compInfo.competition_status,
+              attributes: leanAttrs,
+              condition: finalCond,
+              condition_label: finalCondLabel,
+              condition_grade: finalGrade,
+              status: p.status || 'active',
+              source: 'own_account_enriched',
+              is_own_account: true,
+              own_ad_id: cand.own_ad_id,
+            })
+            strategyUsed = 'own_account_mined'
+          }
+        } catch (errEnrich) {
+          debugLog.push('Erro ao enriquecer posição própria ' + catId + ': ' + String(errEnrich))
+        }
+      }
+    }
+
+    // =========================================================================
+    // ETAPA 1: SE FORNECIDO catalog_product_id DIRETO NA QUERY
+    // =========================================================================
+    if (directCatalogId && !seenCatalogIds[directCatalogId]) {
       debugLog.push('Tentando consulta direta por ID: ' + directCatalogId)
       rec.set('progress_text', 'Consultando produto de catálogo direto: ' + directCatalogId)
       appId.save(rec)
@@ -412,12 +682,13 @@ onRecordAfterCreateSuccess((e) => {
       }
     }
 
-    // 2. BUSCA PROFUNDA PAGINADA via /products/search com token
-    if (itemsFound.length === 0 && token) {
+    // =========================================================================
+    // ETAPA 2: BUSCA ABERTA PAGINADA via /products/search com token
+    // Com EARLY STOP para condition='refurbished' ou 'used'
+    // =========================================================================
+    if (!directCatalogId && token) {
       const baseEndpoints = []
 
-      // Se houver condição direcionada ('refurbished', 'new', 'used'),
-      // adicionamos rodadas focadas com a palavra-chave da condição caso ela ainda não esteja na query.
       let conditionKeyword = ''
       if (requestedCondition === 'refurbished') {
         conditionKeyword = 'recondicionado'
@@ -460,7 +731,7 @@ onRecordAfterCreateSuccess((e) => {
         })
       }
 
-      // Se tiver domain_id explícito definido pelo usuário, tenta primeiro com ele
+      // Se tiver domain_id explícito definido pelo usuário
       if (domainId) {
         baseEndpoints.push({
           name: 'domain_and_query',
@@ -476,7 +747,7 @@ onRecordAfterCreateSuccess((e) => {
         })
       }
 
-      // Busca ativa geral sem fixar domínio (permite achar iphone, notebook, monitor, etc.)
+      // Busca ativa geral sem fixar domínio
       baseEndpoints.push({
         name: 'query_only_active',
         buildUrl: (offset, limit) =>
@@ -488,7 +759,7 @@ onRecordAfterCreateSuccess((e) => {
           offset,
       })
 
-      // Busca ampla sem filtro de status caso o active não traga nada
+      // Busca ampla
       baseEndpoints.push({
         name: 'query_only_broad',
         buildUrl: (offset, limit) =>
@@ -501,8 +772,20 @@ onRecordAfterCreateSuccess((e) => {
       })
 
       const PAGE_LIMIT = 50
-      const MAX_TOTAL_CAP = 1000
-      const MAX_PAGES = 25
+      // EARLY STOP: quando o usuário procura Recondicionado ou Usado,
+      // varrer no máximo 2–3 páginas abertas para não demorar nem afogar as fontes próprias
+      const isNarrowCondition =
+        requestedCondition === 'refurbished' || requestedCondition === 'used'
+      const MAX_PAGES = isNarrowCondition ? 3 : 20
+      const MAX_TOTAL_CAP = isNarrowCondition ? 150 : 1000
+
+      debugLog.push(
+        'Iniciando busca aberta paginada. Limite de páginas: ' +
+          MAX_PAGES +
+          ' (cap: ' +
+          MAX_TOTAL_CAP +
+          ')',
+      )
 
       for (let i = 0; i < baseEndpoints.length; i++) {
         const ep = baseEndpoints[i]
@@ -518,7 +801,7 @@ onRecordAfterCreateSuccess((e) => {
           const url = ep.buildUrl(offset, PAGE_LIMIT)
           debugLog.push('Buscando página ' + pageNum + ' (offset ' + offset + '): ' + url)
 
-          // Atualizar feedback de progresso no registro para o usuário acompanhar em tempo real
+          // Atualizar feedback de progresso no registro
           try {
             const pageProgressText =
               totalAnnounced != null
@@ -600,7 +883,6 @@ onRecordAfterCreateSuccess((e) => {
               thumb = prod.thumbnail
             }
 
-            // Normalizar atributos: manter apenas os essenciais de forma enxuta
             const leanAttributes = []
             if (Array.isArray(prod.attributes)) {
               for (let a = 0; a < prod.attributes.length; a++) {
@@ -680,14 +962,22 @@ onRecordAfterCreateSuccess((e) => {
         }
 
         if (endpointMatched && itemsFound.length > 0) {
-          strategyUsed = 'api_products_search'
+          if (strategyUsed === 'none') {
+            strategyUsed = 'api_products_search'
+          }
+          // Com narrow condition e itens achados, para logo após a primeira estratégia bem-sucedida
+          if (isNarrowCondition) {
+            debugLog.push('Early stop aplicado para condição focada (' + requestedCondition + ')')
+            break
+          }
           break
         }
       }
     }
 
-    // 3. Enriquecimento leve das primeiras posições que não têm buy_box_winner_price na busca
-    // Consulta no máximo 5 posições individuais via GET /products/{id} para preencher preço/vencedor se disponível
+    // =========================================================================
+    // ETAPA 3: ENRIQUECIMENTO DAS PRIMEIRAS POSIÇÕES SEM PREÇO
+    // =========================================================================
     if (itemsFound.length > 0 && token) {
       const candidatesToEnrich = itemsFound.filter((it) => !it.buy_box_winner_price).slice(0, 5)
 
@@ -726,382 +1016,61 @@ onRecordAfterCreateSuccess((e) => {
                   targetItem.condition_grade = freshCond.condition_grade
                 }
               }
-              // Se o produto enriquecido pertencer a uma família (parent_id) ou tiver children_ids,
-              // podemos descobrir variações irmãs (inclusive recondicionadas)
-              if (Array.isArray(pDetail.children_ids)) {
-                for (let c = 0; c < pDetail.children_ids.length; c++) {
-                  const chId = pDetail.children_ids[c]
-                  if (chId && !seenCatalogIds[chId]) {
-                    // marcar para busca se necessário
-                  }
-                }
-              }
             }
-          } catch (errEnrich) {
-            // Ignora silenciosamente para não interromper fluxo
-          }
+          } catch (_) {}
         }
       }
     }
 
-    // 4. Cascata / Rodadas complementares de descoberta:
-    // Posições recondicionadas e usadas no catálogo do ML muitas vezes exigem rodadas extras.
-    const hasRefurbishedInResults = itemsFound.some(function (it) {
-      return it.condition === 'refurbished'
-    })
-    const hasUsedInResults = itemsFound.some(function (it) {
-      return it.condition === 'used'
-    })
-    const queryIncludesRefurb =
-      queryRaw.toLowerCase().includes('recondicionado') ||
-      queryRaw.toLowerCase().includes('refurbished')
-    const queryIncludesUsed =
-      queryRaw.toLowerCase().includes('usado') || queryRaw.toLowerCase().includes('seminovo')
-
-    // Se o usuário selecionou 'refurbished' ou a query pede ou ainda não encontramos recondicionados
-    const shouldRunRefurbDiscovery =
-      requestedCondition === 'refurbished' ||
-      (!hasRefurbishedInResults && (requestedCondition === 'all' || queryIncludesRefurb)) ||
-      queryIncludesRefurb ||
-      itemsFound.length === 0
-
-    if (shouldRunRefurbDiscovery && queryRaw && !directCatalogId) {
-      try {
-        debugLog.push('Iniciando busca complementar para posições recondicionadas da família...')
-        // 4a. Busca na API /products/search com termo "query + recondicionado"
-        if (token && !queryIncludesRefurb) {
-          try {
-            const refurbApiUrl =
-              'https://api.mercadolibre.com/products/search?status=active&site_id=MLB&q=' +
-              encodeURIComponent(queryRaw + ' recondicionado') +
-              '&limit=20'
-            debugLog.push('Consultando API complementar: ' + refurbApiUrl)
-            const refurbRes = $http.send({
-              url: refurbApiUrl,
-              method: 'GET',
-              headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
-              timeout: 10,
-            })
-            if (
-              refurbRes.statusCode === 200 &&
-              refurbRes.json &&
-              Array.isArray(refurbRes.json.results)
-            ) {
-              const rResults = refurbRes.json.results
-              debugLog.push('API complementar retornou ' + rResults.length + ' produtos')
-              for (let rx = 0; rx < rResults.length; rx++) {
-                const rp = rResults[rx]
-                if (!rp || !rp.id || seenCatalogIds[rp.id]) continue
-                seenCatalogIds[rp.id] = true
-
-                const rCondInfo = extractProductCondition(rp)
-                const rCompInfo = extractCompetitionData(rp)
-                let rThumb = ''
-                if (rp.pictures && rp.pictures.length > 0) {
-                  rThumb = rp.pictures[0].url || rp.pictures[0].secure_url
-                } else if (rp.thumbnail) {
-                  rThumb = rp.thumbnail
-                }
-
-                itemsFound.push({
-                  id: rp.id,
-                  catalog_product_id: rp.id,
-                  title: (rp.name || rp.title || '').substring(0, 150),
-                  domain_id: rp.domain_id || domainId || '',
-                  permalink: rp.permalink || 'https://www.mercadolivre.com.br/p/' + rp.id,
-                  thumbnail: rThumb,
-                  buy_box_winner_price: rCompInfo.buy_box_winner_price,
-                  min_price: rCompInfo.min_price,
-                  buy_box_winner_seller_id: rCompInfo.buy_box_winner_seller_id,
-                  buy_box_winner_item_id: rCompInfo.buy_box_winner_item_id,
-                  buy_box_winner_stock: rCompInfo.buy_box_winner_stock,
-                  stock_status: rCompInfo.stock_status,
-                  competition_status: rCompInfo.competition_status,
-                  attributes: [],
-                  condition: rCondInfo.condition,
-                  condition_label: rCondInfo.condition_label,
-                  condition_grade: rCondInfo.condition_grade || undefined,
-                  status: rp.status || 'active',
-                  source: 'ml_products_search_refurb_complementary',
-                })
-              }
-            }
-          } catch (errRefurbApi) {
-            debugLog.push('Erro na API complementar recondicionado: ' + String(errRefurbApi))
-          }
-        }
-
-        // 4b. Cascata scraping público se ainda não tiver achado recondicionado
-        const stillNoRefurb = !itemsFound.some(function (it) {
-          return it.condition === 'refurbished'
-        })
-
-        if (stillNoRefurb) {
-          debugLog.push(
-            'Tentando cascata scraping público profundo para extrair produtos de catálogo /p/MLB...',
-          )
-          rec.set(
-            'progress_text',
-            'Buscando posições de catálogo via catálogo público do Mercado Livre...',
-          )
-          appId.save(rec)
-
-          const scrapeTerm =
-            requestedCondition === 'refurbished' && !queryIncludesRefurb
-              ? queryRaw + ' recondicionado'
-              : queryRaw
-          const normalizedSlug = encodeURIComponent(scrapeTerm.replace(/\s+/g, '-'))
-          const maxScrapePages = 3
-
-          for (let sp = 1; sp <= maxScrapePages; sp++) {
-            const searchUrl =
-              sp === 1
-                ? 'https://lista.mercadolivre.com.br/' + normalizedSlug
-                : 'https://lista.mercadolivre.com.br/' +
-                  normalizedSlug +
-                  '_Desde_' +
-                  ((sp - 1) * 50 + 1)
-
-            debugLog.push('Scraping pág ' + sp + ': ' + searchUrl)
-            let pageRes
-            try {
-              pageRes = $http.send({
-                url: searchUrl,
-                method: 'GET',
-                headers: {
-                  'User-Agent':
-                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                  'Accept-Language': 'pt-BR,pt;q=0.9',
-                },
-                timeout: 15,
-              })
-            } catch (errScrapeHttp) {
-              debugLog.push('Erro HTTP scraping pág ' + sp + ': ' + String(errScrapeHttp))
-              break
-            }
-
-            if (pageRes.statusCode !== 200 || !pageRes.raw) {
-              break
-            }
-
-            const html = pageRes.raw
-            const pRegex =
-              /href=["'](https?:\/\/[^"']*mercadolivre\.com\.br\/p\/(MLB[0-9]+)[^"']*)["']/gi
-            const pageDiscoveredIds = {}
-            let match
-            while ((match = pRegex.exec(html)) !== null) {
-              const pUrl = match[1]
-              const pId = match[2]
-              if (!seenCatalogIds[pId] && !pageDiscoveredIds[pId]) {
-                pageDiscoveredIds[pId] = pUrl
-              }
-            }
-
-            const newCatIds = Object.keys(pageDiscoveredIds)
-            debugLog.push(
-              'Scraping pág ' +
-                sp +
-                ' encontrou ' +
-                newCatIds.length +
-                ' novos produtos de catálogo',
-            )
-            if (newCatIds.length === 0) {
-              break
-            }
-
-            for (let k = 0; k < newCatIds.length; k++) {
-              const catId = newCatIds[k]
-              seenCatalogIds[catId] = true
-
-              const prodUrl = 'https://api.mercadolibre.com/products/' + catId
-              const h = { Accept: 'application/json' }
-              if (token) h['Authorization'] = 'Bearer ' + token
-
-              let added = false
-              try {
-                const pRes = $http.send({ url: prodUrl, method: 'GET', headers: h, timeout: 8 })
-                if (pRes.statusCode === 200 && pRes.json) {
-                  const p = pRes.json
-                  const leanScrapeAttrs = []
-                  if (Array.isArray(p.attributes)) {
-                    for (let a = 0; a < p.attributes.length; a++) {
-                      const attr = p.attributes[a]
-                      if (!attr || !attr.id) continue
-                      const attrIdUpper = String(attr.id).toUpperCase()
-                      if (
-                        attrIdUpper === 'BRAND' ||
-                        attrIdUpper === 'MODEL' ||
-                        attrIdUpper === 'LINE'
-                      ) {
-                        leanScrapeAttrs.push({
-                          id: attrIdUpper,
-                          name: attr.name || attrIdUpper,
-                          value_id: attr.value_id || null,
-                          value_name: attr.value_name || null,
-                        })
-                      }
-                    }
-                  }
-
-                  const condInfo = extractProductCondition(p)
-                  const compInfo = extractCompetitionData(p)
-
-                  itemsFound.push({
-                    id: p.id,
-                    catalog_product_id: p.id,
-                    title: p.name || p.title || catId,
-                    domain_id: p.domain_id || domainId,
-                    permalink: pageDiscoveredIds[catId],
-                    thumbnail:
-                      p.pictures && p.pictures.length > 0
-                        ? p.pictures[0].url || p.pictures[0].secure_url
-                        : p.thumbnail || '',
-                    buy_box_winner_price: compInfo.buy_box_winner_price,
-                    min_price: compInfo.min_price,
-                    buy_box_winner_seller_id: compInfo.buy_box_winner_seller_id,
-                    buy_box_winner_item_id: compInfo.buy_box_winner_item_id,
-                    buy_box_winner_stock: compInfo.buy_box_winner_stock,
-                    stock_status: compInfo.stock_status,
-                    competition_status: compInfo.competition_status,
-                    attributes: leanScrapeAttrs,
-                    condition: condInfo.condition,
-                    condition_label: condInfo.condition_label,
-                    condition_grade: condInfo.condition_grade || undefined,
-                    status: p.status || 'active',
-                    source: 'ml_catalog_scrape_and_enrich',
-                  })
-                  added = true
-                }
-              } catch (_) {}
-
-              if (!added) {
-                itemsFound.push({
-                  id: catId,
-                  catalog_product_id: catId,
-                  title: 'Produto de Catálogo ' + catId,
-                  domain_id: domainId,
-                  permalink: pageDiscoveredIds[catId],
-                  thumbnail: '',
-                  buy_box_winner_price: null,
-                  min_price: null,
-                  buy_box_winner_seller_id: null,
-                  buy_box_winner_item_id: null,
-                  buy_box_winner_stock: null,
-                  stock_status: 'Estoque não público',
-                  competition_status: 'Sem concorrente ativo',
-                  attributes: [],
-                  condition: 'new',
-                  condition_label: 'Novo',
-                  status: 'active',
-                  source: 'ml_catalog_scrape_link',
-                })
-              }
-            }
-
-            pagingSummary.pages_fetched = sp
-            pagingSummary.items_count = itemsFound.length
-          }
-
-          if (itemsFound.length > 0) {
-            strategyUsed = 'html_scrape_catalog_links'
-            pagingSummary.total = itemsFound.length
-          }
-        }
-      } catch (errRefurbDiscovery) {
-        debugLog.push('Erro na descoberta de recondicionados: ' + String(errRefurbDiscovery))
+    // =========================================================================
+    // ETAPA 4: ORDENAÇÃO E PRIORIZAÇÃO
+    // 1º: Posições da própria conta (is_own_account === true) SEMPRE NO TOPO!
+    // 2º: Posições que casam com a condição solicitada
+    // =========================================================================
+    itemsFound.sort(function (a, b) {
+      // Posição própria da conta fica no topo absoluto
+      const aOwn = a.is_own_account ? 1 : 0
+      const bOwn = b.is_own_account ? 1 : 0
+      if (aOwn !== bOwn) {
+        return bOwn - aOwn
       }
-    }
 
-    // 5. Rodada focada para USADOS caso a condição solicitada seja 'used'
-    if (requestedCondition === 'used' && queryRaw && !directCatalogId) {
-      if (token && !queryIncludesUsed) {
-        try {
-          const usedApiUrl =
-            'https://api.mercadolibre.com/products/search?status=active&site_id=MLB&q=' +
-            encodeURIComponent(queryRaw + ' usado') +
-            '&limit=20'
-          debugLog.push('Consultando API complementar para usados: ' + usedApiUrl)
-          const usedRes = $http.send({
-            url: usedApiUrl,
-            method: 'GET',
-            headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
-            timeout: 10,
-          })
-          if (usedRes.statusCode === 200 && usedRes.json && Array.isArray(usedRes.json.results)) {
-            const uResults = usedRes.json.results
-            debugLog.push('API complementar usados retornou ' + uResults.length + ' produtos')
-            for (let ux = 0; ux < uResults.length; ux++) {
-              const up = uResults[ux]
-              if (!up || !up.id || seenCatalogIds[up.id]) continue
-              seenCatalogIds[up.id] = true
-
-              const uCondInfo = extractProductCondition(up)
-              const uCompInfo = extractCompetitionData(up)
-              let uThumb = ''
-              if (up.pictures && up.pictures.length > 0) {
-                uThumb = up.pictures[0].url || up.pictures[0].secure_url
-              } else if (up.thumbnail) {
-                uThumb = up.thumbnail
-              }
-
-              itemsFound.push({
-                id: up.id,
-                catalog_product_id: up.id,
-                title: (up.name || up.title || '').substring(0, 150),
-                domain_id: up.domain_id || domainId || '',
-                permalink: up.permalink || 'https://www.mercadolivre.com.br/p/' + up.id,
-                thumbnail: uThumb,
-                buy_box_winner_price: uCompInfo.buy_box_winner_price,
-                min_price: uCompInfo.min_price,
-                buy_box_winner_seller_id: uCompInfo.buy_box_winner_seller_id,
-                buy_box_winner_item_id: uCompInfo.buy_box_winner_item_id,
-                buy_box_winner_stock: uCompInfo.buy_box_winner_stock,
-                stock_status: uCompInfo.stock_status,
-                competition_status: uCompInfo.competition_status,
-                attributes: [],
-                condition: uCondInfo.condition === 'new' ? 'used' : uCondInfo.condition,
-                condition_label:
-                  uCondInfo.condition === 'new' ? 'Usado' : uCondInfo.condition_label,
-                condition_grade: uCondInfo.condition_grade || undefined,
-                status: up.status || 'active',
-                source: 'ml_products_search_used_complementary',
-              })
-            }
-          }
-        } catch (errUsedApi) {
-          debugLog.push('Erro na API complementar usado: ' + String(errUsedApi))
-        }
-      }
-    }
-
-    // 6. Ordenação e priorização de acordo com a condição solicitada:
-    // Se o usuário selecionou uma condição específica, colocamos no topo as posições correspondentes!
-    if (requestedCondition !== 'all' && itemsFound.length > 0) {
-      itemsFound.sort(function (a, b) {
+      if (requestedCondition !== 'all') {
         const aMatches = a.condition === requestedCondition ? 1 : 0
         const bMatches = b.condition === requestedCondition ? 1 : 0
-        return bMatches - aMatches
-      })
-    }
+        if (aMatches !== bMatches) {
+          return bMatches - aMatches
+        }
+      }
 
-    const finalProgressMsg =
-      itemsFound.length > 0
-        ? itemsFound.length +
-          ' posições encontradas em ' +
-          pagingSummary.pages_fetched +
-          (pagingSummary.pages_fetched === 1 ? ' página' : ' páginas') +
-          (pagingSummary.total > itemsFound.length
-            ? ' (total anunciado: ' + pagingSummary.total + ')'
-            : '')
-        : 'Nenhuma posição encontrada no catálogo'
+      return 0
+    })
+
+    const ownCount = itemsFound.filter(function (it) {
+      return it.is_own_account
+    }).length
+
+    let finalProgressMsg = ''
+    if (itemsFound.length > 0) {
+      finalProgressMsg =
+        itemsFound.length +
+        ' posições encontradas' +
+        (ownCount > 0 ? ' (' + ownCount + ' da sua conta)' : '') +
+        (pagingSummary.pages_fetched > 0
+          ? ' em ' +
+            pagingSummary.pages_fetched +
+            (pagingSummary.pages_fetched === 1 ? ' página' : ' páginas')
+          : '')
+    } else {
+      finalProgressMsg = 'Nenhuma posição encontrada no catálogo'
+    }
 
     debugLog.push(
       'Busca concluída: ' +
         itemsFound.length +
-        ' itens em ' +
-        pagingSummary.pages_fetched +
-        ' páginas. Estratégia: ' +
+        ' itens (' +
+        ownCount +
+        ' próprios). Estratégia: ' +
         strategyUsed,
     )
 
@@ -1124,6 +1093,8 @@ onRecordAfterCreateSuccess((e) => {
           condition: item.condition || 'new',
           condition_label: item.condition_label || 'Novo',
           status: item.status || 'active',
+          is_own_account: Boolean(item.is_own_account),
+          own_ad_id: item.own_ad_id || undefined,
         }
         if (item.condition_grade) {
           base.condition_grade = item.condition_grade
@@ -1131,7 +1102,12 @@ onRecordAfterCreateSuccess((e) => {
         if (level === 1) {
           // Mantém BRAND, MODEL, GRADING apenas se existirem
           base.attributes = (item.attributes || []).filter(function (a) {
-            return a.id === 'BRAND' || a.id === 'MODEL' || a.id === 'GRADING'
+            return (
+              a.id === 'BRAND' ||
+              a.id === 'MODEL' ||
+              a.id === 'GRADING' ||
+              a.id === 'ITEM_CONDITION'
+            )
           })
         } else {
           base.attributes = []
@@ -1140,7 +1116,7 @@ onRecordAfterCreateSuccess((e) => {
       })
     }
 
-    // Gravação resiliente com quedas graduais de payload para NUNCA estourar limite do banco de dados
+    // Gravação resiliente com quedas graduais de payload
     let saveSuccess = false
     let currentPayload = sanitizeForDatabase(itemsFound, 1)
     let attempt = 1
@@ -1170,19 +1146,15 @@ onRecordAfterCreateSuccess((e) => {
         )
 
         if (attempt === 2) {
-          // Fallback 1: retirar attributes dos 1000 itens
           currentPayload = sanitizeForDatabase(itemsFound, 2)
         } else if (attempt === 3) {
-          // Fallback 2: limitar a 600 itens sanitizados
-          currentPayload = sanitizeForDatabase(itemsFound.slice(0, 600), 2)
+          currentPayload = sanitizeForDatabase(itemsFound.slice(0, 300), 2)
           pagingSummary.items_count = currentPayload.length
         } else if (attempt === 4) {
-          // Fallback 3: limitar a 350 itens
-          currentPayload = sanitizeForDatabase(itemsFound.slice(0, 350), 2)
+          currentPayload = sanitizeForDatabase(itemsFound.slice(0, 150), 2)
           pagingSummary.items_count = currentPayload.length
         } else if (attempt === 5) {
-          // Fallback 4: limitar a 150 itens ultra-enxutos
-          currentPayload = sanitizeForDatabase(itemsFound.slice(0, 150), 2)
+          currentPayload = sanitizeForDatabase(itemsFound.slice(0, 60), 2)
           pagingSummary.items_count = currentPayload.length
         }
       }

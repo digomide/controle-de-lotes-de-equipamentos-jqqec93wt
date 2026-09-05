@@ -20,6 +20,8 @@ export interface MLCatalogProduct {
   condition_grade?: string
   status?: string
   source?: string
+  is_own_account?: boolean
+  own_ad_id?: string
   attributes?: Array<{
     id: string
     name: string

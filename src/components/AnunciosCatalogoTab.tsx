@@ -23,6 +23,7 @@ import {
   Eye,
   EyeOff,
   Tag,
+  BadgeCheck,
 } from 'lucide-react'
 import {
   Select,
@@ -622,64 +623,87 @@ export function AnunciosCatalogoTab() {
     condition?: string
     condition_label?: string
     condition_grade?: string
+    is_own_account?: boolean
+    own_ad_id?: string
   }) {
     const cond = cat.condition || 'new'
     const grade = cat.condition_grade
-    const baseLabel =
-      cat.condition_label ||
-      (cond === 'refurbished' ? 'Recondicionado' : cond === 'used' ? 'Usado' : 'Novo')
+    const isOwn = Boolean(cat.is_own_account)
 
+    let formattedConditionText = ''
     if (cond === 'refurbished') {
-      return (
-        <Badge
-          className="bg-purple-600 hover:bg-purple-700 text-white border-purple-700 text-[10px] font-semibold flex items-center gap-1 shadow-2xs"
-          title="Classificação Recondicionado no ML — estoque 100% compatível com a loja"
-        >
-          <Sparkles className="w-3 h-3 text-purple-200" />
-          <span>
-            {baseLabel}
-            {grade ? ` (${grade})` : ''}
-          </span>
-          <span className="text-[9px] bg-purple-700/60 px-1 py-0.2 rounded text-purple-100 font-mono ml-0.5">
-            Estoque compatível
-          </span>
-        </Badge>
-      )
-    }
-
-    if (cond === 'used') {
-      return (
-        <Badge
-          className="bg-amber-500 hover:bg-amber-600 text-white border-amber-600 text-[10px] font-semibold flex items-center gap-1 shadow-2xs"
-          title="Classificação Usado no catálogo Mercado Livre"
-        >
-          <span className="w-1.5 h-1.5 rounded-full bg-amber-100" />
-          <span>{baseLabel}</span>
-        </Badge>
-      )
-    }
-
-    if (cond === 'unknown' || cond === 'not_specified') {
-      return (
-        <Badge
-          variant="outline"
-          className="bg-slate-100 text-slate-700 border-slate-300 text-[10px] font-medium flex items-center gap-1"
-          title="Posição sem condição declarada no catálogo"
-        >
-          <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
-          <span>{cat.condition_label || 'Condição não informada'}</span>
-        </Badge>
-      )
+      formattedConditionText = grade ? `Recondicionado · ${grade}` : 'Recondicionado'
+    } else if (cond === 'used') {
+      formattedConditionText = grade ? `Usado · ${grade}` : 'Usado'
+    } else {
+      formattedConditionText = 'Novo'
     }
 
     return (
-      <Badge
-        className="bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-700 text-[10px] font-semibold flex items-center gap-1 shadow-2xs"
-        title="Classificação Novo de fábrica no catálogo oficial Mercado Livre"
-      >
-        <span className="w-1.5 h-1.5 rounded-full bg-white" />
-        <span>{baseLabel}</span>
-      </Badge>
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {/* Badge distintiva "Sua posição" com ícone de verificado azul/índigo */}
+        {isOwn && (
+          <Badge
+            className="bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-700 text-[10px] font-bold flex items-center gap-1 shadow-2xs px-2 py-0.5"
+            title={`Posição de catálogo minerada da sua conta Mercado Livre${cat.own_ad_id ? ` (Anúncio ${cat.own_ad_id})` : ''}`}
+          >
+            <BadgeCheck className="w-3.5 h-3.5 text-indigo-100 shrink-0" />
+            <span>Sua posição</span>
+            {cat.own_ad_id && (
+              <span className="text-[9px] bg-indigo-800/80 px-1 py-0.2 rounded text-indigo-100 font-mono">
+                {cat.own_ad_id}
+              </span>
+            )}
+          </Badge>
+        )}
+
+        {cond === 'refurbished' && (
+          <Badge
+            className="bg-purple-600 hover:bg-purple-700 text-white border-purple-700 text-[10px] font-semibold flex items-center gap-1 shadow-2xs"
+            title="Classificação Recondicionado no ML — estoque 100% compatível com a loja"
+          >
+            <Sparkles className="w-3 h-3 text-purple-200" />
+            <span>{formattedConditionText}</span>
+            <span className="text-[9px] bg-purple-700/60 px-1 py-0.2 rounded text-purple-100 font-mono ml-0.5">
+              Estoque compatível
+            </span>
+          </Badge>
+        )}
+
+        {cond === 'used' && (
+          <Badge
+            className="bg-amber-500 hover:bg-amber-600 text-white border-amber-600 text-[10px] font-semibold flex items-center gap-1 shadow-2xs"
+            title="Classificação Usado no catálogo Mercado Livre"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-100" />
+            <span>{formattedConditionText}</span>
+          </Badge>
+        )}
+
+        {(cond === 'unknown' || cond === 'not_specified') && (
+          <Badge
+            variant="outline"
+            className="bg-slate-100 text-slate-700 border-slate-300 text-[10px] font-medium flex items-center gap-1"
+            title="Posição sem condição declarada no catálogo"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+            <span>{cat.condition_label || 'Condição não informada'}</span>
+          </Badge>
+        )}
+
+        {cond !== 'refurbished' &&
+          cond !== 'used' &&
+          cond !== 'unknown' &&
+          cond !== 'not_specified' && (
+            <Badge
+              className="bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-700 text-[10px] font-semibold flex items-center gap-1 shadow-2xs"
+              title="Classificação Novo de fábrica no catálogo oficial Mercado Livre"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-white" />
+              <span>{formattedConditionText}</span>
+            </Badge>
+          )}
+      </div>
     )
   }
 
@@ -731,6 +755,18 @@ export function AnunciosCatalogoTab() {
   const partialItems = evaluatedItems.filter((entry) => !entry.isMatch && entry.matchesCondition)
 
   const selectedCount = catalogItems.filter((i) => i.selected).length
+
+  // Conta quantas posições da própria conta foram recuperadas com a condição selecionada
+  const ownAccountItemsInResults = catalogItems.filter(
+    (it) =>
+      it.catalogProduct.is_own_account &&
+      (conditionFilter === 'all' || it.catalogProduct.condition === conditionFilter),
+  )
+  const openCatalogHasCondition = catalogItems.some(
+    (it) =>
+      !it.catalogProduct.is_own_account &&
+      (conditionFilter === 'all' || it.catalogProduct.condition === conditionFilter),
+  )
 
   return (
     <div className="space-y-6">
@@ -1356,6 +1392,35 @@ export function AnunciosCatalogoTab() {
               </span>
             </div>
           )}
+
+          {/* Alerta informativo quando a posição recondicionada é trazida via conta de vendedor */}
+          {ownAccountItemsInResults.length > 0 &&
+            !openCatalogHasCondition &&
+            conditionFilter !== 'all' && (
+              <div className="p-3.5 rounded-lg border border-indigo-200 bg-indigo-50/80 text-xs text-indigo-950 flex items-start gap-3 shadow-2xs">
+                <div className="w-6 h-6 rounded-md bg-indigo-600 text-white flex items-center justify-center shrink-0 mt-0.5">
+                  <BadgeCheck className="w-4 h-4" />
+                </div>
+                <div className="space-y-0.5">
+                  <p className="font-bold text-indigo-950">
+                    Posição{' '}
+                    {conditionFilter === 'refurbished'
+                      ? 'recondicionada'
+                      : conditionFilter === 'used'
+                        ? 'usada'
+                        : 'específica'}{' '}
+                    encontrada via sua conta de vendedor ({ownAccountItemsInResults.length}{' '}
+                    {ownAccountItemsInResults.length === 1 ? 'posição' : 'posições'})
+                  </p>
+                  <p className="text-indigo-800 text-[11px] leading-relaxed">
+                    A API de catálogo aberto do Mercado Livre enterrou ou não indexou posições desta
+                    condição na busca geral. O sistema recuperou automaticamente as posições da sua
+                    conta (INFOPREÇOBAIXO) e as posicionou no topo com dados completos da Buy Box e
+                    GRADING.
+                  </p>
+                </div>
+              </div>
+            )}
 
           {/* Se nenhum item passou no filtro rigoroso */}
           {isFilterActive && strictItems.length === 0 && (
