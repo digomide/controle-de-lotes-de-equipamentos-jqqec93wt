@@ -1,47 +1,150 @@
 import type { Product } from '@/types/inventory'
 import { STORE_CONFIG } from '@/lib/storeConfig'
+import pb from '@/lib/pocketbase/client'
+import { generateQRCodeMatrix } from '@/components/QRCodeSVG'
 
 export type CaptionFormat = 'tecnico' | 'urgencia' | 'lote'
 
+/**
+ * Obtém a URL da foto de capa principal do produto.
+ * Respeita a ordenação customizada (photo_order), suportando tanto arquivos
+ * enviados no PocketBase (incluindo imagens geradas por IA com fundo branco)
+ * quanto URLs externas.
+ */
 export function getProductCoverPhoto(product: Product): string {
-  // 1. Prioridade para photo_order se existir
+  const validPhotos = Array.isArray(product.photos) ? product.photos : []
+  const validImages = Array.isArray(product.images) ? product.images : []
+
+  // 1. Prioridade absoluta para photo_order se existir
   if (product.photo_order && Array.isArray(product.photo_order) && product.photo_order.length > 0) {
     for (const item of product.photo_order) {
       if (!item || !item.value) continue
-      if (
-        item.type === 'photo' &&
-        Array.isArray(product.photos) &&
-        product.photos.includes(item.value)
-      ) {
-        return `/api/files/products/${product.id}/${item.value}`
+
+      if (item.type === 'photo') {
+        if (validPhotos.includes(item.value)) {
+          return pb.files.getURL(product, item.value)
+        }
+        // Se a foto tiver nome de arquivo salvo diretamente (ex.: notebook_ml_bg_white_...)
+        return pb.files.getURL(product, item.value)
       }
+
       if (item.type === 'image' && item.value) {
-        return item.value
+        const val = String(item.value).trim()
+        if (val.startsWith('http://') || val.startsWith('https://') || val.startsWith('data:')) {
+          return val
+        }
+        return val
       }
     }
   }
 
-  // 2. Se tiver photos (arquivo nativo PocketBase)
-  if (
-    product.photos &&
-    Array.isArray(product.photos) &&
-    product.photos.length > 0 &&
-    product.photos[0]
-  ) {
-    return `/api/files/products/${product.id}/${product.photos[0]}`
+  // 2. Se tiver photos (arquivo nativo PocketBase / fotos processadas pela IA adicionadas à coleção)
+  if (validPhotos.length > 0 && validPhotos[0]) {
+    return pb.files.getURL(product, validPhotos[0])
   }
 
-  // 3. Se tiver images (URLs)
-  if (
-    product.images &&
-    Array.isArray(product.images) &&
-    product.images.length > 0 &&
-    product.images[0]
-  ) {
-    return product.images[0]
+  // 3. Se tiver images (URLs externas)
+  if (validImages.length > 0 && validImages[0]) {
+    const val = String(validImages[0]).trim()
+    if (val) return val
   }
 
+  // Fallback padrão
   return 'https://img.usecurling.com/p/800/800?q=laptop'
+}
+
+/**
+ * Converte qualquer URL de imagem em Data URL (base64) via fetch blob
+ * para evitar qualquer restrição de Canvas Tainted / CORS ao exportar toDataURL.
+ */
+async function loadImageAsDataUrl(url: string): Promise<string> {
+  // Se já for data URL, retorna imediatamente
+  if (url.startsWith('data:')) {
+    return url
+  }
+
+  try {
+    const response = await fetch(url, { credentials: 'omit' })
+    if (!response.ok) {
+      throw new Error(`Status HTTP ${response.status}`)
+    }
+    const blob = await response.blob()
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        if (typeof reader.result === 'string') {
+          resolve(reader.result)
+        } else {
+          reject(new Error('Falha ao ler blob da imagem como Data URL'))
+        }
+      }
+      reader.onerror = () => reject(new Error('Erro no FileReader'))
+      reader.readAsDataURL(blob)
+    })
+  } catch (fetchErr) {
+    // Fallback: se o fetch falhar por CORS estrito, retorna a URL original
+    console.warn('Fallback para URL direta (fetch dataUrl falhou):', fetchErr)
+    return url
+  }
+}
+
+/**
+ * Desenha o QR Code diretamente em um Canvas 2D
+ */
+function drawQRCodeOnCanvas(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  size: number,
+  padding: number = 8,
+) {
+  const matrix = generateQRCodeMatrix(text)
+  const moduleCount = matrix.length
+
+  // Fundo branco com cantos arredondados para alto contraste
+  const outerSize = size + padding * 2
+  ctx.save()
+  ctx.fillStyle = '#ffffff'
+  ctx.beginPath()
+  ctx.roundRect(x - padding, y - padding, outerSize, outerSize, 8)
+  ctx.fill()
+
+  // Borda sutil escura
+  ctx.strokeStyle = '#e2e8f0'
+  ctx.lineWidth = 1.5
+  ctx.stroke()
+
+  // Módulos pretos do QR code
+  const cellSize = size / moduleCount
+  ctx.fillStyle = '#000000'
+
+  for (let r = 0; r < moduleCount; r++) {
+    for (let c = 0; c < moduleCount; c++) {
+      if (matrix[r][c]) {
+        // Renderizar com pequenos ajustes anti-bleeding
+        ctx.fillRect(
+          Math.floor(x + c * cellSize),
+          Math.floor(y + r * cellSize),
+          Math.ceil(cellSize),
+          Math.ceil(cellSize),
+        )
+      }
+    }
+  }
+
+  ctx.restore()
+}
+
+/**
+ * Monta a URL pública canônica da página do produto na loja
+ */
+export function getProductStoreUrl(product: Product): string {
+  const slug = product.code || product.sku || product.id
+  if (typeof window !== 'undefined') {
+    return `${window.location.origin}/loja/${slug}`
+  }
+  return `https://ambicorpflow.com.br/loja/${slug}`
 }
 
 export function generateInstagramCaption(
@@ -56,11 +159,7 @@ export function generateInstagramCaption(
   })
 
   // URL da loja pública para o equipamento ou geral
-  const finalStoreUrl =
-    storeUrl ||
-    (typeof window !== 'undefined'
-      ? `${window.location.origin}/loja/${product.code || product.sku || product.id}`
-      : `https://ambicorpflow.com.br/loja/${product.code || product.sku || product.id}`)
+  const finalStoreUrl = storeUrl || getProductStoreUrl(product)
 
   const phone = STORE_CONFIG.whatsappDisplay
   const storeName = STORE_CONFIG.name || 'AMbicorpFlow'
@@ -175,15 +274,19 @@ ${baseHashtags} #vendascorporativas #lotesdenotebooks #revendainformatica #ataca
 }
 
 /**
- * Gera uma imagem 1080x1080 com a foto do produto em crop quadrado central
- * e uma barra/rodapé profissional com o nome da marca (AMbicorpFlow),
- * especificações e contato.
+ * Gera uma imagem 1080x1080 com a foto do produto em crop centralizado,
+ * selo de procedência mantido no topo esquerdo (removendo selo "16 itens testados"),
+ * rodapé corporativo AMbicorpFlow, preço, WhatsApp e QR Code escaneável
+ * apontando direto para a página de compra do produto.
  */
 export async function generatePostImage(
   imageUrl: string,
   product: Product,
   storeName: string = STORE_CONFIG.name || 'AMbicorpFlow',
 ): Promise<string> {
+  // Pré-converter a imagem em Data URL segura contra CORS tainted canvas
+  const safeDataUrl = await loadImageAsDataUrl(imageUrl)
+
   return new Promise((resolve, reject) => {
     const canvas = document.createElement('canvas')
     canvas.width = 1080
@@ -198,7 +301,7 @@ export async function generatePostImage(
     img.crossOrigin = 'anonymous'
 
     img.onload = () => {
-      // 1. Fundo limpo branco/cinza bem suave
+      // 1. Fundo limpo branco puro
       ctx.fillStyle = '#ffffff'
       ctx.fillRect(0, 0, 1080, 1080)
 
@@ -209,8 +312,7 @@ export async function generatePostImage(
       const imgWidth = img.naturalWidth || img.width
       const imgHeight = img.naturalHeight || img.height
 
-      // Calcular aspecto para preencher proporcionalmente (cover ou contain elegante)
-      // Como são fotos em fundo branco de notebooks, usamos fit proporcional centralizado com margem
+      // Fit proporcional centralizado com margem elegante
       const scale = Math.min((photoAreaWidth - 80) / imgWidth, (photoAreaHeight - 80) / imgHeight)
       const drawWidth = imgWidth * scale
       const drawHeight = imgHeight * scale
@@ -219,9 +321,9 @@ export async function generatePostImage(
 
       ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight)
 
-      // 3. Selo/Tag superior elegante (Condição & Procedência)
+      // 3. Selo/Tag superior elegante (Condição & Procedência) no TOPO ESQUERDO
+      // NOTA: O selo "16 ITENS TESTADOS" no topo direito foi removido conforme solicitado.
       ctx.save()
-      // Faixa de fundo do selo
       const badgeText = 'RECONDICIONADO · PROCEDÊNCIA GARANTIDA'
       ctx.font = 'bold 22px system-ui, -apple-system, sans-serif'
       const badgeWidth = ctx.measureText(badgeText).width + 36
@@ -237,17 +339,6 @@ export async function generatePostImage(
 
       ctx.fillStyle = '#34d399'
       ctx.fillText(badgeText, badgeX + 18, badgeY + 30)
-
-      // Selo 100% Testado no canto direito
-      const testText = '16 ITENS TESTADOS'
-      const testWidth = ctx.measureText(testText).width + 32
-      const testX = 1080 - 40 - testWidth
-      ctx.fillStyle = '#0f172a'
-      ctx.beginPath()
-      ctx.roundRect(testX, badgeY, testWidth, badgeHeight, 10)
-      ctx.fill()
-      ctx.fillStyle = '#f8fafc'
-      ctx.fillText(testText, testX + 16, badgeY + 30)
       ctx.restore()
 
       // 4. Faixa/Rodapé inferior estilizado da marca (160px de altura)
@@ -265,34 +356,56 @@ export async function generatePostImage(
       ctx.fillStyle = '#10b981'
       ctx.fillRect(0, footerY, 1080, 6)
 
-      // Texto do Rodapé: Nome da Marca & Specs principais
+      // 5. QR Code escaneável para a página do produto na loja
+      // Posicionado no lado direito da faixa inferior
+      const storeProductUrl = getProductStoreUrl(product)
+      const qrCodeSize = 104
+      const qrPadding = 6
+      const qrRightMargin = 40
+      const qrX = 1080 - qrRightMargin - qrCodeSize
+      const qrY = footerY + (footerHeight - qrCodeSize) / 2 + 3
+
+      drawQRCodeOnCanvas(ctx, storeProductUrl, qrX, qrY, qrCodeSize, qrPadding)
+
+      // Micro call-to-action embaixo / ao lado do QR Code
+      ctx.save()
+      ctx.fillStyle = '#a7f3d0'
+      ctx.font = 'bold 12px system-ui, -apple-system, sans-serif'
+      ctx.textAlign = 'center'
+      ctx.fillText('COMPRE PELO QR', qrX + qrCodeSize / 2, footerY + footerHeight - 12)
+      ctx.restore()
+
+      // 6. Texto do Rodapé: Nome da Marca & Specs principais (lado esquerdo)
       ctx.save()
 
       // Nome da Loja / Marca
       ctx.fillStyle = '#ffffff'
       ctx.font = 'bold 44px system-ui, -apple-system, sans-serif'
-      ctx.fillText(storeName, 48, footerY + 68)
+      ctx.fillText(storeName, 44, footerY + 68)
 
-      // Subtítulo da marca
+      // Subtítulo da marca (Specs)
       ctx.fillStyle = '#94a3b8'
       ctx.font = '500 22px system-ui, -apple-system, sans-serif'
       const specLine = [product.processor, product.ram, product.storage].filter(Boolean).join(' · ')
-      ctx.fillText(specLine || 'Notebooks Corporativos Revisados', 48, footerY + 115)
+      ctx.fillText(specLine || 'Notebooks Corporativos Revisados', 44, footerY + 115)
 
-      // Bloco do WhatsApp / Preço no canto direito do rodapé
+      // 7. Bloco Central/Direito: Preço e WhatsApp (à esquerda do QR Code)
       const priceFormatted = Number(product.unit_price || 0).toLocaleString('pt-BR', {
         style: 'currency',
         currency: 'BRL',
       })
 
+      // Posição de alinhamento à direita dos dados de preço/contato antes do QR Code
+      const textRightEdge = qrX - 32
+
       ctx.textAlign = 'right'
       ctx.fillStyle = '#34d399'
-      ctx.font = 'bold 42px system-ui, -apple-system, sans-serif'
-      ctx.fillText(priceFormatted, 1032, footerY + 68)
+      ctx.font = 'bold 40px system-ui, -apple-system, sans-serif'
+      ctx.fillText(priceFormatted, textRightEdge, footerY + 68)
 
       ctx.fillStyle = '#f1f5f9'
-      ctx.font = '600 22px system-ui, -apple-system, sans-serif'
-      ctx.fillText(`WhatsApp: ${STORE_CONFIG.whatsappDisplay}`, 1032, footerY + 115)
+      ctx.font = '600 20px system-ui, -apple-system, sans-serif'
+      ctx.fillText(`WhatsApp: ${STORE_CONFIG.whatsappDisplay}`, textRightEdge, footerY + 115)
 
       ctx.restore()
 
@@ -308,6 +421,6 @@ export async function generatePostImage(
       reject(new Error('Falha ao carregar imagem para o Canvas: ' + err))
     }
 
-    img.src = imageUrl
+    img.src = safeDataUrl
   })
 }

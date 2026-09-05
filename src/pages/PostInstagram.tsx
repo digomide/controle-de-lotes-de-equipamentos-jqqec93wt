@@ -568,8 +568,8 @@ export default function PostInstagram() {
                             Arte Pronta (1080 x 1080 px)
                           </div>
                           <p className="text-slate-700 font-medium">
-                            Inclui selo de procedência, 16 itens testados, valor à vista e WhatsApp
-                            oficial da AMbicorpFlow.
+                            Inclui selo de procedência garantida, valor à vista, WhatsApp e QR Code
+                            de compra direta na loja online.
                           </p>
                           <p className="text-slate-400 text-[11px]">
                             Clique em <strong>Baixar PNG</strong> para salvar diretamente na sua

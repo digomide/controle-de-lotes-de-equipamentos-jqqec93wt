@@ -49,23 +49,28 @@ export function QRCodeSVG({ value, size = 120, className = '' }: QRCodeSVGProps)
 }
 
 // -------------------------------------------------------------
-// Minimalist pure-JS QR code matrix generator (Versions 1..3)
+// Minimalist pure-JS QR code matrix generator (Versions 1..5)
 // -------------------------------------------------------------
-function generateQRCodeMatrix(text: string): boolean[][] {
+export function generateQRCodeMatrix(text: string): boolean[][] {
   const dataBytes = utf8Encode(text)
   const len = dataBytes.length
 
   // Pick smallest version that fits
-  // Capacity for byte mode:
-  // V1 (21x21): L: 19 bytes, M: 14 bytes
-  // V2 (25x25): L: 34 bytes, M: 26 bytes
-  // V3 (29x29): L: 55 bytes, M: 42 bytes
-  // V4 (33x33): L: 80 bytes, M: 62 bytes
+  // Capacity for byte mode with ECC M:
+  // V1 (21x21): 14 bytes
+  // V2 (25x25): 26 bytes
+  // V3 (29x29): 42 bytes
+  // V4 (33x33): 62 bytes
+  // V5 (37x37): 84 bytes
+  // V6 (41x41): 106 bytes
+  // V7 (45x45): 122 bytes
   let version = 1
   if (len > 14) version = 2
   if (len > 26) version = 3
   if (len > 42) version = 4
   if (len > 62) version = 5
+  if (len > 84) version = 6
+  if (len > 106) version = 7
 
   const size = 17 + 4 * version
   const grid: (boolean | null)[][] = Array.from({ length: size }, () =>
@@ -104,17 +109,43 @@ function generateQRCodeMatrix(text: string): boolean[][] {
   placeFinder(0, size - 7)
   placeFinder(size - 7, 0)
 
-  // 2. Alignment patterns (Version 2+ at (size-7, size-7))
-  if (version >= 2) {
-    const alignPos = size - 7
-    for (let r = -2; r <= 2; r++) {
-      for (let c = -2; c <= 2; c++) {
-        const tr = alignPos + r
-        const tc = alignPos + c
-        reserve(tr, tc)
-        const isOuter = Math.abs(r) === 2 || Math.abs(c) === 2
-        const isCenter = r === 0 && c === 0
-        grid[tr][tc] = isOuter || isCenter
+  // 2. Alignment patterns (for versions 2..7)
+  // Alignment positions standard:
+  // V2: [6, 18] -> single (18, 18)
+  // V3: [6, 22] -> single (22, 22)
+  // V4: [6, 26] -> single (26, 26)
+  // V5: [6, 30] -> single (30, 30)
+  // V6: [6, 34] -> single (34, 34)
+  // V7: [6, 22, 38]
+  const alignCoordsByVersion: Record<number, number[]> = {
+    2: [18],
+    3: [22],
+    4: [26],
+    5: [30],
+    6: [34],
+    7: [22, 38],
+  }
+
+  const alignCoords = alignCoordsByVersion[version] || []
+  if (alignCoords.length > 0) {
+    const allCoords = [6, ...alignCoords]
+    for (const ar of allCoords) {
+      for (const ac of allCoords) {
+        // Skip finder areas
+        if ((ar <= 8 && ac <= 8) || (ar <= 8 && ac >= size - 8) || (ar >= size - 8 && ac <= 8)) {
+          continue
+        }
+
+        for (let r = -2; r <= 2; r++) {
+          for (let c = -2; c <= 2; c++) {
+            const tr = ar + r
+            const tc = ac + c
+            reserve(tr, tc)
+            const isOuter = Math.abs(r) === 2 || Math.abs(c) === 2
+            const isCenter = r === 0 && c === 0
+            grid[tr][tc] = isOuter || isCenter
+          }
+        }
       }
     }
   }
@@ -277,6 +308,8 @@ const versionTable: Record<number, { total: number; ec: number }> = {
   3: { total: 70, ec: 26 }, // 44 data bytes
   4: { total: 100, ec: 36 }, // 64 data bytes
   5: { total: 134, ec: 48 }, // 86 data bytes
+  6: { total: 172, ec: 64 }, // 108 data bytes
+  7: { total: 196, ec: 72 }, // 124 data bytes
 }
 
 function utf8Encode(str: string): number[] {
