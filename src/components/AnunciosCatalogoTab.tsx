@@ -151,6 +151,11 @@ export function AnunciosCatalogoTab() {
           tokens.length === 0 ||
           evaluateCatalogItemStrictMatch(catProd.title, tokens, catProd.attributes).isMatch
 
+        // Default da condição de publicação:
+        // Se a posição for Recondicionado, default é 'refurbished'. Caso contrário, 'catalog_auto'.
+        const initialCondition =
+          catProd.condition === 'refurbished' ? 'refurbished' : 'catalog_auto'
+
         return {
           catalogProduct: catProd,
           matchedProducts: matchInfo.matchedProducts,
@@ -159,6 +164,7 @@ export function AnunciosCatalogoTab() {
           selected: isStrict, // Resultados rigorosos já vêm selecionados; descartados vêm desmarcados
           formQuantity: 1, // Quantidade default = 1
           formPrice: fallbackPrice, // Preço default = preço de referência do catálogo
+          formCondition: initialCondition,
           selectedProductId: primaryProduct?.id || undefined,
         }
       })
@@ -264,6 +270,36 @@ export function AnunciosCatalogoTab() {
     })
   }
 
+  // Alterar condição inline
+  function updateCondition(
+    index: number,
+    condition: 'catalog_auto' | 'new' | 'refurbished' | 'used',
+  ) {
+    setCatalogItems((prev) => {
+      const next = [...prev]
+      next[index] = { ...next[index], formCondition: condition }
+      return next
+    })
+  }
+
+  // Aplicar condição em lote para os itens selecionados
+  function applyBatchCondition(condition: 'catalog_auto' | 'new' | 'refurbished' | 'used') {
+    setCatalogItems((prev) =>
+      prev.map((item) => (item.selected ? { ...item, formCondition: condition } : item)),
+    )
+    const count = catalogItems.filter((i) => i.selected).length
+    const labelMap: Record<string, string> = {
+      catalog_auto: 'Nova do catálogo',
+      new: 'Novo',
+      refurbished: 'Recondicionado',
+      used: 'Usado',
+    }
+    toast({
+      title: 'Condição aplicada em lote',
+      description: `Condição "${labelMap[condition]}" aplicada para ${count} posição(ões) selecionada(s).`,
+    })
+  }
+
   // Alterar produto local vinculado
   function updateSelectedProduct(index: number, productId: string) {
     setCatalogItems((prev) => {
@@ -331,8 +367,10 @@ export function AnunciosCatalogoTab() {
       setPublishLogs([...logs])
 
       try {
-        const itemCondSent = 'used'
-        const isCatNew = item.catalogProduct.condition === 'new'
+        const itemCondSent =
+          item.formCondition === 'catalog_auto'
+            ? item.catalogProduct.condition || 'new'
+            : item.formCondition
 
         const job = await mlCatalogService.createPublishJob({
           catalog_product_id: item.catalogProduct.catalog_product_id,
@@ -364,32 +402,13 @@ export function AnunciosCatalogoTab() {
         } else {
           errorCount++
           logs[i].status = 'error'
-
-          // Se a posição é classificada como 'new' e a condição enviada é recondicionado/usado,
-          // ou se o ML acusou item_not_new_nor_refurbished / not_eligible
-          const rawErr = completed.error_message || ''
-          if (
-            isCatNew ||
-            rawErr.includes('item_not_new_nor_refurbished') ||
-            rawErr.includes('exige condição Novo')
-          ) {
-            logs[i].message =
-              'Esta posição de catálogo é classificada como NOVO pelo Mercado Livre — não aceita oferta em seminovo/recondicionado.'
-          } else {
-            logs[i].message = completed.error_message || 'Falha na publicação do anúncio.'
-          }
+          logs[i].message = completed.error_message || 'Falha na publicação do anúncio.'
           logs[i].canRetry = true
         }
       } catch (err: any) {
         errorCount++
         logs[i].status = 'error'
-        const rawErrMsg = err.message || ''
-        if (item.catalogProduct.condition === 'new') {
-          logs[i].message =
-            'Esta posição de catálogo é classificada como NOVO pelo Mercado Livre — não aceita oferta em seminovo/recondicionado.'
-        } else {
-          logs[i].message = rawErrMsg || 'Erro inesperado de comunicação com a fila.'
-        }
+        logs[i].message = err.message || 'Erro inesperado de comunicação com a fila.'
         logs[i].canRetry = true
       }
 
@@ -441,14 +460,18 @@ export function AnunciosCatalogoTab() {
     })
 
     try {
-      const isCatNew = item.catalogProduct.condition === 'new'
+      const itemCondSent =
+        item.formCondition === 'catalog_auto'
+          ? item.catalogProduct.condition || 'new'
+          : item.formCondition
+
       const newJob = await mlCatalogService.createPublishJob({
         catalog_product_id: item.catalogProduct.catalog_product_id,
         product_id: item.selectedProductId,
         price: item.formPrice,
         quantity: item.formQuantity,
         domain_id: item.catalogProduct.domain_id || 'MLB-NOTEBOOKS',
-        condition: 'used',
+        condition: itemCondSent,
       })
 
       const completed = await mlCatalogService.pollPublishJob(newJob.id, (cur) => {
@@ -483,13 +506,7 @@ export function AnunciosCatalogoTab() {
           description: `Anúncio ${completed.ml_listing_id} criado no catálogo.`,
         })
       } else {
-        const rawErr = completed.error_message || ''
-        const errorMsgToShow =
-          isCatNew ||
-          rawErr.includes('item_not_new_nor_refurbished') ||
-          rawErr.includes('exige condição Novo')
-            ? 'Esta posição de catálogo é classificada como NOVO pelo Mercado Livre — não aceita oferta em seminovo/recondicionado.'
-            : completed.error_message || 'Falha na publicação.'
+        const errorMsgToShow = completed.error_message || 'Falha na publicação.'
 
         setPublishLogs((prev) => {
           const next = [...prev]
@@ -509,10 +526,7 @@ export function AnunciosCatalogoTab() {
         })
       }
     } catch (err: any) {
-      const isCatNew = item.catalogProduct.condition === 'new'
-      const errorMsgToShow = isCatNew
-        ? 'Esta posição de catálogo é classificada como NOVO pelo Mercado Livre — não aceita oferta em seminovo/recondicionado.'
-        : err.message || 'Erro ao comunicar com a fila.'
+      const errorMsgToShow = err.message || 'Erro ao comunicar com a fila.'
 
       setPublishLogs((prev) => {
         const next = [...prev]
@@ -665,6 +679,60 @@ export function AnunciosCatalogoTab() {
               >
                 Explorador de Catálogo ML <ExternalLink className="w-3.5 h-3.5" />
               </a>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Box Informativo Permanente: Como funciona a classificação no catálogo */}
+      <Card className="border-amber-200 bg-gradient-to-r from-amber-50/80 via-orange-50/40 to-amber-50/60 shadow-xs">
+        <CardContent className="p-4 sm:p-5">
+          <div className="flex items-start gap-3">
+            <div className="w-8 h-8 rounded-lg bg-amber-600 text-white flex items-center justify-center shrink-0 shadow-2xs mt-0.5">
+              <Info className="w-4 h-4" />
+            </div>
+            <div className="space-y-2 text-xs leading-relaxed text-slate-700">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-amber-950">
+                  Como funciona a classificação no catálogo do Mercado Livre
+                </h4>
+                <Badge
+                  variant="outline"
+                  className="text-[10px] bg-white border-amber-300 text-amber-900 font-medium"
+                >
+                  Guia do Vendedor
+                </Badge>
+              </div>
+              <p>
+                Cada posição do catálogo tem{' '}
+                <strong>condição fixa definida pelo Mercado Livre</strong> (Novo, Recondicionado ou
+                Usado). Você não altera a classificação de uma posição — você escolhe em qual
+                posição publicar sua oferta. Posições recondicionadas são produtos de catálogo
+                separados dentro do mesmo domínio.
+              </p>
+              <p className="text-slate-600">
+                <strong>Importante sobre a condição:</strong> Anúncios de catálogo{' '}
+                <strong>não aceitam &ldquo;Excelente&rdquo;</strong> como condição na API do Mercado
+                Livre. No ML existem apenas <em>Novo (new)</em>,{' '}
+                <em>Recondicionado (refurbished)</em> e <em>Usado (used)</em>. A classificação{' '}
+                <strong>&ldquo;Excelente&rdquo;</strong> é do nosso controle interno de triagem
+                técnica de estoque (entra na descrição ou no anúncio tradicional comum).
+              </p>
+              <div className="flex items-center gap-2 pt-1 text-[11px] text-amber-900 font-medium flex-wrap">
+                <span className="inline-flex items-center gap-1 bg-white/90 px-2 py-0.5 rounded border border-amber-200">
+                  <span className="w-2 h-2 rounded-full bg-purple-600" />
+                  <strong>Recondicionado:</strong> Posição oficial com garantia/recondicionamento
+                  ML.
+                </span>
+                <span className="inline-flex items-center gap-1 bg-white/90 px-2 py-0.5 rounded border border-amber-200">
+                  <span className="w-2 h-2 rounded-full bg-emerald-600" />
+                  <strong>Novo:</strong> Exige produto lacrado de fábrica.
+                </span>
+                <span className="inline-flex items-center gap-1 bg-white/90 px-2 py-0.5 rounded border border-amber-200">
+                  <span className="w-2 h-2 rounded-full bg-amber-500" />
+                  <strong>Usado:</strong> Posições abertas a seminovos.
+                </span>
+              </div>
             </div>
           </div>
         </CardContent>
@@ -909,8 +977,8 @@ export function AnunciosCatalogoTab() {
       {/* Barra de Ações em Massa (quando há resultados) */}
       {catalogItems.length > 0 && (
         <Card className="border-blue-200 bg-blue-50/40 shadow-xs">
-          <CardContent className="p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
+          <CardContent className="p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <Checkbox
                 id="select-all"
                 checked={
@@ -933,11 +1001,39 @@ export function AnunciosCatalogoTab() {
               </Badge>
             </div>
 
-            <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+            <div className="flex items-center gap-2 w-full md:w-auto justify-between md:justify-end flex-wrap">
+              {/* Seletor de Condição em Lote para itens selecionados */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] font-semibold text-slate-600 whitespace-nowrap">
+                  Condição em lote:
+                </span>
+                <select
+                  disabled={selectedCount === 0 || isPublishing}
+                  defaultValue=""
+                  onChange={(e) => {
+                    const val = e.target.value as any
+                    if (val) {
+                      applyBatchCondition(val)
+                      e.target.value = ''
+                    }
+                  }}
+                  className="h-8 text-xs bg-white border border-slate-300 rounded-md px-2 font-medium text-slate-700 disabled:opacity-50"
+                  aria-label="Aplicar condição em lote para selecionados"
+                >
+                  <option value="" disabled>
+                    Alterar selecionadas...
+                  </option>
+                  <option value="catalog_auto">Nova do catálogo (padrão)</option>
+                  <option value="new">Novo</option>
+                  <option value="refurbished">Recondicionado</option>
+                  <option value="used">Usado</option>
+                </select>
+              </div>
+
               <Button
                 onClick={handlePublishSelected}
                 disabled={isPublishing || selectedCount === 0}
-                className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs h-9 px-4 shadow-xs flex items-center gap-1.5"
+                className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs h-9 px-4 shadow-xs flex items-center gap-1.5 shrink-0"
               >
                 {isPublishing ? (
                   <>
@@ -1291,37 +1387,63 @@ export function AnunciosCatalogoTab() {
                         </div>
                       </div>
 
-                      {/* Edição Simples Inline: Quantidade e Valor (Independentes do estoque local) */}
-                      <div className="w-full lg:w-72 flex items-center gap-3 shrink-0 bg-slate-50 lg:bg-slate-50/70 p-3 rounded-lg border border-slate-200">
-                        {/* Quantidade */}
-                        <div className="w-28 space-y-1">
-                          <label className="text-[10px] uppercase font-bold text-slate-500 block">
-                            Qtd Anúncio
-                          </label>
-                          <Input
-                            type="number"
-                            min={1}
-                            value={item.formQuantity}
-                            onChange={(e) => updateQuantity(originalIndex, Number(e.target.value))}
-                            disabled={!item.selected || isPublishing}
-                            className="h-8 text-xs font-mono font-bold bg-white"
-                          />
-                        </div>
+                      {/* Edição Inline: Condição, Quantidade e Valor */}
+                      <div className="w-full lg:w-96 flex flex-col gap-2 shrink-0 bg-slate-50 lg:bg-slate-50/70 p-3 rounded-lg border border-slate-200">
+                        <div className="flex items-center gap-2.5">
+                          {/* Condição de publicação */}
+                          <div className="flex-1 min-w-0 space-y-1">
+                            <label className="text-[10px] uppercase font-bold text-slate-500 block">
+                              Condição no ML
+                            </label>
+                            <select
+                              value={item.formCondition}
+                              onChange={(e) =>
+                                updateCondition(
+                                  originalIndex,
+                                  e.target.value as 'catalog_auto' | 'new' | 'refurbished' | 'used',
+                                )
+                              }
+                              disabled={!item.selected || isPublishing}
+                              className="h-8 w-full text-xs bg-white border border-slate-300 rounded-md px-2 font-medium text-slate-800 disabled:opacity-50"
+                              aria-label="Condição de publicação no Mercado Livre"
+                            >
+                              <option value="catalog_auto">Nova do catálogo</option>
+                              <option value="new">Novo</option>
+                              <option value="refurbished">Recondicionado</option>
+                              <option value="used">Usado</option>
+                            </select>
+                          </div>
 
-                        {/* Valor */}
-                        <div className="flex-1 space-y-1">
-                          <label className="text-[10px] uppercase font-bold text-slate-500 block flex items-center justify-between">
-                            <span>Preço (R$)</span>
-                            {isBelowBuyBox && (
-                              <span
-                                className="text-emerald-600 font-bold text-[10px]"
-                                title="Seu preço está mais agressivo que o concorrente da Buy Box!"
-                              >
-                                Vencedor!
-                              </span>
-                            )}
-                          </label>
-                          <div className="relative">
+                          {/* Quantidade */}
+                          <div className="w-20 space-y-1">
+                            <label className="text-[10px] uppercase font-bold text-slate-500 block">
+                              Qtd
+                            </label>
+                            <Input
+                              type="number"
+                              min={1}
+                              value={item.formQuantity}
+                              onChange={(e) =>
+                                updateQuantity(originalIndex, Number(e.target.value))
+                              }
+                              disabled={!item.selected || isPublishing}
+                              className="h-8 text-xs font-mono font-bold bg-white"
+                            />
+                          </div>
+
+                          {/* Valor */}
+                          <div className="w-28 space-y-1">
+                            <label className="text-[10px] uppercase font-bold text-slate-500 block flex items-center justify-between">
+                              <span>Preço (R$)</span>
+                              {isBelowBuyBox && (
+                                <span
+                                  className="text-emerald-600 font-bold text-[9px]"
+                                  title="Seu preço está mais agressivo que o concorrente da Buy Box!"
+                                >
+                                  Vencedor!
+                                </span>
+                              )}
+                            </label>
                             <Input
                               type="number"
                               min={1}
@@ -1333,6 +1455,30 @@ export function AnunciosCatalogoTab() {
                             />
                           </div>
                         </div>
+
+                        {/* Avisos inline contextuais sobre a condição escolhida */}
+                        {(cat.condition === 'new' || !cat.condition) &&
+                          item.formCondition === 'refurbished' && (
+                            <div className="p-2 rounded bg-amber-50 border border-amber-200 text-[11px] text-amber-900 leading-snug flex items-start gap-1.5">
+                              <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                              <span>
+                                Esta posição é classificada como <strong>Novo</strong> pelo ML.
+                                Publicar como <strong>Recondicionado</strong> pode ser recusado (
+                                <em>item.catalog_listing.not_eligible</em>) — você pode tentar; se
+                                recusar, busque a posição recondicionada equivalente no mesmo
+                                domínio.
+                              </span>
+                            </div>
+                          )}
+
+                        {cat.condition === 'refurbished' &&
+                          (item.formCondition === 'refurbished' ||
+                            item.formCondition === 'catalog_auto') && (
+                            <div className="p-1.5 rounded bg-emerald-50 border border-emerald-200 text-[11px] text-emerald-900 leading-snug flex items-center gap-1.5">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                              <span>Posição recondicionada — compatível com seu estoque.</span>
+                            </div>
+                          )}
                       </div>
                     </div>
                   </CardContent>
@@ -1466,43 +1612,95 @@ export function AnunciosCatalogoTab() {
                             </div>
                           </div>
 
-                          {/* Edição Simples Inline */}
-                          <div className="w-full lg:w-72 flex items-center gap-3 shrink-0 bg-white p-2.5 rounded-lg border border-slate-200">
-                            <div className="w-28 space-y-1">
-                              <label className="text-[10px] uppercase font-bold text-slate-400 block">
-                                Qtd
-                              </label>
-                              <Input
-                                type="number"
-                                min={1}
-                                value={item.formQuantity}
-                                onChange={(e) =>
-                                  updateQuantity(originalIndex, Number(e.target.value))
-                                }
-                                disabled={!item.selected || isPublishing}
-                                className="h-7 text-xs font-mono bg-slate-50"
-                              />
+                          {/* Edição Inline Parciais */}
+                          <div className="w-full lg:w-96 flex flex-col gap-2 shrink-0 bg-white p-2.5 rounded-lg border border-slate-200">
+                            <div className="flex items-center gap-2.5">
+                              <div className="flex-1 min-w-0 space-y-1">
+                                <label className="text-[10px] uppercase font-bold text-slate-400 block">
+                                  Condição no ML
+                                </label>
+                                <select
+                                  value={item.formCondition}
+                                  onChange={(e) =>
+                                    updateCondition(
+                                      originalIndex,
+                                      e.target.value as
+                                        | 'catalog_auto'
+                                        | 'new'
+                                        | 'refurbished'
+                                        | 'used',
+                                    )
+                                  }
+                                  disabled={!item.selected || isPublishing}
+                                  className="h-7 w-full text-xs bg-slate-50 border border-slate-300 rounded px-1.5 font-medium text-slate-700 disabled:opacity-50"
+                                  aria-label="Condição de publicação no Mercado Livre"
+                                >
+                                  <option value="catalog_auto">Nova do catálogo</option>
+                                  <option value="new">Novo</option>
+                                  <option value="refurbished">Recondicionado</option>
+                                  <option value="used">Usado</option>
+                                </select>
+                              </div>
+
+                              <div className="w-20 space-y-1">
+                                <label className="text-[10px] uppercase font-bold text-slate-400 block">
+                                  Qtd
+                                </label>
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  value={item.formQuantity}
+                                  onChange={(e) =>
+                                    updateQuantity(originalIndex, Number(e.target.value))
+                                  }
+                                  disabled={!item.selected || isPublishing}
+                                  className="h-7 text-xs font-mono bg-slate-50"
+                                />
+                              </div>
+
+                              <div className="w-28 space-y-1">
+                                <label className="text-[10px] uppercase font-bold text-slate-400 block flex items-center justify-between">
+                                  <span>Preço (R$)</span>
+                                  {isBelowBuyBox && (
+                                    <span className="text-emerald-600 font-bold text-[9px]">
+                                      Abaixo Buy Box
+                                    </span>
+                                  )}
+                                </label>
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  step={1}
+                                  value={item.formPrice}
+                                  onChange={(e) =>
+                                    updatePrice(originalIndex, Number(e.target.value))
+                                  }
+                                  disabled={!item.selected || isPublishing}
+                                  className="h-7 text-xs font-mono bg-slate-50"
+                                />
+                              </div>
                             </div>
 
-                            <div className="flex-1 space-y-1">
-                              <label className="text-[10px] uppercase font-bold text-slate-400 block flex items-center justify-between">
-                                <span>Preço (R$)</span>
-                                {isBelowBuyBox && (
-                                  <span className="text-emerald-600 font-bold text-[9px]">
-                                    Abaixo Buy Box
+                            {/* Avisos inline parciais */}
+                            {(cat.condition === 'new' || !cat.condition) &&
+                              item.formCondition === 'refurbished' && (
+                                <div className="p-1.5 rounded bg-amber-50 border border-amber-200 text-[10px] text-amber-900 leading-snug flex items-start gap-1">
+                                  <AlertCircle className="w-3 h-3 text-amber-600 shrink-0 mt-0.5" />
+                                  <span>
+                                    Posição Novo: publicar como Recondicionado pode ser recusado
+                                    pelo ML (item_not_new_nor_refurbished).
                                   </span>
-                                )}
-                              </label>
-                              <Input
-                                type="number"
-                                min={1}
-                                step={1}
-                                value={item.formPrice}
-                                onChange={(e) => updatePrice(originalIndex, Number(e.target.value))}
-                                disabled={!item.selected || isPublishing}
-                                className="h-7 text-xs font-mono bg-slate-50"
-                              />
-                            </div>
+                                </div>
+                              )}
+
+                            {cat.condition === 'refurbished' &&
+                              (item.formCondition === 'refurbished' ||
+                                item.formCondition === 'catalog_auto') && (
+                                <div className="p-1.5 rounded bg-emerald-50 border border-emerald-200 text-[10px] text-emerald-900 leading-snug flex items-center gap-1">
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                                  <span>Posição recondicionada — compatível com seu estoque.</span>
+                                </div>
+                              )}
                           </div>
                         </div>
                       </CardContent>

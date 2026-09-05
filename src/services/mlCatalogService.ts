@@ -28,6 +28,8 @@ export interface MLCatalogProduct {
   }>
 }
 
+export type PublishConditionOption = 'catalog_auto' | 'new' | 'refurbished' | 'used'
+
 export interface CatalogMatchResult {
   catalogProduct: MLCatalogProduct
   matchedProducts: Product[]
@@ -36,6 +38,7 @@ export interface CatalogMatchResult {
   selected: boolean
   formQuantity: number
   formPrice: number
+  formCondition: PublishConditionOption
   selectedProductId?: string
 }
 
