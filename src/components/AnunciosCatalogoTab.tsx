@@ -37,7 +37,6 @@ export function AnunciosCatalogoTab() {
   const [searching, setSearching] = useState(false)
   const [catalogItems, setCatalogItems] = useState<CatalogMatchResult[]>([])
   const [inventoryProducts, setInventoryProducts] = useState<Product[]>([])
-  const [loadingInventory, setLoadingInventory] = useState(true)
   const [lastStrategy, setLastStrategy] = useState<string>('')
   const [searchJobDebug, setSearchJobDebug] = useState<string[]>([])
   const [showDebug, setShowDebug] = useState(false)
@@ -58,17 +57,14 @@ export function AnunciosCatalogoTab() {
     }>
   >([])
   const [retryingJobId, setRetryingJobId] = useState<string | null>(null)
-  // Carregar produtos locais para match
+  // Carregar produtos locais apenas para dica opcional de match (não bloqueia nada)
   useEffect(() => {
     async function loadLocalProducts() {
       try {
-        setLoadingInventory(true)
         const prods = await productsService.getAll()
         setInventoryProducts(prods)
       } catch (err) {
-        console.warn('Erro ao carregar produtos locais:', err)
-      } finally {
-        setLoadingInventory(false)
+        console.warn('Erro ao carregar produtos locais para match:', err)
       }
     }
     loadLocalProducts()
@@ -118,19 +114,23 @@ export function AnunciosCatalogoTab() {
         return
       }
 
-      // Casamento com o nosso estoque local
+      // Todas as posições são selecionáveis e publicáveis de forma autônoma
+      // Match com estoque local é puramente informativo / dica opcional
       const formatted: CatalogMatchResult[] = results.map((catProd) => {
         const matchInfo = mlCatalogService.matchCatalogWithInventory(catProd, inventoryProducts)
         const primaryProduct = matchInfo.matchedProducts[0]
+        const fallbackPrice =
+          catProd.buy_box_winner_price || catProd.min_price || matchInfo.suggestedPrice || 1200
+
         return {
           catalogProduct: catProd,
           matchedProducts: matchInfo.matchedProducts,
           totalAvailableStock: matchInfo.totalAvailableStock,
-          suggestedPrice: matchInfo.suggestedPrice,
-          selected: matchInfo.matchedProducts.length > 0, // pré-seleciona se tivermos estoque correspondente
-          formQuantity: Math.max(1, matchInfo.totalAvailableStock || 1),
-          formPrice: matchInfo.suggestedPrice,
-          selectedProductId: primaryProduct?.id,
+          suggestedPrice: fallbackPrice,
+          selected: true, // Todas as posições de catálogo vêm selecionadas por padrão
+          formQuantity: 1, // Quantidade default = 1
+          formPrice: fallbackPrice, // Preço default = preço de referência do catálogo
+          selectedProductId: primaryProduct?.id || undefined,
         }
       })
 
@@ -138,8 +138,11 @@ export function AnunciosCatalogoTab() {
 
       const matchedCount = formatted.filter((f) => f.matchedProducts.length > 0).length
       toast({
-        title: `${results.length} posições de catálogo encontradas`,
-        description: `${matchedCount} posições possuem equipamentos correspondentes no seu estoque.`,
+        title: `${results.length} posições de catálogo prontas para gerir`,
+        description:
+          matchedCount > 0
+            ? `${matchedCount} possuem sugestão de match com seu estoque.`
+            : 'Preços e quantidades podem ser editados livremente na linha.',
       })
     } catch (err: any) {
       console.error('Erro na busca de catálogo:', err)
@@ -437,13 +440,14 @@ export function AnunciosCatalogoTab() {
                     Anúncios de Catálogo Mercado Livre
                   </h3>
                   <Badge className="bg-blue-600 text-white hover:bg-blue-700 text-[10px] font-mono">
-                    Buy Box / Posições
+                    Gestão Direta ML
                   </Badge>
                 </div>
                 <p className="text-xs text-slate-600 max-w-2xl leading-relaxed">
-                  No catálogo, você disputa a <strong>Buy Box</strong> do Mercado Livre com a ficha
-                  técnica oficial do fabricante. Busque produtos compatíveis, vincule aos seus lotes
-                  de notebooks e publique anúncios em massa com valor e quantidade flexíveis.
+                  Publique anúncios direto na sua conta Mercado Livre a partir das posições de
+                  catálogo — sem depender do estoque do sistema. Dispute a <strong>Buy Box</strong>{' '}
+                  oficial, ajuste quantidade e preço livremente em cada linha e envie para o ML com
+                  1 clique.
                 </p>
               </div>
             </div>
@@ -693,15 +697,18 @@ export function AnunciosCatalogoTab() {
       {/* Lista de Resultados de Catálogo Encontrados */}
       {catalogItems.length > 0 && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between text-xs text-slate-500 font-semibold px-1">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-slate-500 font-semibold px-1">
             <span>Posições de Catálogo Encontradas ({catalogItems.length})</span>
-            <span>Edite a quantidade e valor para cada posição antes de publicar</span>
+            <span className="text-[11px] text-slate-400 font-normal">
+              Gestão direta na conta ML · Edite a quantidade e valor livremente antes de publicar
+            </span>
           </div>
 
           <div className="space-y-3">
             {catalogItems.map((item, idx) => {
               const cat = item.catalogProduct
               const hasMatch = item.matchedProducts.length > 0
+              const primaryMatch = item.matchedProducts[0]
               const isBelowBuyBox =
                 cat.buy_box_winner_price && item.formPrice < cat.buy_box_winner_price
 
@@ -710,18 +717,19 @@ export function AnunciosCatalogoTab() {
                   key={cat.id || idx}
                   className={`border transition-all ${
                     item.selected
-                      ? 'border-blue-400 bg-white shadow-xs'
-                      : 'border-slate-200 bg-slate-50/50 opacity-80'
+                      ? 'border-blue-300 bg-white shadow-xs'
+                      : 'border-slate-200 bg-slate-50/50 opacity-75'
                   }`}
                 >
                   <CardContent className="p-4">
                     <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
-                      {/* Checkbox + Foto + Info do Catálogo */}
+                      {/* Checkbox + Foto + Info do Catálogo ML */}
                       <div className="flex items-start gap-3.5 flex-1 min-w-0">
                         <Checkbox
                           checked={item.selected}
                           onCheckedChange={() => toggleItemSelection(idx)}
                           className="mt-1"
+                          aria-label={`Selecionar posição ${cat.title}`}
                         />
 
                         {/* Thumbnail */}
@@ -741,7 +749,7 @@ export function AnunciosCatalogoTab() {
                           )}
                         </div>
 
-                        {/* Dados Básicos */}
+                        {/* Dados Básicos do Produto no Mercado Livre */}
                         <div className="space-y-1 flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <Badge
@@ -756,6 +764,18 @@ export function AnunciosCatalogoTab() {
                             >
                               {cat.domain_id || 'MLB-NOTEBOOKS'}
                             </Badge>
+
+                            {/* Dica discreta de match quando existir — sem bloquear e sem destaque excessivo */}
+                            {hasMatch && primaryMatch && (
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                title={`Sugestão de modelo correspondente no estoque: ${primaryMatch.brand || ''} ${primaryMatch.model || ''} (${item.totalAvailableStock} un. disponíveis)`}
+                              >
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                match: {primaryMatch.model || primaryMatch.name} · estoque{' '}
+                                {item.totalAvailableStock}
+                              </span>
+                            )}
                           </div>
 
                           <h4
@@ -766,7 +786,7 @@ export function AnunciosCatalogoTab() {
                           </h4>
 
                           {/* Preço de Referência Concorrência (Buy Box) */}
-                          <div className="flex items-center gap-3 text-xs pt-0.5">
+                          <div className="flex items-center gap-3 text-xs pt-0.5 flex-wrap">
                             {cat.buy_box_winner_price ? (
                               <span className="font-mono font-bold text-slate-700 flex items-center gap-1">
                                 <TrendingDown className="w-3.5 h-3.5 text-emerald-600" />
@@ -798,57 +818,11 @@ export function AnunciosCatalogoTab() {
                         </div>
                       </div>
 
-                      {/* Casamento com nosso Estoque */}
-                      <div className="w-full lg:w-72 bg-slate-50 border border-slate-200 rounded-lg p-2.5 space-y-1.5 shrink-0">
-                        <div className="flex items-center justify-between text-[11px] font-bold">
-                          <span className="text-slate-500 uppercase tracking-wider flex items-center gap-1">
-                            <Boxes className="w-3 h-3 text-slate-500" />
-                            Nosso Estoque Casado
-                          </span>
-                          {hasMatch ? (
-                            <Badge className="bg-emerald-600 text-white text-[9px] px-1.5 py-0">
-                              {item.totalAvailableStock} un. disponível(is)
-                            </Badge>
-                          ) : (
-                            <Badge
-                              variant="outline"
-                              className="text-slate-400 text-[9px] px-1.5 py-0"
-                            >
-                              Sem match exato
-                            </Badge>
-                          )}
-                        </div>
-
-                        {hasMatch ? (
-                          <div className="space-y-1">
-                            <select
-                              value={item.selectedProductId || ''}
-                              onChange={(e) => updateSelectedProduct(idx, e.target.value)}
-                              className="w-full text-xs bg-white border border-slate-200 rounded px-2 py-1 font-sans text-slate-800"
-                            >
-                              {item.matchedProducts.map((p) => (
-                                <option key={p.id} value={p.id}>
-                                  {p.brand} {p.model} (SKU: {p.sku || p.serial_number || p.code}) -
-                                  R$ {p.unit_price}
-                                </option>
-                              ))}
-                            </select>
-                            <p className="text-[10px] text-slate-500 truncate">
-                              {item.matchedProducts[0]?.name}
-                            </p>
-                          </div>
-                        ) : (
-                          <div className="text-[11px] text-slate-400 italic">
-                            Nenhum notebook correspondente por marca e modelo no estoque disponível.
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Edição Simples Inline: Quantidade e Valor */}
-                      <div className="w-full lg:w-64 flex items-center gap-3 shrink-0 bg-white lg:bg-transparent p-2 lg:p-0 rounded-lg border lg:border-0 border-slate-200">
+                      {/* Edição Simples Inline: Quantidade e Valor (Independentes do estoque local) */}
+                      <div className="w-full lg:w-72 flex items-center gap-3 shrink-0 bg-slate-50 lg:bg-slate-50/70 p-3 rounded-lg border border-slate-200">
                         {/* Quantidade */}
-                        <div className="flex-1 space-y-1">
-                          <label className="text-[10px] uppercase font-bold text-slate-400 block">
+                        <div className="w-28 space-y-1">
+                          <label className="text-[10px] uppercase font-bold text-slate-500 block">
                             Qtd Anúncio
                           </label>
                           <Input
@@ -863,11 +837,11 @@ export function AnunciosCatalogoTab() {
 
                         {/* Valor */}
                         <div className="flex-1 space-y-1">
-                          <label className="text-[10px] uppercase font-bold text-slate-400 block flex items-center justify-between">
+                          <label className="text-[10px] uppercase font-bold text-slate-500 block flex items-center justify-between">
                             <span>Preço (R$)</span>
                             {isBelowBuyBox && (
                               <span
-                                className="text-emerald-600 font-bold"
+                                className="text-emerald-600 font-bold text-[10px]"
                                 title="Seu preço está mais agressivo que o concorrente da Buy Box!"
                               >
                                 Vencedor!

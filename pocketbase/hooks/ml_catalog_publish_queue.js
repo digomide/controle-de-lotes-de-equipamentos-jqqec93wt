@@ -117,26 +117,26 @@ onRecordAfterCreateSuccess((e) => {
     console.warn('[ml_catalog_publish] Falha ao consultar produto de catálogo:', eCat)
   }
 
-  // 3. Buscar dados do produto local se fornecido
+  // 3. Buscar dados do produto local se fornecido (opcional — ferramenta opera de forma autônoma)
   let localProduct = null
-  let itemCondition = 'used' // Padrão para os lotes e notebooks da loja
+  let itemCondition = 'used' // Padrão para notebooks da loja
+
+  if (customCondition) {
+    if (customCondition === 'new' || customCondition === 'used') {
+      itemCondition = customCondition
+    }
+  }
 
   if (productId) {
     try {
       localProduct = appId.findRecordById('products', productId)
-      if (localProduct) {
+      if (localProduct && !customCondition) {
         const condType = localProduct.getString('condition_type') || ''
         if (condType === 'novo') itemCondition = 'new'
         else itemCondition = 'used'
       }
     } catch (eProd) {
-      console.warn('[ml_catalog_publish] Produto local não encontrado:', productId, eProd)
-    }
-  }
-
-  if (customCondition) {
-    if (customCondition === 'new' || customCondition === 'used') {
-      itemCondition = customCondition
+      console.warn('[ml_catalog_publish] Produto local opcional não encontrado:', productId, eProd)
     }
   }
 

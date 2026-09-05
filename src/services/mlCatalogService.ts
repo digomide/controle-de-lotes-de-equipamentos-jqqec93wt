@@ -227,10 +227,12 @@ export const mlCatalogService = {
     })
 
     const totalAvailableStock = matches.length
-    // Preço sugerido: buy_box_winner_price do ML, ou média dos preços de venda do nosso produto
+    // Preço sugerido: buy_box_winner_price do ML, ou min_price, ou média/menor dos preços do nosso estoque se houver match
     let suggestedPrice = 0
     if (catalogProd.buy_box_winner_price && catalogProd.buy_box_winner_price > 0) {
       suggestedPrice = catalogProd.buy_box_winner_price
+    } else if (catalogProd.min_price && catalogProd.min_price > 0) {
+      suggestedPrice = catalogProd.min_price
     } else if (matches.length > 0) {
       const validPrices = matches.map((m) => m.unit_price).filter((pr) => pr && pr > 0)
       if (validPrices.length > 0) {
@@ -241,7 +243,7 @@ export const mlCatalogService = {
     return {
       matchedProducts: matches,
       totalAvailableStock,
-      suggestedPrice: suggestedPrice || 1000,
+      suggestedPrice: suggestedPrice || 1200,
     }
   },
 }
