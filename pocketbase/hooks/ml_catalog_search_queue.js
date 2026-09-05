@@ -9,8 +9,8 @@
  *    - Casamento flexível por tokens de busca e condição solicitada (refurbished / used).
  *    - Enriquecimento completo via GET /products/{id} (fotos, Buy Box, GRADING).
  *    - Injeção das posições próprias no TOPO com `is_own_account: true` e `own_ad_id`.
- * 2. Early Stop com busca aberta:
- *    - Quando condition === 'refurbished' || condition === 'used', limita a varredura aberta a 2–3 páginas.
+ * 2. Varredura profunda com busca aberta:
+ *    - Varredura em profundidade igual à busca aberta para todas as condições (até 1.000 posições / 20 páginas).
  * 3. Extração resiliente de Condição / GRADING / Classificação.
  * 4. Gravação resiliente com quedas graduais de payload para NUNCA estourar limite do banco de dados.
  */
@@ -848,7 +848,7 @@ onRecordAfterCreateSuccess((e) => {
 
     // =========================================================================
     // ETAPA 2: BUSCA ABERTA PAGINADA via /products/search com token
-    // Com EARLY STOP para condition='refurbished' ou 'used'
+    // Varredura profunda até 1.000 posições / 20 páginas (inclusive refurbished/used)
     // =========================================================================
     if (!directCatalogId && token) {
       const baseEndpoints = []
@@ -936,12 +936,9 @@ onRecordAfterCreateSuccess((e) => {
       })
 
       const PAGE_LIMIT = 50
-      // EARLY STOP: quando o usuário procura Recondicionado ou Usado,
-      // varrer no máximo 2–3 páginas abertas para não demorar nem afogar as fontes próprias
-      const isNarrowCondition =
-        requestedCondition === 'refurbished' || requestedCondition === 'used'
-      const MAX_PAGES = isNarrowCondition ? 3 : 20
-      const MAX_TOTAL_CAP = isNarrowCondition ? 150 : 1000
+      // Profundidade igual à busca aberta para todas as condições (até 1.000 posições / 20 páginas)
+      const MAX_PAGES = 20
+      const MAX_TOTAL_CAP = 1000
 
       debugLog.push(
         'Iniciando busca aberta paginada. Limite de páginas: ' +
@@ -1128,11 +1125,6 @@ onRecordAfterCreateSuccess((e) => {
         if (endpointMatched && itemsFound.length > 0) {
           if (strategyUsed === 'none') {
             strategyUsed = 'api_products_search'
-          }
-          // Com narrow condition e itens achados, para logo após a primeira estratégia bem-sucedida
-          if (isNarrowCondition) {
-            debugLog.push('Early stop aplicado para condição focada (' + requestedCondition + ')')
-            break
           }
           break
         }

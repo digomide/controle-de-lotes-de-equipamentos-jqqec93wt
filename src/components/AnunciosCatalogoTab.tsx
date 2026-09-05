@@ -1418,10 +1418,9 @@ export function AnunciosCatalogoTab() {
                     {ownAccountItemsInResults.length === 1 ? 'posição' : 'posições'})
                   </p>
                   <p className="text-indigo-800 text-[11px] leading-relaxed">
-                    A API de catálogo aberto do Mercado Livre enterrou ou não indexou posições desta
-                    condição na busca geral. O sistema recuperou automaticamente as posições da sua
-                    conta (INFOPREÇOBAIXO) e as posicionou no topo com dados completos da Buy Box e
-                    GRADING.
+                    As posições da sua conta (INFOPREÇOBAIXO) foram recuperadas e posicionadas no
+                    topo com dados completos da Buy Box e GRADING, combinadas com a varredura
+                    profunda de catálogo aberta do Mercado Livre.
                   </p>
                 </div>
               </div>
