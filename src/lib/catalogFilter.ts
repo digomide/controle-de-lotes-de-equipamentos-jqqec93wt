@@ -157,14 +157,28 @@ export function evaluateCatalogItemStrictMatch(
   title: string,
   searchTokens: string[],
   attributes?: Array<{ id: string; name?: string; value_name?: string | null }>,
+  conditionFilter?: 'all' | 'refurbished' | 'new' | 'used',
+  itemCondition?: string,
 ): {
   isMatch: boolean
   matchedTokens: string[]
   missingTokens: string[]
 } {
   if (searchTokens.length === 0) {
+    // Se não há tokens de texto, verifica apenas se a condição é compatível se especificada
+    const conditionMatches =
+      !conditionFilter || conditionFilter === 'all'
+        ? true
+        : conditionFilter === 'refurbished'
+          ? itemCondition === 'refurbished'
+          : conditionFilter === 'new'
+            ? !itemCondition || itemCondition === 'new'
+            : conditionFilter === 'used'
+              ? itemCondition === 'used'
+              : true
+
     return {
-      isMatch: true,
+      isMatch: conditionMatches,
       matchedTokens: [],
       missingTokens: [],
     }
@@ -179,10 +193,17 @@ export function evaluateCatalogItemStrictMatch(
   let extraAttrsText = ''
   if (Array.isArray(attributes)) {
     for (const attr of attributes) {
-      if (attr.id === 'BRAND' || attr.id === 'MODEL') {
+      if (attr.id === 'BRAND' || attr.id === 'MODEL' || attr.id === 'GRADING') {
         extraAttrsText += ' ' + (attr.value_name || '')
       }
     }
+  }
+  if (itemCondition === 'refurbished') {
+    extraAttrsText += ' recondicionado refurbished'
+  } else if (itemCondition === 'used') {
+    extraAttrsText += ' usado seminovo'
+  } else if (itemCondition === 'new') {
+    extraAttrsText += ' novo'
   }
   const fullTextToTest =
     normalizedTitle + (extraAttrsText ? ' ' + normalizeCatalogText(extraAttrsText) : '')
@@ -203,7 +224,19 @@ export function evaluateCatalogItemStrictMatch(
     }
   }
 
-  const isMatch = missingTokens.length === 0
+  // Se o seletor de condição estiver ativo, verifica compatibilidade com a condição declarada
+  let matchesConditionRule = true
+  if (conditionFilter && conditionFilter !== 'all') {
+    if (conditionFilter === 'refurbished') {
+      matchesConditionRule = itemCondition === 'refurbished'
+    } else if (conditionFilter === 'used') {
+      matchesConditionRule = itemCondition === 'used'
+    } else if (conditionFilter === 'new') {
+      matchesConditionRule = !itemCondition || itemCondition === 'new'
+    }
+  }
+
+  const isMatch = missingTokens.length === 0 && matchesConditionRule
 
   return {
     isMatch,

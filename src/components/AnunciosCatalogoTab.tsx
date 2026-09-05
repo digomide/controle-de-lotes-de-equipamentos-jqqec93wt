@@ -22,7 +22,15 @@ import {
   Check,
   Eye,
   EyeOff,
+  Tag,
 } from 'lucide-react'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { toast } from '@/hooks/use-toast'
 import { productsService } from '@/services/products'
 import { Product } from '@/types/inventory'
@@ -50,9 +58,35 @@ export function AnunciosCatalogoTab() {
   const [searchJobDebug, setSearchJobDebug] = useState<string[]>([])
   const [showDebug, setShowDebug] = useState(false)
   const [showPartialResults, setShowPartialResults] = useState(false)
-  const [conditionFilter, setConditionFilter] = useState<'all' | 'refurbished' | 'new' | 'used'>(
-    'all',
+
+  // Seletor de Condição da Busca (persistente durante a sessão da aba via sessionStorage)
+  const [searchCondition, setSearchCondition] = useState<'all' | 'new' | 'refurbished' | 'used'>(
+    () => {
+      try {
+        const saved = sessionStorage.getItem('ml_catalog_search_condition')
+        if (saved === 'new' || saved === 'refurbished' || saved === 'used') {
+          return saved
+        }
+      } catch {
+        /* ignore */
+      }
+      return 'all'
+    },
   )
+
+  // Filtro de condição nos resultados (chips)
+  const [conditionFilter, setConditionFilter] = useState<'all' | 'refurbished' | 'new' | 'used'>(
+    searchCondition,
+  )
+
+  // Salvar no sessionStorage sempre que mudar o seletor da busca
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('ml_catalog_search_condition', searchCondition)
+    } catch {
+      /* ignore */
+    }
+  }, [searchCondition])
 
   // Publicação em massa
   const [isPublishing, setIsPublishing] = useState(false)
@@ -84,7 +118,10 @@ export function AnunciosCatalogoTab() {
   }, [])
 
   // Disparar busca no catálogo do Mercado Livre
-  async function handleSearch(overrideQuery?: string) {
+  async function handleSearch(
+    overrideQuery?: string,
+    overrideCondition?: 'all' | 'new' | 'refurbished' | 'used',
+  ) {
     const q = (overrideQuery ?? query).trim()
     if (!q) {
       toast({
@@ -95,20 +132,34 @@ export function AnunciosCatalogoTab() {
       return
     }
 
+    const condToUse = overrideCondition ?? searchCondition
+
     try {
       setSearching(true)
       setActiveSearchTerm(q)
+      // Sincroniza os chips de resultado com a condição da busca
+      setConditionFilter(condToUse)
       setCatalogItems([])
       setSearchJobDebug([])
       setSearchProgressText('Iniciando busca profunda no Mercado Livre...')
       setSearchPagingInfo(null)
 
+      const condLabelMap: Record<string, string> = {
+        all: 'Todas as condições',
+        refurbished: 'Recondicionado',
+        new: 'Novo',
+        used: 'Usado',
+      }
+      const condFeedback = condToUse !== 'all' ? ` (${condLabelMap[condToUse]})` : ''
+
       toast({
-        title: 'Iniciando busca profunda no ML...',
+        title: `Iniciando busca profunda no ML${condFeedback}...`,
         description: 'Vasculhando todas as páginas de anúncios de catálogo.',
       })
 
-      const jobInit = await mlCatalogService.searchCatalog(q, '')
+      const isDirectCodeQuery = isDirectCatalogCodeQuery(q)
+      const condParamForApi = isDirectCodeQuery ? 'all' : condToUse
+      const jobInit = await mlCatalogService.searchCatalog(q, '', condParamForApi)
       const jobDone = await mlCatalogService.pollSearchJob(jobInit.id, (j) => {
         if (j.raw_debug) setSearchJobDebug(j.raw_debug)
         if (j.progress_text) setSearchProgressText(j.progress_text)
@@ -136,9 +187,11 @@ export function AnunciosCatalogoTab() {
 
       // Todas as posições são selecionáveis e publicáveis de forma autônoma
       // Match com estoque local é puramente informativo / dica opcional
-      const isDirectCode = isDirectCatalogCodeQuery(q)
+      const isDirectCode = isDirectCodeQuery
       const tokens = isDirectCode ? [] : extractCatalogSearchTokens(q)
 
+      // Se o usuário selecionou uma condição específica no seletor de busca (ex: 'refurbished', 'new', 'used'),
+      // usamos ela para avaliar strict match e condição de publicação
       const formatted: CatalogMatchResult[] = results.map((catProd) => {
         const matchInfo = mlCatalogService.matchCatalogWithInventory(catProd, inventoryProducts)
         const primaryProduct = matchInfo.matchedProducts[0]
@@ -148,13 +201,26 @@ export function AnunciosCatalogoTab() {
         // Se houver tokens e não for busca direta, seleciona por padrão apenas se atender ao filtro rígido
         const isStrict =
           isDirectCode ||
-          tokens.length === 0 ||
-          evaluateCatalogItemStrictMatch(catProd.title, tokens, catProd.attributes).isMatch
+          evaluateCatalogItemStrictMatch(
+            catProd.title,
+            tokens,
+            catProd.attributes,
+            condToUse,
+            catProd.condition,
+          ).isMatch
 
         // Default da condição de publicação:
-        // Se a posição for Recondicionado, default é 'refurbished'. Caso contrário, 'catalog_auto'.
-        const initialCondition =
-          catProd.condition === 'refurbished' ? 'refurbished' : 'catalog_auto'
+        // Se a busca direcionada ou a posição for Recondicionado, default é 'refurbished'.
+        // Se a busca direcionada for 'used', default é 'used'.
+        // Se 'new', default é 'new'. Caso contrário, 'catalog_auto'.
+        let initialCondition: 'catalog_auto' | 'new' | 'refurbished' | 'used' = 'catalog_auto'
+        if (catProd.condition === 'refurbished' || condToUse === 'refurbished') {
+          initialCondition = 'refurbished'
+        } else if (catProd.condition === 'used' || condToUse === 'used') {
+          initialCondition = 'used'
+        } else if (catProd.condition === 'new' && condToUse === 'new') {
+          initialCondition = 'new'
+        }
 
         return {
           catalogProduct: catProd,
@@ -171,17 +237,18 @@ export function AnunciosCatalogoTab() {
 
       setCatalogItems(formatted)
 
-      const strictCount =
-        isDirectCode || tokens.length === 0
-          ? formatted.length
-          : formatted.filter(
-              (it) =>
-                evaluateCatalogItemStrictMatch(
-                  it.catalogProduct.title,
-                  tokens,
-                  it.catalogProduct.attributes,
-                ).isMatch,
-            ).length
+      const strictCount = isDirectCode
+        ? formatted.length
+        : formatted.filter(
+            (it) =>
+              evaluateCatalogItemStrictMatch(
+                it.catalogProduct.title,
+                tokens,
+                it.catalogProduct.attributes,
+                condToUse,
+                it.catalogProduct.condition,
+              ).isMatch,
+          ).length
 
       const pagesFetched = jobDone.paging?.pages_fetched || 1
       const pageTextSummary = pagesFetched > 1 ? ` em ${pagesFetched} páginas` : ''
@@ -243,6 +310,8 @@ export function AnunciosCatalogoTab() {
           item.catalogProduct.title,
           currentTokens,
           item.catalogProduct.attributes,
+          conditionFilter,
+          item.catalogProduct.condition,
         ).isMatch
         if (isStrict) {
           return { ...item, selected: select }
@@ -581,7 +650,7 @@ export function AnunciosCatalogoTab() {
     if (cond === 'used') {
       return (
         <Badge
-          className="bg-amber-500 hover:bg-amber-600 text-white border-amber-600 text-[10px] font-semibold flex items-center gap-1"
+          className="bg-amber-500 hover:bg-amber-600 text-white border-amber-600 text-[10px] font-semibold flex items-center gap-1 shadow-2xs"
           title="Classificação Usado no catálogo Mercado Livre"
         >
           <span className="w-1.5 h-1.5 rounded-full bg-amber-100" />
@@ -590,9 +659,22 @@ export function AnunciosCatalogoTab() {
       )
     }
 
+    if (cond === 'unknown' || cond === 'not_specified') {
+      return (
+        <Badge
+          variant="outline"
+          className="bg-slate-100 text-slate-700 border-slate-300 text-[10px] font-medium flex items-center gap-1"
+          title="Posição sem condição declarada no catálogo"
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+          <span>{cat.condition_label || 'Condição não informada'}</span>
+        </Badge>
+      )
+    }
+
     return (
       <Badge
-        className="bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-700 text-[10px] font-semibold flex items-center gap-1"
+        className="bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-700 text-[10px] font-semibold flex items-center gap-1 shadow-2xs"
         title="Classificação Novo de fábrica no catálogo oficial Mercado Livre"
       >
         <span className="w-1.5 h-1.5 rounded-full bg-white" />
@@ -601,7 +683,7 @@ export function AnunciosCatalogoTab() {
     )
   }
 
-  // Contadores para os chips de filtro por classificação (default 'new' se não especificado)
+  // Contadores para os chips de filtro por classificação
   const countTotal = catalogItems.length
   const countRefurbished = catalogItems.filter(
     (it) => it.catalogProduct.condition === 'refurbished',
@@ -611,18 +693,18 @@ export function AnunciosCatalogoTab() {
   ).length
   const countUsed = catalogItems.filter((it) => it.catalogProduct.condition === 'used').length
 
-  // Avaliação de cada item em relação aos termos buscados e ao filtro de condição
+  // Avaliação de cada item em relação aos termos buscados e ao filtro de condição dos chips
   const evaluatedItems = catalogItems.map((item, originalIndex) => {
+    const catProd = item.catalogProduct
     const evalResult = isFilterActive
-      ? evaluateCatalogItemStrictMatch(
-          item.catalogProduct.title,
-          currentTokens,
-          item.catalogProduct.attributes,
-        )
+      ? evaluateCatalogItemStrictMatch(catProd.title, currentTokens, catProd.attributes)
       : { isMatch: true, matchedTokens: currentTokens, missingTokens: [] }
 
-    // Avalia também o filtro de condição ativo (Todas | Recondicionado | Novo | Usado)
-    const itemCond = item.catalogProduct.condition || 'new'
+    // Avalia também o filtro de condição ativo dos chips (Todas | Recondicionado | Novo | Usado)
+    // Se condição não informada/unknown: visível apenas quando o filtro for 'all'
+    const itemCond = catProd.condition || 'new'
+    const isUnknownCondition = itemCond === 'unknown' || itemCond === 'not_specified'
+
     const matchesCondition =
       conditionFilter === 'all'
         ? true
@@ -632,7 +714,7 @@ export function AnunciosCatalogoTab() {
             ? itemCond === 'new'
             : conditionFilter === 'used'
               ? itemCond === 'used'
-              : true
+              : !isUnknownCondition
 
     return {
       item,
@@ -755,10 +837,11 @@ export function AnunciosCatalogoTab() {
         </CardContent>
       </Card>
 
-      {/* Caixa de Busca com Exemplos Rápidos */}
+      {/* Caixa de Busca com Exemplos Rápidos e Seletor de Condição */}
       <Card className="border-slate-200 shadow-xs">
         <CardContent className="p-5 space-y-4">
-          <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
+            {/* Campo de Busca por Título ou Link */}
             <div className="relative flex-1">
               <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <Input
@@ -770,10 +853,61 @@ export function AnunciosCatalogoTab() {
                 className="pl-10 text-sm h-11 bg-slate-50 border-slate-200 focus:bg-white"
               />
             </div>
+
+            {/* Seletor de Condição ao lado da Busca */}
+            <div className="w-full sm:w-auto shrink-0">
+              <Select
+                value={searchCondition}
+                onValueChange={(val) => {
+                  const newCond = val as 'all' | 'new' | 'refurbished' | 'used'
+                  setSearchCondition(newCond)
+                  // Se já houver itens pesquisados, atualiza também os chips de filtro para manter sincronizado
+                  if (catalogItems.length > 0) {
+                    setConditionFilter(newCond)
+                  }
+                }}
+                disabled={searching}
+              >
+                <SelectTrigger
+                  aria-label="Condição para buscar"
+                  className="h-11 w-full sm:w-[195px] bg-slate-50 border-slate-200 focus:bg-white text-xs font-semibold text-slate-800"
+                >
+                  <div className="flex items-center gap-2 truncate">
+                    <Tag className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                    <SelectValue placeholder="Todas as condições" />
+                  </div>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all" className="text-xs font-medium">
+                    Todas as condições
+                  </SelectItem>
+                  <SelectItem value="new" className="text-xs font-medium">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                      Novo
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="refurbished" className="text-xs font-medium">
+                    <span className="flex items-center gap-2">
+                      <Sparkles className="w-3 h-3 text-purple-600 shrink-0" />
+                      Recondicionado
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="used" className="text-xs font-medium">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+                      Usado
+                    </span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Botão de Busca */}
             <Button
               onClick={() => handleSearch()}
               disabled={searching}
-              className="h-11 px-6 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm shadow-xs flex items-center gap-2 shrink-0"
+              className="h-11 px-6 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm shadow-xs flex items-center justify-center gap-2 shrink-0 w-full sm:w-auto"
             >
               {searching ? (
                 <>
@@ -811,24 +945,37 @@ export function AnunciosCatalogoTab() {
               Sugestões rápidas:
             </span>
             {[
-              'dell latitude 5420 recondicionado',
-              'dell latitude 3420',
-              'lenovo thinkpad t480',
-              'dell latitude 5320',
-              'MLB2097858038',
-              'thinkpad t580',
-            ].map((term) => (
+              {
+                term: 'dell latitude 5420',
+                cond: 'refurbished' as const,
+                label: 'dell 5420 (recond.)',
+              },
+              { term: 'dell latitude 3420', cond: 'all' as const, label: 'dell latitude 3420' },
+              {
+                term: 'lenovo thinkpad t480',
+                cond: 'used' as const,
+                label: 'thinkpad t480 (usado)',
+              },
+              { term: 'dell latitude 5320', cond: 'all' as const, label: 'dell latitude 5320' },
+              { term: 'MLB2097858038', cond: 'all' as const, label: 'MLB2097858038 (direto)' },
+              {
+                term: 'thinkpad t580',
+                cond: 'refurbished' as const,
+                label: 'thinkpad t580 (recond.)',
+              },
+            ].map(({ term, cond, label }) => (
               <button
-                key={term}
+                key={term + cond}
                 type="button"
                 onClick={() => {
                   setQuery(term)
-                  handleSearch(term)
+                  setSearchCondition(cond)
+                  handleSearch(term, cond)
                 }}
                 disabled={searching}
                 className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-md transition-colors text-xs font-mono"
               >
-                {term}
+                {label}
               </button>
             ))}
           </div>

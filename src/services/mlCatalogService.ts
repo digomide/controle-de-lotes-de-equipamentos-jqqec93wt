@@ -47,6 +47,7 @@ export interface MLCatalogSearchJob {
   id: string
   query: string
   domain_id: string
+  condition?: string
   status: 'pending' | 'processing' | 'done' | 'error'
   status_code?: number
   error_message?: string
@@ -83,12 +84,17 @@ export const mlCatalogService = {
   /**
    * Dispara busca assíncrona no catálogo do ML via fila (ml_catalog_search_jobs)
    */
-  async searchCatalog(query: string, domainId: string = ''): Promise<MLCatalogSearchJob> {
+  async searchCatalog(
+    query: string,
+    domainId: string = '',
+    condition: string = 'all',
+  ): Promise<MLCatalogSearchJob> {
     const userId = pb.authStore.model?.id || null
     try {
       const job = await pb.collection('ml_catalog_search_jobs').create({
         query: query.trim(),
         domain_id: (domainId || '').trim(),
+        condition: condition || 'all',
         status: 'pending',
         requested_by: userId,
       })

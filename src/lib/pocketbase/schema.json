@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-05T20:36:43.259Z",
+  "generatedAt": "2026-09-05T20:41:09.919Z",
   "collections": [
     {
       "name": "users",
@@ -2552,6 +2552,12 @@
         {
           "name": "paging",
           "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "condition",
+          "type": "text",
           "required": false,
           "system": false
         }

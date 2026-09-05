@@ -33,6 +33,15 @@ onRecordAfterCreateSuccess((e) => {
   // Se domain_id for vazio ou 'all', não fixar domínio; caso contrário usar o informado
   const domainId = rawDomain === 'all' || !rawDomain ? '' : rawDomain
 
+  // Condição direcionada da busca ('all' | 'refurbished' | 'new' | 'used')
+  const requestedConditionRaw = (rec.getString('condition') || '').trim().toLowerCase()
+  const requestedCondition =
+    requestedConditionRaw === 'refurbished' ||
+    requestedConditionRaw === 'new' ||
+    requestedConditionRaw === 'used'
+      ? requestedConditionRaw
+      : 'all'
+
   // Função interna para obter ou renovar token ML
   let token = ''
   try {
@@ -255,6 +264,11 @@ onRecordAfterCreateSuccess((e) => {
       return { condition: 'used', condition_label: 'Usado' }
     }
 
+    // Se a busca direcionada foi por usado e o título contém indícios
+    if (requestedCondition === 'used') {
+      return { condition: 'unknown', condition_label: 'Condição não informada' }
+    }
+
     // (6) Padrão canônico do catálogo oficial ML quando não especificado
     return { condition: 'new', condition_label: 'Novo' }
   }
@@ -401,6 +415,50 @@ onRecordAfterCreateSuccess((e) => {
     // 2. BUSCA PROFUNDA PAGINADA via /products/search com token
     if (itemsFound.length === 0 && token) {
       const baseEndpoints = []
+
+      // Se houver condição direcionada ('refurbished', 'new', 'used'),
+      // adicionamos rodadas focadas com a palavra-chave da condição caso ela ainda não esteja na query.
+      let conditionKeyword = ''
+      if (requestedCondition === 'refurbished') {
+        conditionKeyword = 'recondicionado'
+      } else if (requestedCondition === 'used') {
+        conditionKeyword = 'usado'
+      } else if (requestedCondition === 'new') {
+        conditionKeyword = 'novo'
+      }
+
+      const queryHasCondWord = conditionKeyword && queryRaw.toLowerCase().includes(conditionKeyword)
+
+      // Se o usuário selecionou uma condição específica (ex: Recondicionado / Usado / Novo),
+      // a primeira estratégia é focada com o termo da condição:
+      if (conditionKeyword && !queryHasCondWord) {
+        const targetedQuery = queryRaw + ' ' + conditionKeyword
+        if (domainId) {
+          baseEndpoints.push({
+            name: 'domain_and_query_condition_focused',
+            buildUrl: (offset, limit) =>
+              'https://api.mercadolibre.com/products/search?status=active&site_id=MLB&domain_id=' +
+              encodeURIComponent(domainId) +
+              '&q=' +
+              encodeURIComponent(targetedQuery) +
+              '&limit=' +
+              limit +
+              '&offset=' +
+              offset,
+          })
+        }
+
+        baseEndpoints.push({
+          name: 'query_only_active_condition_focused',
+          buildUrl: (offset, limit) =>
+            'https://api.mercadolibre.com/products/search?status=active&site_id=MLB&q=' +
+            encodeURIComponent(targetedQuery) +
+            '&limit=' +
+            limit +
+            '&offset=' +
+            offset,
+        })
+      }
 
       // Se tiver domain_id explícito definido pelo usuário, tenta primeiro com ele
       if (domainId) {
@@ -686,23 +744,26 @@ onRecordAfterCreateSuccess((e) => {
       }
     }
 
-    // 4. Cascata:
-    // A API /products/search do ML frequentemente prioriza e retorna apenas posições de catálogo "Novo"
-    // para buscas genéricas (ex: "latitude 5420"). No Mercado Livre, posições recondicionadas oficiais
-    // coexistem na listagem pública ou com o filtro "recondicionado".
-    // Portanto:
-    // 1) Se não encontramos nenhuma posição com condição 'refurbished' nos resultados da API
-    // 2) OU se a query incluir 'recondicionado'/'refurbished'
-    // 3) OU se a busca da API não trouxe nada (itemsFound.length === 0)
-    // Acionamos a cascata de descoberta para enriquecer com posições de catálogo recondicionadas da família!
+    // 4. Cascata / Rodadas complementares de descoberta:
+    // Posições recondicionadas e usadas no catálogo do ML muitas vezes exigem rodadas extras.
     const hasRefurbishedInResults = itemsFound.some(function (it) {
       return it.condition === 'refurbished'
+    })
+    const hasUsedInResults = itemsFound.some(function (it) {
+      return it.condition === 'used'
     })
     const queryIncludesRefurb =
       queryRaw.toLowerCase().includes('recondicionado') ||
       queryRaw.toLowerCase().includes('refurbished')
+    const queryIncludesUsed =
+      queryRaw.toLowerCase().includes('usado') || queryRaw.toLowerCase().includes('seminovo')
+
+    // Se o usuário selecionou 'refurbished' ou a query pede ou ainda não encontramos recondicionados
     const shouldRunRefurbDiscovery =
-      !hasRefurbishedInResults || queryIncludesRefurb || itemsFound.length === 0
+      requestedCondition === 'refurbished' ||
+      (!hasRefurbishedInResults && (requestedCondition === 'all' || queryIncludesRefurb)) ||
+      queryIncludesRefurb ||
+      itemsFound.length === 0
 
     if (shouldRunRefurbDiscovery && queryRaw && !directCatalogId) {
       try {
@@ -785,7 +846,11 @@ onRecordAfterCreateSuccess((e) => {
           )
           appId.save(rec)
 
-          const normalizedSlug = encodeURIComponent(queryRaw.replace(/\s+/g, '-'))
+          const scrapeTerm =
+            requestedCondition === 'refurbished' && !queryIncludesRefurb
+              ? queryRaw + ' recondicionado'
+              : queryRaw
+          const normalizedSlug = encodeURIComponent(scrapeTerm.replace(/\s+/g, '-'))
           const maxScrapePages = 3
 
           for (let sp = 1; sp <= maxScrapePages; sp++) {
@@ -946,6 +1011,78 @@ onRecordAfterCreateSuccess((e) => {
       } catch (errRefurbDiscovery) {
         debugLog.push('Erro na descoberta de recondicionados: ' + String(errRefurbDiscovery))
       }
+    }
+
+    // 5. Rodada focada para USADOS caso a condição solicitada seja 'used'
+    if (requestedCondition === 'used' && queryRaw && !directCatalogId) {
+      if (token && !queryIncludesUsed) {
+        try {
+          const usedApiUrl =
+            'https://api.mercadolibre.com/products/search?status=active&site_id=MLB&q=' +
+            encodeURIComponent(queryRaw + ' usado') +
+            '&limit=20'
+          debugLog.push('Consultando API complementar para usados: ' + usedApiUrl)
+          const usedRes = $http.send({
+            url: usedApiUrl,
+            method: 'GET',
+            headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+            timeout: 10,
+          })
+          if (usedRes.statusCode === 200 && usedRes.json && Array.isArray(usedRes.json.results)) {
+            const uResults = usedRes.json.results
+            debugLog.push('API complementar usados retornou ' + uResults.length + ' produtos')
+            for (let ux = 0; ux < uResults.length; ux++) {
+              const up = uResults[ux]
+              if (!up || !up.id || seenCatalogIds[up.id]) continue
+              seenCatalogIds[up.id] = true
+
+              const uCondInfo = extractProductCondition(up)
+              const uCompInfo = extractCompetitionData(up)
+              let uThumb = ''
+              if (up.pictures && up.pictures.length > 0) {
+                uThumb = up.pictures[0].url || up.pictures[0].secure_url
+              } else if (up.thumbnail) {
+                uThumb = up.thumbnail
+              }
+
+              itemsFound.push({
+                id: up.id,
+                catalog_product_id: up.id,
+                title: (up.name || up.title || '').substring(0, 150),
+                domain_id: up.domain_id || domainId || '',
+                permalink: up.permalink || 'https://www.mercadolivre.com.br/p/' + up.id,
+                thumbnail: uThumb,
+                buy_box_winner_price: uCompInfo.buy_box_winner_price,
+                min_price: uCompInfo.min_price,
+                buy_box_winner_seller_id: uCompInfo.buy_box_winner_seller_id,
+                buy_box_winner_item_id: uCompInfo.buy_box_winner_item_id,
+                buy_box_winner_stock: uCompInfo.buy_box_winner_stock,
+                stock_status: uCompInfo.stock_status,
+                competition_status: uCompInfo.competition_status,
+                attributes: [],
+                condition: uCondInfo.condition === 'new' ? 'used' : uCondInfo.condition,
+                condition_label:
+                  uCondInfo.condition === 'new' ? 'Usado' : uCondInfo.condition_label,
+                condition_grade: uCondInfo.condition_grade || undefined,
+                status: up.status || 'active',
+                source: 'ml_products_search_used_complementary',
+              })
+            }
+          }
+        } catch (errUsedApi) {
+          debugLog.push('Erro na API complementar usado: ' + String(errUsedApi))
+        }
+      }
+    }
+
+    // 6. Ordenação e priorização de acordo com a condição solicitada:
+    // Se o usuário selecionou uma condição específica, colocamos no topo as posições correspondentes!
+    if (requestedCondition !== 'all' && itemsFound.length > 0) {
+      itemsFound.sort(function (a, b) {
+        const aMatches = a.condition === requestedCondition ? 1 : 0
+        const bMatches = b.condition === requestedCondition ? 1 : 0
+        return bMatches - aMatches
+      })
     }
 
     const finalProgressMsg =
