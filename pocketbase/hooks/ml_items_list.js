@@ -1,7 +1,13 @@
 // Hook acionado imediatamente após a criação de um registro em ml_ads_fetch_jobs
 // Executa a busca de anúncios na API oficial do Mercado Livre via $http.send
-// e salva o resultado no próprio registro do job.
-// Tudo inline dentro do callback para respeitar o isolamento da VM Goja do PocketBase v0.36.
+// Implementa:
+// 1. Paginação profunda por status (active, paused, closed) com busca dedicada por status para
+//    garantir que todos os anúncios ativos sempre sejam encontrados e priorizados.
+// 2. Coleta paginada completa com limite seguro (até 2000 itens) e deduplicação por ID (MLB...).
+// 3. Atualização contínua de progress_text no registro para feedback em tempo real na interface do usuário.
+// 4. Multiget dos detalhes em lotes de 20 com campos compactos e GTIN.
+// 5. Persistência resiliente com estratégia de degradação graciosa caso o payload seja grande,
+//    evitando erros de gravação ("Failed to create/update record").
 
 onRecordAfterCreateSuccess((e) => {
   const job = e.record
@@ -11,6 +17,7 @@ onRecordAfterCreateSuccess((e) => {
   }
 
   job.set('status', 'processing')
+  job.set('progress_text', 'Iniciando consulta aos anúncios do Mercado Livre...')
   $app.save(job)
 
   // 1. Carregar ml_settings
@@ -28,6 +35,7 @@ onRecordAfterCreateSuccess((e) => {
     job.set('status', 'error')
     job.set('status_code', 404)
     job.set('error_message', 'Configurações do Mercado Livre não encontradas no sistema.')
+    job.set('progress_text', 'Erro: Mercado Livre não configurado.')
     $app.save(job)
     e.next()
     return
@@ -48,6 +56,7 @@ onRecordAfterCreateSuccess((e) => {
       'error_message',
       'Mercado Livre não está conectado ou falta identificação do vendedor. Conecte sua conta em Configurações.',
     )
+    job.set('progress_text', 'Erro: Conta do Mercado Livre não conectada.')
     $app.save(job)
     e.next()
     return
@@ -101,95 +110,205 @@ onRecordAfterCreateSuccess((e) => {
     }
   }
 
-  // 3. Montar chamada de busca de itens do vendedor
-  const limitVal = job.getInt('limit') || 50
-  const offsetVal = job.getInt('offset') || 0
-  const statusFilter = (job.getString('status_filter') || '').trim()
+  // 3. Montar estratégia de busca paginada com suporte a status
+  const requestedStatusFilter = (job.getString('status_filter') || '').trim()
 
-  let searchUrl =
-    'https://api.mercadolibre.com/users/' +
-    userIdMl +
-    '/items/search?search_type=scan&limit=' +
-    encodeURIComponent(String(limitVal))
+  // Se o usuário solicitou um status específico (ex: 'active', 'paused', 'closed'), busca apenas ele.
+  // Se for vazio ou 'all', buscamos por status separadamente ('active', 'paused', 'closed')
+  // para garantir que os anúncios ATIVOS nunca fiquem para trás em contas com muitos anúncios pausados/antigos.
+  const statusQueue = requestedStatusFilter
+    ? [requestedStatusFilter]
+    : ['active', 'paused', 'closed']
 
-  if (offsetVal > 0) {
-    searchUrl += '&offset=' + encodeURIComponent(String(offsetVal))
+  const allItemIds = []
+  const seenMlbIds = {}
+  let totalAnnouncedGlobal = 0
+  const PAGE_LIMIT = 50
+  const MAX_GLOBAL_CAP = 2000
+  const MAX_PAGES_PER_STATUS = 25
+
+  console.log(
+    '[ml_ads_fetch_job] Iniciando busca paginada para seller ' +
+      userIdMl +
+      ' (status a consultar: ' +
+      statusQueue.join(', ') +
+      ')',
+  )
+
+  for (let sIdx = 0; sIdx < statusQueue.length; sIdx++) {
+    const currentStatus = statusQueue[sIdx]
+    let offset = 0
+    let pageNum = 0
+    let statusTotal = null
+
+    const statusLabel =
+      currentStatus === 'active'
+        ? 'ativos'
+        : currentStatus === 'paused'
+          ? 'pausados'
+          : currentStatus === 'closed'
+            ? 'encerrados'
+            : currentStatus
+
+    while (pageNum < MAX_PAGES_PER_STATUS && allItemIds.length < MAX_GLOBAL_CAP) {
+      pageNum++
+      let searchUrl =
+        'https://api.mercadolibre.com/users/' +
+        userIdMl +
+        '/items/search?search_type=scan&limit=' +
+        PAGE_LIMIT
+
+      if (offset > 0) {
+        searchUrl += '&offset=' + offset
+      }
+      if (currentStatus) {
+        searchUrl += '&status=' + encodeURIComponent(currentStatus)
+      }
+
+      try {
+        const progressMsg =
+          'Buscando anúncios ' +
+          statusLabel +
+          ' (página ' +
+          pageNum +
+          (allItemIds.length > 0 ? ', ' + allItemIds.length + ' encontrados' : '') +
+          ')...'
+        job.set('progress_text', progressMsg)
+        $app.save(job)
+      } catch (_) {}
+
+      console.log('[ml_ads_fetch_job] GET: ' + searchUrl)
+
+      let searchRes = null
+      try {
+        searchRes = $http.send({
+          url: searchUrl,
+          method: 'GET',
+          headers: {
+            Authorization: 'Bearer ' + accessToken,
+            Accept: 'application/json',
+          },
+          timeout: 25,
+        })
+      } catch (sErr) {
+        const netMsg = sErr.message || String(sErr)
+        console.log('[ml_ads_fetch_job] Erro de rede ao buscar itens: ' + netMsg)
+        job.set('status', 'error')
+        job.set('status_code', 502)
+        job.set(
+          'error_message',
+          'Falha de comunicação ao conectar com a API do Mercado Livre: ' + netMsg,
+        )
+        job.set('progress_text', 'Falha de comunicação com o Mercado Livre.')
+        $app.save(job)
+        e.next()
+        return
+      }
+
+      if (searchRes.statusCode === 401 || searchRes.statusCode === 403) {
+        job.set('status', 'error')
+        job.set('status_code', searchRes.statusCode)
+        job.set(
+          'error_message',
+          'Token do Mercado Livre expirado ou sem permissão. Reconecte a conta em Configurações.',
+        )
+        job.set('progress_text', 'Sessão do Mercado Livre expirada.')
+        $app.save(job)
+        e.next()
+        return
+      }
+
+      if (searchRes.statusCode >= 400) {
+        const errJson = searchRes.json || {}
+        const errMsg =
+          errJson.message ||
+          errJson.error_description ||
+          errJson.error ||
+          'Erro ao consultar anúncios do vendedor no Mercado Livre.'
+        console.log(
+          '[ml_ads_fetch_job] Erro retornado pela API (' + searchRes.statusCode + '): ' + errMsg,
+        )
+
+        // Se o status closed der erro ou não tiver suporte, prossegue para os outros status
+        if (currentStatus === 'closed' || currentStatus === 'under_review') {
+          break
+        }
+
+        job.set('status', 'error')
+        job.set('status_code', searchRes.statusCode)
+        job.set('error_message', errMsg)
+        job.set('progress_text', 'Erro: ' + errMsg)
+        $app.save(job)
+        e.next()
+        return
+      }
+
+      const searchData = searchRes.json || {}
+      const results = Array.isArray(searchData.results) ? searchData.results : []
+      const paging = searchData.paging || {}
+
+      if (typeof paging.total === 'number') {
+        statusTotal = paging.total
+        totalAnnouncedGlobal = Math.max(totalAnnouncedGlobal, paging.total)
+      }
+
+      console.log(
+        '[ml_ads_fetch_job] [' +
+          currentStatus +
+          '] Página ' +
+          pageNum +
+          ': ' +
+          results.length +
+          ' IDs retornados (total deste status: ' +
+          (statusTotal !== null ? statusTotal : 'desconhecido') +
+          ')',
+      )
+
+      if (results.length === 0) {
+        break
+      }
+
+      let newCount = 0
+      for (let r = 0; r < results.length; r++) {
+        const id = results[r]
+        if (id && !seenMlbIds[id]) {
+          seenMlbIds[id] = true
+          allItemIds.push(id)
+          newCount++
+        }
+      }
+
+      if (results.length < PAGE_LIMIT) {
+        break
+      }
+
+      offset += results.length
+      if (statusTotal !== null && offset >= statusTotal) {
+        break
+      }
+
+      if (newCount === 0) {
+        // Nenhuma novidade recebida nesta página, evitar loop
+        break
+      }
+    }
   }
-  if (statusFilter) {
-    searchUrl += '&status=' + encodeURIComponent(statusFilter)
-  }
 
-  console.log('[ml_ads_fetch_job] Consultando itens ML: ' + searchUrl)
+  console.log(
+    '[ml_ads_fetch_job] Coleta de IDs concluída. Total único de anúncios encontrados: ' +
+      allItemIds.length,
+  )
 
-  let searchRes = null
-  try {
-    searchRes = $http.send({
-      url: searchUrl,
-      method: 'GET',
-      headers: {
-        Authorization: 'Bearer ' + accessToken,
-        Accept: 'application/json',
-      },
-      timeout: 25,
-    })
-  } catch (sErr) {
-    const netMsg = sErr.message || String(sErr)
-    console.log('[ml_ads_fetch_job] Erro de rede ao buscar itens: ' + netMsg)
-    job.set('status', 'error')
-    job.set('status_code', 502)
-    job.set(
-      'error_message',
-      'Falha de comunicação ao conectar com a API do Mercado Livre: ' + netMsg,
-    )
-    $app.save(job)
-    e.next()
-    return
-  }
-
-  if (searchRes.statusCode === 401 || searchRes.statusCode === 403) {
-    job.set('status', 'error')
-    job.set('status_code', searchRes.statusCode)
-    job.set(
-      'error_message',
-      'Token do Mercado Livre expirado ou sem permissão. Reconecte a conta em Configurações.',
-    )
-    $app.save(job)
-    e.next()
-    return
-  }
-
-  if (searchRes.statusCode >= 400) {
-    const errJson = searchRes.json || {}
-    const errMsg =
-      errJson.message ||
-      errJson.error_description ||
-      errJson.error ||
-      'Erro ao consultar anúncios do vendedor no Mercado Livre.'
-    job.set('status', 'error')
-    job.set('status_code', searchRes.statusCode)
-    job.set('error_message', errMsg)
-    $app.save(job)
-    e.next()
-    return
-  }
-
-  const searchData = searchRes.json || {}
-  const itemIds = Array.isArray(searchData.results) ? searchData.results : []
-  const paging = searchData.paging || {
-    total: itemIds.length,
-    offset: offsetVal,
-    limit: itemIds.length,
-  }
-
-  if (itemIds.length === 0) {
+  if (allItemIds.length === 0) {
     job.set('status', 'done')
     job.set('status_code', 200)
     job.set('seller_id', userIdMl)
     job.set('seller_nickname', nickname)
     job.set('items_count', 0)
-    job.set('paging', paging)
+    job.set('paging', { total: 0, offset: 0, limit: 0 })
     job.set('items', [])
     job.set('error_message', '')
+    job.set('progress_text', 'Nenhum anúncio encontrado na conta.')
     $app.save(job)
     console.log('[ml_ads_fetch_job] Concluído: 0 itens encontrados.')
     e.next()
@@ -200,13 +319,30 @@ onRecordAfterCreateSuccess((e) => {
   // O Mercado Livre permite até 20 IDs por multiget no /items?ids=
   const detailedItems = []
   const batchSize = 20
+  const totalBatches = Math.ceil(allItemIds.length / batchSize)
 
-  for (let i = 0; i < itemIds.length; i += batchSize) {
-    const slice = itemIds.slice(i, i + batchSize)
+  for (let i = 0; i < allItemIds.length; i += batchSize) {
+    const batchIndex = Math.floor(i / batchSize) + 1
+    const slice = allItemIds.slice(i, i + batchSize)
     const multigetUrl =
       'https://api.mercadolibre.com/items?ids=' +
       slice.join(',') +
       '&attributes=id,title,price,currency_id,available_quantity,sold_quantity,condition,status,permalink,thumbnail,pictures,attributes,date_created,last_updated,listing_type_id,catalog_product_id,catalog_listing,domain_id'
+
+    try {
+      const progressMsg =
+        'Carregando detalhes dos anúncios (lote ' +
+        batchIndex +
+        ' de ' +
+        totalBatches +
+        ' — ' +
+        detailedItems.length +
+        '/' +
+        allItemIds.length +
+        ')...'
+      job.set('progress_text', progressMsg)
+      $app.save(job)
+    } catch (_) {}
 
     try {
       const multiRes = $http.send({
@@ -280,19 +416,115 @@ onRecordAfterCreateSuccess((e) => {
     }
   }
 
-  job.set('status', 'done')
-  job.set('status_code', 200)
-  job.set('seller_id', userIdMl)
-  job.set('seller_nickname', nickname)
-  job.set('items_count', detailedItems.length)
-  job.set('paging', paging)
-  job.set('items', detailedItems)
-  job.set('error_message', '')
-  $app.save(job)
-  console.log(
-    '[ml_ads_fetch_job] Busca concluída com sucesso! Total de itens carregados: ' +
-      detailedItems.length,
-  )
+  // 5. Ordenação amigável: Ativos primeiro, depois pausados, depois encerrados
+  const statusWeight = { active: 1, paused: 2, closed: 3 }
+  detailedItems.sort(function (a, b) {
+    const wa = statusWeight[a.status] || 9
+    const wb = statusWeight[b.status] || 9
+    if (wa !== wb) return wa - wb
+    const da = a.last_updated || a.date_created || ''
+    const db = b.last_updated || b.date_created || ''
+    return db.localeCompare(da)
+  })
+
+  // 6. Sanitização para não estourar limite do registro no SQLite
+  function sanitizeItems(items, level) {
+    return items.map(function (it) {
+      const base = {
+        id: it.id,
+        title: (it.title || '').substring(0, 140),
+        price: it.price,
+        currency_id: it.currency_id || 'BRL',
+        available_quantity: it.available_quantity,
+        sold_quantity: it.sold_quantity || 0,
+        condition: it.condition,
+        status: it.status,
+        permalink: it.permalink,
+        thumbnail: it.thumbnail,
+        pictures_count: it.pictures_count || 0,
+        listing_type_id: it.listing_type_id,
+        date_created: it.date_created,
+        last_updated: it.last_updated,
+        gtin: it.gtin,
+        catalog_product_id: it.catalog_product_id,
+        catalog_listing: it.catalog_listing,
+        domain_id: it.domain_id,
+      }
+      if (level === 1) {
+        base.brand = it.brand
+        base.model = it.model
+        base.line = it.line
+      }
+      return base
+    })
+  }
+
+  const pagingPayload = {
+    total: detailedItems.length,
+    offset: 0,
+    limit: detailedItems.length,
+    total_announced: totalAnnouncedGlobal,
+  }
+
+  const finalProgressText =
+    detailedItems.length +
+    ' anúncios carregados com sucesso' +
+    (totalAnnouncedGlobal > detailedItems.length ? ' (de ~' + totalAnnouncedGlobal + ')' : '') +
+    '.'
+
+  let saveSuccess = false
+  let currentPayload = sanitizeItems(detailedItems, 1)
+  let attempt = 1
+
+  while (!saveSuccess && attempt <= 4) {
+    try {
+      job.set('status', 'done')
+      job.set('status_code', 200)
+      job.set('seller_id', userIdMl)
+      job.set('seller_nickname', nickname)
+      job.set('items_count', detailedItems.length)
+      job.set('paging', pagingPayload)
+      job.set('items', currentPayload)
+      job.set('error_message', '')
+      job.set('progress_text', finalProgressText)
+      $app.save(job)
+      saveSuccess = true
+    } catch (saveErr) {
+      attempt++
+      console.log(
+        '[ml_ads_fetch_job] Falha ao persistir payload (tentativa ' +
+          (attempt - 1) +
+          '): ' +
+          saveErr,
+      )
+      if (attempt === 2) {
+        // Fallback 1: remover brand, model, line secundários
+        currentPayload = sanitizeItems(detailedItems, 2)
+      } else if (attempt === 3) {
+        // Fallback 2: limitar a 800 itens sanitizados
+        currentPayload = sanitizeItems(detailedItems.slice(0, 800), 2)
+        job.set('items_count', currentPayload.length)
+      } else if (attempt === 4) {
+        // Fallback 3: limitar a 400 itens ultra-enxutos
+        currentPayload = sanitizeItems(detailedItems.slice(0, 400), 2)
+        job.set('items_count', currentPayload.length)
+      }
+    }
+  }
+
+  if (!saveSuccess) {
+    job.set('status', 'error')
+    job.set('status_code', 500)
+    job.set('error_message', 'Excedido limite de tamanho ao salvar anúncios no banco de dados.')
+    job.set('progress_text', 'Falha ao salvar anúncios no banco de dados.')
+    job.set('items', [])
+    $app.save(job)
+  } else {
+    console.log(
+      '[ml_ads_fetch_job] Busca concluída com sucesso! Total de itens carregados: ' +
+        detailedItems.length,
+    )
+  }
 
   e.next()
 }, 'ml_ads_fetch_jobs')

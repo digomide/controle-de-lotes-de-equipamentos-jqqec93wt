@@ -38,6 +38,9 @@ import { AnunciosCatalogoTab } from '@/components/AnunciosCatalogoTab'
 export default function AnunciosML() {
   const { toast } = useToast()
   const [loading, setLoading] = useState(true)
+  const [progressText, setProgressText] = useState<string>(
+    'Carregando anúncios do Mercado Livre...',
+  )
   const [data, setData] = useState<MLSellerItemsResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
@@ -49,13 +52,19 @@ export default function AnunciosML() {
   const fetchItems = async (showToast = false) => {
     setLoading(true)
     setError(null)
+    setProgressText('Consultando anúncios na conta do Mercado Livre...')
     try {
-      const res = await mlService.getSellerItems({ limit: 50 })
+      const res = await mlService.getSellerItems({
+        onProgress: (pText) => {
+          if (pText) setProgressText(pText)
+        },
+      })
       setData(res)
       if (showToast) {
+        const activeCount = res.items.filter((i) => i.status === 'active').length
         toast({
           title: 'Anúncios atualizados',
-          description: `${res.items.length} anúncio(s) carregados do Mercado Livre.`,
+          description: `${res.items.length} anúncio(s) carregados (${activeCount} ativos).`,
         })
       }
     } catch (err: any) {
@@ -479,10 +488,10 @@ export default function AnunciosML() {
             <div className="p-16 text-center text-slate-400 space-y-3 bg-white rounded-xl border border-slate-200">
               <RefreshCw className="w-8 h-8 mx-auto animate-spin text-amber-500" />
               <p className="text-sm font-semibold text-slate-700">
-                Carregando anúncios do Mercado Livre...
+                {progressText || 'Carregando anúncios do Mercado Livre...'}
               </p>
               <p className="text-xs text-slate-400">
-                Consultando o vendedor conectado na API do ML
+                Percorrendo todas as páginas de anúncios da conta (ativos, pausados e encerrados)
               </p>
             </div>
           ) : filteredItems.length === 0 ? (

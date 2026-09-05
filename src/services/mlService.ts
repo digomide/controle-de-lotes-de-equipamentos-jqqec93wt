@@ -1324,10 +1324,12 @@ export const mlService = {
     limit?: number
     offset?: number
     status?: string
+    onProgress?: (progressText: string) => void
   }): Promise<MLSellerItemsResult> {
     const limit = params?.limit || 50
     const offset = params?.offset || 0
     const statusFilter = params?.status || ''
+    const onProgress = params?.onProgress
 
     // 1. Criar job em ml_ads_fetch_jobs
     let jobRecord: any = null
@@ -1349,9 +1351,9 @@ export const mlService = {
 
     const jobId = jobRecord.id
 
-    // 2. Polling até status === 'done' ou 'error' (timeout 30s)
-    const timeoutMs = 30_000
-    const intervalMs = 600
+    // 2. Polling até status === 'done' ou 'error' (timeout 60s para permitir coleta paginada de todos os status)
+    const timeoutMs = 60_000
+    const intervalMs = 500
     const startTime = Date.now()
 
     let finalJobData: any = null
@@ -1361,6 +1363,9 @@ export const mlService = {
 
       try {
         const current = await pb.collection('ml_ads_fetch_jobs').getOne(jobId)
+        if (current.progress_text && onProgress) {
+          onProgress(current.progress_text)
+        }
         if (current.status === 'done') {
           finalJobData = current
           break
