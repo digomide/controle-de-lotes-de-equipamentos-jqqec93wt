@@ -80,6 +80,63 @@ onRecordAfterCreateSuccess((e) => {
     directCatalogId = pMatch[1].toUpperCase()
   }
 
+  // Função auxiliar enxuta para extração da condição/classificação do produto de catálogo
+  function extractProductCondition(prod) {
+    if (!prod) return { condition: 'unknown', condition_label: 'Condição não informada' }
+
+    // (1) Atributo ITEM_CONDITION ou CONDITION no array attributes
+    if (Array.isArray(prod.attributes)) {
+      for (let a = 0; a < prod.attributes.length; a++) {
+        const attr = prod.attributes[a]
+        if (!attr || !attr.id) continue
+        const attrIdUpper = String(attr.id).toUpperCase()
+        if (attrIdUpper === 'ITEM_CONDITION' || attrIdUpper === 'CONDITION') {
+          const valName = String(attr.value_name || '')
+            .toLowerCase()
+            .trim()
+          const valId = String(attr.value_id || '').trim()
+
+          if (valId === '2230284' || valName === 'novo' || valName === 'new') {
+            return { condition: 'new', condition_label: 'Novo' }
+          }
+          if (
+            valId === '2230581' ||
+            valName === 'recondicionado' ||
+            valName === 'refurbished' ||
+            valName.indexOf('recondicionado') >= 0
+          ) {
+            return { condition: 'refurbished', condition_label: 'Recondicionado' }
+          }
+          if (
+            valId === '2230582' ||
+            valName === 'usado' ||
+            valName === 'used' ||
+            valName === 'segunda mão'
+          ) {
+            return { condition: 'used', condition_label: 'Usado' }
+          }
+        }
+      }
+    }
+
+    // (2) buy_box_winner.condition se presente ("new", "refurbished", "used")
+    if (prod.buy_box_winner && prod.buy_box_winner.condition) {
+      const bbCond = String(prod.buy_box_winner.condition).toLowerCase().trim()
+      if (bbCond === 'new' || bbCond === 'novo') {
+        return { condition: 'new', condition_label: 'Novo' }
+      }
+      if (bbCond === 'refurbished' || bbCond === 'recondicionado') {
+        return { condition: 'refurbished', condition_label: 'Recondicionado' }
+      }
+      if (bbCond === 'used' || bbCond === 'usado') {
+        return { condition: 'used', condition_label: 'Usado' }
+      }
+    }
+
+    // (3) Fallback para unknown
+    return { condition: 'unknown', condition_label: 'Condição não informada' }
+  }
+
   const debugLog = []
   const itemsFound = []
   const seenCatalogIds = {}
@@ -134,6 +191,8 @@ onRecordAfterCreateSuccess((e) => {
             }
           }
 
+          const condInfo = extractProductCondition(p)
+
           itemsFound.push({
             id: p.id,
             catalog_product_id: p.id,
@@ -144,6 +203,8 @@ onRecordAfterCreateSuccess((e) => {
             buy_box_winner_price: bestPrice,
             min_price: bestPrice,
             attributes: leanDirectAttributes,
+            condition: condInfo.condition,
+            condition_label: condInfo.condition_label,
             status: p.status || 'active',
             source: 'ml_product_direct',
           })
@@ -314,6 +375,8 @@ onRecordAfterCreateSuccess((e) => {
               }
             }
 
+            const condInfo = extractProductCondition(prod)
+
             itemsFound.push({
               id: prod.id,
               catalog_product_id: prod.id,
@@ -324,6 +387,8 @@ onRecordAfterCreateSuccess((e) => {
               buy_box_winner_price: bestPrice,
               min_price: bestPrice,
               attributes: leanAttributes,
+              condition: condInfo.condition,
+              condition_label: condInfo.condition_label,
               status: prod.status || 'active',
               source: 'ml_products_search',
             })
@@ -485,6 +550,8 @@ onRecordAfterCreateSuccess((e) => {
                   }
                 }
 
+                const condInfo = extractProductCondition(p)
+
                 itemsFound.push({
                   id: p.id,
                   catalog_product_id: p.id,
@@ -498,6 +565,8 @@ onRecordAfterCreateSuccess((e) => {
                   buy_box_winner_price: p.buy_box_winner ? p.buy_box_winner.price : null,
                   min_price: p.buy_box_winner ? p.buy_box_winner.price : null,
                   attributes: leanScrapeAttrs,
+                  condition: condInfo.condition,
+                  condition_label: condInfo.condition_label,
                   status: p.status || 'active',
                   source: 'ml_catalog_scrape_and_enrich',
                 })
@@ -516,6 +585,8 @@ onRecordAfterCreateSuccess((e) => {
                 buy_box_winner_price: null,
                 min_price: null,
                 attributes: [],
+                condition: 'unknown',
+                condition_label: 'Condição não informada',
                 status: 'active',
                 source: 'ml_catalog_scrape_link',
               })
@@ -601,6 +672,8 @@ onRecordAfterCreateSuccess((e) => {
               attributes: (item.attributes || []).filter(function (a) {
                 return a.id === 'BRAND' || a.id === 'MODEL'
               }),
+              condition: item.condition || 'unknown',
+              condition_label: item.condition_label || 'Condição não informada',
               status: item.status || 'active',
               source: item.source || 'ml_products_search',
             }
@@ -622,6 +695,8 @@ onRecordAfterCreateSuccess((e) => {
               buy_box_winner_price: item.buy_box_winner_price,
               min_price: item.min_price,
               attributes: [],
+              condition: item.condition || 'unknown',
+              condition_label: item.condition_label || 'Condição não informada',
               status: 'active',
             }
           })

@@ -50,6 +50,9 @@ export function AnunciosCatalogoTab() {
   const [searchJobDebug, setSearchJobDebug] = useState<string[]>([])
   const [showDebug, setShowDebug] = useState(false)
   const [showPartialResults, setShowPartialResults] = useState(false)
+  const [conditionFilter, setConditionFilter] = useState<'all' | 'refurbished' | 'new' | 'used'>(
+    'all',
+  )
 
   // Publicação em massa
   const [isPublishing, setIsPublishing] = useState(false)
@@ -328,13 +331,16 @@ export function AnunciosCatalogoTab() {
       setPublishLogs([...logs])
 
       try {
+        const itemCondSent = 'used'
+        const isCatNew = item.catalogProduct.condition === 'new'
+
         const job = await mlCatalogService.createPublishJob({
           catalog_product_id: item.catalogProduct.catalog_product_id,
           product_id: item.selectedProductId,
           price: item.formPrice,
           quantity: item.formQuantity,
           domain_id: item.catalogProduct.domain_id || 'MLB-NOTEBOOKS',
-          condition: 'used',
+          condition: itemCondSent,
         })
 
         logs[i].id = job.id
@@ -358,13 +364,32 @@ export function AnunciosCatalogoTab() {
         } else {
           errorCount++
           logs[i].status = 'error'
-          logs[i].message = completed.error_message || 'Falha na publicação do anúncio.'
+
+          // Se a posição é classificada como 'new' e a condição enviada é recondicionado/usado,
+          // ou se o ML acusou item_not_new_nor_refurbished / not_eligible
+          const rawErr = completed.error_message || ''
+          if (
+            isCatNew ||
+            rawErr.includes('item_not_new_nor_refurbished') ||
+            rawErr.includes('exige condição Novo')
+          ) {
+            logs[i].message =
+              'Esta posição de catálogo é classificada como NOVO pelo Mercado Livre — não aceita oferta em seminovo/recondicionado.'
+          } else {
+            logs[i].message = completed.error_message || 'Falha na publicação do anúncio.'
+          }
           logs[i].canRetry = true
         }
       } catch (err: any) {
         errorCount++
         logs[i].status = 'error'
-        logs[i].message = err.message || 'Erro inesperado de comunicação com a fila.'
+        const rawErrMsg = err.message || ''
+        if (item.catalogProduct.condition === 'new') {
+          logs[i].message =
+            'Esta posição de catálogo é classificada como NOVO pelo Mercado Livre — não aceita oferta em seminovo/recondicionado.'
+        } else {
+          logs[i].message = rawErrMsg || 'Erro inesperado de comunicação com a fila.'
+        }
         logs[i].canRetry = true
       }
 
@@ -416,6 +441,7 @@ export function AnunciosCatalogoTab() {
     })
 
     try {
+      const isCatNew = item.catalogProduct.condition === 'new'
       const newJob = await mlCatalogService.createPublishJob({
         catalog_product_id: item.catalogProduct.catalog_product_id,
         product_id: item.selectedProductId,
@@ -457,30 +483,43 @@ export function AnunciosCatalogoTab() {
           description: `Anúncio ${completed.ml_listing_id} criado no catálogo.`,
         })
       } else {
+        const rawErr = completed.error_message || ''
+        const errorMsgToShow =
+          isCatNew ||
+          rawErr.includes('item_not_new_nor_refurbished') ||
+          rawErr.includes('exige condição Novo')
+            ? 'Esta posição de catálogo é classificada como NOVO pelo Mercado Livre — não aceita oferta em seminovo/recondicionado.'
+            : completed.error_message || 'Falha na publicação.'
+
         setPublishLogs((prev) => {
           const next = [...prev]
           next[logIdx] = {
             ...next[logIdx],
             id: completed.id,
             status: 'error',
-            message: completed.error_message || 'Falha na publicação.',
+            message: errorMsgToShow,
             canRetry: true,
           }
           return next
         })
         toast({
           title: 'Não foi possível publicar',
-          description: completed.error_message || 'Revise as exigências do Mercado Livre.',
+          description: errorMsgToShow,
           variant: 'destructive',
         })
       }
     } catch (err: any) {
+      const isCatNew = item.catalogProduct.condition === 'new'
+      const errorMsgToShow = isCatNew
+        ? 'Esta posição de catálogo é classificada como NOVO pelo Mercado Livre — não aceita oferta em seminovo/recondicionado.'
+        : err.message || 'Erro ao comunicar com a fila.'
+
       setPublishLogs((prev) => {
         const next = [...prev]
         next[logIdx] = {
           ...next[logIdx],
           status: 'error',
-          message: err.message || 'Erro ao comunicar com a fila.',
+          message: errorMsgToShow,
           canRetry: true,
         }
         return next
@@ -495,7 +534,78 @@ export function AnunciosCatalogoTab() {
   const currentTokens = isDirectCode ? [] : extractCatalogSearchTokens(activeSearchTerm)
   const isFilterActive = !isDirectCode && currentTokens.length > 0
 
-  // Avaliação de cada item em relação aos termos buscados
+  // Helper para renderizar a badge de classificação/condição da posição de catálogo
+  function renderConditionBadge(cat: { condition?: string; condition_label?: string }) {
+    const cond = cat.condition || 'unknown'
+    const label =
+      cat.condition_label ||
+      (cond === 'refurbished'
+        ? 'Recondicionado'
+        : cond === 'new'
+          ? 'Novo'
+          : cond === 'used'
+            ? 'Usado'
+            : 'Condição não informada')
+
+    if (cond === 'refurbished') {
+      return (
+        <Badge
+          className="bg-purple-600 hover:bg-purple-700 text-white border-purple-700 text-[10px] font-semibold flex items-center gap-1 shadow-2xs"
+          title="Classificação Recondicionado no ML — estoque 100% compatível com a loja"
+        >
+          <Sparkles className="w-3 h-3 text-purple-200" />
+          <span>{label}</span>
+          <span className="text-[9px] bg-purple-700/60 px-1 py-0.2 rounded text-purple-100 font-mono ml-0.5">
+            Estoque compatível
+          </span>
+        </Badge>
+      )
+    }
+
+    if (cond === 'new') {
+      return (
+        <Badge
+          className="bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-700 text-[10px] font-semibold flex items-center gap-1"
+          title="Classificação Novo no catálogo Mercado Livre"
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-white" />
+          <span>{label}</span>
+        </Badge>
+      )
+    }
+
+    if (cond === 'used') {
+      return (
+        <Badge
+          className="bg-amber-500 hover:bg-amber-600 text-white border-amber-600 text-[10px] font-semibold flex items-center gap-1"
+          title="Classificação Usado no catálogo Mercado Livre"
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-100" />
+          <span>{label}</span>
+        </Badge>
+      )
+    }
+
+    return (
+      <Badge
+        variant="outline"
+        className="bg-slate-100 text-slate-600 border-slate-300 text-[10px] font-normal"
+        title="Mercado Livre não informou a condição canônica deste produto de catálogo"
+      >
+        <span>Condição não informada</span>
+      </Badge>
+    )
+  }
+
+  // Contadores para os chips de filtro por classificação
+  const countTotal = catalogItems.length
+  const countRefurbished = catalogItems.filter(
+    (it) => it.catalogProduct.condition === 'refurbished',
+  ).length
+  const countNew = catalogItems.filter((it) => it.catalogProduct.condition === 'new').length
+  const countUsed = catalogItems.filter((it) => it.catalogProduct.condition === 'used').length
+
+  // Avaliação de cada item em relação aos termos buscados e ao filtro de condição
   const evaluatedItems = catalogItems.map((item, originalIndex) => {
     const evalResult = isFilterActive
       ? evaluateCatalogItemStrictMatch(
@@ -505,18 +615,32 @@ export function AnunciosCatalogoTab() {
         )
       : { isMatch: true, matchedTokens: currentTokens, missingTokens: [] }
 
+    // Avalia também o filtro de condição ativo (Todas | Recondicionado | Novo | Usado)
+    const itemCond = item.catalogProduct.condition || 'unknown'
+    const matchesCondition =
+      conditionFilter === 'all'
+        ? true
+        : conditionFilter === 'refurbished'
+          ? itemCond === 'refurbished'
+          : conditionFilter === 'new'
+            ? itemCond === 'new'
+            : conditionFilter === 'used'
+              ? itemCond === 'used'
+              : true
+
     return {
       item,
       originalIndex,
       isMatch: evalResult.isMatch,
+      matchesCondition,
       matchedTokens: evalResult.matchedTokens,
       missingTokens: evalResult.missingTokens,
     }
   })
 
-  // Itens estritos e parciais/descartados
-  const strictItems = evaluatedItems.filter((entry) => entry.isMatch)
-  const partialItems = evaluatedItems.filter((entry) => !entry.isMatch)
+  // Itens estritos e parciais/descartados filtrados pela condição selecionada
+  const strictItems = evaluatedItems.filter((entry) => entry.isMatch && entry.matchesCondition)
+  const partialItems = evaluatedItems.filter((entry) => !entry.isMatch && entry.matchesCondition)
 
   const selectedCount = catalogItems.filter((i) => i.selected).length
 
@@ -700,6 +824,103 @@ export function AnunciosCatalogoTab() {
           )}
         </CardContent>
       </Card>
+
+      {/* Chips de Filtro por Classificação / Condição */}
+      {catalogItems.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap text-xs">
+          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
+            <Filter className="w-3.5 h-3.5 text-slate-400" />
+            Classificação:
+          </span>
+
+          <button
+            type="button"
+            onClick={() => setConditionFilter('all')}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
+              conditionFilter === 'all'
+                ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
+            }`}
+          >
+            <span>Todas</span>
+            <span
+              className={`text-[11px] font-mono px-1.5 py-0.2 rounded-full ${
+                conditionFilter === 'all'
+                  ? 'bg-slate-700 text-white'
+                  : 'bg-slate-100 text-slate-600'
+              }`}
+            >
+              {countTotal}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setConditionFilter('refurbished')}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
+              conditionFilter === 'refurbished'
+                ? 'bg-purple-600 text-white border-purple-700 shadow-xs'
+                : 'bg-white hover:bg-purple-50 text-purple-900 border-purple-200'
+            }`}
+          >
+            <Sparkles className="w-3 h-3 text-purple-300" />
+            <span>Recondicionado</span>
+            <span
+              className={`text-[11px] font-mono px-1.5 py-0.2 rounded-full ${
+                conditionFilter === 'refurbished'
+                  ? 'bg-purple-800 text-purple-100'
+                  : 'bg-purple-100 text-purple-800'
+              }`}
+            >
+              {countRefurbished}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setConditionFilter('new')}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
+              conditionFilter === 'new'
+                ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs'
+                : 'bg-white hover:bg-emerald-50 text-emerald-900 border-emerald-200'
+            }`}
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+            <span>Novo</span>
+            <span
+              className={`text-[11px] font-mono px-1.5 py-0.2 rounded-full ${
+                conditionFilter === 'new'
+                  ? 'bg-emerald-800 text-emerald-100'
+                  : 'bg-emerald-100 text-emerald-800'
+              }`}
+            >
+              {countNew}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setConditionFilter('used')}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
+              conditionFilter === 'used'
+                ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
+                : 'bg-white hover:bg-amber-50 text-amber-900 border-amber-200'
+            }`}
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+            <span>Usado</span>
+            <span
+              className={`text-[11px] font-mono px-1.5 py-0.2 rounded-full ${
+                conditionFilter === 'used'
+                  ? 'bg-amber-700 text-amber-100'
+                  : 'bg-amber-100 text-amber-800'
+              }`}
+            >
+              {countUsed}
+            </span>
+          </button>
+        </div>
+      )}
 
       {/* Barra de Ações em Massa (quando há resultados) */}
       {catalogItems.length > 0 && (
@@ -981,6 +1202,9 @@ export function AnunciosCatalogoTab() {
                               {cat.domain_id || 'MLB-NOTEBOOKS'}
                             </Badge>
 
+                            {/* Badge de Classificação / Condição do Mercado Livre */}
+                            {renderConditionBadge(cat)}
+
                             {/* Badge de correspondência com a busca */}
                             {isFilterActive && (
                               <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] flex items-center gap-1 font-semibold py-0.5">
@@ -1177,6 +1401,7 @@ export function AnunciosCatalogoTab() {
                                 >
                                   {cat.catalog_product_id}
                                 </Badge>
+                                {renderConditionBadge(cat)}
                                 <Badge
                                   variant="outline"
                                   className="bg-amber-50 text-amber-800 border-amber-200 text-[10px]"
