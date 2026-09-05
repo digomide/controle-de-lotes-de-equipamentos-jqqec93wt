@@ -1,12 +1,15 @@
-migrate((app) => {
-  const user = app.findFirstRecordByData('users', 'email', 'rodrigoifgx@gmail.com')
-  const jobCol = app.findCollectionByNameOrId('ml_ads_fetch_jobs')
-  const job = new Record(jobCol)
-  job.set('status', 'pending')
-  job.set('limit', 50)
-  job.set('offset', 0)
-  job.set('status_filter', '')
-  job.set('requested_by', user.id)
-  app.save(job)
-  console.log('[0186_run_final_test] job created id=' + job.id)
-}, (app) => {})
+migrate(
+  (app) => {
+    const user = app.findFirstRecordByData('users', 'email', 'rodrigoifgx@gmail.com')
+    const jobCol = app.findCollectionByNameOrId('ml_ads_fetch_jobs')
+    const job = new Record(jobCol)
+    job.set('status', 'pending')
+    job.set('limit', 50)
+    job.set('offset', 0)
+    job.set('status_filter', '')
+    job.set('requested_by', user.id)
+    app.save(job)
+    console.log('[0186_run_final_test] job created id=' + job.id)
+  },
+  (app) => {},
+)
