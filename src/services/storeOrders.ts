@@ -209,10 +209,16 @@ export const mercadoPagoService = {
       })
       return res
     } catch (err: any) {
+      let msg = err.message || 'Falha ao executar teste de conexão com o Mercado Pago.'
+      // Se o backend PocketBase retornou 404 de rota não encontrada antes do deploy ou URL inexistente
+      if (err.status === 404 || msg.includes("The requested resource wasn't found")) {
+        msg =
+          'O endpoint de teste não foi localizado no backend PocketBase (/api/store/mp/test-connection). Verifique se as funções de backend estão implantadas.'
+      }
       return {
         ok: false,
         configured: false,
-        message: err.message || 'Falha ao executar teste de conexão com o Mercado Pago.',
+        message: msg,
       }
     }
   },

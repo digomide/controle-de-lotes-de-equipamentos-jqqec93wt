@@ -36,7 +36,8 @@ routerAdd(
     }
 
     try {
-      const res = $http.send({
+      // 1ª tentativa: endpoint oficial do Mercado Pago /users/me
+      let res = $http.send({
         url: 'https://api.mercadopago.com/users/me',
         method: 'GET',
         headers: {
@@ -45,6 +46,24 @@ routerAdd(
         },
         timeout: 15,
       })
+
+      // Se retornar 404 em api.mercadopago.com, tenta no host unificado da plataforma api.mercadolibre.com/users/me
+      if (res.statusCode === 404) {
+        try {
+          const resFallback = $http.send({
+            url: 'https://api.mercadolibre.com/users/me',
+            method: 'GET',
+            headers: {
+              Authorization: 'Bearer ' + accessToken,
+              Accept: 'application/json',
+            },
+            timeout: 15,
+          })
+          if (resFallback.statusCode === 200) {
+            res = resFallback
+          }
+        } catch (_) {}
+      }
 
       if (res.statusCode === 200 && res.json) {
         const userData = res.json
@@ -65,11 +84,28 @@ routerAdd(
         })
       } else {
         const errJson = res.json || {}
-        const errMessage = errJson.message || 'Código HTTP ' + res.statusCode
+        let rawMessage = errJson.message || ''
+
+        // Interpretação e tradução amigável dos erros comuns da API do Mercado Pago
+        let userFriendlyMessage = ''
+        if (res.statusCode === 401 || res.statusCode === 403) {
+          userFriendlyMessage =
+            'Access Token inválido ou sem permissão. Verifique se você copiou o token completo de Produção (APP_USR-...).'
+        } else if (res.statusCode === 404 || rawMessage.toLowerCase().indexOf('not found') >= 0) {
+          userFriendlyMessage =
+            'Token não reconhecido ou aplicação não ativada no Mercado Pago. Confirme no Painel de Desenvolvedores se você clicou em "Ativar credenciais de produção" e copiou o Access Token correto da aplicação "Loja Infoprecobaixo".'
+        } else if (rawMessage) {
+          userFriendlyMessage =
+            'Mercado Pago retornou: ' + rawMessage + ' (HTTP ' + res.statusCode + ')'
+        } else {
+          userFriendlyMessage = 'Código HTTP retornado pelo Mercado Pago: ' + res.statusCode
+        }
+
         return e.json(200, {
           ok: false,
           configured: true,
-          message: 'Mercado Pago rejeitou o Access Token: ' + errMessage,
+          raw_message: rawMessage,
+          message: userFriendlyMessage,
           status_code: res.statusCode,
         })
       }

@@ -95,28 +95,45 @@ export function MercadoPagoConfigCard() {
   }
 
   const handleTestConnection = async () => {
+    const tokenToTest = accessToken.trim()
+    if (!tokenToTest) {
+      toast({
+        title: 'Token não informado',
+        description: 'Cole o Access Token de Produção antes de verificar a conexão.',
+        variant: 'destructive',
+      })
+      return
+    }
+
     setTesting(true)
     setTestResult(null)
     try {
-      const res = await mercadoPagoService.testConnection(accessToken.trim())
+      // Envia o token digitado na tela (não exige salvar antes)
+      const res = await mercadoPagoService.testConnection(tokenToTest)
       setTestResult(res)
       if (res.ok) {
         toast({
-          title: 'Conexão validada!',
-          description: `Mercado Pago autenticado com sucesso: ${res.data?.first_name || res.data?.nickname || 'Conta ativa'}`,
+          title: 'Conexão validada com sucesso!',
+          description: `Mercado Pago autenticado: ${res.data?.first_name || res.data?.nickname || 'Conta ativa'} (ID: ${res.data?.id || '—'})`,
         })
       } else {
         toast({
-          title: 'Falha no teste',
+          title: 'Falha na validação do Mercado Pago',
           description: res.message,
           variant: 'destructive',
         })
       }
     } catch (err: any) {
+      const errMsg = err.message || 'Erro inesperado durante o teste de conexão.'
       setTestResult({
         ok: false,
         configured: true,
-        message: err.message || 'Erro inesperado durante teste.',
+        message: errMsg,
+      })
+      toast({
+        title: 'Falha na conexão',
+        description: errMsg,
+        variant: 'destructive',
       })
     } finally {
       setTesting(false)
@@ -298,33 +315,81 @@ export function MercadoPagoConfigCard() {
         {/* Feedback do Teste de Conexão */}
         {testResult && (
           <div
-            className={`p-4 rounded-xl border text-xs space-y-2 ${
+            className={`p-4 rounded-xl border text-xs space-y-2.5 ${
               testResult.ok
-                ? 'bg-emerald-50/80 border-emerald-200 text-emerald-950'
-                : 'bg-rose-50/80 border-rose-200 text-rose-950'
+                ? 'bg-emerald-50/90 border-emerald-300 text-emerald-950 shadow-xs'
+                : 'bg-rose-50/90 border-rose-300 text-rose-950 shadow-xs'
             }`}
           >
-            <div className="flex items-center gap-2 font-bold">
+            <div className="flex items-start gap-2.5">
               {testResult.ok ? (
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
               ) : (
-                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
               )}
-              <span>{testResult.message}</span>
+              <div className="space-y-1 flex-1">
+                <span className="font-bold block text-[13px] leading-snug">
+                  {testResult.ok
+                    ? 'Conexão validada com sucesso!'
+                    : 'Atenção na validação de credenciais'}
+                </span>
+                <p className="text-xs leading-relaxed opacity-95">{testResult.message}</p>
+                {!testResult.ok && (
+                  <div className="pt-1.5 text-[11px] text-rose-800/90 border-t border-rose-200/60 mt-1.5 space-y-1">
+                    <p className="font-semibold text-rose-900">💡 Como resolver:</p>
+                    <ul className="list-disc list-inside space-y-0.5 pl-1">
+                      <li>
+                        Acesse o{' '}
+                        <a
+                          href="https://www.mercadopago.com.br/developers/panel/app"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="underline font-bold hover:text-rose-950"
+                        >
+                          Painel do Mercado Pago Developers
+                        </a>{' '}
+                        e abra a aplicação correspondente (ex: <em>Loja Infoprecobaixo</em>).
+                      </li>
+                      <li>
+                        No menu lateral esquerdo, vá em <strong>Credenciais de produção</strong>.
+                      </li>
+                      <li>
+                        Certifique-se de que clicou no botão{' '}
+                        <strong>Ativar credenciais de produção</strong> (preenchendo categoria e
+                        site).
+                      </li>
+                      <li>
+                        Copie novamente o <strong>Access Token</strong> (que inicia com{' '}
+                        <code>APP_USR-</code>) e cole acima sem espaços extras.
+                      </li>
+                      <li>
+                        Lembre-se de clicar em <strong>Salvar</strong> no topo deste card para
+                        persistir os dados no sistema.
+                      </li>
+                    </ul>
+                  </div>
+                )}
+              </div>
             </div>
 
             {testResult.ok && testResult.data && (
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 font-mono text-[11px] text-emerald-900 border-t border-emerald-200/60 mt-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 font-mono text-[11px] text-emerald-900 border-t border-emerald-200/80 mt-2">
                 <div>
-                  <span className="text-emerald-700 block text-[10px]">ID do Usuário:</span>
+                  <span className="text-emerald-700 block text-[10px] uppercase font-sans font-semibold">
+                    ID do Usuário:
+                  </span>
                   <span>{testResult.data.id}</span>
                 </div>
                 <div>
-                  <span className="text-emerald-700 block text-[10px]">Apelido / Loja:</span>
+                  <span className="text-emerald-700 block text-[10px] uppercase font-sans font-semibold">
+                    Apelido / Loja:
+                  </span>
                   <span>{testResult.data.nickname || '—'}</span>
                 </div>
                 <div>
-                  <span className="text-emerald-700 block text-[10px]">Titular:</span>
+                  <span className="text-emerald-700 block text-[10px] uppercase font-sans font-semibold">
+                    Titular:
+                  </span>
                   <span>
                     {[testResult.data.first_name, testResult.data.last_name]
                       .filter(Boolean)
@@ -332,7 +397,9 @@ export function MercadoPagoConfigCard() {
                   </span>
                 </div>
                 <div>
-                  <span className="text-emerald-700 block text-[10px]">País / Site:</span>
+                  <span className="text-emerald-700 block text-[10px] uppercase font-sans font-semibold">
+                    País / Site:
+                  </span>
                   <span>{testResult.data.site_id || 'MLB (Brasil)'}</span>
                 </div>
               </div>
