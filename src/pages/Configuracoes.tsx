@@ -5,7 +5,18 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { useAuth } from '@/contexts/AuthContext'
-import { User, ShieldCheck, Mail, Database, Server, CheckCircle2, Lock } from 'lucide-react'
+import {
+  User,
+  ShieldCheck,
+  Mail,
+  Database,
+  Server,
+  CheckCircle2,
+  Lock,
+  Send,
+  Megaphone,
+} from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { MercadoLivreConfigCard } from '@/components/MercadoLivreConfigCard'
 
 export default function Configuracoes() {
@@ -88,6 +99,48 @@ export default function Configuracoes() {
 
       {/* Integração Mercado Livre */}
       <MercadoLivreConfigCard />
+
+      {/* Integração Marketing Automatizado & WhatsApp Meta */}
+      <Card className="border-emerald-200/80 shadow-xs bg-gradient-to-b from-emerald-50/20 to-white">
+        <CardHeader className="border-b border-emerald-100/60 pb-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center shadow-xs">
+                <Send className="w-4 h-4" />
+              </div>
+              <div>
+                <CardTitle className="text-base font-bold text-slate-900">
+                  Marketing Automatizado & WhatsApp Meta Cloud API
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Disparos diretos para revendedores, gestão de contatos e conexão oficial com a
+                  Meta
+                </CardDescription>
+              </div>
+            </div>
+
+            <Link to="/marketing">
+              <Button
+                size="sm"
+                className="text-xs h-8 bg-emerald-600 hover:bg-emerald-700 text-white font-medium gap-1.5"
+              >
+                <Megaphone className="w-3.5 h-3.5" />
+                Acessar Módulo de Marketing
+              </Button>
+            </Link>
+          </div>
+        </CardHeader>
+        <CardContent className="p-4 text-xs text-slate-600 space-y-2">
+          <p>
+            Configure seu <strong>META_WA_TOKEN</strong>, <strong>ID do Número WhatsApp</strong> e{' '}
+            <strong>Instagram Graph API</strong> na aba dedicada de configurações do Marketing.
+          </p>
+          <div className="flex items-center gap-2 pt-1 text-emerald-800 font-semibold">
+            <span>Número oficial cadastrado:</span>
+            <span className="font-mono bg-emerald-100 px-2 py-0.5 rounded">(31) 99231-0866</span>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Database & Integrations Status */}
       <Card className="border-slate-200 shadow-sm">

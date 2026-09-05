@@ -19,6 +19,7 @@ import {
   ShoppingBag,
   Instagram,
   Building2,
+  Megaphone,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -47,6 +48,7 @@ export default function Layout() {
     { title: 'Lotes de Entrada', path: '/lotes-entrada', icon: Boxes },
     { title: 'Lucratividade Lotes', path: '/lucratividade', icon: SlidersHorizontal },
     { title: 'Catálogo de Notebooks', path: '/produtos', icon: Package },
+    { title: 'Marketing', path: '/marketing', icon: Megaphone },
     { title: 'Anúncios ML', path: '/anuncios-ml', icon: ShoppingBag },
     { title: 'Post Insta', path: '/post-instagram', icon: Instagram },
     { title: 'Cotações Corporativas', path: '/cotacoes', icon: Building2 },
@@ -64,6 +66,7 @@ export default function Layout() {
     if (p.startsWith('/lotes-entrada/')) return 'Detalhes do Lote de Entrada'
     if (p.startsWith('/lotes-entrada')) return 'Lotes de Entrada'
     if (p.startsWith('/vendas')) return 'Gestão de Vendas'
+    if (p.startsWith('/marketing')) return 'Módulo de Marketing Automatizado'
     if (p.startsWith('/anuncios-ml')) return 'Anúncios Mercado Livre (Visualização)'
     if (p.startsWith('/post-instagram')) return 'Estúdio de Post para Instagram'
     if (p.startsWith('/cotacoes')) return 'Cotações Corporativas & Lotes'
@@ -343,6 +346,18 @@ export default function Layout() {
           >
             <Package className="w-4 h-4" />
             Catálogo
+          </NavLink>
+          <NavLink
+            to="/marketing"
+            className={({ isActive }) =>
+              cn(
+                'flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-2 rounded',
+                isActive ? 'text-emerald-600 font-bold' : 'text-slate-500',
+              )
+            }
+          >
+            <Megaphone className="w-4 h-4" />
+            Marketing
           </NavLink>
           <NavLink
             to="/post-instagram"

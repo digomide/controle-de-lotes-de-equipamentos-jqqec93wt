@@ -23,6 +23,7 @@ import LoteInventariar from './pages/LoteInventariar'
 import LojaCorporativo from './pages/LojaCorporativo'
 import PostInstagram from './pages/PostInstagram'
 import CotacoesCorporativas from './pages/CotacoesCorporativas'
+import Marketing from './pages/Marketing'
 import { AuthProvider } from './contexts/AuthContext'
 import { ProtectedRoute } from './components/ProtectedRoute'
 
@@ -63,6 +64,7 @@ const App = () => (
             <Route path="/lotes-entrada/:id/inventariar" element={<LoteInventariar />} />
             <Route path="/lotes/:id" element={<CatalogoDetalhe />} />
             <Route path="/ajustes" element={<Ajustes />} />
+            <Route path="/marketing" element={<Marketing />} />
             <Route path="/post-instagram" element={<PostInstagram />} />
             <Route path="/cotacoes" element={<CotacoesCorporativas />} />
             <Route path="/configuracoes" element={<Configuracoes />} />

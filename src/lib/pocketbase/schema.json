@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-05T09:15:54.523Z",
+  "generatedAt": "2026-09-05T09:34:19.860Z",
   "collections": [
     {
       "name": "users",
@@ -1240,6 +1240,345 @@
       "indexes": [
         "CREATE INDEX idx_corporate_leads_status ON corporate_leads (status)",
         "CREATE INDEX idx_corporate_leads_created ON corporate_leads (created DESC)"
+      ]
+    },
+    {
+      "name": "marketing_settings",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "meta_wa_token",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "meta_wa_phone_number_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "meta_wa_business_account_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "instagram_user_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "instagram_token",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "sender_phone_display",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "marketing_contacts",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "phone",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "tipo",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["revendedor", "cliente", "corporativo"]
+        },
+        {
+          "name": "tags",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "source",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["manual", "import", "compra", "cotacao"]
+        },
+        {
+          "name": "opt_in",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "last_sent_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["ativo", "inativo"]
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_marketing_contacts_phone ON marketing_contacts (phone)",
+        "CREATE INDEX idx_marketing_contacts_tipo ON marketing_contacts (tipo)",
+        "CREATE INDEX idx_marketing_contacts_status ON marketing_contacts (status)",
+        "CREATE INDEX idx_marketing_contacts_created ON marketing_contacts (created DESC)"
+      ]
+    },
+    {
+      "name": "marketing_campaigns",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "channel",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["whatsapp", "instagram", "ambos"]
+        },
+        {
+          "name": "template_key",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "product_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "products"
+        },
+        {
+          "name": "batch_notice",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "message_body",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "audience_filter",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["rascunho", "agendada", "enviando", "pausada", "concluida", "erro"]
+        },
+        {
+          "name": "scheduled_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "stats",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_marketing_campaigns_status ON marketing_campaigns (status)",
+        "CREATE INDEX idx_marketing_campaigns_scheduled ON marketing_campaigns (scheduled_at)",
+        "CREATE INDEX idx_marketing_campaigns_created ON marketing_campaigns (created DESC)"
+      ]
+    },
+    {
+      "name": "marketing_messages",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "campaign_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "marketing_campaigns"
+        },
+        {
+          "name": "contact_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "marketing_contacts"
+        },
+        {
+          "name": "phone",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "body_final",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "wa_message_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["pendente", "enviado", "entregue", "lido", "falhou", "sem_credencial"]
+        },
+        {
+          "name": "error",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "sent_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_marketing_messages_camp ON marketing_messages (campaign_id)",
+        "CREATE INDEX idx_marketing_messages_contact ON marketing_messages (contact_id)",
+        "CREATE INDEX idx_marketing_messages_status ON marketing_messages (status)",
+        "CREATE INDEX idx_marketing_messages_created ON marketing_messages (created DESC)"
       ]
     }
   ]

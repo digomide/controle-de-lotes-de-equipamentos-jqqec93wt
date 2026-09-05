@@ -271,10 +271,27 @@ export default function PostInstagram() {
           </div>
         </div>
 
-        {/* Info Loja / WhatsApp */}
-        <div className="flex items-center gap-2 text-xs bg-emerald-50 text-emerald-800 px-3 py-2 rounded-lg border border-emerald-200">
-          <span className="font-semibold">WhatsApp da loja:</span>
-          <span>{STORE_CONFIG.whatsappDisplay}</span>
+        {/* Info Loja / WhatsApp e Atalho Fila Diária */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const queueSection = document.getElementById('fila-instagram-section')
+              if (queueSection) {
+                queueSection.scrollIntoView({ behavior: 'smooth' })
+              }
+            }}
+            className="text-xs h-8 border-rose-200 text-rose-700 bg-rose-50 hover:bg-rose-100 font-semibold gap-1.5"
+          >
+            <Calendar className="w-3.5 h-3.5 text-rose-600" />
+            Ir para fila diária do Instagram
+          </Button>
+
+          <div className="flex items-center gap-2 text-xs bg-emerald-50 text-emerald-800 px-3 py-1.5 rounded-lg border border-emerald-200">
+            <span className="font-semibold">WhatsApp da loja:</span>
+            <span>{STORE_CONFIG.whatsappDisplay}</span>
+          </div>
         </div>
       </div>
 
@@ -644,7 +661,7 @@ export default function PostInstagram() {
           )}
 
           {/* Calendário e Fila de Publicações */}
-          <Card className="shadow-xs border-slate-200">
+          <Card id="fila-instagram-section" className="shadow-xs border-slate-200 scroll-mt-20">
             <CardHeader className="p-4 sm:p-5 border-b border-slate-100 flex flex-row items-center justify-between">
               <div>
                 <CardTitle className="text-sm sm:text-base font-bold flex items-center gap-2">
