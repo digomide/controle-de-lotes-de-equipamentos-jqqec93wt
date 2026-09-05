@@ -19,7 +19,7 @@ onRecordAfterCreateSuccess((e) => {
   const productId = rec.getString('product_id') || ''
   const price = rec.getInt('price') || 0
   const quantity = rec.getInt('quantity') || 1
-  const domainId = rec.getString('domain_id') || 'MLB-NOTEBOOKS'
+  const domainId = rec.getString('domain_id') || ''
   const customCondition = rec.getString('condition') || ''
 
   // 1. Obter token ML e configurações
@@ -298,30 +298,53 @@ onRecordAfterCreateSuccess((e) => {
 
         const resStr = JSON.stringify(resJson)
 
-        // RETRY / FALLBACK AUTOMÁTICO:
+        // RETRY / FALLBACK AUTOMÁTICO DINÂMICO PARA QUALQUER CATEGORIA:
         // Se a tentativa foi com 'refurbished' e o ML recusou por condição não suportada na categoria
         // (ex: "Category MLB1652 for channel marketplace only supports conditions: [used, new, not_specified]")
-        // ou item.condition.invalid que lista used como suportado,
-        // retentamos automaticamente com a condição "used" antes de registrar erro!
+        // lemos da resposta do ML qual condição a categoria aceita e usamos a melhor opção (used > not_specified > new)
         const isConditionInvalid =
           resStr.indexOf('item.condition.invalid') >= 0 ||
           resStr.indexOf('only supports conditions') >= 0
         const isRefurbishedAttempt = payloadToSend.condition === 'refurbished'
 
         if (isRefurbishedAttempt && isConditionInvalid) {
+          // Extrair condições suportadas informadas pelo ML
+          let chosenFallbackCondition = 'used' // padrão preferido
+          const matchSup = resStr.match(/only supports conditions:\s*\[(.*?)\]/)
+          if (matchSup && matchSup[1]) {
+            const rawSup = matchSup[1].split(',').map(function (c) {
+              return c
+                .replace(/["'\[\]]/g, '')
+                .trim()
+                .toLowerCase()
+            })
+            if (rawSup.indexOf('used') >= 0) {
+              chosenFallbackCondition = 'used'
+            } else if (rawSup.indexOf('not_specified') >= 0) {
+              chosenFallbackCondition = 'not_specified'
+            } else if (rawSup.indexOf('new') >= 0) {
+              chosenFallbackCondition = 'new'
+            }
+          }
+
+          const fallbackVarName = 'fallback_auto_' + chosenFallbackCondition
           const alreadyQueuedFallback = variationsToTry.some(function (v) {
-            return v.name === 'fallback_auto_used'
+            return v.name === fallbackVarName
           })
           if (!alreadyQueuedFallback) {
             console.log(
               '[ml_catalog_publish] Detectada recusa de refurbished pelo ML para ' +
                 catalogProductId +
-                '. Enfileirando retentativa automática com condição "used"...',
+                ' (categoria ' +
+                categoryId +
+                '). Enfileirando retentativa automática com condição "' +
+                chosenFallbackCondition +
+                '"...',
             )
             const fallbackPayload = JSON.parse(JSON.stringify(payloadToSend))
-            fallbackPayload.condition = 'used'
+            fallbackPayload.condition = chosenFallbackCondition
             variationsToTry.push({
-              name: 'fallback_auto_used',
+              name: fallbackVarName,
               payload: fallbackPayload,
               fallbackFrom: 'refurbished',
             })
@@ -360,9 +383,24 @@ onRecordAfterCreateSuccess((e) => {
     rec.set('result_data', finalResponse)
 
     // Se houve fallback automático de condição com sucesso, registrar mensagem informativa
-    if (fallbackFromCondition && successfulPayload && successfulPayload.condition === 'used') {
+    if (
+      fallbackFromCondition &&
+      successfulPayload &&
+      successfulPayload.condition !== fallbackFromCondition
+    ) {
+      const condTransMap = {
+        used: 'Usado',
+        not_specified: 'Não especificado',
+        new: 'Novo',
+      }
+      const appliedLabel = condTransMap[successfulPayload.condition] || successfulPayload.condition
+      const catCodeText = categoryId ? ' (categoria ' + categoryId + ')' : ''
       const fallbackNote =
-        'Recusado como "Recondicionado" (não suportado na categoria MLB1652 do ML), republicado automaticamente como "Usado" com sucesso.'
+        'Recusado como "Recondicionado" pelo ML' +
+        catCodeText +
+        ', republicado automaticamente como "' +
+        appliedLabel +
+        '" com sucesso.'
       rec.set('error_message', fallbackNote)
       console.log('[ml_catalog_publish] ' + fallbackNote + ' ID: ' + listingId)
     } else {
@@ -441,7 +479,7 @@ onRecordAfterCreateSuccess((e) => {
       userMsg = 'Campos inválidos enviados ao Mercado Livre para este anúncio de catálogo.'
     } else if (rawErrorStr.indexOf('item_not_new_nor_refurbished') >= 0) {
       userMsg =
-        'Esta posição de catálogo exige condição Novo ou Recondicionado oficial. Posições de notebooks no canal marketplace aceitam "Novo" ou "Usado" (a categoria MLB1652 não aceita recondicionado no catálogo).'
+        'Esta posição de catálogo exige condição Novo ou Recondicionado oficial. Posições desta categoria no canal marketplace aceitam apenas as condições elegíveis (ex: Novo ou Usado).'
     } else if (errBody.message) {
       userMsg = errBody.message
     }
@@ -545,17 +583,22 @@ onRecordAfterCreateSuccess((e) => {
             supportedConds = c.message || 'Novo ou Usado'
           }
 
+          const catInfoStr = categoryId ? ' (categoria ' + categoryId + ')' : ''
           let msg =
             'O Mercado Livre não aceita a condição "' +
             condLabelPt +
-            '" para notebooks (categoria MLB1652). Condições aceitas pelo ML nesta categoria: ' +
+            '" para produtos desta categoria' +
+            catInfoStr +
+            '. Condições aceitas pelo ML nesta categoria: ' +
             supportedConds +
             '.'
 
           if (fallbackFromCondition) {
-            msg += ' Tentativa automática com "Usado" também não foi aceita nesta posição.'
+            msg +=
+              ' Tentativa de fallback automático com a condição suportada também foi recusada pela posição do catálogo.'
           } else {
-            msg += ' Utilize a condição "Usado" e destaque "Excelente" na descrição/fotos.'
+            msg +=
+              ' Utilize a condição "Usado" e destaque as características de recondicionado na descrição/fotos.'
           }
           return msg
         }

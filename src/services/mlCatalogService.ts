@@ -82,15 +82,12 @@ export const mlCatalogService = {
   /**
    * Dispara busca assíncrona no catálogo do ML via fila (ml_catalog_search_jobs)
    */
-  async searchCatalog(
-    query: string,
-    domainId: string = 'MLB-NOTEBOOKS',
-  ): Promise<MLCatalogSearchJob> {
+  async searchCatalog(query: string, domainId: string = ''): Promise<MLCatalogSearchJob> {
     const userId = pb.authStore.model?.id || null
     try {
       const job = await pb.collection('ml_catalog_search_jobs').create({
         query: query.trim(),
-        domain_id: domainId.trim() || 'MLB-NOTEBOOKS',
+        domain_id: (domainId || '').trim(),
         status: 'pending',
         requested_by: userId,
       })
@@ -162,7 +159,7 @@ export const mlCatalogService = {
       product_id: payload.product_id || null,
       price: Math.max(1, Math.round(payload.price)),
       quantity: Math.max(1, Math.round(payload.quantity)),
-      domain_id: payload.domain_id || 'MLB-NOTEBOOKS',
+      domain_id: payload.domain_id || '',
       condition: payload.condition || 'used',
       status: 'pending',
       requested_by: userId,

@@ -29,7 +29,9 @@ onRecordAfterCreateSuccess((e) => {
   appId.save(rec)
 
   const queryRaw = (rec.getString('query') || '').trim()
-  const domainId = (rec.getString('domain_id') || 'MLB-NOTEBOOKS').trim()
+  const rawDomain = (rec.getString('domain_id') || '').trim()
+  // Se domain_id for vazio ou 'all', não fixar domínio; caso contrário usar o informado
+  const domainId = rawDomain === 'all' || !rawDomain ? '' : rawDomain
 
   // Função interna para obter ou renovar token ML
   let token = ''
@@ -312,8 +314,11 @@ onRecordAfterCreateSuccess((e) => {
 
     // 2. BUSCA PROFUNDA PAGINADA via /products/search com token
     if (itemsFound.length === 0 && token) {
-      const baseEndpoints = [
-        {
+      const baseEndpoints = []
+
+      // Se tiver domain_id explícito definido pelo usuário, tenta primeiro com ele
+      if (domainId) {
+        baseEndpoints.push({
           name: 'domain_and_query',
           buildUrl: (offset, limit) =>
             'https://api.mercadolibre.com/products/search?status=active&site_id=MLB&domain_id=' +
@@ -324,32 +329,36 @@ onRecordAfterCreateSuccess((e) => {
             limit +
             '&offset=' +
             offset,
-        },
-        {
-          name: 'query_only_active',
-          buildUrl: (offset, limit) =>
-            'https://api.mercadolibre.com/products/search?status=active&site_id=MLB&q=' +
-            encodeURIComponent(queryRaw) +
-            '&limit=' +
-            limit +
-            '&offset=' +
-            offset,
-        },
-        {
-          name: 'query_only_broad',
-          buildUrl: (offset, limit) =>
-            'https://api.mercadolibre.com/products/search?site_id=MLB&q=' +
-            encodeURIComponent(queryRaw) +
-            '&limit=' +
-            limit +
-            '&offset=' +
-            offset,
-        },
-      ]
+        })
+      }
+
+      // Busca ativa geral sem fixar domínio (permite achar iphone, notebook, monitor, etc.)
+      baseEndpoints.push({
+        name: 'query_only_active',
+        buildUrl: (offset, limit) =>
+          'https://api.mercadolibre.com/products/search?status=active&site_id=MLB&q=' +
+          encodeURIComponent(queryRaw) +
+          '&limit=' +
+          limit +
+          '&offset=' +
+          offset,
+      })
+
+      // Busca ampla sem filtro de status caso o active não traga nada
+      baseEndpoints.push({
+        name: 'query_only_broad',
+        buildUrl: (offset, limit) =>
+          'https://api.mercadolibre.com/products/search?site_id=MLB&q=' +
+          encodeURIComponent(queryRaw) +
+          '&limit=' +
+          limit +
+          '&offset=' +
+          offset,
+      })
 
       const PAGE_LIMIT = 50
-      const MAX_TOTAL_CAP = 300
-      const MAX_PAGES = 10
+      const MAX_TOTAL_CAP = 1000
+      const MAX_PAGES = 25
 
       for (let i = 0; i < baseEndpoints.length; i++) {
         const ep = baseEndpoints[i]
@@ -471,8 +480,8 @@ onRecordAfterCreateSuccess((e) => {
             itemsFound.push({
               id: prod.id,
               catalog_product_id: prod.id,
-              title: prod.name || prod.title || '',
-              domain_id: prod.domain_id || domainId,
+              title: (prod.name || prod.title || '').substring(0, 150),
+              domain_id: prod.domain_id || domainId || '',
               permalink: prod.permalink || 'https://www.mercadolivre.com.br/p/' + prod.id,
               thumbnail: thumb,
               buy_box_winner_price: compInfo.buy_box_winner_price,
@@ -761,12 +770,44 @@ onRecordAfterCreateSuccess((e) => {
         strategyUsed,
     )
 
+    // Função para sanitizar e compactar itens mantendo tudo que a UI precisa
+    function sanitizeForDatabase(items, level) {
+      return items.map(function (item) {
+        const base = {
+          id: item.id,
+          catalog_product_id: item.catalog_product_id,
+          title: (item.title || '').substring(0, 130),
+          domain_id: item.domain_id || '',
+          permalink:
+            item.permalink || 'https://www.mercadolivre.com.br/p/' + item.catalog_product_id,
+          thumbnail: item.thumbnail || '',
+          buy_box_winner_price: item.buy_box_winner_price,
+          min_price: item.min_price,
+          buy_box_winner_stock: item.buy_box_winner_stock,
+          stock_status: item.stock_status,
+          competition_status: item.competition_status,
+          condition: item.condition || 'new',
+          condition_label: item.condition_label || 'Novo',
+          status: item.status || 'active',
+        }
+        if (level === 1) {
+          // Mantém BRAND e MODEL apenas se existirem
+          base.attributes = (item.attributes || []).filter(function (a) {
+            return a.id === 'BRAND' || a.id === 'MODEL'
+          })
+        } else {
+          base.attributes = []
+        }
+        return base
+      })
+    }
+
     // Gravação resiliente com quedas graduais de payload para NUNCA estourar limite do banco de dados
     let saveSuccess = false
-    let currentPayload = itemsFound
+    let currentPayload = sanitizeForDatabase(itemsFound, 1)
     let attempt = 1
 
-    while (!saveSuccess && attempt <= 4) {
+    while (!saveSuccess && attempt <= 5) {
       try {
         rec.set('status', 'done')
         rec.set('status_code', 200)
@@ -774,7 +815,7 @@ onRecordAfterCreateSuccess((e) => {
         rec.set('results', currentPayload)
         rec.set('progress_text', finalProgressMsg)
         rec.set('paging', pagingSummary)
-        const trimmedDebug = debugLog.length > 50 ? debugLog.slice(-50) : debugLog
+        const trimmedDebug = debugLog.length > 40 ? debugLog.slice(-40) : debugLog
         rec.set('raw_debug', trimmedDebug)
         appId.save(rec)
         saveSuccess = true
@@ -791,54 +832,19 @@ onRecordAfterCreateSuccess((e) => {
         )
 
         if (attempt === 2) {
-          // Fallback 1: remover atributos extensos
-          currentPayload = currentPayload.map(function (item) {
-            return {
-              id: item.id,
-              catalog_product_id: item.catalog_product_id,
-              title: item.title,
-              domain_id: item.domain_id,
-              permalink:
-                item.permalink || 'https://www.mercadolivre.com.br/p/' + item.catalog_product_id,
-              thumbnail: item.thumbnail,
-              buy_box_winner_price: item.buy_box_winner_price,
-              min_price: item.min_price,
-              buy_box_winner_stock: item.buy_box_winner_stock,
-              stock_status: item.stock_status,
-              competition_status: item.competition_status,
-              attributes: (item.attributes || []).filter(function (a) {
-                return a.id === 'BRAND' || a.id === 'MODEL'
-              }),
-              condition: item.condition || 'new',
-              condition_label: item.condition_label || 'Novo',
-              status: item.status || 'active',
-              source: item.source || 'ml_products_search',
-            }
-          })
+          // Fallback 1: retirar attributes dos 1000 itens
+          currentPayload = sanitizeForDatabase(itemsFound, 2)
         } else if (attempt === 3) {
-          // Fallback 2: limitar a 150 itens mais relevantes
-          currentPayload = currentPayload.slice(0, 150)
+          // Fallback 2: limitar a 600 itens sanitizados
+          currentPayload = sanitizeForDatabase(itemsFound.slice(0, 600), 2)
           pagingSummary.items_count = currentPayload.length
         } else if (attempt === 4) {
-          // Fallback 3: limitar a 75 itens enxutos
-          currentPayload = currentPayload.slice(0, 75).map(function (item) {
-            return {
-              id: item.id,
-              catalog_product_id: item.catalog_product_id,
-              title: item.title,
-              domain_id: item.domain_id,
-              permalink: 'https://www.mercadolivre.com.br/p/' + item.catalog_product_id,
-              thumbnail: item.thumbnail,
-              buy_box_winner_price: item.buy_box_winner_price,
-              min_price: item.min_price,
-              buy_box_winner_stock: item.buy_box_winner_stock,
-              stock_status: item.stock_status,
-              attributes: [],
-              condition: item.condition || 'new',
-              condition_label: item.condition_label || 'Novo',
-              status: 'active',
-            }
-          })
+          // Fallback 3: limitar a 350 itens
+          currentPayload = sanitizeForDatabase(itemsFound.slice(0, 350), 2)
+          pagingSummary.items_count = currentPayload.length
+        } else if (attempt === 5) {
+          // Fallback 4: limitar a 150 itens ultra-enxutos
+          currentPayload = sanitizeForDatabase(itemsFound.slice(0, 150), 2)
           pagingSummary.items_count = currentPayload.length
         }
       }
