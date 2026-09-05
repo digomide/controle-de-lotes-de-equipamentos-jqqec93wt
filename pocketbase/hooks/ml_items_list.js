@@ -1,8 +1,18 @@
-// Endpoint para listar anúncios do vendedor conectado no Mercado Livre (somente leitura)
-// Route: GET /api/ml/items
-// Reusa o padrão de renovação de access_token de ml_settings inline (isolamento de VM Goja)
+// Hook acionado imediatamente após a criação de um registro em ml_ads_fetch_jobs
+// Executa a busca de anúncios na API oficial do Mercado Livre via $http.send
+// e salva o resultado no próprio registro do job.
+// Tudo inline dentro do callback para respeitar o isolamento da VM Goja do PocketBase v0.36.
 
-routerAdd('GET', '/api/ml/items', (e) => {
+onRecordAfterCreateSuccess((e) => {
+  const job = e.record
+  if (!job || job.getString('status') !== 'pending') {
+    e.next()
+    return
+  }
+
+  job.set('status', 'processing')
+  $app.save(job)
+
   // 1. Carregar ml_settings
   let settings = null
   try {
@@ -11,14 +21,16 @@ routerAdd('GET', '/api/ml/items', (e) => {
       settings = sRecords[0]
     }
   } catch (err) {
-    console.log('[ml_items_list] Erro ao carregar ml_settings: ' + err)
+    console.log('[ml_ads_fetch_job] Erro ao carregar ml_settings: ' + err)
   }
 
   if (!settings) {
-    return e.json(404, {
-      error: 'Configurações do Mercado Livre não encontradas.',
-      connected: false,
-    })
+    job.set('status', 'error')
+    job.set('status_code', 404)
+    job.set('error_message', 'Configurações do Mercado Livre não encontradas no sistema.')
+    $app.save(job)
+    e.next()
+    return
   }
 
   let accessToken = settings.getString('access_token')
@@ -30,10 +42,15 @@ routerAdd('GET', '/api/ml/items', (e) => {
   const nickname = settings.getString('nickname')
 
   if (!accessToken || !userIdMl) {
-    return e.json(401, {
-      error: 'Mercado Livre não está conectado ou falta identificação de vendedor.',
-      connected: false,
-    })
+    job.set('status', 'error')
+    job.set('status_code', 401)
+    job.set(
+      'error_message',
+      'Mercado Livre não está conectado ou falta identificação do vendedor. Conecte sua conta em Configurações.',
+    )
+    $app.save(job)
+    e.next()
+    return
   }
 
   // 2. Renovar token se necessário (expirando nos próximos 5 minutos)
@@ -70,39 +87,39 @@ routerAdd('GET', '/api/ml/items', (e) => {
         settings.set('refresh_token', newRef)
         settings.set('token_expires_at', newExpDate)
         $app.save(settings)
-        console.log('[ml_items_list] Token renovado com sucesso para seller ' + userIdMl)
+        console.log('[ml_ads_fetch_job] Token renovado com sucesso para seller ' + userIdMl)
       } else {
         console.log(
-          '[ml_items_list] Falha ao renovar token (HTTP ' +
+          '[ml_ads_fetch_job] Falha ao renovar token (HTTP ' +
             refRes.statusCode +
             '): ' +
             JSON.stringify(refRes.json),
         )
       }
     } catch (rErr) {
-      console.log('[ml_items_list] Erro ao renovar token ML: ' + rErr)
+      console.log('[ml_ads_fetch_job] Erro ao renovar token ML: ' + rErr)
     }
   }
 
-  // 3. Chamar API do ML para buscar IDs de anúncios do vendedor
-  // Endpoint oficial: GET /users/{user_id}/items/search?search_type=scan&limit=50
-  // Também suporta paginação / status filter via query params se enviados
-  const rawLimit = (e.request.url.query().get('limit') || '50').trim()
-  const rawStatus = (e.request.url.query().get('status') || '').trim() // active, paused, closed
-  const rawOffset = (e.request.url.query().get('offset') || '0').trim()
+  // 3. Montar chamada de busca de itens do vendedor
+  const limitVal = job.getInt('limit') || 50
+  const offsetVal = job.getInt('offset') || 0
+  const statusFilter = (job.getString('status_filter') || '').trim()
 
   let searchUrl =
     'https://api.mercadolibre.com/users/' +
     userIdMl +
     '/items/search?search_type=scan&limit=' +
-    encodeURIComponent(rawLimit)
+    encodeURIComponent(String(limitVal))
 
-  if (rawOffset && rawOffset !== '0') {
-    searchUrl += '&offset=' + encodeURIComponent(rawOffset)
+  if (offsetVal > 0) {
+    searchUrl += '&offset=' + encodeURIComponent(String(offsetVal))
   }
-  if (rawStatus) {
-    searchUrl += '&status=' + encodeURIComponent(rawStatus)
+  if (statusFilter) {
+    searchUrl += '&status=' + encodeURIComponent(statusFilter)
   }
+
+  console.log('[ml_ads_fetch_job] Consultando itens ML: ' + searchUrl)
 
   let searchRes = null
   try {
@@ -116,51 +133,71 @@ routerAdd('GET', '/api/ml/items', (e) => {
       timeout: 25,
     })
   } catch (sErr) {
-    console.log('[ml_items_list] Erro de rede ao buscar itens: ' + sErr)
-    return e.json(502, {
-      error:
-        'Falha de comunicação ao conectar com a API do Mercado Livre: ' + (sErr.message || sErr),
-    })
+    const netMsg = sErr.message || String(sErr)
+    console.log('[ml_ads_fetch_job] Erro de rede ao buscar itens: ' + netMsg)
+    job.set('status', 'error')
+    job.set('status_code', 502)
+    job.set(
+      'error_message',
+      'Falha de comunicação ao conectar com a API do Mercado Livre: ' + netMsg,
+    )
+    $app.save(job)
+    e.next()
+    return
   }
 
   if (searchRes.statusCode === 401 || searchRes.statusCode === 403) {
-    return e.json(401, {
-      error:
-        'Token do Mercado Livre expirado ou sem permissão. Reconecte a conta em Configurações.',
-      statusCode: searchRes.statusCode,
-      raw: searchRes.json,
-    })
+    job.set('status', 'error')
+    job.set('status_code', searchRes.statusCode)
+    job.set(
+      'error_message',
+      'Token do Mercado Livre expirado ou sem permissão. Reconecte a conta em Configurações.',
+    )
+    $app.save(job)
+    e.next()
+    return
   }
 
   if (searchRes.statusCode >= 400) {
     const errJson = searchRes.json || {}
-    return e.json(searchRes.statusCode, {
-      error:
-        errJson.message ||
-        errJson.error_description ||
-        errJson.error ||
-        'Erro ao consultar anúncios do vendedor no Mercado Livre.',
-      raw: errJson,
-    })
+    const errMsg =
+      errJson.message ||
+      errJson.error_description ||
+      errJson.error ||
+      'Erro ao consultar anúncios do vendedor no Mercado Livre.'
+    job.set('status', 'error')
+    job.set('status_code', searchRes.statusCode)
+    job.set('error_message', errMsg)
+    $app.save(job)
+    e.next()
+    return
   }
 
   const searchData = searchRes.json || {}
   const itemIds = Array.isArray(searchData.results) ? searchData.results : []
-  const paging = searchData.paging || { total: itemIds.length, offset: 0, limit: itemIds.length }
+  const paging = searchData.paging || {
+    total: itemIds.length,
+    offset: offsetVal,
+    limit: itemIds.length,
+  }
 
   if (itemIds.length === 0) {
-    return e.json(200, {
-      seller_id: userIdMl,
-      seller_nickname: nickname,
-      paging: paging,
-      items: [],
-      total: 0,
-    })
+    job.set('status', 'done')
+    job.set('status_code', 200)
+    job.set('seller_id', userIdMl)
+    job.set('seller_nickname', nickname)
+    job.set('items_count', 0)
+    job.set('paging', paging)
+    job.set('items', [])
+    job.set('error_message', '')
+    $app.save(job)
+    console.log('[ml_ads_fetch_job] Concluído: 0 itens encontrados.')
+    e.next()
+    return
   }
 
   // 4. Detalhes dos itens via multiget: GET /items?ids=MLB1,MLB2,...
   // O Mercado Livre permite até 20 IDs por multiget no /items?ids=
-  // Para 50 itens, fazemos lotes de até 20
   const detailedItems = []
   const batchSize = 20
 
@@ -188,7 +225,7 @@ routerAdd('GET', '/api/ml/items', (e) => {
           if (entry && entry.code === 200 && entry.body) {
             const body = entry.body
 
-            // Extrair GTIN dos atributos se existir
+            // Extrair GTIN e atributos principais
             let gtin = ''
             let brand = ''
             let model = ''
@@ -203,7 +240,7 @@ routerAdd('GET', '/api/ml/items', (e) => {
               }
             }
 
-            // Foto principal de melhor resolução se houver
+            // Foto principal com melhor resolução
             let primaryPicture = body.thumbnail || ''
             if (Array.isArray(body.pictures) && body.pictures.length > 0) {
               const pic0 = body.pictures[0]
@@ -220,7 +257,7 @@ routerAdd('GET', '/api/ml/items', (e) => {
               available_quantity: body.available_quantity,
               sold_quantity: body.sold_quantity || 0,
               condition: body.condition,
-              status: body.status, // active, paused, closed
+              status: body.status,
               permalink: body.permalink,
               thumbnail: primaryPicture || body.thumbnail,
               pictures_count: Array.isArray(body.pictures) ? body.pictures.length : 0,
@@ -236,15 +273,99 @@ routerAdd('GET', '/api/ml/items', (e) => {
         }
       }
     } catch (mErr) {
-      console.log('[ml_items_list] Erro no multiget de itens: ' + mErr)
+      console.log('[ml_ads_fetch_job] Erro no multiget de itens: ' + mErr)
     }
   }
 
-  return e.json(200, {
-    seller_id: userIdMl,
-    seller_nickname: nickname,
-    paging: paging,
-    items: detailedItems,
-    total: detailedItems.length,
-  })
+  job.set('status', 'done')
+  job.set('status_code', 200)
+  job.set('seller_id', userIdMl)
+  job.set('seller_nickname', nickname)
+  job.set('items_count', detailedItems.length)
+  job.set('paging', paging)
+  job.set('items', detailedItems)
+  job.set('error_message', '')
+  $app.save(job)
+  console.log(
+    '[ml_ads_fetch_job] Busca concluída com sucesso! Total de itens carregados: ' +
+      detailedItems.length,
+  )
+
+  e.next()
+}, 'ml_ads_fetch_jobs')
+
+// Mantém endpoint HTTP legado em routerAdd caso o runtime passe a suportar rotas personalizadas
+routerAdd('GET', '/api/ml/items', (e) => {
+  let settings = null
+  try {
+    const sRecords = $app.findRecordsByFilter('ml_settings', '1=1', '-created', 1, 0)
+    if (sRecords && sRecords.length > 0) {
+      settings = sRecords[0]
+    }
+  } catch (err) {
+    console.log('[ml_items_list] Erro ao carregar ml_settings: ' + err)
+  }
+
+  if (!settings) {
+    return e.json(404, {
+      error: 'Configurações do Mercado Livre não encontradas.',
+      connected: false,
+    })
+  }
+
+  let accessToken = settings.getString('access_token')
+  const refreshToken = settings.getString('refresh_token')
+  const clientId = settings.getString('client_id')
+  const clientSecret = settings.getString('client_secret')
+  const tokenExpiresAt = settings.getString('token_expires_at')
+  const userIdMl = settings.getString('user_id_ml')
+  const nickname = settings.getString('nickname')
+
+  if (!accessToken || !userIdMl) {
+    return e.json(401, {
+      error: 'Mercado Livre não está conectado ou falta identificação de vendedor.',
+      connected: false,
+    })
+  }
+
+  const rawLimit = (e.request.url.query().get('limit') || '50').trim()
+  const rawStatus = (e.request.url.query().get('status') || '').trim()
+  const rawOffset = (e.request.url.query().get('offset') || '0').trim()
+
+  let searchUrl =
+    'https://api.mercadolibre.com/users/' +
+    userIdMl +
+    '/items/search?search_type=scan&limit=' +
+    encodeURIComponent(rawLimit)
+
+  if (rawOffset && rawOffset !== '0') {
+    searchUrl += '&offset=' + encodeURIComponent(rawOffset)
+  }
+  if (rawStatus) {
+    searchUrl += '&status=' + encodeURIComponent(rawStatus)
+  }
+
+  try {
+    const searchRes = $http.send({
+      url: searchUrl,
+      method: 'GET',
+      headers: {
+        Authorization: 'Bearer ' + accessToken,
+        Accept: 'application/json',
+      },
+      timeout: 25,
+    })
+
+    if (searchRes.statusCode >= 400) {
+      return e.json(searchRes.statusCode, searchRes.json || {})
+    }
+
+    return e.json(200, {
+      seller_id: userIdMl,
+      seller_nickname: nickname,
+      items: searchRes.json?.results || [],
+    })
+  } catch (err) {
+    return e.json(500, { error: err.message || String(err) })
+  }
 })

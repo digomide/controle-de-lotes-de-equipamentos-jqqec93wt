@@ -1308,43 +1308,87 @@ export const mlService = {
 
   /**
    * Obtém a lista somente-leitura de anúncios do vendedor autenticado no Mercado Livre
-   * e faz match com produtos existentes no catálogo (por ml_listing_id ou gtin)
+   * e faz match com produtos existentes no catálogo (por ml_listing_id ou gtin).
+   *
+   * Arquitetura resiliente baseada em fila (ml_ads_fetch_jobs):
+   * 1. Cria um registro em `ml_ads_fetch_jobs` com status 'pending'.
+   * 2. O hook server-side `onRecordAfterCreateSuccess` busca os itens na API oficial do Mercado Livre com $http.send
+   *    e salva os detalhes no próprio registro do job.
+   * 3. O frontend faz polling a cada 600ms (timeout de 25s).
+   * 4. Elimina a vulnerabilidade de routerAdd no boot do Skip Cloud (PocketBase v0.36), que causava HTTP 404.
    */
   async getSellerItems(params?: {
     limit?: number
     offset?: number
     status?: string
   }): Promise<MLSellerItemsResult> {
-    const q = new URLSearchParams()
-    if (params?.limit) q.set('limit', String(params.limit))
-    if (params?.offset) q.set('offset', String(params.offset))
-    if (params?.status) q.set('status', params.status)
+    const limit = params?.limit || 50
+    const offset = params?.offset || 0
+    const statusFilter = params?.status || ''
 
-    const queryStr = q.toString() ? `?${q.toString()}` : ''
-    const url = `${pb.baseURL}/api/ml/items${queryStr}`
-
-    const res = await fetch(url, {
-      method: 'GET',
-      headers: {
-        Accept: 'application/json',
-      },
-    })
-
-    const data = await res.json()
-
-    if (!res.ok) {
-      if (res.status === 401) {
-        throw new Error(
-          data.error ||
-            'Sessão com o Mercado Livre expirada. Reconecte sua conta nas Configurações.',
-        )
-      }
+    // 1. Criar job em ml_ads_fetch_jobs
+    let jobRecord: any = null
+    try {
+      jobRecord = await pb.collection('ml_ads_fetch_jobs').create({
+        limit,
+        offset,
+        status_filter: statusFilter,
+        status: 'pending',
+        requested_by: pb.authStore.record?.id || pb.authStore.model?.id || null,
+      })
+    } catch (createErr: any) {
+      console.error('Erro ao criar ml_ads_fetch_jobs:', createErr)
       throw new Error(
-        data.error || `Erro ao carregar anúncios do Mercado Livre (HTTP ${res.status}).`,
+        createErr?.message ||
+          'Não foi possível registrar solicitação de consulta ao Mercado Livre. Verifique sua sessão.',
       )
     }
 
-    const items: MLSellerItem[] = Array.isArray(data.items) ? data.items : []
+    const jobId = jobRecord.id
+
+    // 2. Polling até status === 'done' ou 'error' (timeout 30s)
+    const timeoutMs = 30_000
+    const intervalMs = 600
+    const startTime = Date.now()
+
+    let finalJobData: any = null
+
+    while (Date.now() - startTime < timeoutMs) {
+      await new Promise((r) => setTimeout(r, intervalMs))
+
+      try {
+        const current = await pb.collection('ml_ads_fetch_jobs').getOne(jobId)
+        if (current.status === 'done') {
+          finalJobData = current
+          break
+        }
+        if (current.status === 'error') {
+          const errCode = current.status_code
+          const errMsg = current.error_message || 'Erro ao carregar anúncios do Mercado Livre.'
+          if (errCode === 401 || errCode === 403) {
+            throw new Error(
+              errMsg ||
+                'Sessão com o Mercado Livre expirada. Reconecte sua conta nas Configurações.',
+            )
+          }
+          throw new Error(errMsg)
+        }
+      } catch (pollErr: any) {
+        // Se já for o erro de status='error', propaga
+        if (pollErr.message && !pollErr.status) {
+          throw pollErr
+        }
+      }
+    }
+
+    if (!finalJobData) {
+      throw new Error(
+        'Tempo limite ao aguardar consulta de anúncios do Mercado Livre no servidor. Tente novamente.',
+      )
+    }
+
+    const rawItems = finalJobData.items
+    const items: MLSellerItem[] = Array.isArray(rawItems) ? rawItems : []
 
     // Cruzar com catálogo local (somente leitura) para indicar quais já correspondem a produtos
     try {
@@ -1394,11 +1438,11 @@ export const mlService = {
     }
 
     return {
-      seller_id: data.seller_id || '',
-      seller_nickname: data.seller_nickname || '',
-      paging: data.paging || { total: items.length, offset: 0, limit: items.length },
+      seller_id: finalJobData.seller_id || '',
+      seller_nickname: finalJobData.seller_nickname || '',
+      paging: finalJobData.paging || { total: items.length, offset: 0, limit: items.length },
       items,
-      total: data.total || items.length,
+      total: finalJobData.items_count !== undefined ? finalJobData.items_count : items.length,
     }
   },
 }
