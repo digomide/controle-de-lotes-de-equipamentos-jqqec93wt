@@ -73,6 +73,7 @@ export interface Product extends RecordModel {
   ml_listing_url?: string
   ml_listing_status?: 'active' | 'paused' | 'closed' | string
   ml_published_at?: string
+  catalog_product_id?: string
   expand?: {
     purchase_batch_id?: PurchaseBatch
   }

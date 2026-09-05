@@ -43,6 +43,9 @@ export interface MLSellerItem {
   brand?: string
   model?: string
   line?: string
+  catalog_product_id?: string
+  catalog_listing?: boolean
+  domain_id?: string
   // Dados de correspondência com catálogo local
   matchedProduct?: {
     id: string

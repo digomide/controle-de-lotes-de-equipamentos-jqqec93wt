@@ -206,7 +206,7 @@ onRecordAfterCreateSuccess((e) => {
     const multigetUrl =
       'https://api.mercadolibre.com/items?ids=' +
       slice.join(',') +
-      '&attributes=id,title,price,currency_id,available_quantity,sold_quantity,condition,status,permalink,thumbnail,pictures,attributes,date_created,last_updated,listing_type_id'
+      '&attributes=id,title,price,currency_id,available_quantity,sold_quantity,condition,status,permalink,thumbnail,pictures,attributes,date_created,last_updated,listing_type_id,catalog_product_id,catalog_listing,domain_id'
 
     try {
       const multiRes = $http.send({
@@ -268,6 +268,9 @@ onRecordAfterCreateSuccess((e) => {
               brand: brand,
               model: model,
               line: line,
+              catalog_product_id: body.catalog_product_id || '',
+              catalog_listing: Boolean(body.catalog_listing || body.catalog_product_id),
+              domain_id: body.domain_id || '',
             })
           }
         }
