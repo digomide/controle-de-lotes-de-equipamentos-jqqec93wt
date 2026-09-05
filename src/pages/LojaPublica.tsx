@@ -36,6 +36,9 @@ import {
 import { PublicStoreHeader, PublicStoreFooter } from '@/components/PublicStoreLayout'
 import { STORE_CONFIG, buildWhatsAppLink } from '@/lib/storeConfig'
 import { ZoomableImage } from '@/components/ZoomableImage'
+import { mercadoPagoService } from '@/services/storeOrders'
+import { StoreCheckoutModal } from '@/components/StoreCheckoutModal'
+import { CreditCard } from 'lucide-react'
 import {
   resolveCondition,
   getConditionBadgeStyles,
@@ -59,6 +62,11 @@ export default function LojaPublica() {
   const [maxPrice, setMaxPrice] = useState('')
   const [sortBy, setSortBy] = useState<'featured' | 'price-asc' | 'price-desc' | 'name'>('featured')
 
+  // Estado Mercado Pago & Checkout direto do Card
+  const [mpEnabled, setMpEnabled] = useState(false)
+  const [checkoutProduct, setCheckoutProduct] = useState<Product | null>(null)
+  const [checkoutModalOpen, setCheckoutModalOpen] = useState(false)
+
   // Carregar produtos SOMENTE com status "Disponível"
   const loadPublicProducts = async () => {
     setLoading(true)
@@ -81,6 +89,9 @@ export default function LojaPublica() {
 
   useEffect(() => {
     loadPublicProducts()
+    mercadoPagoService.getPublicConfig().then((cfg) => {
+      setMpEnabled(cfg.enabled)
+    })
   }, [])
 
   // Lista de marcas disponíveis no estoque atual
@@ -691,24 +702,42 @@ export default function LojaPublica() {
                           </div>
 
                           <div className="grid grid-cols-2 gap-2">
-                            <Link to={detailUrl} className="w-full">
+                            {mpEnabled ? (
                               <Button
-                                variant="outline"
-                                className="w-full text-xs h-10 font-bold border-slate-300 text-slate-700 hover:bg-slate-100"
+                                onClick={() => {
+                                  setCheckoutProduct(p)
+                                  setCheckoutModalOpen(true)
+                                }}
+                                className="w-full text-xs h-10 font-bold bg-sky-600 hover:bg-sky-700 text-white gap-1 shadow-xs"
+                                title="Comprar online com Pix ou Cartão"
                               >
-                                Ver Detalhes
+                                <CreditCard className="w-3.5 h-3.5" />
+                                Comprar
                               </Button>
-                            </Link>
+                            ) : (
+                              <Link to={detailUrl} className="w-full">
+                                <Button
+                                  variant="outline"
+                                  className="w-full text-xs h-10 font-bold border-slate-300 text-slate-700 hover:bg-slate-100"
+                                >
+                                  Ver Detalhes
+                                </Button>
+                              </Link>
+                            )}
 
                             <a
                               href={whatsappLink}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="w-full inline-flex items-center justify-center gap-1.5 px-3 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs h-10 shadow-xs transition-colors"
+                              className={`w-full inline-flex items-center justify-center gap-1.5 px-3 rounded-md font-bold text-xs h-10 transition-colors ${
+                                mpEnabled
+                                  ? 'border border-slate-300 bg-white hover:bg-slate-50 text-slate-700'
+                                  : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs'
+                              }`}
                               title="Chamar no WhatsApp"
                             >
-                              <MessageSquare className="w-3.5 h-3.5" />
-                              Negociar
+                              <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+                              WhatsApp
                             </a>
                           </div>
                         </div>
@@ -721,6 +750,16 @@ export default function LojaPublica() {
           </>
         )}
       </main>
+
+      {/* Modal de Checkout Rápido para Compras a partir do Card */}
+      <StoreCheckoutModal
+        product={checkoutProduct}
+        open={checkoutModalOpen}
+        onOpenChange={(open) => {
+          setCheckoutModalOpen(open)
+          if (!open) setCheckoutProduct(null)
+        }}
+      />
 
       <PublicStoreFooter />
     </div>

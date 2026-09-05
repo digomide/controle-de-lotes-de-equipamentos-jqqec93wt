@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { MercadoLivreConfigCard } from '@/components/MercadoLivreConfigCard'
+import { MercadoPagoConfigCard } from '@/components/MercadoPagoConfigCard'
 
 export default function Configuracoes() {
   const { user, isAdmin, logout } = useAuth()
@@ -96,6 +97,9 @@ export default function Configuracoes() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Integração Mercado Pago Checkout Pro */}
+      <MercadoPagoConfigCard />
 
       {/* Integração Mercado Livre */}
       <MercadoLivreConfigCard />

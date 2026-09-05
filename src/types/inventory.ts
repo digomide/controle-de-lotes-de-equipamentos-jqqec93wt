@@ -183,3 +183,42 @@ export interface CorporateLead extends RecordModel {
   message?: string
   status: CorporateLeadStatus
 }
+
+export type StoreOrderStatus = 'pendente' | 'aprovado' | 'recusado' | 'cancelado' | 'expirado'
+export type StoreOrderOrigin = 'loja' | 'whatsapp'
+
+export interface StoreOrder extends RecordModel {
+  product_id: string
+  batch_id?: string
+  quantity: number
+  unit_price: number
+  total_amount: number
+  customer_name: string
+  customer_phone: string
+  customer_email?: string
+  customer_document?: string
+  status: StoreOrderStatus
+  origin: StoreOrderOrigin
+  mp_preference_id?: string
+  mp_payment_id?: string
+  mp_init_point?: string
+  mp_status_detail?: string
+  payment_method_id?: string
+  stock_decremented?: boolean
+  paid_at?: string
+  notes?: string
+  expand?: {
+    product_id?: Product
+    batch_id?: Batch
+  }
+}
+
+export interface MercadoPagoSettings extends RecordModel {
+  mp_access_token: string
+  mp_public_key: string
+  mp_enabled: boolean
+  store_title?: string
+  statement_descriptor?: string
+  webhook_secret?: string
+  notes?: string
+}

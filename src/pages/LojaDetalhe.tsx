@@ -35,6 +35,9 @@ import { PublicStoreHeader, PublicStoreFooter } from '@/components/PublicStoreLa
 import { STORE_CONFIG, buildWhatsAppLink, buildGeneralWhatsAppLink } from '@/lib/storeConfig'
 import { productsService } from '@/services/products'
 import { normalizeChecklistStatus } from '@/lib/checklist'
+import { mercadoPagoService } from '@/services/storeOrders'
+import { StoreCheckoutModal } from '@/components/StoreCheckoutModal'
+import { CreditCard, QrCode } from 'lucide-react'
 import pb from '@/lib/pocketbase/client'
 import type { Product } from '@/types/inventory'
 
@@ -47,9 +50,20 @@ export default function LojaDetalhe() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // Estado da configuração pública do Mercado Pago
+  const [mpEnabled, setMpEnabled] = useState(false)
+  const [checkoutModalOpen, setCheckoutModalOpen] = useState(false)
+
   // Galeria de Fotos e Zoom Modal
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0)
   const [zoomModalOpen, setZoomModalOpen] = useState(false)
+
+  // Checar se Mercado Pago está ativo
+  useEffect(() => {
+    mercadoPagoService.getPublicConfig().then((cfg) => {
+      setMpEnabled(cfg.enabled)
+    })
+  }, [])
 
   // Carregar dados do equipamento
   useEffect(() => {
@@ -489,7 +503,7 @@ export default function LojaDetalhe() {
                           Preço anunciado
                         </span>
                         <span className="text-xs text-emerald-400 font-semibold">
-                          À vista / PIX
+                          À vista no Pix ou Cartão
                         </span>
                       </div>
                       <div className="text-3xl sm:text-4xl font-extrabold tracking-tight">
@@ -498,26 +512,47 @@ export default function LojaDetalhe() {
                           minimumFractionDigits: 2,
                         })}
                       </div>
-                      <p className="text-[11px] text-slate-400 pt-1">
-                        * Consulte opções de parcelamento no cartão de crédito via WhatsApp.
-                      </p>
+                      <div className="flex items-center gap-2 pt-1 text-[11px] text-slate-300">
+                        <QrCode className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Pix imediato, Boleto ou Cartão em até 12x via Mercado Pago</span>
+                      </div>
                     </div>
 
-                    {/* CTA Principal de Contato via WhatsApp */}
-                    <div className="space-y-2.5">
+                    {/* CTAs de Compra: Mercado Pago + WhatsApp */}
+                    <div className="space-y-3">
+                      {/* Botão Principal de Compra Mercado Pago (ou modo degradado) */}
+                      {mpEnabled ? (
+                        <Button
+                          onClick={() => setCheckoutModalOpen(true)}
+                          className="w-full h-14 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-extrabold text-sm sm:text-base shadow-md hover:shadow-lg transition-all gap-2.5"
+                        >
+                          <CreditCard className="w-5 h-5" />
+                          Comprar com Mercado Pago
+                        </Button>
+                      ) : (
+                        <div className="p-3 bg-slate-100 rounded-xl text-center text-[11px] text-slate-600">
+                          💳 Checkout online via Mercado Pago em ativação. Conclua com segurança
+                          pelo WhatsApp:
+                        </div>
+                      )}
+
+                      {/* Botão Secundário de Contato WhatsApp */}
                       <a
                         href={whatsappUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="w-full flex items-center justify-center gap-2.5 py-4 px-6 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm sm:text-base shadow-md hover:shadow-lg transition-all"
+                        className={`w-full flex items-center justify-center gap-2.5 py-3.5 px-6 rounded-xl font-extrabold text-sm sm:text-base transition-all ${
+                          mpEnabled
+                            ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300/80 shadow-xs'
+                            : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md'
+                        }`}
                       >
                         <MessageSquare className="w-5 h-5" />
-                        Comprar via WhatsApp
+                        {mpEnabled ? 'Tirar Dúvidas / Falar no WhatsApp' : 'Comprar via WhatsApp'}
                       </a>
 
                       <p className="text-[11px] text-center text-slate-500">
-                        Clique para abrir conversa direta com nossa equipe com mensagem já formatada
-                        para este notebook.
+                        🔒 Compra 100% protegida com envio imediato e rastreabilidade total.
                       </p>
                     </div>
 
@@ -709,6 +744,13 @@ export default function LojaDetalhe() {
         currentIndex={selectedPhotoIndex}
         onIndexChange={setSelectedPhotoIndex}
         title={product?.name}
+      />
+
+      {/* Modal de Checkout do Mercado Pago */}
+      <StoreCheckoutModal
+        product={product}
+        open={checkoutModalOpen}
+        onOpenChange={setCheckoutModalOpen}
       />
 
       <PublicStoreFooter />

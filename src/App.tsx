@@ -9,6 +9,7 @@ import Layout from './components/Layout'
 import Login from './pages/Login'
 import LojaPublica from './pages/LojaPublica'
 import LojaDetalhe from './pages/LojaDetalhe'
+import LojaPedidoConcluido from './pages/LojaPedidoConcluido'
 import Vendas from './pages/Vendas'
 import Produtos from './pages/Produtos'
 import CatalogoDetalhe from './pages/CatalogoDetalhe'
@@ -41,6 +42,7 @@ const App = () => (
           {/* Rotas Públicas da Loja (Sem Login / Fora do Layout Privado) */}
           <Route path="/loja" element={<LojaPublica />} />
           <Route path="/loja/corporativo" element={<LojaCorporativo />} />
+          <Route path="/loja/pedido-concluido" element={<LojaPedidoConcluido />} />
           <Route path="/loja/:id" element={<LojaDetalhe />} />
 
           <Route path="/login" element={<Login />} />
