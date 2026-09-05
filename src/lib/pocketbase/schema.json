@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-05T16:41:19.521Z",
+  "generatedAt": "2026-09-05T16:47:07.008Z",
   "collections": [
     {
       "name": "users",
@@ -2372,7 +2372,13 @@
           "type": "select",
           "required": false,
           "system": false,
-          "selectValues": ["resolve_competitor", "sync_competitor", "sync_all", "search_query"]
+          "selectValues": [
+            "resolve_competitor",
+            "sync_competitor",
+            "sync_all",
+            "search_query",
+            "resolve_from_item"
+          ]
         },
         {
           "name": "query",

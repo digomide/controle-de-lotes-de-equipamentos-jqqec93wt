@@ -80,8 +80,13 @@ export default function RadarML() {
 
   // Modal Novo Concorrente
   const [addModalOpen, setAddModalOpen] = useState(false)
+  const [addTabMode, setAddTabMode] = useState<'link' | 'search' | 'seller_id'>('link')
+  const [linksInput, setLinksInput] = useState('')
+  const [linkNickname, setLinkNickname] = useState('')
+  const [addingFromLink, setAddingFromLink] = useState(false)
   const [searchCompetitorTerm, setSearchCompetitorTerm] = useState('')
   const [searchingCompetitor, setSearchingCompetitor] = useState(false)
+  const [searchWarning, setSearchWarning] = useState<string | null>(null)
   const [foundSellers, setFoundSellers] = useState<any[]>([])
   const [customSellerId, setCustomSellerId] = useState('')
   const [customNickname, setCustomNickname] = useState('')
@@ -186,6 +191,48 @@ export default function RadarML() {
     }
   }
 
+  // Adicionar concorrente via Link ou Código MLB
+  const handleAddFromLinks = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
+    if (!linksInput.trim()) {
+      toast({
+        title: 'Informe ao menos um link ou código MLB',
+        description: 'Exemplo: https://produto.mercadolivre.com.br/MLB-1234567890 ou MLB1234567890',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setAddingFromLink(true)
+    try {
+      toast({
+        title: 'Consultando anúncio no Mercado Livre...',
+        description: 'Buscando dados em tempo real via API oficial...',
+      })
+
+      const job = await mlCompetitorService.resolveFromItems(linksInput, linkNickname)
+      const res = job.result_data || {}
+
+      toast({
+        title: 'Concorrente e anúncio adicionados!',
+        description: `${res.seller_nickname || 'Vendedor'} adicionado com ${res.ads_added_or_updated || 1} anúncio(s) monitorado(s).`,
+      })
+
+      setLinksInput('')
+      setLinkNickname('')
+      setAddModalOpen(false)
+      await loadData(false)
+    } catch (err: any) {
+      toast({
+        title: 'Não foi possível adicionar concorrente',
+        description: err.message || 'Falha ao consultar anúncio no Mercado Livre.',
+        variant: 'destructive',
+      })
+    } finally {
+      setAddingFromLink(false)
+    }
+  }
+
   // Resolver e buscar concorrentes no ML pelo termo de busca
   const handleSearchCompetitors = async (e?: React.FormEvent) => {
     if (e) e.preventDefault()
@@ -193,6 +240,7 @@ export default function RadarML() {
 
     setSearchingCompetitor(true)
     setFoundSellers([])
+    setSearchWarning(null)
     try {
       const job = await mlCompetitorService.dispatchJobAndWait('resolve_competitor', {
         query: searchCompetitorTerm.trim(),
@@ -207,9 +255,14 @@ export default function RadarML() {
         })
       }
     } catch (err: any) {
+      const msg = err.message || ''
+      setSearchWarning(
+        'A API do Mercado Livre restringiu a busca pública por nome de vendedor. Monitore concorrentes colando o link do anúncio deles (funciona 100%).',
+      )
       toast({
-        title: 'Erro na busca',
-        description: err.message || 'Falha ao buscar termos no Mercado Livre.',
+        title: 'Busca textual restrita pela API',
+        description:
+          'O Mercado Livre bloqueou buscas gerais. Utilize a aba "Por Link do Anúncio (Recomendado)".',
         variant: 'destructive',
       })
     } finally {
@@ -537,140 +590,284 @@ export default function RadarML() {
                   Cadastrar Concorrente no Radar
                 </DialogTitle>
                 <DialogDescription className="text-xs text-slate-500">
-                  Informe o nome ou termo que o concorrente vende (ex: "ThinkPad T480") ou informe
-                  diretamente o Seller ID do Mercado Livre.
+                  Adicione concorrentes colando links de anúncios do Mercado Livre para
+                  monitoramento contínuo de preços e vendas.
                 </DialogDescription>
               </DialogHeader>
 
               <div className="space-y-4 py-2">
-                {/* Busca Automática no ML */}
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                    1. Buscar Concorrentes no Mercado Livre por Produto ou Apelido
-                  </label>
-                  <form onSubmit={handleSearchCompetitors} className="flex gap-2">
-                    <div className="relative flex-1">
-                      <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                      <Input
-                        placeholder="Ex: ThinkPad T480, Dell Latitude 5320, nome da loja..."
-                        value={searchCompetitorTerm}
-                        onChange={(e) => setSearchCompetitorTerm(e.target.value)}
-                        className="pl-9 text-xs h-9"
-                      />
-                    </div>
-                    <Button
-                      type="submit"
-                      size="sm"
-                      disabled={searchingCompetitor || !searchCompetitorTerm.trim()}
-                      className="text-xs h-9 bg-slate-900 hover:bg-slate-800 text-white"
-                    >
-                      {searchingCompetitor ? (
-                        <RefreshCw className="w-3.5 h-3.5 animate-spin mr-1" />
-                      ) : (
-                        <Search className="w-3.5 h-3.5 mr-1" />
-                      )}
-                      Buscar
-                    </Button>
-                  </form>
+                {/* Abas internas do Modal */}
+                <div className="grid grid-cols-3 gap-1 bg-slate-100 p-1 rounded-lg">
+                  <button
+                    type="button"
+                    onClick={() => setAddTabMode('link')}
+                    className={`text-xs py-1.5 px-2 rounded-md font-medium transition-all ${
+                      addTabMode === 'link'
+                        ? 'bg-white shadow-xs text-orange-700 font-bold'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Por Link do Anúncio ★
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAddTabMode('seller_id')}
+                    className={`text-xs py-1.5 px-2 rounded-md font-medium transition-all ${
+                      addTabMode === 'seller_id'
+                        ? 'bg-white shadow-xs text-slate-900 font-bold'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Por Seller ID
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAddTabMode('search')}
+                    className={`text-xs py-1.5 px-2 rounded-md font-medium transition-all ${
+                      addTabMode === 'search'
+                        ? 'bg-white shadow-xs text-slate-900 font-bold'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Busca Textual
+                  </button>
                 </div>
 
-                {/* Vendedores Encontrados */}
-                {foundSellers.length > 0 && (
-                  <div className="space-y-2">
-                    <p className="text-xs font-semibold text-slate-700">
-                      Vendedores identificados ({foundSellers.length}):
-                    </p>
-                    <div className="max-h-52 overflow-y-auto space-y-2 border border-slate-200 rounded-lg p-2 bg-slate-50">
-                      {foundSellers.map((s) => (
-                        <div
-                          key={s.seller_id}
-                          className="p-2.5 bg-white rounded-md border border-slate-200 flex items-center justify-between gap-3 text-xs"
-                        >
-                          <div className="min-w-0 flex-1">
-                            <div className="font-bold text-slate-900 truncate flex items-center gap-1.5">
-                              {s.nickname || `Vendedor ${s.seller_id}`}
-                              <Badge
-                                variant="outline"
-                                className="text-[10px] px-1 py-0 font-mono text-slate-500"
-                              >
-                                ID: {s.seller_id}
-                              </Badge>
-                            </div>
-                            {s.sample_ad_title && (
-                              <p className="text-[11px] text-slate-500 truncate mt-0.5">
-                                Anúncio: {s.sample_ad_title} (
-                                {Number(s.sample_ad_price || 0).toLocaleString('pt-BR', {
-                                  style: 'currency',
-                                  currency: 'BRL',
-                                })}
-                                )
-                              </p>
-                            )}
-                          </div>
-                          <Button
-                            size="sm"
-                            onClick={() =>
-                              handleSaveCompetitor(s.seller_id, s.nickname, s.permalink)
-                            }
-                            disabled={addingLoading}
-                            className="text-xs h-8 bg-orange-600 hover:bg-orange-700 text-white shrink-0"
-                          >
-                            + Monitorar
-                          </Button>
-                        </div>
-                      ))}
+                {/* ABA 1: POR LINK DO ANÚNCIO (FLUXO PRINCIPAL RECOMENDADO) */}
+                {addTabMode === 'link' && (
+                  <form onSubmit={handleAddFromLinks} className="space-y-3.5">
+                    <div className="p-3 bg-emerald-50/80 border border-emerald-200 rounded-lg text-xs text-emerald-950 flex items-start gap-2.5">
+                      <Sparkles className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-semibold text-emerald-900">
+                          Método 100% confiável via API Oficial do Mercado Livre
+                        </p>
+                        <p className="text-[11px] text-emerald-800 mt-0.5 leading-relaxed">
+                          Cole o link ou código do anúncio do concorrente. Ex:{' '}
+                          <code className="bg-emerald-100 px-1 py-0.5 rounded font-mono">
+                            https://produto.mercadolivre.com.br/MLB-1234567890
+                          </code>{' '}
+                          ou{' '}
+                          <code className="bg-emerald-100 px-1 py-0.5 rounded font-mono">
+                            MLB1234567890
+                          </code>
+                          . Para monitorar mais anúncios do mesmo vendedor, cole vários de uma vez
+                          (um por linha).
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                )}
 
-                <div className="border-t border-slate-200 pt-3">
-                  <p className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
-                    2. Ou cadastrar diretamente com o Seller ID do ML
-                  </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    <div>
-                      <label className="text-[11px] font-semibold text-slate-600">
-                        Seller ID (Numérico) *
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                        <span>Links ou Códigos MLB dos Anúncios *</span>
+                        <span className="text-[11px] text-slate-400 font-normal">
+                          Suporta múltiplos links
+                        </span>
                       </label>
-                      <Input
-                        placeholder="Ex: 123456789"
-                        value={customSellerId}
-                        onChange={(e) => setCustomSellerId(e.target.value)}
-                        className="text-xs h-8 mt-1 font-mono"
+                      <textarea
+                        rows={4}
+                        placeholder={`Cole aqui os links ou códigos MLB:\nhttps://produto.mercadolivre.com.br/MLB-1234567890\nhttps://www.mercadolivre.com.br/...-MLB-9876543210\nMLB5544332211`}
+                        value={linksInput}
+                        onChange={(e) => setLinksInput(e.target.value)}
+                        className="w-full text-xs font-mono p-2.5 rounded-md border border-slate-200 bg-white focus:outline-hidden focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 leading-relaxed"
+                        disabled={addingFromLink}
                       />
                     </div>
-                    <div>
+
+                    <div className="space-y-1">
                       <label className="text-[11px] font-semibold text-slate-600">
-                        Nome / Apelido
+                        Apelido / Nome do Concorrente (Opcional)
                       </label>
                       <Input
-                        placeholder="Ex: Concorrente Alpha"
-                        value={customNickname}
-                        onChange={(e) => setCustomNickname(e.target.value)}
+                        placeholder="Ex: Concorrente Alpha (deixe em branco para preencher automaticamente com o nome da loja)"
+                        value={linkNickname}
+                        onChange={(e) => setLinkNickname(e.target.value)}
+                        className="text-xs h-8"
+                        disabled={addingFromLink}
+                      />
+                    </div>
+
+                    <Button
+                      type="submit"
+                      disabled={addingFromLink || !linksInput.trim()}
+                      className="w-full text-xs h-9 bg-orange-600 hover:bg-orange-700 text-white font-semibold gap-1.5 shadow-xs"
+                    >
+                      {addingFromLink ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin mr-1" />
+                          Consultando Anúncio no Mercado Livre...
+                        </>
+                      ) : (
+                        <>
+                          <Plus className="w-3.5 h-3.5" />
+                          Adicionar Anúncio(s) e Iniciar Monitoramento
+                        </>
+                      )}
+                    </Button>
+                  </form>
+                )}
+
+                {/* ABA 2: POR SELLER ID MANUAL */}
+                {addTabMode === 'seller_id' && (
+                  <div className="space-y-3">
+                    <p className="text-xs text-slate-500">
+                      Se você já tem o Seller ID numérico do Mercado Livre, cadastre-o diretamente.
+                      Depois cole links de anúncios dele para monitorar.
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="text-[11px] font-semibold text-slate-600">
+                          Seller ID (Numérico) *
+                        </label>
+                        <Input
+                          placeholder="Ex: 626774396"
+                          value={customSellerId}
+                          onChange={(e) => setCustomSellerId(e.target.value)}
+                          className="text-xs h-8 mt-1 font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-semibold text-slate-600">
+                          Nome / Apelido
+                        </label>
+                        <Input
+                          placeholder="Ex: Concorrente Alpha"
+                          value={customNickname}
+                          onChange={(e) => setCustomNickname(e.target.value)}
+                          className="text-xs h-8 mt-1"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-600">
+                        Observações / Estratégia
+                      </label>
+                      <Input
+                        placeholder="Ex: Especializado em notebooks corporativos..."
+                        value={customNotes}
+                        onChange={(e) => setCustomNotes(e.target.value)}
                         className="text-xs h-8 mt-1"
                       />
                     </div>
+                    <Button
+                      size="sm"
+                      onClick={() => handleSaveCompetitor(customSellerId, customNickname)}
+                      disabled={addingLoading || !customSellerId.trim()}
+                      className="w-full text-xs h-8 bg-slate-900 hover:bg-slate-800 text-white font-medium"
+                    >
+                      Salvar Concorrente
+                    </Button>
                   </div>
-                  <div className="mt-2">
-                    <label className="text-[11px] font-semibold text-slate-600">
-                      Observações / Estratégia
-                    </label>
-                    <Input
-                      placeholder="Ex: Especializado em ThinkPad recondicionados, baixa preço às sextas..."
-                      value={customNotes}
-                      onChange={(e) => setCustomNotes(e.target.value)}
-                      className="text-xs h-8 mt-1"
-                    />
+                )}
+
+                {/* ABA 3: BUSCA TEXTUAL (COM ALERTA SOBRE RESTRIÇÃO DA API) */}
+                {addTabMode === 'search' && (
+                  <div className="space-y-3">
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900 flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-semibold">Aviso sobre busca textual:</span>
+                        <p className="mt-0.5 leading-relaxed text-[11px]">
+                          A API do Mercado Livre restringiu a busca pública por termos e vendedores
+                          (HTTP 403). Para ter 100% de sucesso, use a aba{' '}
+                          <strong>"Por Link do Anúncio"</strong>.
+                        </p>
+                      </div>
+                    </div>
+
+                    <form onSubmit={handleSearchCompetitors} className="flex gap-2">
+                      <div className="relative flex-1">
+                        <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <Input
+                          placeholder="Ex: ThinkPad T480, Dell Latitude..."
+                          value={searchCompetitorTerm}
+                          onChange={(e) => setSearchCompetitorTerm(e.target.value)}
+                          className="pl-9 text-xs h-9"
+                        />
+                      </div>
+                      <Button
+                        type="submit"
+                        size="sm"
+                        disabled={searchingCompetitor || !searchCompetitorTerm.trim()}
+                        className="text-xs h-9 bg-slate-900 hover:bg-slate-800 text-white"
+                      >
+                        {searchingCompetitor ? (
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin mr-1" />
+                        ) : (
+                          <Search className="w-3.5 h-3.5 mr-1" />
+                        )}
+                        Buscar
+                      </Button>
+                    </form>
+
+                    {searchWarning && (
+                      <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-900 flex items-start gap-2">
+                        <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                        <div className="flex-1">
+                          <p className="font-semibold">Busca restrita pelo Mercado Livre</p>
+                          <p className="mt-0.5 text-[11px]">{searchWarning}</p>
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => setAddTabMode('link')}
+                            className="mt-2 text-[11px] h-7 bg-orange-600 hover:bg-orange-700 text-white"
+                          >
+                            Ir para aba Por Link do Anúncio →
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Vendedores Encontrados caso API retorne */}
+                    {foundSellers.length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-xs font-semibold text-slate-700">
+                          Vendedores identificados ({foundSellers.length}):
+                        </p>
+                        <div className="max-h-52 overflow-y-auto space-y-2 border border-slate-200 rounded-lg p-2 bg-slate-50">
+                          {foundSellers.map((s) => (
+                            <div
+                              key={s.seller_id}
+                              className="p-2.5 bg-white rounded-md border border-slate-200 flex items-center justify-between gap-3 text-xs"
+                            >
+                              <div className="min-w-0 flex-1">
+                                <div className="font-bold text-slate-900 truncate flex items-center gap-1.5">
+                                  {s.nickname || `Vendedor ${s.seller_id}`}
+                                  <Badge
+                                    variant="outline"
+                                    className="text-[10px] px-1 py-0 font-mono text-slate-500"
+                                  >
+                                    ID: {s.seller_id}
+                                  </Badge>
+                                </div>
+                                {s.sample_ad_title && (
+                                  <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                                    Anúncio: {s.sample_ad_title} (
+                                    {Number(s.sample_ad_price || 0).toLocaleString('pt-BR', {
+                                      style: 'currency',
+                                      currency: 'BRL',
+                                    })}
+                                    )
+                                  </p>
+                                )}
+                              </div>
+                              <Button
+                                size="sm"
+                                onClick={() =>
+                                  handleSaveCompetitor(s.seller_id, s.nickname, s.permalink)
+                                }
+                                disabled={addingLoading}
+                                className="text-xs h-8 bg-orange-600 hover:bg-orange-700 text-white shrink-0"
+                              >
+                                + Monitorar
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <Button
-                    size="sm"
-                    onClick={() => handleSaveCompetitor(customSellerId, customNickname)}
-                    disabled={addingLoading || !customSellerId.trim()}
-                    className="w-full mt-3 text-xs h-8 bg-slate-900 hover:bg-slate-800 text-white font-medium"
-                  >
-                    Salvar e Iniciar Coleta
-                  </Button>
-                </div>
+                )}
               </div>
             </DialogContent>
           </Dialog>
@@ -1206,12 +1403,28 @@ export default function RadarML() {
                     {/* Expansão com os anúncios do concorrente */}
                     {isExpanded && (
                       <div className="mt-4 pt-4 border-t border-slate-100 space-y-2">
-                        <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
-                          Anúncios monitorados deste vendedor ({compAds.length})
-                        </h4>
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                            Anúncios monitorados deste vendedor ({compAds.length})
+                          </h4>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setAddTabMode('link')
+                              setLinkNickname(comp.nickname)
+                              setAddModalOpen(true)
+                            }}
+                            className="text-[11px] h-7 border-slate-300 text-slate-700 gap-1"
+                          >
+                            <Plus className="w-3 h-3 text-orange-600" />+ Adicionar Anúncios Deste
+                            Vendedor
+                          </Button>
+                        </div>
                         {compAds.length === 0 ? (
                           <p className="text-xs text-slate-400 italic">
-                            Nenhum anúncio carregado ainda. Clique em "Sincronizar" acima.
+                            Nenhum anúncio monitorado ainda. Clique em "+ Adicionar Anúncios Deste
+                            Vendedor" para colar os links do anúncio.
                           </p>
                         ) : (
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">

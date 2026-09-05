@@ -82,7 +82,12 @@ export interface MLCompetitorEvent {
 
 export interface MLCompetitorJob {
   id: string
-  action: 'resolve_competitor' | 'sync_competitor' | 'sync_all' | 'search_query'
+  action:
+    | 'resolve_from_item'
+    | 'resolve_competitor'
+    | 'sync_competitor'
+    | 'sync_all'
+    | 'search_query'
   query?: string
   seller_id?: string
   seller_nickname?: string
@@ -92,6 +97,26 @@ export interface MLCompetitorJob {
   result_data?: any
   requested_by?: string
   created: string
+}
+
+/**
+ * Utilitário para extrair IDs MLB de textos, URLs ou listas com separadores
+ * Exemplos aceitos:
+ * - https://produto.mercadolivre.com.br/MLB-4709060403-...
+ * - https://www.mercadolivre.com.br/...-MLB4709060403
+ * - MLB4709060403 ou MLB-4709060403
+ * - Múltiplos links colados (um por linha, separados por vírgula ou espaço)
+ */
+export function extractMlbIds(input: string): string[] {
+  if (!input) return []
+  const matches = input.match(/MLB-?[0-9]{8,14}/gi)
+  if (!matches) return []
+  const unique = new Set<string>()
+  for (const m of matches) {
+    const clean = m.toUpperCase().replace('-', '')
+    unique.add(clean)
+  }
+  return Array.from(unique)
 }
 
 export const mlCompetitorService = {
@@ -178,19 +203,26 @@ export const mlCompetitorService = {
 
   // 5. Execução de Jobs Assíncronos com Polling
   async dispatchJobAndWait(
-    action: 'resolve_competitor' | 'sync_competitor' | 'sync_all' | 'search_query',
+    action:
+      | 'resolve_from_item'
+      | 'resolve_competitor'
+      | 'sync_competitor'
+      | 'sync_all'
+      | 'search_query',
     params: {
       query?: string
       seller_id?: string
       seller_nickname?: string
+      result_data?: any
     },
-    timeoutMs = 35_000,
+    timeoutMs = 45_000,
   ): Promise<MLCompetitorJob> {
     const jobRecord = await pb.collection('ml_competitor_jobs').create<MLCompetitorJob>({
       action,
       query: (params.query || '').trim(),
       seller_id: (params.seller_id || '').trim(),
       seller_nickname: (params.seller_nickname || '').trim(),
+      result_data: params.result_data || undefined,
       status: 'pending',
       requested_by: pb.authStore.model?.id || undefined,
     })
@@ -221,6 +253,22 @@ export const mlCompetitorService = {
     throw new Error(
       'Tempo limite excedido ao aguardar resposta do Mercado Livre. O robô continuará em segundo plano.',
     )
+  },
+
+  // Atalho para adicionar concorrente e anúncios a partir de links ou códigos MLB
+  async resolveFromItems(input: string, sellerNickname?: string): Promise<MLCompetitorJob> {
+    const ids = extractMlbIds(input)
+    if (ids.length === 0) {
+      throw new Error(
+        'Nenhum código MLB válido encontrado. Cole o link do anúncio do Mercado Livre ou código como MLB1234567890.',
+      )
+    }
+
+    return await this.dispatchJobAndWait('resolve_from_item', {
+      query: ids.join('\n'),
+      seller_nickname: sellerNickname,
+      result_data: { item_ids: ids },
+    })
   },
 
   // 6. Cruzamento com produtos locais (Notebooks / Catálogo)

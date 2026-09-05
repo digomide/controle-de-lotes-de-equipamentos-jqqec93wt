@@ -1,9 +1,10 @@
 // Hook para processamento assíncrono da fila de jobs de concorrentes ML (ml_competitor_jobs)
 // Ações suportadas:
-// - 'resolve_competitor': busca o seller_id e dados a partir de um apelido ou busca textual pública
-// - 'sync_competitor': busca anúncios do concorrente informado, atualiza ml_competitor_ads, gera ml_price_history e ml_competitor_events
-// - 'sync_all': varre todos os concorrentes ativos e sincroniza seus anúncios
-// - 'search_query': busca anúncios concorrentes no ML pelo termo de busca (ex: "ThinkPad T480")
+// - 'resolve_from_item': extrai seller_id do anúncio via GET /items?ids=MLB..., cria/atualiza ml_competitors, salva anúncio(s) em ml_competitor_ads, cria ml_price_history inicial e evento de novo anúncio.
+// - 'resolve_competitor': busca o seller_id e dados a partir de busca textual pública (avisa 403 se restrito)
+// - 'sync_competitor': consulta /items?ids=... para todos os anúncios monitorados do concorrente (ou target especificado), atualiza ml_competitor_ads, gera ml_price_history e ml_competitor_events
+// - 'sync_all': varre todos os anúncios de concorrentes ativos via /items?ids=... em lotes e sincroniza mudanças
+// - 'search_query': busca anúncios concorrentes no ML pelo termo de busca
 
 onRecordAfterCreateSuccess((e) => {
   const job = e.record
@@ -15,8 +16,6 @@ onRecordAfterCreateSuccess((e) => {
   job.set('status', 'processing')
   $app.save(job)
 
-  // Token OAuth próprio (se houver e não for estritamente necessário, podemos enviar Authorization ou fazer chamada limpa)
-  // Como são endpoints públicos /sites/MLB/search e /items, enviamos Bearer se disponível para obter maior rate-limit.
   let accessToken = ''
   try {
     const sRecords = $app.findRecordsByFilter('ml_settings', '1=1', '-created', 1, 0)
@@ -32,9 +31,359 @@ onRecordAfterCreateSuccess((e) => {
   console.log('[ml_competitor_jobs] Executando job ' + job.id + ' acao: ' + action)
 
   try {
+    // -------------------------------------------------------------------------
+    // 1. RESOLVE FROM ITEM (Novo fluxo robusto via ID ou links de anúncios MLB)
+    // -------------------------------------------------------------------------
+    if (action === 'resolve_from_item') {
+      // Extrair IDs MLB da query ou result_data.item_ids
+      // O input pode conter múltiplos links ou IDs separados por quebra de linha, espaço, vírgula, ponto-e-vírgula
+      let rawInput = query
+      let parsedIds = []
+
+      // Se passou array em result_data antes
+      try {
+        const rd = job.get('result_data')
+        if (rd && Array.isArray(rd.item_ids)) {
+          parsedIds = rd.item_ids
+        }
+      } catch (_) {}
+
+      if (parsedIds.length === 0 && rawInput) {
+        // Regex para capturar MLB com ou sem hífen: MLB1234567890 ou MLB-1234567890
+        const matches = rawInput.match(/MLB-?[0-9]{8,14}/gi)
+        if (matches && matches.length > 0) {
+          const seen = {}
+          for (let m = 0; m < matches.length; m++) {
+            const cleanMlb = matches[m].toUpperCase().replace('-', '')
+            if (!seen[cleanMlb]) {
+              seen[cleanMlb] = true
+              parsedIds.push(cleanMlb)
+            }
+          }
+        }
+      }
+
+      if (parsedIds.length === 0) {
+        job.set('status', 'error')
+        job.set('status_code', 400)
+        job.set(
+          'error_message',
+          'Nenhum código MLB válido encontrado no link ou texto informado. Exemplo esperado: MLB1234567890 ou link de produto do Mercado Livre.',
+        )
+        $app.save(job)
+        e.next()
+        return
+      }
+
+      console.log(
+        '[ml_competitor_jobs] resolve_from_item com ' +
+          parsedIds.length +
+          ' item(s): ' +
+          parsedIds.join(','),
+      )
+
+      // Consultar endpoint multiget /items?ids=MLB1,MLB2,...
+      const headers = { Accept: 'application/json' }
+      if (accessToken) headers['Authorization'] = 'Bearer ' + accessToken
+
+      // ML aceita até 20 IDs por requisição multiget
+      const chunkSize = 20
+      const fetchedItems = []
+
+      for (let i = 0; i < parsedIds.length; i += chunkSize) {
+        const chunk = parsedIds.slice(i, i + chunkSize)
+        const itemsUrl = 'https://api.mercadolibre.com/items?ids=' + chunk.join(',')
+        const res = $http.send({
+          url: itemsUrl,
+          method: 'GET',
+          headers: headers,
+          timeout: 25,
+        })
+
+        if (res.statusCode >= 400) {
+          console.log('[ml_competitor_jobs] Erro no multiget /items: HTTP ' + res.statusCode)
+          continue
+        }
+
+        const list = Array.isArray(res.json) ? res.json : []
+        for (let j = 0; j < list.length; j++) {
+          const entry = list[j]
+          if (entry && entry.code === 200 && entry.body) {
+            fetchedItems.push(entry.body)
+          } else {
+            console.log(
+              '[ml_competitor_jobs] Item individual retornou status ' +
+                (entry ? entry.code : 'desconhecido') +
+                ' para ' +
+                (chunk[j] || ''),
+            )
+          }
+        }
+      }
+
+      if (fetchedItems.length === 0) {
+        job.set('status', 'error')
+        job.set('status_code', 404)
+        job.set(
+          'error_message',
+          'Nenhum dos anúncios pôde ser consultado no Mercado Livre. Verifique se os links ou códigos MLB estão corretos.',
+        )
+        $app.save(job)
+        e.next()
+        return
+      }
+
+      // O seller do primeiro item resolve o concorrente principal
+      const primaryItem = fetchedItems[0]
+      const primarySellerId = String(primaryItem.seller_id || '')
+
+      if (!primarySellerId) {
+        job.set('status', 'error')
+        job.set('status_code', 400)
+        job.set('error_message', 'Não foi possível identificar o vendedor deste anúncio.')
+        $app.save(job)
+        e.next()
+        return
+      }
+
+      // Buscar nickname do vendedor via GET /users/{seller_id} se disponível
+      let sellerNickname = (job.getString('seller_nickname') || '').trim()
+      let sellerPermalink = ''
+      try {
+        const userRes = $http.send({
+          url: 'https://api.mercadolibre.com/users/' + encodeURIComponent(primarySellerId),
+          method: 'GET',
+          headers: { Accept: 'application/json' },
+          timeout: 10,
+        })
+        if (userRes.statusCode === 200 && userRes.json) {
+          if (!sellerNickname && userRes.json.nickname) {
+            sellerNickname = userRes.json.nickname
+          }
+          if (userRes.json.permalink) {
+            sellerPermalink = userRes.json.permalink
+          }
+        }
+      } catch (uErr) {
+        console.log(
+          '[ml_competitor_jobs] Aviso: não foi possível obter nickname do vendedor ' +
+            primarySellerId +
+            ': ' +
+            uErr,
+        )
+      }
+
+      if (!sellerNickname) {
+        sellerNickname = 'Concorrente ' + primarySellerId
+      }
+
+      const compCol = $app.findCollectionByNameOrId('ml_competitors')
+      const adsCol = $app.findCollectionByNameOrId('ml_competitor_ads')
+      const histCol = $app.findCollectionByNameOrId('ml_price_history')
+      const eventsCol = $app.findCollectionByNameOrId('ml_competitor_events')
+
+      // Criar ou atualizar concorrente em ml_competitors
+      let compRecord = null
+      try {
+        const existingComps = $app.findRecordsByFilter(
+          'ml_competitors',
+          "seller_id = '" + primarySellerId + "'",
+          '-created',
+          1,
+          0,
+        )
+        if (existingComps && existingComps.length > 0) {
+          compRecord = existingComps[0]
+          compRecord.set('active', true)
+          if (sellerNickname && sellerNickname !== 'Concorrente ' + primarySellerId) {
+            compRecord.set('nickname', sellerNickname)
+          }
+          if (sellerPermalink && !compRecord.getString('permalink')) {
+            compRecord.set('permalink', sellerPermalink)
+          }
+          $app.save(compRecord)
+        }
+      } catch (_) {}
+
+      const nowIso = new Date().toISOString()
+
+      if (!compRecord) {
+        compRecord = new Record(compCol)
+        compRecord.set('seller_id', primarySellerId)
+        compRecord.set('nickname', sellerNickname)
+        compRecord.set('active', true)
+        compRecord.set('permalink', sellerPermalink)
+        compRecord.set('last_synced_at', nowIso)
+        $app.save(compRecord)
+      }
+
+      let adsAddedOrUpdated = 0
+      let historyCreated = 0
+      let eventsCreated = 0
+
+      for (let i = 0; i < fetchedItems.length; i++) {
+        const item = fetchedItems[i]
+        const itemId = item.id
+        if (!itemId) continue
+
+        const itemSellerId = String(item.seller_id || primarySellerId)
+        const price = Number(item.price) || 0
+        const soldQuantity = Number(item.sold_quantity) || 0
+        const availableQuantity = Number(item.available_quantity) || 0
+        let status = (item.status || 'active').toLowerCase()
+        // Garantir que status é um dos valores aceitos pelo select ('active', 'paused', 'closed', 'under_review')
+        if (
+          status !== 'active' &&
+          status !== 'paused' &&
+          status !== 'closed' &&
+          status !== 'under_review'
+        ) {
+          status = 'active'
+        }
+        const title = item.title || ''
+        const permalink = item.permalink || ''
+        const thumbnail =
+          item.thumbnail || (item.pictures && item.pictures[0] ? item.pictures[0].url : '')
+        const condition = item.condition || ''
+
+        let brand = ''
+        let model = ''
+        let gtin = ''
+        if (Array.isArray(item.attributes)) {
+          for (let a = 0; a < item.attributes.length; a++) {
+            const attr = item.attributes[a]
+            if (attr.id === 'BRAND') brand = attr.value_name || ''
+            if (attr.id === 'MODEL') model = attr.value_name || ''
+            if (attr.id === 'GTIN') gtin = attr.value_name || ''
+          }
+        }
+
+        // Verificar se anúncio já existe
+        let existingAd = null
+        try {
+          const exList = $app.findRecordsByFilter(
+            'ml_competitor_ads',
+            "mlb_item_id = '" + itemId + "'",
+            '-created',
+            1,
+            0,
+          )
+          if (exList && exList.length > 0) {
+            existingAd = exList[0]
+          }
+        } catch (_) {}
+
+        let isNewAd = false
+        let adRecord = null
+
+        if (!existingAd) {
+          isNewAd = true
+          adRecord = new Record(adsCol)
+          adRecord.set('mlb_item_id', itemId)
+          adRecord.set('seller_id', itemSellerId)
+          adRecord.set('seller_nickname', sellerNickname)
+          adRecord.set('title', title)
+          adRecord.set('current_price', price)
+          adRecord.set('initial_price', price)
+          adRecord.set('sold_quantity', soldQuantity)
+          adRecord.set('available_quantity', availableQuantity)
+          adRecord.set('status', status)
+          adRecord.set('permalink', permalink)
+          adRecord.set('thumbnail', thumbnail)
+          adRecord.set('condition', condition)
+          adRecord.set('brand', brand)
+          adRecord.set('model', model)
+          adRecord.set('gtin', gtin)
+          adRecord.set('last_checked', nowIso)
+          $app.save(adRecord)
+          adsAddedOrUpdated++
+        } else {
+          adRecord = existingAd
+          adRecord.set('seller_nickname', sellerNickname)
+          adRecord.set('title', title)
+          adRecord.set('current_price', price)
+          adRecord.set('sold_quantity', soldQuantity)
+          adRecord.set('available_quantity', availableQuantity)
+          adRecord.set('status', status)
+          adRecord.set('permalink', permalink)
+          if (thumbnail) adRecord.set('thumbnail', thumbnail)
+          if (brand) adRecord.set('brand', brand)
+          if (model) adRecord.set('model', model)
+          if (gtin) adRecord.set('gtin', gtin)
+          adRecord.set('last_checked', nowIso)
+          $app.save(adRecord)
+          adsAddedOrUpdated++
+        }
+
+        // Criar Snapshot de Histórico de Preços
+        try {
+          const hRec = new Record(histCol)
+          hRec.set('mlb_item_id', itemId)
+          hRec.set('seller_id', itemSellerId)
+          hRec.set('price', price)
+          hRec.set('sold_quantity', soldQuantity)
+          hRec.set('available_quantity', availableQuantity)
+          hRec.set('status', status)
+          hRec.set('checked_at', nowIso)
+          $app.save(hRec)
+          historyCreated++
+        } catch (hErr) {
+          console.log('[ml_competitor_jobs] Erro ao gravar snapshot de preco: ' + hErr)
+        }
+
+        // Se for novo anúncio, gerar evento em ml_competitor_events
+        if (isNewAd) {
+          try {
+            const ev = new Record(eventsCol)
+            ev.set('mlb_item_id', itemId)
+            ev.set('seller_id', itemSellerId)
+            ev.set('seller_nickname', sellerNickname)
+            ev.set('ad_title', title)
+            ev.set('event_type', 'new_ad')
+            ev.set('old_value', '')
+            ev.set('new_value', 'R$ ' + price.toFixed(2))
+            ev.set('difference_num', price)
+            ev.set('notes', 'Novo anúncio monitorado no Radar.')
+            $app.save(ev)
+            eventsCreated++
+          } catch (evErr) {
+            console.log('[ml_competitor_jobs] Erro ao gravar evento new_ad: ' + evErr)
+          }
+        }
+      }
+
+      // Atualizar last_synced_at do concorrente
+      try {
+        compRecord.set('last_synced_at', nowIso)
+        $app.save(compRecord)
+      } catch (_) {}
+
+      job.set('status', 'done')
+      job.set('status_code', 200)
+      job.set('error_message', '')
+      job.set('seller_id', primarySellerId)
+      job.set('seller_nickname', sellerNickname)
+      job.set('result_data', {
+        seller_id: primarySellerId,
+        seller_nickname: sellerNickname,
+        items_processed: fetchedItems.length,
+        ads_added_or_updated: adsAddedOrUpdated,
+        history_created: historyCreated,
+        events_created: eventsCreated,
+      })
+      $app.save(job)
+      console.log(
+        '[ml_competitor_jobs] resolve_from_item concluido com sucesso para ' + sellerNickname,
+      )
+      e.next()
+      return
+    }
+
+    // -------------------------------------------------------------------------
+    // 2. RESOLVE COMPETITOR (Busca textual legada - com aviso claro de 403)
+    // -------------------------------------------------------------------------
     if (action === 'resolve_competitor') {
-      // 1. Resolver concorrente: busca por termo no ML para encontrar vendedores
-      let searchUrl =
+      const searchUrl =
         'https://api.mercadolibre.com/sites/MLB/search?q=' + encodeURIComponent(query) + '&limit=30'
 
       const headers = { Accept: 'application/json' }
@@ -50,10 +399,17 @@ onRecordAfterCreateSuccess((e) => {
       if (res.statusCode >= 400) {
         job.set('status', 'error')
         job.set('status_code', res.statusCode)
-        job.set(
-          'error_message',
-          'Erro na API do Mercado Livre ao buscar vendedor: HTTP ' + res.statusCode,
-        )
+        if (res.statusCode === 403) {
+          job.set(
+            'error_message',
+            'A API do Mercado Livre restringiu a busca pública por nome de vendedor. Monitore concorrentes colando o link do anúncio deles (funciona 100%).',
+          )
+        } else {
+          job.set(
+            'error_message',
+            'Erro na API do Mercado Livre ao buscar vendedor: HTTP ' + res.statusCode,
+          )
+        }
         $app.save(job)
         e.next()
         return
@@ -96,8 +452,10 @@ onRecordAfterCreateSuccess((e) => {
       return
     }
 
+    // -------------------------------------------------------------------------
+    // 3. SYNC COMPETITOR & SYNC ALL (Multiget direto dos anúncios monitorados)
+    // -------------------------------------------------------------------------
     if (action === 'sync_competitor' || action === 'sync_all') {
-      // Carregar competidores a sincronizar
       let competitors = []
       if (action === 'sync_competitor') {
         if (targetSellerId) {
@@ -109,23 +467,14 @@ onRecordAfterCreateSuccess((e) => {
             0,
           )
         }
-        if (competitors.length === 0 && targetSellerId) {
-          // Criar temporário se foi solicitado sincronizar direto por ID
-          competitors = [
-            {
-              getString: function (k) {
-                if (k === 'seller_id') return targetSellerId
-                if (k === 'nickname')
-                  return job.getString('seller_nickname') || 'Concorrente ' + targetSellerId
-                return ''
-              },
-              id: '',
-            },
-          ]
-        }
       } else {
-        // sync_all: todos ativos
-        competitors = $app.findRecordsByFilter('ml_competitors', 'active = true', '-created', 50, 0)
+        competitors = $app.findRecordsByFilter(
+          'ml_competitors',
+          'active = true',
+          '-created',
+          100,
+          0,
+        )
       }
 
       if (competitors.length === 0) {
@@ -151,6 +500,9 @@ onRecordAfterCreateSuccess((e) => {
       const nowIso = new Date().toISOString()
       const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
 
+      const headers = { Accept: 'application/json' }
+      if (accessToken) headers['Authorization'] = 'Bearer ' + accessToken
+
       for (let cIdx = 0; cIdx < competitors.length; cIdx++) {
         const comp = competitors[cIdx]
         const sId = comp.getString('seller_id')
@@ -158,149 +510,131 @@ onRecordAfterCreateSuccess((e) => {
 
         console.log('[ml_competitor_jobs] Sincronizando concorrente: ' + sNick + ' (' + sId + ')')
 
-        // Buscar anúncios públicos do seller via /sites/MLB/search?seller_id=...
-        const sellerSearchUrl =
-          'https://api.mercadolibre.com/sites/MLB/search?seller_id=' +
-          encodeURIComponent(sId) +
-          '&limit=50'
-        const headers = { Accept: 'application/json' }
-        if (accessToken) headers['Authorization'] = 'Bearer ' + accessToken
-
-        let sRes = null
+        // Buscar todos os anúncios já cadastrados deste concorrente em ml_competitor_ads
+        let existingAds = []
         try {
-          sRes = $http.send({
-            url: sellerSearchUrl,
-            method: 'GET',
-            headers: headers,
-            timeout: 25,
-          })
-        } catch (netErr) {
-          console.log(
-            '[ml_competitor_jobs] Erro ao buscar anuncios do seller ' + sId + ': ' + netErr,
+          existingAds = $app.findRecordsByFilter(
+            'ml_competitor_ads',
+            "seller_id = '" + sId + "'",
+            '-created',
+            500,
+            0,
           )
+        } catch (_) {}
+
+        if (existingAds.length === 0) {
+          console.log('[ml_competitor_jobs] Nenhum anúncio cadastrado ainda para ' + sNick)
+          try {
+            comp.set('last_synced_at', nowIso)
+            $app.save(comp)
+          } catch (_) {}
           continue
         }
 
-        if (sRes.statusCode >= 400) {
-          console.log(
-            '[ml_competitor_jobs] API ML retornou HTTP ' + sRes.statusCode + ' para seller ' + sId,
-          )
-          continue
+        // Consultar anúncios via /items?ids=MLB1,MLB2,... em lotes de até 20
+        const chunkSize = 20
+        const fetchedItemsMap = {}
+
+        for (let i = 0; i < existingAds.length; i += chunkSize) {
+          const chunkRecords = existingAds.slice(i, i + chunkSize)
+          const chunkIds = []
+          for (let k = 0; k < chunkRecords.length; k++) {
+            chunkIds.push(chunkRecords[k].getString('mlb_item_id'))
+          }
+
+          const itemsUrl = 'https://api.mercadolibre.com/items?ids=' + chunkIds.join(',')
+          let sRes = null
+          try {
+            sRes = $http.send({
+              url: itemsUrl,
+              method: 'GET',
+              headers: headers,
+              timeout: 25,
+            })
+          } catch (netErr) {
+            console.log('[ml_competitor_jobs] Erro no multiget de anúncios: ' + netErr)
+            continue
+          }
+
+          if (sRes.statusCode >= 400) {
+            console.log(
+              '[ml_competitor_jobs] API ML retornou HTTP ' +
+                sRes.statusCode +
+                ' para lote de ' +
+                sNick,
+            )
+            continue
+          }
+
+          const list = Array.isArray(sRes.json) ? sRes.json : []
+          for (let j = 0; j < list.length; j++) {
+            const entry = list[j]
+            if (entry && entry.code === 200 && entry.body) {
+              fetchedItemsMap[entry.body.id] = entry.body
+            }
+          }
         }
 
-        const items = Array.isArray(sRes.json?.results) ? sRes.json.results : []
-        totalAdsProcessed += items.length
+        // Processar cada anúncio existente com o resultado atualizado da API
+        for (let aIdx = 0; aIdx < existingAds.length; aIdx++) {
+          const adRecord = existingAds[aIdx]
+          const itemId = adRecord.getString('mlb_item_id')
+          const item = fetchedItemsMap[itemId]
+          if (!item) continue
 
-        for (let i = 0; i < items.length; i++) {
-          const item = items[i]
-          const itemId = item.id
-          if (!itemId) continue
-
+          totalAdsProcessed++
           const price = Number(item.price) || 0
           const soldQuantity = Number(item.sold_quantity) || 0
           const availableQuantity = Number(item.available_quantity) || 0
-          const status = (item.status || 'active').toLowerCase()
+          let status = (item.status || 'active').toLowerCase()
+          if (
+            status !== 'active' &&
+            status !== 'paused' &&
+            status !== 'closed' &&
+            status !== 'under_review'
+          ) {
+            status = 'active'
+          }
           const title = item.title || ''
           const permalink = item.permalink || ''
-          const thumbnail = item.thumbnail || ''
-          const condition = item.condition || ''
+          const thumbnail =
+            item.thumbnail || (item.pictures && item.pictures[0] ? item.pictures[0].url : '')
 
-          // Extrair marca e modelo de attributes se presente
-          let brand = ''
-          let model = ''
-          let gtin = ''
-          if (Array.isArray(item.attributes)) {
-            for (let a = 0; a < item.attributes.length; a++) {
-              const attr = item.attributes[a]
-              if (attr.id === 'BRAND') brand = attr.value_name || ''
-              if (attr.id === 'MODEL') model = attr.value_name || ''
-              if (attr.id === 'GTIN') gtin = attr.value_name || ''
-            }
-          }
+          const oldPrice = adRecord.getFloat('current_price')
+          const oldSold = adRecord.getInt('sold_quantity')
+          const oldStock = adRecord.getInt('available_quantity')
+          const oldStatus = adRecord.getString('status')
 
-          // Verificar se já temos esse anúncio registrado
-          let existingAd = null
-          try {
-            const existingList = $app.findRecordsByFilter(
-              'ml_competitor_ads',
-              "mlb_item_id = '" + itemId + "'",
-              '-created',
-              1,
-              0,
-            )
-            if (existingList && existingList.length > 0) {
-              existingAd = existingList[0]
-            }
-          } catch (_) {}
-
-          let isNewAd = false
           let isPriceChanged = false
           let isSoldChanged = false
           let isStockChanged = false
           let isStatusChanged = false
 
-          let oldPrice = 0
-          let oldSold = 0
-          let oldStock = 0
-          let oldStatus = ''
-
-          let adRecord = null
-
-          if (!existingAd) {
-            isNewAd = true
-            adRecord = new Record(adsCol)
-            adRecord.set('mlb_item_id', itemId)
-            adRecord.set('seller_id', sId)
-            adRecord.set('seller_nickname', sNick)
-            adRecord.set('title', title)
-            adRecord.set('current_price', price)
-            adRecord.set('initial_price', price)
-            adRecord.set('sold_quantity', soldQuantity)
-            adRecord.set('available_quantity', availableQuantity)
-            adRecord.set('status', status)
-            adRecord.set('permalink', permalink)
-            adRecord.set('thumbnail', thumbnail)
-            adRecord.set('condition', condition)
-            adRecord.set('brand', brand)
-            adRecord.set('model', model)
-            adRecord.set('gtin', gtin)
-            adRecord.set('last_checked', nowIso)
-            $app.save(adRecord)
-          } else {
-            adRecord = existingAd
-            oldPrice = adRecord.getFloat('current_price')
-            oldSold = adRecord.getInt('sold_quantity')
-            oldStock = adRecord.getInt('available_quantity')
-            oldStatus = adRecord.getString('status')
-
-            if (oldPrice > 0 && Math.abs(oldPrice - price) >= 0.01) {
-              isPriceChanged = true
-            }
-            if (soldQuantity > oldSold) {
-              isSoldChanged = true
-            }
-            if (oldStock !== availableQuantity) {
-              isStockChanged = true
-            }
-            if (oldStatus && oldStatus !== status) {
-              isStatusChanged = true
-            }
-
-            adRecord.set('title', title)
-            adRecord.set('current_price', price)
-            adRecord.set('sold_quantity', soldQuantity)
-            adRecord.set('available_quantity', availableQuantity)
-            adRecord.set('status', status)
-            adRecord.set('permalink', permalink)
-            if (thumbnail) adRecord.set('thumbnail', thumbnail)
-            if (brand) adRecord.set('brand', brand)
-            if (model) adRecord.set('model', model)
-            if (gtin) adRecord.set('gtin', gtin)
-            adRecord.set('last_checked', nowIso)
-            $app.save(adRecord)
+          if (oldPrice > 0 && Math.abs(oldPrice - price) >= 0.01) {
+            isPriceChanged = true
+          }
+          if (soldQuantity > oldSold) {
+            isSoldChanged = true
+          }
+          if (oldStock !== availableQuantity) {
+            isStockChanged = true
+          }
+          if (oldStatus && oldStatus !== status) {
+            isStatusChanged = true
           }
 
-          // Gravar Snapshot em ml_price_history (evitar duplicar dentro da mesma hora)
+          // Atualizar registro do anúncio
+          adRecord.set('title', title)
+          adRecord.set('current_price', price)
+          adRecord.set('sold_quantity', soldQuantity)
+          adRecord.set('available_quantity', availableQuantity)
+          adRecord.set('status', status)
+          adRecord.set('permalink', permalink)
+          if (thumbnail) adRecord.set('thumbnail', thumbnail)
+          adRecord.set('last_checked', nowIso)
+          $app.save(adRecord)
+
+          // Gravar Snapshot em ml_price_history se houve mudança ou há mais de 1h sem registro
           let recentHistory = null
           try {
             const hList = $app.findRecordsByFilter(
@@ -316,35 +650,24 @@ onRecordAfterCreateSuccess((e) => {
           } catch (_) {}
 
           if (!recentHistory || isPriceChanged || isSoldChanged) {
-            const hRec = new Record(historyCol)
-            hRec.set('mlb_item_id', itemId)
-            hRec.set('seller_id', sId)
-            hRec.set('price', price)
-            hRec.set('sold_quantity', soldQuantity)
-            hRec.set('available_quantity', availableQuantity)
-            hRec.set('status', status)
-            hRec.set('checked_at', nowIso)
-            $app.save(hRec)
-            totalHistoryCreated++
+            try {
+              const hRec = new Record(historyCol)
+              hRec.set('mlb_item_id', itemId)
+              hRec.set('seller_id', sId)
+              hRec.set('price', price)
+              hRec.set('sold_quantity', soldQuantity)
+              hRec.set('available_quantity', availableQuantity)
+              hRec.set('status', status)
+              hRec.set('checked_at', nowIso)
+              $app.save(hRec)
+              totalHistoryCreated++
+            } catch (_) {}
           }
 
           // Gerar Eventos de Mudança em ml_competitor_events
-          if (isNewAd) {
-            const ev = new Record(eventsCol)
-            ev.set('mlb_item_id', itemId)
-            ev.set('seller_id', sId)
-            ev.set('seller_nickname', sNick)
-            ev.set('ad_title', title)
-            ev.set('event_type', 'new_ad')
-            ev.set('old_value', '')
-            ev.set('new_value', 'R$ ' + price.toFixed(2))
-            ev.set('difference_num', price)
-            ev.set('notes', 'Novo anúncio monitorado no catálogo do concorrente.')
-            $app.save(ev)
-            totalEventsCreated++
-          } else {
-            if (isPriceChanged) {
-              const diff = price - oldPrice
+          if (isPriceChanged) {
+            const diff = price - oldPrice
+            try {
               const ev = new Record(eventsCol)
               ev.set('mlb_item_id', itemId)
               ev.set('seller_id', sId)
@@ -362,10 +685,12 @@ onRecordAfterCreateSuccess((e) => {
               )
               $app.save(ev)
               totalEventsCreated++
-            }
+            } catch (_) {}
+          }
 
-            if (isSoldChanged) {
-              const diffSold = soldQuantity - oldSold
+          if (isSoldChanged) {
+            const diffSold = soldQuantity - oldSold
+            try {
               const ev = new Record(eventsCol)
               ev.set('mlb_item_id', itemId)
               ev.set('seller_id', sId)
@@ -378,9 +703,11 @@ onRecordAfterCreateSuccess((e) => {
               ev.set('notes', 'Concorrente realizou ' + diffSold + ' nova(s) venda(s).')
               $app.save(ev)
               totalEventsCreated++
-            }
+            } catch (_) {}
+          }
 
-            if (isStatusChanged) {
+          if (isStatusChanged) {
+            try {
               const ev = new Record(eventsCol)
               ev.set('mlb_item_id', itemId)
               ev.set('seller_id', sId)
@@ -392,7 +719,7 @@ onRecordAfterCreateSuccess((e) => {
                   ? 'ad_paused'
                   : status === 'closed'
                     ? 'ad_closed'
-                    : 'status_change',
+                    : 'stock_change',
               )
               ev.set('old_value', oldStatus)
               ev.set('new_value', status)
@@ -403,8 +730,10 @@ onRecordAfterCreateSuccess((e) => {
               )
               $app.save(ev)
               totalEventsCreated++
-            } else if (isStockChanged && !isSoldChanged) {
-              const diffStock = availableQuantity - oldStock
+            } catch (_) {}
+          } else if (isStockChanged && !isSoldChanged) {
+            const diffStock = availableQuantity - oldStock
+            try {
               const ev = new Record(eventsCol)
               ev.set('mlb_item_id', itemId)
               ev.set('seller_id', sId)
@@ -420,17 +749,15 @@ onRecordAfterCreateSuccess((e) => {
               )
               $app.save(ev)
               totalEventsCreated++
-            }
+            } catch (_) {}
           }
         }
 
-        // Atualizar last_synced_at do concorrente se for record salvo
-        if (comp.id) {
-          try {
-            comp.set('last_synced_at', nowIso)
-            $app.save(comp)
-          } catch (_) {}
-        }
+        // Atualizar data de sincronização do concorrente
+        try {
+          comp.set('last_synced_at', nowIso)
+          $app.save(comp)
+        } catch (_) {}
       }
 
       job.set('status', 'done')
@@ -444,16 +771,18 @@ onRecordAfterCreateSuccess((e) => {
       })
       $app.save(job)
       console.log(
-        '[ml_competitor_jobs] Concluído com sucesso: ' +
+        '[ml_competitor_jobs] Sincronização concluída: ' +
           totalAdsProcessed +
-          ' anúncios processados.',
+          ' anúncios atualizados.',
       )
       e.next()
       return
     }
 
+    // -------------------------------------------------------------------------
+    // 4. SEARCH QUERY (Busca auxiliar)
+    // -------------------------------------------------------------------------
     if (action === 'search_query') {
-      // Busca geral por termo para encontrar concorrentes ou anúncios do termo
       const searchUrl =
         'https://api.mercadolibre.com/sites/MLB/search?q=' + encodeURIComponent(query) + '&limit=40'
       const headers = { Accept: 'application/json' }
@@ -469,7 +798,12 @@ onRecordAfterCreateSuccess((e) => {
       if (sRes.statusCode >= 400) {
         job.set('status', 'error')
         job.set('status_code', sRes.statusCode)
-        job.set('error_message', 'Erro na API do Mercado Livre: HTTP ' + sRes.statusCode)
+        job.set(
+          'error_message',
+          sRes.statusCode === 403
+            ? 'A API do Mercado Livre bloqueou a busca textual direta (HTTP 403). Use a consulta por link ou código MLB.'
+            : 'Erro na API do Mercado Livre: HTTP ' + sRes.statusCode,
+        )
         $app.save(job)
         e.next()
         return
