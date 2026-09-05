@@ -585,7 +585,7 @@ export function AnunciosCatalogoTab() {
           title="Classificação Usado no catálogo Mercado Livre"
         >
           <span className="w-1.5 h-1.5 rounded-full bg-amber-100" />
-          <span>{label}</span>
+          <span>{baseLabel}</span>
         </Badge>
       )
     }
@@ -596,7 +596,7 @@ export function AnunciosCatalogoTab() {
         title="Classificação Novo de fábrica no catálogo oficial Mercado Livre"
       >
         <span className="w-1.5 h-1.5 rounded-full bg-white" />
-        <span>{label}</span>
+        <span>{baseLabel}</span>
       </Badge>
     )
   }

@@ -157,7 +157,7 @@ export default function AnunciosML() {
 
       return true
     })
-  }, [data, search, statusFilter, matchedFilter, catalogOnlyFilter])
+  }, [data, search, statusFilter, matchedFilter, catalogOnlyFilter, conditionFilter])
 
   const stats = useMemo(() => {
     if (!data?.items) {

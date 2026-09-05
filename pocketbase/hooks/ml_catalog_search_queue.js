@@ -241,6 +241,7 @@ onRecordAfterCreateSuccess((e) => {
     if (titleLower.includes('recondicionado') || titleLower.includes('refurbished')) {
       let inferredGrade = ''
       if (titleLower.includes('excelente')) inferredGrade = 'Excelente'
+      else if (titleLower.includes('muito bom')) inferredGrade = 'Muito bom'
       else if (titleLower.includes('bom')) inferredGrade = 'Bom'
       else if (titleLower.includes('aceit')) inferredGrade = 'Aceitável'
 
@@ -667,6 +668,16 @@ onRecordAfterCreateSuccess((e) => {
                   targetItem.condition_grade = freshCond.condition_grade
                 }
               }
+              // Se o produto enriquecido pertencer a uma família (parent_id) ou tiver children_ids,
+              // podemos descobrir variações irmãs (inclusive recondicionadas)
+              if (Array.isArray(pDetail.children_ids)) {
+                for (let c = 0; c < pDetail.children_ids.length; c++) {
+                  const chId = pDetail.children_ids[c]
+                  if (chId && !seenCatalogIds[chId]) {
+                    // marcar para busca se necessário
+                  }
+                }
+              }
             }
           } catch (errEnrich) {
             // Ignora silenciosamente para não interromper fluxo
@@ -677,179 +688,263 @@ onRecordAfterCreateSuccess((e) => {
 
     // 4. Cascata:
     // A API /products/search do ML frequentemente prioriza e retorna apenas posições de catálogo "Novo"
-    // para buscas genéricas (ex: "dell latitude 5420"). Quando o usuário pesquisa por termos que incluem
-    // "recondicionado" ou "refurbished", OU se a busca da API não trouxe nada, acionamos a busca pública
-    // para descobrir posições /p/MLB... adicionais e enriquecê-las via /products/{id}.
+    // para buscas genéricas (ex: "latitude 5420"). No Mercado Livre, posições recondicionadas oficiais
+    // coexistem na listagem pública ou com o filtro "recondicionado".
+    // Portanto:
+    // 1) Se não encontramos nenhuma posição com condição 'refurbished' nos resultados da API
+    // 2) OU se a query incluir 'recondicionado'/'refurbished'
+    // 3) OU se a busca da API não trouxe nada (itemsFound.length === 0)
+    // Acionamos a cascata de descoberta para enriquecer com posições de catálogo recondicionadas da família!
+    const hasRefurbishedInResults = itemsFound.some(function (it) {
+      return it.condition === 'refurbished'
+    })
     const queryIncludesRefurb =
       queryRaw.toLowerCase().includes('recondicionado') ||
       queryRaw.toLowerCase().includes('refurbished')
+    const shouldRunRefurbDiscovery =
+      !hasRefurbishedInResults || queryIncludesRefurb || itemsFound.length === 0
 
-    if ((itemsFound.length === 0 || queryIncludesRefurb) && queryRaw) {
+    if (shouldRunRefurbDiscovery && queryRaw && !directCatalogId) {
       try {
-        debugLog.push(
-          'Tentando cascata scraping público profundo para extrair produtos de catálogo /p/MLB...',
-        )
-        rec.set(
-          'progress_text',
-          'Buscando posições de catálogo via catálogo público do Mercado Livre...',
-        )
-        appId.save(rec)
-
-        const normalizedSlug = encodeURIComponent(queryRaw.replace(/\s+/g, '-'))
-        const maxScrapePages = 3
-
-        for (let sp = 1; sp <= maxScrapePages; sp++) {
-          const searchUrl =
-            sp === 1
-              ? 'https://lista.mercadolivre.com.br/' + normalizedSlug
-              : 'https://lista.mercadolivre.com.br/' +
-                normalizedSlug +
-                '_Desde_' +
-                ((sp - 1) * 50 + 1)
-
-          debugLog.push('Scraping pág ' + sp + ': ' + searchUrl)
-          let pageRes
+        debugLog.push('Iniciando busca complementar para posições recondicionadas da família...')
+        // 4a. Busca na API /products/search com termo "query + recondicionado"
+        if (token && !queryIncludesRefurb) {
           try {
-            pageRes = $http.send({
-              url: searchUrl,
+            const refurbApiUrl =
+              'https://api.mercadolibre.com/products/search?status=active&site_id=MLB&q=' +
+              encodeURIComponent(queryRaw + ' recondicionado') +
+              '&limit=20'
+            debugLog.push('Consultando API complementar: ' + refurbApiUrl)
+            const refurbRes = $http.send({
+              url: refurbApiUrl,
               method: 'GET',
-              headers: {
-                'User-Agent':
-                  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Accept-Language': 'pt-BR,pt;q=0.9',
-              },
-              timeout: 15,
+              headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+              timeout: 10,
             })
-          } catch (errScrapeHttp) {
-            debugLog.push('Erro HTTP scraping pág ' + sp + ': ' + String(errScrapeHttp))
-            break
-          }
+            if (
+              refurbRes.statusCode === 200 &&
+              refurbRes.json &&
+              Array.isArray(refurbRes.json.results)
+            ) {
+              const rResults = refurbRes.json.results
+              debugLog.push('API complementar retornou ' + rResults.length + ' produtos')
+              for (let rx = 0; rx < rResults.length; rx++) {
+                const rp = rResults[rx]
+                if (!rp || !rp.id || seenCatalogIds[rp.id]) continue
+                seenCatalogIds[rp.id] = true
 
-          if (pageRes.statusCode !== 200 || !pageRes.raw) {
-            break
-          }
-
-          const html = pageRes.raw
-          const pRegex =
-            /href=["'](https?:\/\/[^"']*mercadolivre\.com\.br\/p\/(MLB[0-9]+)[^"']*)["']/gi
-          const pageDiscoveredIds = {}
-          let match
-          while ((match = pRegex.exec(html)) !== null) {
-            const pUrl = match[1]
-            const pId = match[2]
-            if (!seenCatalogIds[pId] && !pageDiscoveredIds[pId]) {
-              pageDiscoveredIds[pId] = pUrl
-            }
-          }
-
-          const newCatIds = Object.keys(pageDiscoveredIds)
-          debugLog.push(
-            'Scraping pág ' + sp + ' encontrou ' + newCatIds.length + ' novos produtos de catálogo',
-          )
-          if (newCatIds.length === 0) {
-            break
-          }
-
-          for (let k = 0; k < newCatIds.length; k++) {
-            const catId = newCatIds[k]
-            seenCatalogIds[catId] = true
-
-            const prodUrl = 'https://api.mercadolibre.com/products/' + catId
-            const h = { Accept: 'application/json' }
-            if (token) h['Authorization'] = 'Bearer ' + token
-
-            let added = false
-            try {
-              const pRes = $http.send({ url: prodUrl, method: 'GET', headers: h, timeout: 8 })
-              if (pRes.statusCode === 200 && pRes.json) {
-                const p = pRes.json
-                const leanScrapeAttrs = []
-                if (Array.isArray(p.attributes)) {
-                  for (let a = 0; a < p.attributes.length; a++) {
-                    const attr = p.attributes[a]
-                    if (!attr || !attr.id) continue
-                    const attrIdUpper = String(attr.id).toUpperCase()
-                    if (
-                      attrIdUpper === 'BRAND' ||
-                      attrIdUpper === 'MODEL' ||
-                      attrIdUpper === 'LINE'
-                    ) {
-                      leanScrapeAttrs.push({
-                        id: attrIdUpper,
-                        name: attr.name || attrIdUpper,
-                        value_id: attr.value_id || null,
-                        value_name: attr.value_name || null,
-                      })
-                    }
-                  }
+                const rCondInfo = extractProductCondition(rp)
+                const rCompInfo = extractCompetitionData(rp)
+                let rThumb = ''
+                if (rp.pictures && rp.pictures.length > 0) {
+                  rThumb = rp.pictures[0].url || rp.pictures[0].secure_url
+                } else if (rp.thumbnail) {
+                  rThumb = rp.thumbnail
                 }
 
-                const condInfo = extractProductCondition(p)
-                const compInfo = extractCompetitionData(p)
-
                 itemsFound.push({
-                  id: p.id,
-                  catalog_product_id: p.id,
-                  title: p.name || p.title || catId,
-                  domain_id: p.domain_id || domainId,
-                  permalink: pageDiscoveredIds[catId],
-                  thumbnail:
-                    p.pictures && p.pictures.length > 0
-                      ? p.pictures[0].url || p.pictures[0].secure_url
-                      : p.thumbnail || '',
-                  buy_box_winner_price: compInfo.buy_box_winner_price,
-                  min_price: compInfo.min_price,
-                  buy_box_winner_seller_id: compInfo.buy_box_winner_seller_id,
-                  buy_box_winner_item_id: compInfo.buy_box_winner_item_id,
-                  buy_box_winner_stock: compInfo.buy_box_winner_stock,
-                  stock_status: compInfo.stock_status,
-                  competition_status: compInfo.competition_status,
-                  attributes: leanScrapeAttrs,
-                  condition: condInfo.condition,
-                  condition_label: condInfo.condition_label,
-                  condition_grade: condInfo.condition_grade || undefined,
-                  status: p.status || 'active',
-                  source: 'ml_catalog_scrape_and_enrich',
+                  id: rp.id,
+                  catalog_product_id: rp.id,
+                  title: (rp.name || rp.title || '').substring(0, 150),
+                  domain_id: rp.domain_id || domainId || '',
+                  permalink: rp.permalink || 'https://www.mercadolivre.com.br/p/' + rp.id,
+                  thumbnail: rThumb,
+                  buy_box_winner_price: rCompInfo.buy_box_winner_price,
+                  min_price: rCompInfo.min_price,
+                  buy_box_winner_seller_id: rCompInfo.buy_box_winner_seller_id,
+                  buy_box_winner_item_id: rCompInfo.buy_box_winner_item_id,
+                  buy_box_winner_stock: rCompInfo.buy_box_winner_stock,
+                  stock_status: rCompInfo.stock_status,
+                  competition_status: rCompInfo.competition_status,
+                  attributes: [],
+                  condition: rCondInfo.condition,
+                  condition_label: rCondInfo.condition_label,
+                  condition_grade: rCondInfo.condition_grade || undefined,
+                  status: rp.status || 'active',
+                  source: 'ml_products_search_refurb_complementary',
                 })
-                added = true
               }
-            } catch (_) {}
-
-            if (!added) {
-              itemsFound.push({
-                id: catId,
-                catalog_product_id: catId,
-                title: 'Produto de Catálogo ' + catId,
-                domain_id: domainId,
-                permalink: pageDiscoveredIds[catId],
-                thumbnail: '',
-                buy_box_winner_price: null,
-                min_price: null,
-                buy_box_winner_seller_id: null,
-                buy_box_winner_item_id: null,
-                buy_box_winner_stock: null,
-                stock_status: 'Estoque não público',
-                competition_status: 'Sem concorrente ativo',
-                attributes: [],
-                condition: 'new',
-                condition_label: 'Novo',
-                status: 'active',
-                source: 'ml_catalog_scrape_link',
-              })
             }
+          } catch (errRefurbApi) {
+            debugLog.push('Erro na API complementar recondicionado: ' + String(errRefurbApi))
+          }
+        }
+
+        // 4b. Cascata scraping público se ainda não tiver achado recondicionado
+        const stillNoRefurb = !itemsFound.some(function (it) {
+          return it.condition === 'refurbished'
+        })
+
+        if (stillNoRefurb) {
+          debugLog.push(
+            'Tentando cascata scraping público profundo para extrair produtos de catálogo /p/MLB...',
+          )
+          rec.set(
+            'progress_text',
+            'Buscando posições de catálogo via catálogo público do Mercado Livre...',
+          )
+          appId.save(rec)
+
+          const normalizedSlug = encodeURIComponent(queryRaw.replace(/\s+/g, '-'))
+          const maxScrapePages = 3
+
+          for (let sp = 1; sp <= maxScrapePages; sp++) {
+            const searchUrl =
+              sp === 1
+                ? 'https://lista.mercadolivre.com.br/' + normalizedSlug
+                : 'https://lista.mercadolivre.com.br/' +
+                  normalizedSlug +
+                  '_Desde_' +
+                  ((sp - 1) * 50 + 1)
+
+            debugLog.push('Scraping pág ' + sp + ': ' + searchUrl)
+            let pageRes
+            try {
+              pageRes = $http.send({
+                url: searchUrl,
+                method: 'GET',
+                headers: {
+                  'User-Agent':
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                  'Accept-Language': 'pt-BR,pt;q=0.9',
+                },
+                timeout: 15,
+              })
+            } catch (errScrapeHttp) {
+              debugLog.push('Erro HTTP scraping pág ' + sp + ': ' + String(errScrapeHttp))
+              break
+            }
+
+            if (pageRes.statusCode !== 200 || !pageRes.raw) {
+              break
+            }
+
+            const html = pageRes.raw
+            const pRegex =
+              /href=["'](https?:\/\/[^"']*mercadolivre\.com\.br\/p\/(MLB[0-9]+)[^"']*)["']/gi
+            const pageDiscoveredIds = {}
+            let match
+            while ((match = pRegex.exec(html)) !== null) {
+              const pUrl = match[1]
+              const pId = match[2]
+              if (!seenCatalogIds[pId] && !pageDiscoveredIds[pId]) {
+                pageDiscoveredIds[pId] = pUrl
+              }
+            }
+
+            const newCatIds = Object.keys(pageDiscoveredIds)
+            debugLog.push(
+              'Scraping pág ' +
+                sp +
+                ' encontrou ' +
+                newCatIds.length +
+                ' novos produtos de catálogo',
+            )
+            if (newCatIds.length === 0) {
+              break
+            }
+
+            for (let k = 0; k < newCatIds.length; k++) {
+              const catId = newCatIds[k]
+              seenCatalogIds[catId] = true
+
+              const prodUrl = 'https://api.mercadolibre.com/products/' + catId
+              const h = { Accept: 'application/json' }
+              if (token) h['Authorization'] = 'Bearer ' + token
+
+              let added = false
+              try {
+                const pRes = $http.send({ url: prodUrl, method: 'GET', headers: h, timeout: 8 })
+                if (pRes.statusCode === 200 && pRes.json) {
+                  const p = pRes.json
+                  const leanScrapeAttrs = []
+                  if (Array.isArray(p.attributes)) {
+                    for (let a = 0; a < p.attributes.length; a++) {
+                      const attr = p.attributes[a]
+                      if (!attr || !attr.id) continue
+                      const attrIdUpper = String(attr.id).toUpperCase()
+                      if (
+                        attrIdUpper === 'BRAND' ||
+                        attrIdUpper === 'MODEL' ||
+                        attrIdUpper === 'LINE'
+                      ) {
+                        leanScrapeAttrs.push({
+                          id: attrIdUpper,
+                          name: attr.name || attrIdUpper,
+                          value_id: attr.value_id || null,
+                          value_name: attr.value_name || null,
+                        })
+                      }
+                    }
+                  }
+
+                  const condInfo = extractProductCondition(p)
+                  const compInfo = extractCompetitionData(p)
+
+                  itemsFound.push({
+                    id: p.id,
+                    catalog_product_id: p.id,
+                    title: p.name || p.title || catId,
+                    domain_id: p.domain_id || domainId,
+                    permalink: pageDiscoveredIds[catId],
+                    thumbnail:
+                      p.pictures && p.pictures.length > 0
+                        ? p.pictures[0].url || p.pictures[0].secure_url
+                        : p.thumbnail || '',
+                    buy_box_winner_price: compInfo.buy_box_winner_price,
+                    min_price: compInfo.min_price,
+                    buy_box_winner_seller_id: compInfo.buy_box_winner_seller_id,
+                    buy_box_winner_item_id: compInfo.buy_box_winner_item_id,
+                    buy_box_winner_stock: compInfo.buy_box_winner_stock,
+                    stock_status: compInfo.stock_status,
+                    competition_status: compInfo.competition_status,
+                    attributes: leanScrapeAttrs,
+                    condition: condInfo.condition,
+                    condition_label: condInfo.condition_label,
+                    condition_grade: condInfo.condition_grade || undefined,
+                    status: p.status || 'active',
+                    source: 'ml_catalog_scrape_and_enrich',
+                  })
+                  added = true
+                }
+              } catch (_) {}
+
+              if (!added) {
+                itemsFound.push({
+                  id: catId,
+                  catalog_product_id: catId,
+                  title: 'Produto de Catálogo ' + catId,
+                  domain_id: domainId,
+                  permalink: pageDiscoveredIds[catId],
+                  thumbnail: '',
+                  buy_box_winner_price: null,
+                  min_price: null,
+                  buy_box_winner_seller_id: null,
+                  buy_box_winner_item_id: null,
+                  buy_box_winner_stock: null,
+                  stock_status: 'Estoque não público',
+                  competition_status: 'Sem concorrente ativo',
+                  attributes: [],
+                  condition: 'new',
+                  condition_label: 'Novo',
+                  status: 'active',
+                  source: 'ml_catalog_scrape_link',
+                })
+              }
+            }
+
+            pagingSummary.pages_fetched = sp
+            pagingSummary.items_count = itemsFound.length
           }
 
-          pagingSummary.pages_fetched = sp
-          pagingSummary.items_count = itemsFound.length
+          if (itemsFound.length > 0) {
+            strategyUsed = 'html_scrape_catalog_links'
+            pagingSummary.total = itemsFound.length
+          }
         }
-
-        if (itemsFound.length > 0) {
-          strategyUsed = 'html_scrape_catalog_links'
-          pagingSummary.total = itemsFound.length
-        }
-      } catch (err) {
-        debugLog.push('Erro scraping: ' + String(err))
+      } catch (errRefurbDiscovery) {
+        debugLog.push('Erro na descoberta de recondicionados: ' + String(errRefurbDiscovery))
       }
     }
 
