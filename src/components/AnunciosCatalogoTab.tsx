@@ -16,30 +16,34 @@ import {
   Package,
   TrendingDown,
   Info,
-  DollarSign,
-  Boxes,
-  HelpCircle,
   ChevronDown,
   ChevronUp,
+  Filter,
+  Check,
+  Eye,
+  EyeOff,
 } from 'lucide-react'
 import { toast } from '@/hooks/use-toast'
 import { productsService } from '@/services/products'
 import { Product } from '@/types/inventory'
+import { mlCatalogService, CatalogMatchResult } from '@/services/mlCatalogService'
 import {
-  mlCatalogService,
-  MLCatalogProduct,
-  CatalogMatchResult,
-  MLCatalogPublishJob,
-} from '@/services/mlCatalogService'
+  extractCatalogSearchTokens,
+  evaluateCatalogItemStrictMatch,
+  highlightMatchedTitle,
+  isDirectCatalogCodeQuery,
+} from '@/lib/catalogFilter'
 
 export function AnunciosCatalogoTab() {
   const [query, setQuery] = useState('dell latitude 3420')
+  const [activeSearchTerm, setActiveSearchTerm] = useState('dell latitude 3420')
   const [searching, setSearching] = useState(false)
   const [catalogItems, setCatalogItems] = useState<CatalogMatchResult[]>([])
   const [inventoryProducts, setInventoryProducts] = useState<Product[]>([])
   const [lastStrategy, setLastStrategy] = useState<string>('')
   const [searchJobDebug, setSearchJobDebug] = useState<string[]>([])
   const [showDebug, setShowDebug] = useState(false)
+  const [showPartialResults, setShowPartialResults] = useState(false)
 
   // Publicação em massa
   const [isPublishing, setIsPublishing] = useState(false)
@@ -84,6 +88,7 @@ export function AnunciosCatalogoTab() {
 
     try {
       setSearching(true)
+      setActiveSearchTerm(q)
       setCatalogItems([])
       setSearchJobDebug([])
 
@@ -116,18 +121,27 @@ export function AnunciosCatalogoTab() {
 
       // Todas as posições são selecionáveis e publicáveis de forma autônoma
       // Match com estoque local é puramente informativo / dica opcional
+      const isDirectCode = isDirectCatalogCodeQuery(q)
+      const tokens = isDirectCode ? [] : extractCatalogSearchTokens(q)
+
       const formatted: CatalogMatchResult[] = results.map((catProd) => {
         const matchInfo = mlCatalogService.matchCatalogWithInventory(catProd, inventoryProducts)
         const primaryProduct = matchInfo.matchedProducts[0]
         const fallbackPrice =
           catProd.buy_box_winner_price || catProd.min_price || matchInfo.suggestedPrice || 1200
 
+        // Se houver tokens e não for busca direta, seleciona por padrão apenas se atender ao filtro rígido
+        const isStrict =
+          isDirectCode ||
+          tokens.length === 0 ||
+          evaluateCatalogItemStrictMatch(catProd.title, tokens, catProd.attributes).isMatch
+
         return {
           catalogProduct: catProd,
           matchedProducts: matchInfo.matchedProducts,
           totalAvailableStock: matchInfo.totalAvailableStock,
           suggestedPrice: fallbackPrice,
-          selected: true, // Todas as posições de catálogo vêm selecionadas por padrão
+          selected: isStrict, // Resultados rigorosos já vêm selecionados; descartados vêm desmarcados
           formQuantity: 1, // Quantidade default = 1
           formPrice: fallbackPrice, // Preço default = preço de referência do catálogo
           selectedProductId: primaryProduct?.id || undefined,
@@ -136,14 +150,33 @@ export function AnunciosCatalogoTab() {
 
       setCatalogItems(formatted)
 
-      const matchedCount = formatted.filter((f) => f.matchedProducts.length > 0).length
-      toast({
-        title: `${results.length} posições de catálogo prontas para gerir`,
-        description:
-          matchedCount > 0
-            ? `${matchedCount} possuem sugestão de match com seu estoque.`
-            : 'Preços e quantidades podem ser editados livremente na linha.',
-      })
+      const strictCount =
+        isDirectCode || tokens.length === 0
+          ? formatted.length
+          : formatted.filter(
+              (it) =>
+                evaluateCatalogItemStrictMatch(
+                  it.catalogProduct.title,
+                  tokens,
+                  it.catalogProduct.attributes,
+                ).isMatch,
+            ).length
+
+      if (!isDirectCode && tokens.length > 0 && strictCount < results.length) {
+        toast({
+          title: `Filtro rigoroso: ${strictCount} de ${results.length} posições relevantes`,
+          description: `${results.length - strictCount} anúncio(s) descartado(s) por não conterem todos os termos buscados.`,
+        })
+      } else {
+        const matchedCount = formatted.filter((f) => f.matchedProducts.length > 0).length
+        toast({
+          title: `${results.length} posições de catálogo prontas para gerir`,
+          description:
+            matchedCount > 0
+              ? `${matchedCount} possuem sugestão de match com seu estoque.`
+              : 'Preços e quantidades podem ser editados livremente na linha.',
+        })
+      }
     } catch (err: any) {
       console.error('Erro na busca de catálogo:', err)
       toast({
@@ -165,13 +198,24 @@ export function AnunciosCatalogoTab() {
     })
   }
 
-  // Selecionar todos / nenhum
+  // Selecionar todos / nenhum (se o filtro rígido estiver ativo e descartados estiverem ocultos, opera sobre os visíveis)
   function toggleSelectAll(select: boolean) {
     setCatalogItems((prev) =>
-      prev.map((item) => ({
-        ...item,
-        selected: select,
-      })),
+      prev.map((item, idx) => {
+        if (!isFilterActive || showPartialResults) {
+          return { ...item, selected: select }
+        }
+        // Se filtro ativo e descartados ocultos, só altera os strict
+        const isStrict = evaluateCatalogItemStrictMatch(
+          item.catalogProduct.title,
+          currentTokens,
+          item.catalogProduct.attributes,
+        ).isMatch
+        if (isStrict) {
+          return { ...item, selected: select }
+        }
+        return item
+      }),
     )
   }
 
@@ -422,6 +466,34 @@ export function AnunciosCatalogoTab() {
     }
   }
 
+  // Tokens de busca ativos para avaliação de filtro e destaque
+  const isDirectCode = isDirectCatalogCodeQuery(activeSearchTerm)
+  const currentTokens = isDirectCode ? [] : extractCatalogSearchTokens(activeSearchTerm)
+  const isFilterActive = !isDirectCode && currentTokens.length > 0
+
+  // Avaliação de cada item em relação aos termos buscados
+  const evaluatedItems = catalogItems.map((item, originalIndex) => {
+    const evalResult = isFilterActive
+      ? evaluateCatalogItemStrictMatch(
+          item.catalogProduct.title,
+          currentTokens,
+          item.catalogProduct.attributes,
+        )
+      : { isMatch: true, matchedTokens: currentTokens, missingTokens: [] }
+
+    return {
+      item,
+      originalIndex,
+      isMatch: evalResult.isMatch,
+      matchedTokens: evalResult.matchedTokens,
+      missingTokens: evalResult.missingTokens,
+    }
+  })
+
+  // Itens estritos e parciais/descartados
+  const strictItems = evaluatedItems.filter((entry) => entry.isMatch)
+  const partialItems = evaluatedItems.filter((entry) => !entry.isMatch)
+
   const selectedCount = catalogItems.filter((i) => i.selected).length
 
   return (
@@ -583,14 +655,20 @@ export function AnunciosCatalogoTab() {
             <div className="flex items-center gap-3">
               <Checkbox
                 id="select-all"
-                checked={selectedCount > 0 && selectedCount === catalogItems.length}
+                checked={
+                  isFilterActive && !showPartialResults
+                    ? strictItems.length > 0 && strictItems.every((s) => s.item.selected)
+                    : selectedCount > 0 && selectedCount === catalogItems.length
+                }
                 onCheckedChange={(checked) => toggleSelectAll(Boolean(checked))}
               />
               <label
                 htmlFor="select-all"
                 className="text-xs font-bold text-slate-800 cursor-pointer select-none"
               >
-                Selecionar todas as {catalogItems.length} posições de catálogo
+                {isFilterActive && !showPartialResults
+                  ? `Selecionar todos os ${strictItems.length} resultados filtrados`
+                  : `Selecionar todas as ${catalogItems.length} posições`}
               </label>
               <Badge variant="outline" className="bg-white text-slate-700 font-mono text-[11px]">
                 {selectedCount} selecionada(s)
@@ -697,24 +775,99 @@ export function AnunciosCatalogoTab() {
       {/* Lista de Resultados de Catálogo Encontrados */}
       {catalogItems.length > 0 && (
         <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-slate-500 font-semibold px-1">
-            <span>Posições de Catálogo Encontradas ({catalogItems.length})</span>
-            <span className="text-[11px] text-slate-400 font-normal">
-              Gestão direta na conta ML · Edite a quantidade e valor livremente antes de publicar
-            </span>
-          </div>
+          {/* Banner de Transparência do Filtro Rigoroso */}
+          {isFilterActive ? (
+            <div className="p-3.5 rounded-lg border bg-slate-50 border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <div className="w-6 h-6 rounded-md bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                  <Filter className="w-3.5 h-3.5" />
+                </div>
+                <div>
+                  <span className="font-bold text-slate-900">Filtro rigoroso ativo:</span>{' '}
+                  <span className="text-slate-700">
+                    <strong className="text-emerald-700 font-mono">{strictItems.length}</strong> de{' '}
+                    <strong className="font-mono">{catalogItems.length}</strong> resultados contêm
+                    todos os termos buscados
+                  </span>
+                  {currentTokens.length > 0 && (
+                    <span className="ml-1.5 inline-flex items-center gap-1 font-mono text-[11px] text-slate-500">
+                      ({currentTokens.map((t) => `+${t}`).join(' ')})
+                    </span>
+                  )}
+                </div>
+              </div>
 
+              {partialItems.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowPartialResults(!showPartialResults)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 transition-colors shrink-0 shadow-2xs"
+                >
+                  {showPartialResults ? (
+                    <>
+                      <EyeOff className="w-3.5 h-3.5 text-slate-500" />
+                      Ocultar descartados ({partialItems.length})
+                    </>
+                  ) : (
+                    <>
+                      <Eye className="w-3.5 h-3.5 text-slate-500" />
+                      Mostrar também resultados parciais ({partialItems.length})
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-slate-500 font-semibold px-1">
+              <span>Posições de Catálogo Encontradas ({catalogItems.length})</span>
+              <span className="text-[11px] text-slate-400 font-normal">
+                {isDirectCode
+                  ? 'Busca por código exato de produto de catálogo'
+                  : 'Gestão direta na conta ML · Edite a quantidade e valor livremente antes de publicar'}
+              </span>
+            </div>
+          )}
+
+          {/* Se nenhum item passou no filtro rigoroso */}
+          {isFilterActive && strictItems.length === 0 && (
+            <Card className="border-amber-200 bg-amber-50/50 p-6 text-center">
+              <div className="max-w-md mx-auto space-y-2">
+                <AlertCircle className="w-8 h-8 text-amber-600 mx-auto" />
+                <h4 className="text-sm font-bold text-amber-900">
+                  Nenhum resultado contém todos os termos da busca
+                </h4>
+                <p className="text-xs text-amber-800">
+                  O Mercado Livre retornou {catalogItems.length} produto(s), mas nenhum inclui
+                  simultaneamente todos os termos: {currentTokens.map((t) => `"${t}"`).join(', ')}.
+                </p>
+                {partialItems.length > 0 && !showPartialResults && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowPartialResults(true)}
+                    className="mt-2 text-xs border-amber-300 text-amber-900 hover:bg-amber-100"
+                  >
+                    Exibir os {partialItems.length} resultados parciais do Mercado Livre
+                  </Button>
+                )}
+              </div>
+            </Card>
+          )}
+
+          {/* Itens que passaram no filtro rigoroso (ou todos se busca direta/sem filtro) */}
           <div className="space-y-3">
-            {catalogItems.map((item, idx) => {
+            {strictItems.map(({ item, originalIndex, matchedTokens }) => {
               const cat = item.catalogProduct
               const hasMatch = item.matchedProducts.length > 0
               const primaryMatch = item.matchedProducts[0]
               const isBelowBuyBox =
                 cat.buy_box_winner_price && item.formPrice < cat.buy_box_winner_price
+              const titleSegments = highlightMatchedTitle(cat.title, matchedTokens)
 
               return (
                 <Card
-                  key={cat.id || idx}
+                  key={cat.id || originalIndex}
                   className={`border transition-all ${
                     item.selected
                       ? 'border-blue-300 bg-white shadow-xs'
@@ -727,7 +880,7 @@ export function AnunciosCatalogoTab() {
                       <div className="flex items-start gap-3.5 flex-1 min-w-0">
                         <Checkbox
                           checked={item.selected}
-                          onCheckedChange={() => toggleItemSelection(idx)}
+                          onCheckedChange={() => toggleItemSelection(originalIndex)}
                           className="mt-1"
                           aria-label={`Selecionar posição ${cat.title}`}
                         />
@@ -765,6 +918,14 @@ export function AnunciosCatalogoTab() {
                               {cat.domain_id || 'MLB-NOTEBOOKS'}
                             </Badge>
 
+                            {/* Badge de correspondência com a busca */}
+                            {isFilterActive && (
+                              <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] flex items-center gap-1 font-semibold py-0.5">
+                                <Check className="w-3 h-3" />
+                                Termos correspondentes
+                              </Badge>
+                            )}
+
                             {/* Dica discreta de match quando existir — sem bloquear e sem destaque excessivo */}
                             {hasMatch && primaryMatch && (
                               <span
@@ -772,17 +933,29 @@ export function AnunciosCatalogoTab() {
                                 title={`Sugestão de modelo correspondente no estoque: ${primaryMatch.brand || ''} ${primaryMatch.model || ''} (${item.totalAvailableStock} un. disponíveis)`}
                               >
                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                                match: {primaryMatch.model || primaryMatch.name} · estoque{' '}
-                                {item.totalAvailableStock}
+                                match estoque: {primaryMatch.model || primaryMatch.name} · (
+                                {item.totalAvailableStock} un.)
                               </span>
                             )}
                           </div>
 
+                          {/* Título com destaque visual dos termos correspondentes */}
                           <h4
                             className="text-sm font-bold text-slate-900 leading-snug line-clamp-2"
                             title={cat.title}
                           >
-                            {cat.title}
+                            {titleSegments.map((seg, sIdx) =>
+                              seg.isHighlighted ? (
+                                <mark
+                                  key={sIdx}
+                                  className="bg-emerald-100 text-emerald-950 font-black px-1 py-0.5 rounded-xs"
+                                >
+                                  {seg.text}
+                                </mark>
+                              ) : (
+                                <span key={sIdx}>{seg.text}</span>
+                              ),
+                            )}
                           </h4>
 
                           {/* Preço de Referência Concorrência (Buy Box) */}
@@ -829,7 +1002,7 @@ export function AnunciosCatalogoTab() {
                             type="number"
                             min={1}
                             value={item.formQuantity}
-                            onChange={(e) => updateQuantity(idx, Number(e.target.value))}
+                            onChange={(e) => updateQuantity(originalIndex, Number(e.target.value))}
                             disabled={!item.selected || isPublishing}
                             className="h-8 text-xs font-mono font-bold bg-white"
                           />
@@ -854,7 +1027,7 @@ export function AnunciosCatalogoTab() {
                               min={1}
                               step={1}
                               value={item.formPrice}
-                              onChange={(e) => updatePrice(idx, Number(e.target.value))}
+                              onChange={(e) => updatePrice(originalIndex, Number(e.target.value))}
                               disabled={!item.selected || isPublishing}
                               className="h-8 text-xs font-mono font-bold bg-white"
                             />
@@ -867,6 +1040,165 @@ export function AnunciosCatalogoTab() {
               )
             })}
           </div>
+
+          {/* Bloco de Resultados Parciais / Descartados (Colapsado/Opcional) */}
+          {isFilterActive && showPartialResults && partialItems.length > 0 && (
+            <div className="pt-6 border-t-2 border-dashed border-slate-200 space-y-3">
+              <div className="flex items-center justify-between px-1">
+                <div>
+                  <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-slate-400" />
+                    Resultados Parciais descartados pelo filtro ({partialItems.length})
+                  </h4>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Estes anúncios vieram da busca do Mercado Livre, mas faltam termos chave da sua
+                    pesquisa. Você ainda pode marcá-los e publicar se desejar.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowPartialResults(false)}
+                  className="text-xs text-slate-500 hover:text-slate-800"
+                >
+                  Recolher
+                </Button>
+              </div>
+
+              <div className="space-y-3 opacity-90">
+                {partialItems.map(({ item, originalIndex, missingTokens }) => {
+                  const cat = item.catalogProduct
+                  const isBelowBuyBox =
+                    cat.buy_box_winner_price && item.formPrice < cat.buy_box_winner_price
+
+                  return (
+                    <Card
+                      key={cat.id || originalIndex}
+                      className={`border border-slate-200 bg-slate-50/70 transition-all ${
+                        item.selected ? 'border-blue-300 bg-white' : 'opacity-70 hover:opacity-100'
+                      }`}
+                    >
+                      <CardContent className="p-3.5">
+                        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+                          {/* Checkbox + Foto + Info */}
+                          <div className="flex items-start gap-3 flex-1 min-w-0">
+                            <Checkbox
+                              checked={item.selected}
+                              onCheckedChange={() => toggleItemSelection(originalIndex)}
+                              className="mt-1"
+                              aria-label={`Selecionar posição parcial ${cat.title}`}
+                            />
+
+                            <div className="w-14 h-14 rounded-lg bg-slate-200/70 border border-slate-300/70 shrink-0 overflow-hidden flex items-center justify-center relative">
+                              {cat.thumbnail ? (
+                                <img
+                                  src={cat.thumbnail}
+                                  alt={cat.title}
+                                  className="w-full h-full object-contain p-1 grayscale-30"
+                                  onError={(e) => {
+                                    ;(e.target as HTMLImageElement).src =
+                                      'https://img.usecurling.com/p/200/200?q=laptop'
+                                  }}
+                                />
+                              ) : (
+                                <Package className="w-7 h-7 text-slate-400" />
+                              )}
+                            </div>
+
+                            <div className="space-y-1 flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <Badge
+                                  variant="outline"
+                                  className="bg-white text-slate-600 border-slate-300 text-[10px] font-mono"
+                                >
+                                  {cat.catalog_product_id}
+                                </Badge>
+                                <Badge
+                                  variant="outline"
+                                  className="bg-amber-50 text-amber-800 border-amber-200 text-[10px]"
+                                >
+                                  Não contém: {missingTokens.join(', ')}
+                                </Badge>
+                              </div>
+
+                              <h5
+                                className="text-xs font-semibold text-slate-700 leading-snug line-clamp-2"
+                                title={cat.title}
+                              >
+                                {cat.title}
+                              </h5>
+
+                              <div className="flex items-center gap-3 text-[11px] pt-0.5 text-slate-500">
+                                {cat.buy_box_winner_price && (
+                                  <span className="font-mono">
+                                    Buy Box:{' '}
+                                    {Number(cat.buy_box_winner_price).toLocaleString('pt-BR', {
+                                      style: 'currency',
+                                      currency: 'BRL',
+                                    })}
+                                  </span>
+                                )}
+                                {cat.permalink && (
+                                  <a
+                                    href={cat.permalink}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-blue-600 hover:underline inline-flex items-center gap-1 font-mono text-[10px]"
+                                  >
+                                    Ver no ML <ExternalLink className="w-2.5 h-2.5" />
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Edição Simples Inline */}
+                          <div className="w-full lg:w-72 flex items-center gap-3 shrink-0 bg-white p-2.5 rounded-lg border border-slate-200">
+                            <div className="w-28 space-y-1">
+                              <label className="text-[10px] uppercase font-bold text-slate-400 block">
+                                Qtd
+                              </label>
+                              <Input
+                                type="number"
+                                min={1}
+                                value={item.formQuantity}
+                                onChange={(e) =>
+                                  updateQuantity(originalIndex, Number(e.target.value))
+                                }
+                                disabled={!item.selected || isPublishing}
+                                className="h-7 text-xs font-mono bg-slate-50"
+                              />
+                            </div>
+
+                            <div className="flex-1 space-y-1">
+                              <label className="text-[10px] uppercase font-bold text-slate-400 block flex items-center justify-between">
+                                <span>Preço (R$)</span>
+                                {isBelowBuyBox && (
+                                  <span className="text-emerald-600 font-bold text-[9px]">
+                                    Abaixo Buy Box
+                                  </span>
+                                )}
+                              </label>
+                              <Input
+                                type="number"
+                                min={1}
+                                step={1}
+                                value={item.formPrice}
+                                onChange={(e) => updatePrice(originalIndex, Number(e.target.value))}
+                                disabled={!item.selected || isPublishing}
+                                className="h-7 text-xs font-mono bg-slate-50"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
