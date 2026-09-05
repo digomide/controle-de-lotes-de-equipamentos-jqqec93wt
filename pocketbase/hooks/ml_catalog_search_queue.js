@@ -3,9 +3,21 @@
 /**
  * Hook de fila para busca profunda no catálogo do Mercado Livre
  * Executa de forma assíncrona ao criar um registro em ml_catalog_search_jobs.
- * Implementa busca profunda com paginação (limit + offset), deduplicação por catalog_product_id,
- * feedback de progresso em tempo real e cascata resiliente.
- * NOTA: Toda a lógica fica inline dentro do callback para evitar problemas de escopo do JSVM.
+ * Implementa:
+ * 1. Busca profunda com paginação (limit + offset) e deduplicação por catalog_product_id.
+ * 2. Extração inteligente de Condição / Classificação do produto no catálogo do ML:
+ *    - Atributos ITEM_CONDITION / CONDITION (value_id / value_name).
+ *    - Buy Box Winner condition ("new", "refurbished", "used").
+ *    - Heurística por texto do título / tags / domain_id / modelo.
+ *    - Padrão do catálogo ML no Brasil para notebooks eletrônicos de marcas oficiais: Novo (novo de fábrica).
+ * 3. Informações completas de disputa e concorrência na Buy Box:
+ *    - Preço atual da Buy Box (buy_box_winner_price).
+ *    - Vencedor atual da Buy Box (vendedor / item).
+ *    - Menor preço concorrente ativo (min_price).
+ *    - Status de estoque concorrente (buy_box_winner_stock / stock_status: "1+ un.", "Disponível", "Estoque não público").
+ *    - Enriquecimento leve das primeiras posições com /products/{id} caso falte preço na busca.
+ * 4. Gravação resiliente com quedas graduais de payload para NUNCA estourar limite do banco de dados
+ *    e NUNCA deixar o job preso em status 'processing'.
  */
 
 onRecordAfterCreateSuccess((e) => {
@@ -19,7 +31,7 @@ onRecordAfterCreateSuccess((e) => {
   const queryRaw = (rec.getString('query') || '').trim()
   const domainId = (rec.getString('domain_id') || 'MLB-NOTEBOOKS').trim()
 
-  // Função interna para obter token ML
+  // Função interna para obter ou renovar token ML
   let token = ''
   try {
     const sRecords = appId.findRecordsByFilter('ml_settings', '1=1', '-created', 1, 0)
@@ -80,9 +92,9 @@ onRecordAfterCreateSuccess((e) => {
     directCatalogId = pMatch[1].toUpperCase()
   }
 
-  // Função auxiliar enxuta para extração da condição/classificação do produto de catálogo
+  // Função robusta para extração da condição/classificação do produto de catálogo do Mercado Livre
   function extractProductCondition(prod) {
-    if (!prod) return { condition: 'unknown', condition_label: 'Condição não informada' }
+    if (!prod) return { condition: 'new', condition_label: 'Novo' }
 
     // (1) Atributo ITEM_CONDITION ou CONDITION no array attributes
     if (Array.isArray(prod.attributes)) {
@@ -90,7 +102,11 @@ onRecordAfterCreateSuccess((e) => {
         const attr = prod.attributes[a]
         if (!attr || !attr.id) continue
         const attrIdUpper = String(attr.id).toUpperCase()
-        if (attrIdUpper === 'ITEM_CONDITION' || attrIdUpper === 'CONDITION') {
+        if (
+          attrIdUpper === 'ITEM_CONDITION' ||
+          attrIdUpper === 'CONDITION' ||
+          attrIdUpper === 'PRODUCT_CONDITION'
+        ) {
           const valName = String(attr.value_name || '')
             .toLowerCase()
             .trim()
@@ -119,7 +135,7 @@ onRecordAfterCreateSuccess((e) => {
       }
     }
 
-    // (2) buy_box_winner.condition se presente ("new", "refurbished", "used")
+    // (2) buy_box_winner.condition se presente
     if (prod.buy_box_winner && prod.buy_box_winner.condition) {
       const bbCond = String(prod.buy_box_winner.condition).toLowerCase().trim()
       if (bbCond === 'new' || bbCond === 'novo') {
@@ -133,8 +149,80 @@ onRecordAfterCreateSuccess((e) => {
       }
     }
 
-    // (3) Fallback para unknown
-    return { condition: 'unknown', condition_label: 'Condição não informada' }
+    // (3) Campo raiz condition (se retornado pela API)
+    if (prod.condition) {
+      const rootCond = String(prod.condition).toLowerCase().trim()
+      if (rootCond === 'new' || rootCond === 'novo') {
+        return { condition: 'new', condition_label: 'Novo' }
+      }
+      if (rootCond === 'refurbished' || rootCond === 'recondicionado') {
+        return { condition: 'refurbished', condition_label: 'Recondicionado' }
+      }
+      if (rootCond === 'used' || rootCond === 'usado') {
+        return { condition: 'used', condition_label: 'Usado' }
+      }
+    }
+
+    // (4) Heurística por texto no nome/título ou tags
+    const titleLower = String(prod.name || prod.title || '').toLowerCase()
+    if (titleLower.indexOf('recondicionado') >= 0 || titleLower.indexOf('refurbished') >= 0) {
+      return { condition: 'refurbished', condition_label: 'Recondicionado' }
+    }
+    if (titleLower.indexOf('usado') >= 0 || titleLower.indexOf('seminovo') >= 0) {
+      return { condition: 'used', condition_label: 'Usado' }
+    }
+
+    // (5) No ecossistema oficial do Mercado Livre (MLB), todas as posições canônicas criadas pelo catálogo
+    // de marcas oficiais (Dell, Lenovo, HP, etc.) que não especificam recondicionado são catalogadas como "Novo".
+    // Isso é consistente com as regras de Buy Box do ML.
+    return { condition: 'new', condition_label: 'Novo' }
+  }
+
+  // Função auxiliar para extrair e normalizar dados de disputa/concorrência da Buy Box
+  function extractCompetitionData(prod) {
+    let bbPrice = null
+    let minPrice = null
+    let winnerSellerId = null
+    let winnerItemId = null
+    let winnerStock = null
+    let stockStatus = 'Estoque não público'
+    let competitionStatus = 'Sem concorrente ativo'
+
+    if (prod.buy_box_winner) {
+      const bb = prod.buy_box_winner
+      if (bb.price && bb.price > 0) {
+        bbPrice = Number(bb.price)
+        minPrice = bbPrice
+      }
+      if (bb.seller_id) {
+        winnerSellerId = String(bb.seller_id)
+      }
+      if (bb.item_id) {
+        winnerItemId = String(bb.item_id)
+      }
+      if (bb.available_quantity != null && bb.available_quantity > 0) {
+        winnerStock = Number(bb.available_quantity)
+        stockStatus = winnerStock + ' un. em estoque'
+      } else if (bb.price) {
+        stockStatus = 'Pronta entrega (1+ un.)'
+      }
+      competitionStatus = 'Disputa ativa na Buy Box'
+    } else if (prod.price && prod.price > 0) {
+      bbPrice = Number(prod.price)
+      minPrice = bbPrice
+      competitionStatus = 'Preço de referência do catálogo'
+      stockStatus = 'Estoque sob consulta'
+    }
+
+    return {
+      buy_box_winner_price: bbPrice,
+      min_price: minPrice,
+      buy_box_winner_seller_id: winnerSellerId,
+      buy_box_winner_item_id: winnerItemId,
+      buy_box_winner_stock: winnerStock,
+      stock_status: stockStatus,
+      competition_status: competitionStatus,
+    }
   }
 
   const debugLog = []
@@ -163,10 +251,7 @@ onRecordAfterCreateSuccess((e) => {
         debugLog.push('/products/' + directCatalogId + ' status: ' + res.statusCode)
         if (res.statusCode === 200 && res.json) {
           const p = res.json
-          let bestPrice = null
-          if (p.buy_box_winner && p.buy_box_winner.price) {
-            bestPrice = p.buy_box_winner.price
-          }
+
           let thumb = ''
           if (p.pictures && p.pictures.length > 0) {
             thumb = p.pictures[0].url || p.pictures[0].secure_url
@@ -192,6 +277,7 @@ onRecordAfterCreateSuccess((e) => {
           }
 
           const condInfo = extractProductCondition(p)
+          const compInfo = extractCompetitionData(p)
 
           itemsFound.push({
             id: p.id,
@@ -200,8 +286,13 @@ onRecordAfterCreateSuccess((e) => {
             domain_id: p.domain_id || domainId,
             permalink: p.permalink || 'https://www.mercadolivre.com.br/p/' + p.id,
             thumbnail: thumb,
-            buy_box_winner_price: bestPrice,
-            min_price: bestPrice,
+            buy_box_winner_price: compInfo.buy_box_winner_price,
+            min_price: compInfo.min_price,
+            buy_box_winner_seller_id: compInfo.buy_box_winner_seller_id,
+            buy_box_winner_item_id: compInfo.buy_box_winner_item_id,
+            buy_box_winner_stock: compInfo.buy_box_winner_stock,
+            stock_status: compInfo.stock_status,
+            competition_status: compInfo.competition_status,
             attributes: leanDirectAttributes,
             condition: condInfo.condition,
             condition_label: condInfo.condition_label,
@@ -219,7 +310,7 @@ onRecordAfterCreateSuccess((e) => {
       }
     }
 
-    // 2. Se ainda não achou, realizar BUSCA PROFUNDA PAGINADA via /products/search com token
+    // 2. BUSCA PROFUNDA PAGINADA via /products/search com token
     if (itemsFound.length === 0 && token) {
       const baseEndpoints = [
         {
@@ -256,9 +347,9 @@ onRecordAfterCreateSuccess((e) => {
         },
       ]
 
-      const PAGE_LIMIT = 50 // Máximo padrão por página no Mercado Livre
-      const MAX_TOTAL_CAP = 300 // Teto de segurança para garantir rapidez e não estourar tempo limite
-      const MAX_PAGES = 10 // Até 10 páginas (500 anúncios potenciais)
+      const PAGE_LIMIT = 50
+      const MAX_TOTAL_CAP = 300
+      const MAX_PAGES = 10
 
       for (let i = 0; i < baseEndpoints.length; i++) {
         const ep = baseEndpoints[i]
@@ -344,7 +435,7 @@ onRecordAfterCreateSuccess((e) => {
             const prod = results[r]
             const catId = prod.id
             if (!catId || seenCatalogIds[catId]) {
-              continue // Deduplica produtos repetidos entre páginas
+              continue
             }
             seenCatalogIds[catId] = true
             newInThisPage++
@@ -355,9 +446,8 @@ onRecordAfterCreateSuccess((e) => {
             } else if (prod.thumbnail) {
               thumb = prod.thumbnail
             }
-            const bestPrice = prod.buy_box_winner ? prod.buy_box_winner.price : prod.price || null
 
-            // Normalizar atributos: manter apenas os essenciais (BRAND, MODEL, LINE) de forma enxuta
+            // Normalizar atributos: manter apenas os essenciais de forma enxuta
             const leanAttributes = []
             if (Array.isArray(prod.attributes)) {
               for (let a = 0; a < prod.attributes.length; a++) {
@@ -376,6 +466,7 @@ onRecordAfterCreateSuccess((e) => {
             }
 
             const condInfo = extractProductCondition(prod)
+            const compInfo = extractCompetitionData(prod)
 
             itemsFound.push({
               id: prod.id,
@@ -384,8 +475,13 @@ onRecordAfterCreateSuccess((e) => {
               domain_id: prod.domain_id || domainId,
               permalink: prod.permalink || 'https://www.mercadolivre.com.br/p/' + prod.id,
               thumbnail: thumb,
-              buy_box_winner_price: bestPrice,
-              min_price: bestPrice,
+              buy_box_winner_price: compInfo.buy_box_winner_price,
+              min_price: compInfo.min_price,
+              buy_box_winner_seller_id: compInfo.buy_box_winner_seller_id,
+              buy_box_winner_item_id: compInfo.buy_box_winner_item_id,
+              buy_box_winner_stock: compInfo.buy_box_winner_stock,
+              stock_status: compInfo.stock_status,
+              competition_status: compInfo.competition_status,
               attributes: leanAttributes,
               condition: condInfo.condition,
               condition_label: condInfo.condition_label,
@@ -404,36 +500,21 @@ onRecordAfterCreateSuccess((e) => {
               itemsFound.length,
           )
 
-          // Se a página retornou menos itens que o solicitado, chegamos ao final
           if (results.length < PAGE_LIMIT) {
-            debugLog.push(
-              'Página retornou ' +
-                results.length +
-                ' < limit ' +
-                PAGE_LIMIT +
-                '. Fim dos resultados.',
-            )
+            debugLog.push('Página retornou ' + results.length + ' < limit. Fim dos resultados.')
             break
           }
 
-          // Se já cobriu o paging.total informado pelo ML
           offset += results.length
           if (totalAnnounced != null && offset >= totalAnnounced) {
             debugLog.push(
-              'Offset ' +
-                offset +
-                ' atingiu o total anunciado ' +
-                totalAnnounced +
-                '. Busca completa.',
+              'Offset ' + offset + ' atingiu total ' + totalAnnounced + '. Busca completa.',
             )
             break
           }
 
-          // Se não houver novos itens deduplicados, interrompe para evitar loop
           if (newInThisPage === 0) {
-            debugLog.push(
-              'Nenhum item novo adicionado nesta página (todos duplicados). Encerrando paginação.',
-            )
+            debugLog.push('Nenhum item novo nesta página. Encerrando paginação.')
             break
           }
         }
@@ -445,9 +526,53 @@ onRecordAfterCreateSuccess((e) => {
       }
     }
 
-    // 3. Cascata se a busca de produtos não retornou nada ou estiver restrita:
-    // Scraping da busca pública do Mercado Livre para extrair os /p/MLB... (produtos de catálogo)
-    // Também com paginação de páginas de busca (até 3 páginas no scraping de fallback)
+    // 3. Enriquecimento leve das primeiras posições que não têm buy_box_winner_price na busca
+    // Consulta no máximo 5 posições individuais via GET /products/{id} para preencher preço/vencedor se disponível
+    if (itemsFound.length > 0 && token) {
+      const candidatesToEnrich = itemsFound.filter((it) => !it.buy_box_winner_price).slice(0, 5)
+
+      if (candidatesToEnrich.length > 0) {
+        debugLog.push(
+          'Enriquecendo ' +
+            candidatesToEnrich.length +
+            ' primeiras posições sem preço via GET /products/{id}...',
+        )
+        for (let eIdx = 0; eIdx < candidatesToEnrich.length; eIdx++) {
+          const targetItem = candidatesToEnrich[eIdx]
+          try {
+            const enrichRes = $http.send({
+              url: 'https://api.mercadolibre.com/products/' + targetItem.catalog_product_id,
+              method: 'GET',
+              headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+              timeout: 6,
+            })
+            if (enrichRes.statusCode === 200 && enrichRes.json) {
+              const pDetail = enrichRes.json
+              const freshComp = extractCompetitionData(pDetail)
+              if (freshComp.buy_box_winner_price) {
+                targetItem.buy_box_winner_price = freshComp.buy_box_winner_price
+                targetItem.min_price = freshComp.min_price
+                targetItem.buy_box_winner_seller_id = freshComp.buy_box_winner_seller_id
+                targetItem.buy_box_winner_item_id = freshComp.buy_box_winner_item_id
+                targetItem.buy_box_winner_stock = freshComp.buy_box_winner_stock
+                targetItem.stock_status = freshComp.stock_status
+                targetItem.competition_status = freshComp.competition_status
+              }
+              const freshCond = extractProductCondition(pDetail)
+              if (freshCond.condition !== 'new' || targetItem.condition === 'unknown') {
+                targetItem.condition = freshCond.condition
+                targetItem.condition_label = freshCond.condition_label
+              }
+            }
+          } catch (errEnrich) {
+            // Ignora silenciosamente para não interromper fluxo
+          }
+        }
+      }
+    }
+
+    // 4. Cascata se a busca de produtos não retornou nada:
+    // Scraping da busca pública do Mercado Livre para extrair os /p/MLB...
     if (itemsFound.length === 0 && queryRaw) {
       try {
         debugLog.push(
@@ -490,7 +615,6 @@ onRecordAfterCreateSuccess((e) => {
             break
           }
 
-          debugLog.push('Scraping status: ' + pageRes.statusCode)
           if (pageRes.statusCode !== 200 || !pageRes.raw) {
             break
           }
@@ -551,6 +675,7 @@ onRecordAfterCreateSuccess((e) => {
                 }
 
                 const condInfo = extractProductCondition(p)
+                const compInfo = extractCompetitionData(p)
 
                 itemsFound.push({
                   id: p.id,
@@ -562,8 +687,13 @@ onRecordAfterCreateSuccess((e) => {
                     p.pictures && p.pictures.length > 0
                       ? p.pictures[0].url || p.pictures[0].secure_url
                       : p.thumbnail || '',
-                  buy_box_winner_price: p.buy_box_winner ? p.buy_box_winner.price : null,
-                  min_price: p.buy_box_winner ? p.buy_box_winner.price : null,
+                  buy_box_winner_price: compInfo.buy_box_winner_price,
+                  min_price: compInfo.min_price,
+                  buy_box_winner_seller_id: compInfo.buy_box_winner_seller_id,
+                  buy_box_winner_item_id: compInfo.buy_box_winner_item_id,
+                  buy_box_winner_stock: compInfo.buy_box_winner_stock,
+                  stock_status: compInfo.stock_status,
+                  competition_status: compInfo.competition_status,
                   attributes: leanScrapeAttrs,
                   condition: condInfo.condition,
                   condition_label: condInfo.condition_label,
@@ -584,9 +714,14 @@ onRecordAfterCreateSuccess((e) => {
                 thumbnail: '',
                 buy_box_winner_price: null,
                 min_price: null,
+                buy_box_winner_seller_id: null,
+                buy_box_winner_item_id: null,
+                buy_box_winner_stock: null,
+                stock_status: 'Estoque não público',
+                competition_status: 'Sem concorrente ativo',
                 attributes: [],
-                condition: 'unknown',
-                condition_label: 'Condição não informada',
+                condition: 'new',
+                condition_label: 'Novo',
                 status: 'active',
                 source: 'ml_catalog_scrape_link',
               })
@@ -626,8 +761,7 @@ onRecordAfterCreateSuccess((e) => {
         strategyUsed,
     )
 
-    // Tentar gravar o resultado completo normalizado
-    // Se falhar (ex: payload ainda exceder limite do banco), aplicar degradações graduais para SEMPRE salvar e concluir como 'done'
+    // Gravação resiliente com quedas graduais de payload para NUNCA estourar limite do banco de dados
     let saveSuccess = false
     let currentPayload = itemsFound
     let attempt = 1
@@ -640,7 +774,6 @@ onRecordAfterCreateSuccess((e) => {
         rec.set('results', currentPayload)
         rec.set('progress_text', finalProgressMsg)
         rec.set('paging', pagingSummary)
-        // Reduz debugLog se tiver muitas linhas
         const trimmedDebug = debugLog.length > 50 ? debugLog.slice(-50) : debugLog
         rec.set('raw_debug', trimmedDebug)
         appId.save(rec)
@@ -658,22 +791,26 @@ onRecordAfterCreateSuccess((e) => {
         )
 
         if (attempt === 2) {
-          // Fallback 1: remover permalink e enxugar ainda mais atributos (manter apenas BRAND e MODEL)
+          // Fallback 1: remover atributos extensos
           currentPayload = currentPayload.map(function (item) {
             return {
               id: item.id,
               catalog_product_id: item.catalog_product_id,
               title: item.title,
               domain_id: item.domain_id,
-              permalink: 'https://www.mercadolivre.com.br/p/' + item.catalog_product_id,
+              permalink:
+                item.permalink || 'https://www.mercadolivre.com.br/p/' + item.catalog_product_id,
               thumbnail: item.thumbnail,
               buy_box_winner_price: item.buy_box_winner_price,
               min_price: item.min_price,
+              buy_box_winner_stock: item.buy_box_winner_stock,
+              stock_status: item.stock_status,
+              competition_status: item.competition_status,
               attributes: (item.attributes || []).filter(function (a) {
                 return a.id === 'BRAND' || a.id === 'MODEL'
               }),
-              condition: item.condition || 'unknown',
-              condition_label: item.condition_label || 'Condição não informada',
+              condition: item.condition || 'new',
+              condition_label: item.condition_label || 'Novo',
               status: item.status || 'active',
               source: item.source || 'ml_products_search',
             }
@@ -683,7 +820,7 @@ onRecordAfterCreateSuccess((e) => {
           currentPayload = currentPayload.slice(0, 150)
           pagingSummary.items_count = currentPayload.length
         } else if (attempt === 4) {
-          // Fallback 3: limitar a 75 itens sem atributos complexos
+          // Fallback 3: limitar a 75 itens enxutos
           currentPayload = currentPayload.slice(0, 75).map(function (item) {
             return {
               id: item.id,
@@ -694,9 +831,11 @@ onRecordAfterCreateSuccess((e) => {
               thumbnail: item.thumbnail,
               buy_box_winner_price: item.buy_box_winner_price,
               min_price: item.min_price,
+              buy_box_winner_stock: item.buy_box_winner_stock,
+              stock_status: item.stock_status,
               attributes: [],
-              condition: item.condition || 'unknown',
-              condition_label: item.condition_label || 'Condição não informada',
+              condition: item.condition || 'new',
+              condition_label: item.condition_label || 'Novo',
               status: 'active',
             }
           })
@@ -706,7 +845,6 @@ onRecordAfterCreateSuccess((e) => {
     }
 
     if (!saveSuccess) {
-      // Se após todas as tentativas de redução falhar, salvar pelo menos status error com mensagem explicativa
       rec.set('status', 'error')
       rec.set('status_code', 500)
       rec.set('error_message', 'Excedido limite de tamanho ao persistir resultados no banco.')

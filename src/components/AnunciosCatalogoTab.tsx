@@ -536,16 +536,10 @@ export function AnunciosCatalogoTab() {
 
   // Helper para renderizar a badge de classificação/condição da posição de catálogo
   function renderConditionBadge(cat: { condition?: string; condition_label?: string }) {
-    const cond = cat.condition || 'unknown'
+    const cond = cat.condition || 'new'
     const label =
       cat.condition_label ||
-      (cond === 'refurbished'
-        ? 'Recondicionado'
-        : cond === 'new'
-          ? 'Novo'
-          : cond === 'used'
-            ? 'Usado'
-            : 'Condição não informada')
+      (cond === 'refurbished' ? 'Recondicionado' : cond === 'used' ? 'Usado' : 'Novo')
 
     if (cond === 'refurbished') {
       return (
@@ -558,18 +552,6 @@ export function AnunciosCatalogoTab() {
           <span className="text-[9px] bg-purple-700/60 px-1 py-0.2 rounded text-purple-100 font-mono ml-0.5">
             Estoque compatível
           </span>
-        </Badge>
-      )
-    }
-
-    if (cond === 'new') {
-      return (
-        <Badge
-          className="bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-700 text-[10px] font-semibold flex items-center gap-1"
-          title="Classificação Novo no catálogo Mercado Livre"
-        >
-          <span className="w-1.5 h-1.5 rounded-full bg-white" />
-          <span>{label}</span>
         </Badge>
       )
     }
@@ -588,21 +570,23 @@ export function AnunciosCatalogoTab() {
 
     return (
       <Badge
-        variant="outline"
-        className="bg-slate-100 text-slate-600 border-slate-300 text-[10px] font-normal"
-        title="Mercado Livre não informou a condição canônica deste produto de catálogo"
+        className="bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-700 text-[10px] font-semibold flex items-center gap-1"
+        title="Classificação Novo de fábrica no catálogo oficial Mercado Livre"
       >
-        <span>Condição não informada</span>
+        <span className="w-1.5 h-1.5 rounded-full bg-white" />
+        <span>{label}</span>
       </Badge>
     )
   }
 
-  // Contadores para os chips de filtro por classificação
+  // Contadores para os chips de filtro por classificação (default 'new' se não especificado)
   const countTotal = catalogItems.length
   const countRefurbished = catalogItems.filter(
     (it) => it.catalogProduct.condition === 'refurbished',
   ).length
-  const countNew = catalogItems.filter((it) => it.catalogProduct.condition === 'new').length
+  const countNew = catalogItems.filter(
+    (it) => !it.catalogProduct.condition || it.catalogProduct.condition === 'new',
+  ).length
   const countUsed = catalogItems.filter((it) => it.catalogProduct.condition === 'used').length
 
   // Avaliação de cada item em relação aos termos buscados e ao filtro de condição
@@ -616,7 +600,7 @@ export function AnunciosCatalogoTab() {
       : { isMatch: true, matchedTokens: currentTokens, missingTokens: [] }
 
     // Avalia também o filtro de condição ativo (Todas | Recondicionado | Novo | Usado)
-    const itemCond = item.catalogProduct.condition || 'unknown'
+    const itemCond = item.catalogProduct.condition || 'new'
     const matchesCondition =
       conditionFilter === 'all'
         ? true
@@ -1245,23 +1229,52 @@ export function AnunciosCatalogoTab() {
                             )}
                           </h4>
 
-                          {/* Preço de Referência Concorrência (Buy Box) */}
-                          <div className="flex items-center gap-3 text-xs pt-0.5 flex-wrap">
+                          {/* Painel de Disputa e Concorrência na Buy Box */}
+                          <div className="flex items-center gap-3 text-xs pt-1 flex-wrap">
+                            {/* Preço da Buy Box Concorrente */}
                             {cat.buy_box_winner_price ? (
-                              <span className="font-mono font-bold text-slate-700 flex items-center gap-1">
-                                <TrendingDown className="w-3.5 h-3.5 text-emerald-600" />
-                                Buy Box concorrente:{' '}
-                                <span className="text-emerald-700">
+                              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-50 border border-emerald-200">
+                                <TrendingDown className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                <span className="text-[11px] text-slate-600 font-medium">
+                                  Buy Box Concorrente:
+                                </span>
+                                <span className="font-mono font-bold text-emerald-700">
                                   {Number(cat.buy_box_winner_price).toLocaleString('pt-BR', {
                                     style: 'currency',
                                     currency: 'BRL',
                                   })}
                                 </span>
-                              </span>
+                              </div>
                             ) : (
-                              <span className="text-slate-400 text-[11px]">
-                                Preço Buy Box não informado pelo ML
+                              <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[11px]">
+                                <span>Buy Box: sem disputa ativa</span>
+                              </div>
+                            )}
+
+                            {/* Estoque do Concorrente / Status da Disputa */}
+                            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-100 border border-slate-200 text-slate-700">
+                              <Package className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                              <span className="text-[11px] font-medium text-slate-600">
+                                Estoque concorrência:
                               </span>
+                              <span className="font-mono font-bold text-slate-900 text-[11px]">
+                                {cat.buy_box_winner_stock != null && cat.buy_box_winner_stock > 0
+                                  ? `${cat.buy_box_winner_stock} un.`
+                                  : cat.stock_status ||
+                                    (cat.buy_box_winner_price
+                                      ? '1+ un. (pronta entrega)'
+                                      : 'Estoque não público')}
+                              </span>
+                            </div>
+
+                            {/* Status da Disputa */}
+                            {cat.competition_status && (
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] font-mono text-slate-600 border-slate-300 bg-white"
+                              >
+                                {cat.competition_status}
+                              </Badge>
                             )}
 
                             {cat.permalink && (
@@ -1269,9 +1282,9 @@ export function AnunciosCatalogoTab() {
                                 href={cat.permalink}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="text-blue-600 hover:underline inline-flex items-center gap-1 font-mono text-[11px]"
+                                className="text-blue-600 hover:underline inline-flex items-center gap-1 font-mono text-[11px] ml-auto sm:ml-0"
                               >
-                                Ver no ML <ExternalLink className="w-2.5 h-2.5" />
+                                Ver anúncio concorrente <ExternalLink className="w-2.5 h-2.5" />
                               </a>
                             )}
                           </div>
@@ -1417,16 +1430,28 @@ export function AnunciosCatalogoTab() {
                                 {cat.title}
                               </h5>
 
-                              <div className="flex items-center gap-3 text-[11px] pt-0.5 text-slate-500">
-                                {cat.buy_box_winner_price && (
-                                  <span className="font-mono">
+                              <div className="flex items-center gap-3 text-[11px] pt-0.5 text-slate-500 flex-wrap">
+                                {cat.buy_box_winner_price ? (
+                                  <span className="font-mono text-emerald-700 font-semibold">
                                     Buy Box:{' '}
                                     {Number(cat.buy_box_winner_price).toLocaleString('pt-BR', {
                                       style: 'currency',
                                       currency: 'BRL',
                                     })}
                                   </span>
+                                ) : (
+                                  <span className="text-slate-400">Buy Box: sem disputa ativa</span>
                                 )}
+                                <span className="text-slate-600">
+                                  Estoque concorrente:{' '}
+                                  <strong className="text-slate-800 font-mono">
+                                    {cat.buy_box_winner_stock != null &&
+                                    cat.buy_box_winner_stock > 0
+                                      ? `${cat.buy_box_winner_stock} un.`
+                                      : cat.stock_status ||
+                                        (cat.buy_box_winner_price ? '1+ un.' : 'Não público')}
+                                  </strong>
+                                </span>
                                 {cat.permalink && (
                                   <a
                                     href={cat.permalink}

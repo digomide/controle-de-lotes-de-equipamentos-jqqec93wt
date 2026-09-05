@@ -10,6 +10,11 @@ export interface MLCatalogProduct {
   thumbnail: string
   buy_box_winner_price?: number | null
   min_price?: number | null
+  buy_box_winner_seller_id?: string | null
+  buy_box_winner_item_id?: string | null
+  buy_box_winner_stock?: number | null
+  stock_status?: string
+  competition_status?: string
   condition?: 'new' | 'refurbished' | 'used' | 'unknown' | string
   condition_label?: 'Novo' | 'Recondicionado' | 'Usado' | 'Condição não informada' | string
   status?: string
