@@ -1,10 +1,16 @@
 import pb from '@/lib/pocketbase/client'
-import type { SocialPost, SocialPostFormat, SocialPostStatus } from '@/types/inventory'
+import type {
+  SocialPost,
+  SocialPostFormat,
+  SocialPostPlatform,
+  SocialPostStatus,
+} from '@/types/inventory'
 
 export interface CreateSocialPostInput {
   product_id: string
   status?: SocialPostStatus
   format?: SocialPostFormat
+  platform?: SocialPostPlatform
   caption?: string
   posted_at?: string
   notes?: string
@@ -13,6 +19,7 @@ export interface CreateSocialPostInput {
 export interface UpdateSocialPostInput {
   status?: SocialPostStatus
   format?: SocialPostFormat
+  platform?: SocialPostPlatform
   caption?: string
   posted_at?: string
   notes?: string

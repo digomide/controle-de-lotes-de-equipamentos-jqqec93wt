@@ -159,9 +159,9 @@ cronAdd('marketing_daily_scheduler', '0 * * * *', () => {
     console.log('[marketing_cron] Erro ao processar campanhas: ' + campErr)
   }
 
-  // 2. Automação complementar do Instagram:
+  // 2. Automação complementar do Instagram & TikTok:
   // Verifica produtos "Disponível" que ainda não estão na fila social_posts nos últimos 7 dias
-  // e insere 1 a 2 equipamentos por dia na fila com formato equilibrado (tecnico / urgencia / lote)
+  // e insere equipamentos na fila (alternando Instagram e TikTok) com formatos adequados
   try {
     const availableProducts = $app.findRecordsByFilter(
       'products',
@@ -196,8 +196,12 @@ cronAdd('marketing_daily_scheduler', '0 * * * *', () => {
       } catch (_) {}
 
       if (!recentlyQueued) {
-        // Gerar post automático na fila
-        const formats = ['tecnico', 'urgencia', 'lote']
+        // Alternar canal entre Instagram e TikTok
+        const platform = queuedCount % 2 === 0 ? 'tiktok' : 'instagram'
+        const formats =
+          platform === 'tiktok'
+            ? ['achadinho', 'urgencia', 'revendedor']
+            : ['tecnico', 'urgencia', 'lote']
         const chosenFormat = formats[queuedCount % formats.length]
 
         const pName = prod.getString('name') || 'Notebook Corporativo'
@@ -209,30 +213,48 @@ cronAdd('marketing_daily_scheduler', '0 * * * *', () => {
         const pPrice = prod.getFloat('unit_price')
         const priceStr = 'R$ ' + pPrice.toFixed(2).replace('.', ',')
 
-        let caption = '🔥 OPORTUNIDADE AMBICORPFLOW 🔥\n\n'
-        caption += '💻 ' + (pBrand + ' ' + pModel).trim() + '\n'
-        caption += '⚡ Processador: ' + pProc + '\n'
-        caption += '🧠 RAM: ' + pRam + '\n'
-        caption += '💾 Armazenamento: ' + pStorage + '\n'
-        caption += '🏷️ Preço especial: ' + priceStr + '\n\n'
-        caption += 'Equipamento corporativo revisado, com garantia e nota fiscal!\n'
-        caption += '📦 Pronta entrega para revendedores e clientes finais.\n\n'
-        caption += '📲 Chame no WhatsApp: (31) 99231-0866\n'
-        caption += '#notebook #recondicionado #informatica #ti #lote #ambicorpflow'
+        let caption = ''
+        if (platform === 'tiktok') {
+          caption = '👀 Achei desse jeito e não acreditei no preço!\n\n'
+          caption += '💻 ' + (pBrand + ' ' + pModel).trim() + '\n'
+          caption += '⚡ Processador: ' + pProc + '\n'
+          caption += '🧠 RAM: ' + pRam + '\n'
+          caption += '🚀 SSD: ' + pStorage + '\n'
+          caption += '💸 Apenas ' + priceStr + ' à vista!\n\n'
+          caption += 'Notebook corporativo com nota, garantia e procedência garantida!\n'
+          caption += '📦 Enviamos para todo o Brasil!\n\n'
+          caption += '📲 WhatsApp: (31) 99231-0866\n'
+          caption += '#tiktokbrasil #achadinhos #notebookrecondicionado #informatica #setup'
+        } else {
+          caption = '🔥 OPORTUNIDADE AMBICORPFLOW 🔥\n\n'
+          caption += '💻 ' + (pBrand + ' ' + pModel).trim() + '\n'
+          caption += '⚡ Processador: ' + pProc + '\n'
+          caption += '🧠 RAM: ' + pRam + '\n'
+          caption += '💾 Armazenamento: ' + pStorage + '\n'
+          caption += '🏷️ Preço especial: ' + priceStr + '\n\n'
+          caption += 'Equipamento corporativo revisado, com garantia e nota fiscal!\n'
+          caption += '📦 Pronta entrega para revendedores e clientes finais.\n\n'
+          caption += '📲 Chame no WhatsApp: (31) 99231-0866\n'
+          caption += '#notebook #recondicionado #informatica #ti #lote #ambicorpflow'
+        }
 
         const postRec = new Record(socialCol)
         postRec.set('product_id', prod.id)
         postRec.set('status', 'Pendente')
         postRec.set('format', chosenFormat)
+        postRec.set('platform', platform)
         postRec.set('caption', caption)
-        postRec.set('notes', 'Gerado automaticamente pelo robô de marketing diário')
+        postRec.set(
+          'notes',
+          'Gerado automaticamente pelo robô de marketing diário (' + platform + ')',
+        )
         $app.save(postRec)
 
         queuedCount++
-        console.log('[marketing_cron] Produto adicionado à fila do Instagram: ' + pName)
+        console.log('[marketing_cron] Produto adicionado à fila (' + platform + '): ' + pName)
       }
     }
   } catch (instaErr) {
-    console.log('[marketing_cron] Erro na automação do Instagram: ' + instaErr)
+    console.log('[marketing_cron] Erro na automação de social posts: ' + instaErr)
   }
 })

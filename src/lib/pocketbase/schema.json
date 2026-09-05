@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-05T09:34:19.860Z",
+  "generatedAt": "2026-09-05T11:18:31.412Z",
   "collections": [
     {
       "name": "users",
@@ -1148,11 +1148,19 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "platform",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["instagram", "tiktok"]
         }
       ],
       "indexes": [
         "CREATE INDEX idx_social_posts_status ON social_posts (status)",
-        "CREATE INDEX idx_social_posts_product ON social_posts (product_id)"
+        "CREATE INDEX idx_social_posts_product ON social_posts (product_id)",
+        "CREATE INDEX `idx_social_posts_platform` ON `social_posts` (platform)"
       ]
     },
     {

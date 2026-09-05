@@ -20,6 +20,7 @@ import {
   Instagram,
   Building2,
   Megaphone,
+  Video,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -51,6 +52,7 @@ export default function Layout() {
     { title: 'Marketing', path: '/marketing', icon: Megaphone },
     { title: 'Anúncios ML', path: '/anuncios-ml', icon: ShoppingBag },
     { title: 'Post Insta', path: '/post-instagram', icon: Instagram },
+    { title: 'Post TikTok', path: '/post-tiktok', icon: Video },
     { title: 'Cotações Corporativas', path: '/cotacoes', icon: Building2 },
     { title: 'Vendas', path: '/vendas', icon: ShoppingCart },
     { title: 'Estoque / Lotes', path: '/estoque', icon: Layers },
@@ -69,6 +71,7 @@ export default function Layout() {
     if (p.startsWith('/marketing')) return 'Módulo de Marketing Automatizado'
     if (p.startsWith('/anuncios-ml')) return 'Anúncios Mercado Livre (Visualização)'
     if (p.startsWith('/post-instagram')) return 'Estúdio de Post para Instagram'
+    if (p.startsWith('/post-tiktok')) return 'Estúdio de Post TikTok & Seller Center'
     if (p.startsWith('/cotacoes')) return 'Cotações Corporativas & Lotes'
     if (p.startsWith('/catalogo/')) return 'Detalhes do Equipamento'
     if (p.startsWith('/produtos') || p.startsWith('/catalogo')) return 'Catálogo de Equipamentos'
@@ -370,6 +373,18 @@ export default function Layout() {
           >
             <Instagram className="w-4 h-4" />
             Insta
+          </NavLink>
+          <NavLink
+            to="/post-tiktok"
+            className={({ isActive }) =>
+              cn(
+                'flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-2 rounded',
+                isActive ? 'text-cyan-600 font-bold' : 'text-slate-500',
+              )
+            }
+          >
+            <Video className="w-4 h-4" />
+            TikTok
           </NavLink>
           <NavLink
             to="/cotacoes"

@@ -152,13 +152,15 @@ export interface InventoryAdjustment extends RecordModel {
   }
 }
 
-export type SocialPostFormat = 'tecnico' | 'urgencia' | 'lote'
+export type SocialPostFormat = 'tecnico' | 'urgencia' | 'lote' | 'achadinho' | 'revendedor'
 export type SocialPostStatus = 'Pendente' | 'Postado'
+export type SocialPostPlatform = 'instagram' | 'tiktok'
 
 export interface SocialPost extends RecordModel {
   product_id: string
   status: SocialPostStatus
   format?: SocialPostFormat
+  platform?: SocialPostPlatform
   caption?: string
   posted_at?: string
   notes?: string
