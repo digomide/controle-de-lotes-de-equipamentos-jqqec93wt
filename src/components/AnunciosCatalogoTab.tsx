@@ -52,6 +52,12 @@ export function AnunciosCatalogoTab() {
     total?: number
     pages_fetched?: number
     items_count?: number
+    sub_searches_total?: number
+    sub_searches_completed?: number
+    universe_estimated_total?: number
+    coverage_percentage?: number
+    has_uncovered_universe?: boolean
+    max_cap_reached?: boolean
   } | null>(null)
   const [catalogItems, setCatalogItems] = useState<CatalogMatchResult[]>([])
   const [inventoryProducts, setInventoryProducts] = useState<Product[]>([])
@@ -959,17 +965,29 @@ export function AnunciosCatalogoTab() {
             </Button>
           </div>
 
-          {/* Feedback de Progresso da Busca Profunda em Tempo Real */}
+          {/* Feedback de Progresso da Busca Profunda em Tempo Real com Leque */}
           {searching && (
-            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center gap-3 animate-pulse">
-              <RefreshCw className="w-4 h-4 text-blue-600 animate-spin shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-blue-900">
-                  {searchProgressText ||
-                    'Buscando páginas de anúncios de catálogo no Mercado Livre...'}
-                </p>
-                <p className="text-[11px] text-blue-700 mt-0.5">
-                  Vasculhando posições paginadas para trazer todos os resultados da pesquisa.
+            <div className="p-3.5 bg-gradient-to-r from-blue-50 via-indigo-50 to-blue-50 border border-blue-200 rounded-lg flex items-start gap-3 shadow-xs animate-pulse-subtle">
+              <RefreshCw className="w-4 h-4 text-blue-600 animate-spin shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0 space-y-1">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <p className="text-xs font-bold text-blue-950">
+                    {searchProgressText ||
+                      'Executando varredura em leque (fan-out) no catálogo do Mercado Livre...'}
+                  </p>
+                  {searchPagingInfo && (searchPagingInfo.items_count || 0) > 0 && (
+                    <Badge
+                      variant="outline"
+                      className="bg-white text-blue-800 font-mono text-[10px] border-blue-300"
+                    >
+                      {searchPagingInfo.items_count} únicos acumulados
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-[11px] text-blue-800 leading-relaxed">
+                  Disparando sub-consultas automáticas (variações de termos, marca, modelo e
+                  ordenações de preço) para superar o limite de 1.000 da API e cobrir o universo
+                  total anunciado.
                 </p>
               </div>
             </div>
@@ -1027,6 +1045,9 @@ export function AnunciosCatalogoTab() {
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-[11px] font-semibold text-slate-600">Origem:</span>
                 <Badge variant="outline" className="text-[10px] font-mono bg-slate-50">
+                  {lastStrategy === 'api_products_fanout' &&
+                    'API Oficial ML com Busca em Leque (Fan-out)'}
+                  {lastStrategy === 'own_account_mined' && 'Anúncios da Conta + Busca em Leque'}
                   {lastStrategy === 'api_products_search' && 'API Oficial ML Paginada'}
                   {lastStrategy === 'api_products_direct' &&
                     'Consulta Direta de Catálogo (/products/{id})'}
@@ -1038,15 +1059,17 @@ export function AnunciosCatalogoTab() {
                 {searchPagingInfo && (
                   <Badge
                     variant="secondary"
-                    className="text-[10px] font-mono bg-blue-50 text-blue-800 border-blue-200"
+                    className="text-[10px] font-mono bg-blue-50 text-blue-900 border-blue-200"
                   >
-                    {searchPagingInfo.pages_fetched || 1}{' '}
-                    {(searchPagingInfo.pages_fetched || 1) === 1
-                      ? 'página consultada'
-                      : 'páginas consultadas'}
-                    {searchPagingInfo.total
-                      ? ` · ${searchPagingInfo.items_count || catalogItems.length} de ${searchPagingInfo.total} total anunciado`
+                    {catalogItems.length} posições únicas cobertas
+                    {searchPagingInfo.universe_estimated_total &&
+                    searchPagingInfo.universe_estimated_total > catalogItems.length
+                      ? ` de ~${searchPagingInfo.universe_estimated_total} anunciadas`
                       : ''}
+                    {searchPagingInfo.sub_searches_completed &&
+                    searchPagingInfo.sub_searches_completed > 1
+                      ? ` (${searchPagingInfo.sub_searches_completed} varreduras, ${searchPagingInfo.pages_fetched || 1} págs)`
+                      : ` (${searchPagingInfo.pages_fetched || 1} págs)`}
                   </Badge>
                 )}
               </div>
@@ -1387,6 +1410,10 @@ export function AnunciosCatalogoTab() {
                     className="text-[10px] font-mono bg-blue-50 text-blue-700 border-blue-200"
                   >
                     {searchPagingInfo.pages_fetched} páginas vasculhadas
+                    {searchPagingInfo.sub_searches_completed &&
+                    searchPagingInfo.sub_searches_completed > 1
+                      ? ` em ${searchPagingInfo.sub_searches_completed} varreduras`
+                      : ''}
                   </Badge>
                 )}
               </div>

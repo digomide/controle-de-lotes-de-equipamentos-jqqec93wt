@@ -60,6 +60,12 @@ export interface MLCatalogSearchJob {
     total?: number
     pages_fetched?: number
     items_count?: number
+    sub_searches_total?: number
+    sub_searches_completed?: number
+    universe_estimated_total?: number
+    coverage_percentage?: number
+    has_uncovered_universe?: boolean
+    max_cap_reached?: boolean
   }
   raw_debug?: string[]
   created: string
