@@ -120,8 +120,17 @@ export function matchesCatalogToken(
   if (isNumeric) {
     // Casamento de número inteiro: não deve ser precedido nem seguido por dígitos
     // Ex: "latitude 5420" -> "5420" casa; "54200" não casa
+    // Também confere se o token numérico está contido no título compacto (ex: "15-3576" -> "153576" ou "3576")
     const numericRegex = new RegExp(`(?<![0-9])${token}(?![0-9])`, 'i')
-    return numericRegex.test(normalizedTitle)
+    if (numericRegex.test(normalizedTitle)) {
+      return true
+    }
+    // Caso especial para números de 3 a 5 dígitos (como números de modelo: "3576", "5420", "3420", "5320"):
+    // se estiver contido no rawTitleCompact (ex: "inspiron153576" contendo "3576")
+    if (token.length >= 3 && rawTitleCompact.includes(token)) {
+      return true
+    }
+    return false
   }
 
   // Token alfanumérico com números (ex: t480, i5, i7, g15)
@@ -217,7 +226,21 @@ export function evaluateCatalogItemStrictMatch(
   const missingTokens: string[] = []
 
   for (const token of searchTokens) {
-    if (matchesCatalogToken(fullTextToTest, fullCompactToTest, token)) {
+    // Normalização extra de tokens compostos por hífen (ex: "15-3576" -> "3576")
+    let tokenMatches = matchesCatalogToken(fullTextToTest, fullCompactToTest, token)
+
+    // Se o token for por exemplo "15-3576" ou contiver partes, testa também as subpartes significativas
+    if (!tokenMatches && token.includes('-')) {
+      const subParts = token.split('-').filter((p) => p.length >= 3)
+      if (
+        subParts.length > 0 &&
+        subParts.every((sp) => matchesCatalogToken(fullTextToTest, fullCompactToTest, sp))
+      ) {
+        tokenMatches = true
+      }
+    }
+
+    if (tokenMatches) {
       matchedTokens.push(token)
     } else {
       missingTokens.push(token)

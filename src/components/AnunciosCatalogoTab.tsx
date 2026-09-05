@@ -982,6 +982,11 @@ export function AnunciosCatalogoTab() {
             </span>
             {[
               {
+                term: 'dell inspiron 3576',
+                cond: 'refurbished' as const,
+                label: 'dell inspiron 3576 (recond.)',
+              },
+              {
                 term: 'dell latitude 5420',
                 cond: 'refurbished' as const,
                 label: 'dell 5420 (recond.)',
