@@ -53,9 +53,11 @@ export function AnunciosCatalogoTab() {
       message?: string
       listing_id?: string
       listing_url?: string
+      canRetry?: boolean
+      itemIndex?: number
     }>
   >([])
-
+  const [retryingJobId, setRetryingJobId] = useState<string | null>(null)
   // Carregar produtos locais para match
   useEffect(() => {
     async function loadLocalProducts() {
@@ -220,12 +222,21 @@ export function AnunciosCatalogoTab() {
       message?: string
       listing_id?: string
       listing_url?: string
-    }> = selectedItems.map((it) => ({
-      id: '',
-      catalog_product_id: it.catalogProduct.catalog_product_id,
-      status: 'pending',
-      message: `Enfileirando publicação para ${it.catalogProduct.title}...`,
-    }))
+      canRetry?: boolean
+      itemIndex?: number
+    }> = selectedItems.map((it) => {
+      const originalIdx = catalogItems.findIndex(
+        (ci) => ci.catalogProduct.catalog_product_id === it.catalogProduct.catalog_product_id,
+      )
+      return {
+        id: '',
+        catalog_product_id: it.catalogProduct.catalog_product_id,
+        status: 'pending',
+        message: `Enfileirando publicação para ${it.catalogProduct.title}...`,
+        itemIndex: originalIdx,
+        canRetry: false,
+      }
+    })
     setPublishLogs([...logs])
 
     let successCount = 0
@@ -242,6 +253,7 @@ export function AnunciosCatalogoTab() {
       // Atualiza status do log para processando
       logs[i].status = 'processing'
       logs[i].message = 'Enviando anúncio para o Mercado Livre...'
+      logs[i].canRetry = false
       setPublishLogs([...logs])
 
       try {
@@ -271,15 +283,18 @@ export function AnunciosCatalogoTab() {
           logs[i].listing_id = completed.ml_listing_id
           logs[i].listing_url = completed.ml_listing_url
           logs[i].message = `Publicado com sucesso! ID: ${completed.ml_listing_id}`
+          logs[i].canRetry = false
         } else {
           errorCount++
           logs[i].status = 'error'
           logs[i].message = completed.error_message || 'Falha na publicação do anúncio.'
+          logs[i].canRetry = true
         }
       } catch (err: any) {
         errorCount++
         logs[i].status = 'error'
         logs[i].message = err.message || 'Erro inesperado de comunicação com a fila.'
+        logs[i].canRetry = true
       }
 
       setPublishLogs([...logs])
@@ -303,6 +318,104 @@ export function AnunciosCatalogoTab() {
         description: 'Revise as mensagens de retorno do Mercado Livre para cada anúncio.',
         variant: 'destructive',
       })
+    }
+  }
+
+  // Reprocessar/tentar novamente uma publicação específica da lista
+  async function handleRetryPublish(logIdx: number) {
+    const targetLog = publishLogs[logIdx]
+    if (!targetLog) return
+
+    const item = catalogItems.find(
+      (ci) => ci.catalogProduct.catalog_product_id === targetLog.catalog_product_id,
+    )
+    if (!item) return
+
+    setRetryingJobId(targetLog.catalog_product_id)
+
+    setPublishLogs((prev) => {
+      const next = [...prev]
+      next[logIdx] = {
+        ...next[logIdx],
+        status: 'processing',
+        message: 'Reenviando anúncio corrigido para o Mercado Livre...',
+        canRetry: false,
+      }
+      return next
+    })
+
+    try {
+      const newJob = await mlCatalogService.createPublishJob({
+        catalog_product_id: item.catalogProduct.catalog_product_id,
+        product_id: item.selectedProductId,
+        price: item.formPrice,
+        quantity: item.formQuantity,
+        domain_id: item.catalogProduct.domain_id || 'MLB-NOTEBOOKS',
+        condition: 'used',
+      })
+
+      const completed = await mlCatalogService.pollPublishJob(newJob.id, (cur) => {
+        if (cur.status === 'processing') {
+          setPublishLogs((prev) => {
+            const next = [...prev]
+            next[logIdx] = {
+              ...next[logIdx],
+              message: 'Processando no Mercado Livre...',
+            }
+            return next
+          })
+        }
+      })
+
+      if (completed.status === 'done') {
+        setPublishLogs((prev) => {
+          const next = [...prev]
+          next[logIdx] = {
+            ...next[logIdx],
+            id: completed.id,
+            status: 'done',
+            listing_id: completed.ml_listing_id,
+            listing_url: completed.ml_listing_url,
+            message: `Publicado com sucesso! ID: ${completed.ml_listing_id}`,
+            canRetry: false,
+          }
+          return next
+        })
+        toast({
+          title: 'Anúncio publicado com sucesso!',
+          description: `Anúncio ${completed.ml_listing_id} criado no catálogo.`,
+        })
+      } else {
+        setPublishLogs((prev) => {
+          const next = [...prev]
+          next[logIdx] = {
+            ...next[logIdx],
+            id: completed.id,
+            status: 'error',
+            message: completed.error_message || 'Falha na publicação.',
+            canRetry: true,
+          }
+          return next
+        })
+        toast({
+          title: 'Não foi possível publicar',
+          description: completed.error_message || 'Revise as exigências do Mercado Livre.',
+          variant: 'destructive',
+        })
+      }
+    } catch (err: any) {
+      setPublishLogs((prev) => {
+        const next = [...prev]
+        next[logIdx] = {
+          ...next[logIdx],
+          status: 'error',
+          message: err.message || 'Erro ao comunicar com a fila.',
+          canRetry: true,
+        }
+        return next
+      })
+    } finally {
+      setRetryingJobId(null)
     }
   }
 

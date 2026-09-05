@@ -2,9 +2,10 @@
 
 /**
  * Hook de fila para publicação de Anúncios de Catálogo no Mercado Livre
- * Executa ao criar um registro em ml_catalog_publish_jobs.
+ * Executa ao criar um registro em ml_catalog_publish_jobs (ou ao atualizar para status='pending').
  * Cria o anúncio associado a catalog_product_id via POST https://api.mercadolibre.com/items
  * Atualiza o produto local associando catalog_product_id, ml_listing_id e ml_listing_url.
+ * NOTA: Toda a lógica fica inline dentro do callback para evitar problemas de escopo do JSVM.
  */
 
 onRecordAfterCreateSuccess((e) => {
@@ -96,7 +97,6 @@ onRecordAfterCreateSuccess((e) => {
   let catDetails = null
   let categoryId = 'MLB1652' // Categoria default de Notebooks MLB
   let catalogTitle = 'Notebook'
-  let catalogAttributes = []
 
   try {
     const prodRes = $http.send({
@@ -112,7 +112,6 @@ onRecordAfterCreateSuccess((e) => {
       catDetails = prodRes.json
       if (catDetails.category_id) categoryId = catDetails.category_id
       if (catDetails.name) catalogTitle = catDetails.name
-      if (catDetails.attributes) catalogAttributes = catDetails.attributes
     }
   } catch (eCat) {
     console.warn('[ml_catalog_publish] Falha ao consultar produto de catálogo:', eCat)
@@ -120,8 +119,7 @@ onRecordAfterCreateSuccess((e) => {
 
   // 3. Buscar dados do produto local se fornecido
   let localProduct = null
-  let itemCondition = 'not_specified' // ou "used" para recondicionados
-  let titleToUse = catalogTitle
+  let itemCondition = 'used' // Padrão para os lotes e notebooks da loja
 
   if (productId) {
     try {
@@ -129,11 +127,7 @@ onRecordAfterCreateSuccess((e) => {
       if (localProduct) {
         const condType = localProduct.getString('condition_type') || ''
         if (condType === 'novo') itemCondition = 'new'
-        else itemCondition = 'used' // Mercado Livre aceita "used" ou "new" para condition
-
-        if (localProduct.getString('name')) {
-          titleToUse = localProduct.getString('name')
-        }
+        else itemCondition = 'used'
       }
     } catch (eProd) {
       console.warn('[ml_catalog_publish] Produto local não encontrado:', productId, eProd)
@@ -146,173 +140,270 @@ onRecordAfterCreateSuccess((e) => {
     }
   }
 
-  // Se o título ficou genérico, usar o nome do catálogo
-  if (!titleToUse || titleToUse === 'Notebook') {
-    titleToUse = catDetails && catDetails.name ? catDetails.name : 'Notebook ' + catalogProductId
-  }
-  // Limitar título a 60 caracteres (regra ML)
-  if (titleToUse.length > 60) {
-    titleToUse = titleToUse.substring(0, 60).trim()
+  // 4. Montar variações de payload para publicação no Catálogo do ML
+  // REGRA CRÍTICA DO MERCADO LIVRE:
+  // Em publicação de catálogo (catalog_listing: true + catalog_product_id),
+  // o campo "title" NÃO PODE ser enviado (o ML rejeita com body.invalid_fields [title] are invalid).
+  // O título, fotos, descrição e atributos canônicos são herdados do próprio catálogo.
+  //
+  // Além disso, na API de Catálogo do ML:
+  // Se a condição for 'used' e o catálogo exigir 'new' (item_not_new_nor_refurbished),
+  // tentamos em cascata:
+  // 1. Condição solicitada ('used' ou 'new')
+  // 2. Se 'used' falhar por elegibilidade, testar 'new'
+  const baseShipping = {
+    mode: 'me2',
+    local_pick_up: true,
+    free_shipping: price >= 79,
   }
 
-  // 4. Montar payload para POST /items com catalog_product_id
-  const payload = {
-    title: titleToUse,
+  const baseSaleTerms = [
+    {
+      id: 'WARRANTY_TYPE',
+      value_name: 'Garantia do vendedor',
+    },
+    {
+      id: 'WARRANTY_TIME',
+      value_name: defaultWarrantyDays + ' dias',
+    },
+  ]
+
+  const variationsToTry = []
+
+  // Variação A: Condição padrão informada
+  const payloadA = {
+    catalog_product_id: catalogProductId,
+    catalog_listing: true,
     category_id: categoryId,
     price: price,
     currency_id: 'BRL',
     available_quantity: quantity,
     buying_mode: 'buy_it_now',
-    listing_type_id: 'gold_special', // Clássico (padrão ouro especial)
+    listing_type_id: 'gold_special',
     condition: itemCondition,
-    catalog_product_id: catalogProductId,
-    catalog_listing: true,
-    sale_terms: [
-      {
-        id: 'WARRANTY_TYPE',
-        value_name: 'Garantia do vendedor',
-      },
-      {
-        id: 'WARRANTY_TIME',
-        value_name: defaultWarrantyDays + ' dias',
-      },
-    ],
-    shipping: {
-      mode: 'me2',
-      local_pick_up: true,
-      free_shipping: price >= 79,
-    },
+    sale_terms: baseSaleTerms,
+    shipping: baseShipping,
   }
+  variationsToTry.push({ name: 'padrao_' + itemCondition, payload: payloadA })
 
-  // Se tiver atributos essenciais do produto de catálogo (marca, modelo), replicar no item
-  if (catalogAttributes && catalogAttributes.length > 0) {
-    const attrsToSend = []
-    catalogAttributes.forEach((a) => {
-      if (['BRAND', 'MODEL', 'LINE', 'PROCESSOR_BRAND', 'PROCESSOR_MODEL'].indexOf(a.id) >= 0) {
-        if (a.value_name || a.value_id) {
-          attrsToSend.push({
-            id: a.id,
-            value_id: a.value_id || null,
-            value_name: a.value_name || null,
-          })
-        }
-      }
-    })
-    if (attrsToSend.length > 0) {
-      payload.attributes = attrsToSend
+  // Variação B: Se a condição for 'used', tentar 'new' caso o catálogo seja restrito a novos
+  if (itemCondition === 'used') {
+    const payloadB = {
+      catalog_product_id: catalogProductId,
+      catalog_listing: true,
+      category_id: categoryId,
+      price: price,
+      currency_id: 'BRL',
+      available_quantity: quantity,
+      buying_mode: 'buy_it_now',
+      listing_type_id: 'gold_special',
+      condition: 'new',
+      sale_terms: baseSaleTerms,
+      shipping: baseShipping,
     }
+    variationsToTry.push({ name: 'fallback_condition_new', payload: payloadB })
   }
 
   // 5. Enviar POST /items para o Mercado Livre
-  try {
-    const postRes = $http.send({
-      url: 'https://api.mercadolibre.com/items',
-      method: 'POST',
-      headers: {
-        Authorization: 'Bearer ' + token,
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      body: JSON.stringify(payload),
-      timeout: 25,
-    })
+  let finalResponse = null
+  let successfulPayload = null
+  let lastErrorData = null
+  let lastStatusCode = 400
 
-    rec.set('status_code', postRes.statusCode)
+  for (let vIdx = 0; vIdx < variationsToTry.length; vIdx++) {
+    const curVar = variationsToTry[vIdx]
+    const payloadToSend = curVar.payload
 
-    if (postRes.statusCode === 200 || postRes.statusCode === 201) {
-      const data = postRes.json
-      const listingId = data.id || ''
-      const listingUrl = data.permalink || 'https://produto.mercadolivre.com.br/' + listingId
+    // Garante que campos proibidos pelo catálogo NÃO sejam enviados
+    delete payloadToSend.title
+    delete payloadToSend.pictures
+    delete payloadToSend.description
 
-      rec.set('status', 'done')
-      rec.set('ml_listing_id', listingId)
-      rec.set('ml_listing_url', listingUrl)
-      rec.set('result_data', data)
-      appId.save(rec)
+    try {
+      console.log(
+        '[ml_catalog_publish] Tentativa ' +
+          (vIdx + 1) +
+          ' (' +
+          curVar.name +
+          ') para ' +
+          catalogProductId,
+      )
 
-      // Atualizar o produto local correspondente
-      if (localProduct) {
-        try {
-          localProduct.set('ml_listing_id', listingId)
-          localProduct.set('ml_listing_url', listingUrl)
-          localProduct.set('ml_listing_status', 'active')
-          localProduct.set('catalog_product_id', catalogProductId)
-          localProduct.set(
-            'ml_published_at',
-            new Date().toISOString().replace('T', ' ').substring(0, 19),
-          )
+      const postRes = $http.send({
+        url: 'https://api.mercadolibre.com/items',
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer ' + token,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify(payloadToSend),
+        timeout: 25,
+      })
 
-          const history = []
-          try {
-            const curHist = localProduct.get('history_events')
-            if (Array.isArray(curHist)) history.push.apply(history, curHist)
-          } catch (_) {}
-          history.push({
-            date: new Date().toISOString().replace('T', ' ').substring(0, 19),
-            title: 'Anúncio de Catálogo publicado no Mercado Livre',
-            details:
-              'Anúncio ' +
-              listingId +
-              ' vinculado ao produto de catálogo ' +
-              catalogProductId +
-              ' por R$ ' +
-              price,
-          })
-          localProduct.set('history_events', history)
+      lastStatusCode = postRes.statusCode
+      const resJson = postRes.json || {}
 
-          appId.save(localProduct)
-        } catch (eSaveProd) {
-          console.warn('[ml_catalog_publish] Erro ao atualizar produto local:', eSaveProd)
+      if (postRes.statusCode === 200 || postRes.statusCode === 201) {
+        finalResponse = resJson
+        successfulPayload = payloadToSend
+        break
+      } else {
+        lastErrorData = resJson
+        console.warn(
+          '[ml_catalog_publish] Falha na tentativa ' +
+            curVar.name +
+            ': status ' +
+            postRes.statusCode,
+          JSON.stringify(resJson),
+        )
+
+        const resStr = JSON.stringify(resJson)
+        const isNotEligibleUsed =
+          resStr.indexOf('item_not_new_nor_refurbished') >= 0 ||
+          resStr.indexOf('catalog_listing.not_eligible') >= 0
+        if (!isNotEligibleUsed && variationsToTry.length > vIdx + 1) {
+          break
         }
       }
-    } else {
-      // Tratar erro retornado pelo Mercado Livre com mensagens claras em português
-      rec.set('status', 'error')
-      const errBody = postRes.json || {}
-      let userMsg =
-        'Falha ao publicar anúncio de catálogo no Mercado Livre (status ' + postRes.statusCode + ')'
-
-      if (errBody.message) {
-        userMsg = errBody.message
-      }
-
-      if (Array.isArray(errBody.cause) && errBody.cause.length > 0) {
-        const causes = errBody.cause.map(function (c) {
-          if (c.code === 'item.price.invalid' || (c.message && c.message.indexOf('price') >= 0)) {
-            return 'Preço informado (R$ ' + price + ') incompatível com o exigido pelo catálogo.'
-          }
-          if (c.code === 'item.catalog_product_id.invalid') {
-            return (
-              'O produto de catálogo (' +
-              catalogProductId +
-              ') não é válido para publicação direta ou está inativo.'
-            )
-          }
-          if (c.code === 'item.condition.invalid') {
-            return (
-              'A condição do item (' +
-              itemCondition +
-              ') não é permitida para este produto de catálogo no Mercado Livre.'
-            )
-          }
-          if (c.message) return c.message
-          return JSON.stringify(c)
-        })
-        userMsg += ': ' + causes.join(' | ')
-      }
-
-      rec.set('error_message', userMsg)
-      rec.set('result_data', errBody)
-      appId.save(rec)
+    } catch (errSend) {
+      console.error('[ml_catalog_publish] Exceção na requisição:', errSend)
+      lastErrorData = { error: String(errSend) }
+      lastStatusCode = 500
+      break
     }
-  } catch (errRequest) {
-    console.error('[ml_catalog_publish] Exceção na requisição:', errRequest)
+  }
+
+  rec.set('status_code', lastStatusCode)
+
+  if (finalResponse && (finalResponse.id || finalResponse.permalink)) {
+    const listingId = finalResponse.id || ''
+    const listingUrl = finalResponse.permalink || 'https://produto.mercadolivre.com.br/' + listingId
+
+    rec.set('status', 'done')
+    rec.set('ml_listing_id', listingId)
+    rec.set('ml_listing_url', listingUrl)
+    rec.set('result_data', finalResponse)
+    rec.set('error_message', '')
+    appId.save(rec)
+
+    // Atualizar o produto local correspondente
+    if (localProduct) {
+      try {
+        localProduct.set('ml_listing_id', listingId)
+        localProduct.set('ml_listing_url', listingUrl)
+        localProduct.set('ml_listing_status', 'active')
+        localProduct.set('catalog_product_id', catalogProductId)
+        localProduct.set(
+          'ml_published_at',
+          new Date().toISOString().replace('T', ' ').substring(0, 19),
+        )
+
+        const history = []
+        try {
+          const curHist = localProduct.get('history_events')
+          if (Array.isArray(curHist)) history.push.apply(history, curHist)
+        } catch (_) {}
+        history.push({
+          date: new Date().toISOString().replace('T', ' ').substring(0, 19),
+          title: 'Anúncio de Catálogo publicado no Mercado Livre',
+          details:
+            'Anúncio ' +
+            listingId +
+            ' vinculado ao produto de catálogo ' +
+            catalogProductId +
+            ' por R$ ' +
+            price +
+            (successfulPayload ? ' (condição: ' + successfulPayload.condition + ')' : ''),
+        })
+        localProduct.set('history_events', history)
+
+        appId.save(localProduct)
+      } catch (eSaveProd) {
+        console.warn('[ml_catalog_publish] Erro ao atualizar produto local:', eSaveProd)
+      }
+    }
+  } else {
+    // Tratar erro retornado pelo Mercado Livre com mensagens claras em português
     rec.set('status', 'error')
-    rec.set('status_code', 500)
-    rec.set(
-      'error_message',
-      'Erro de conexão ao comunicar com a API do Mercado Livre: ' + String(errRequest),
-    )
+    const errBody = lastErrorData || {}
+    let userMsg =
+      'Falha ao publicar anúncio de catálogo no Mercado Livre (status ' + lastStatusCode + ')'
+
+    const rawErrorStr = JSON.stringify(errBody)
+
+    if (
+      errBody.error &&
+      errBody.error.indexOf('The fields') >= 0 &&
+      errBody.error.indexOf('are invalid') >= 0
+    ) {
+      const matchFields = errBody.error.match(/The fields \[(.*?)\] are invalid/)
+      const fieldList = matchFields ? matchFields[1] : 'informados'
+      if (fieldList.indexOf('title') >= 0) {
+        userMsg =
+          'O campo "title" não é aceito em anúncio de catálogo (o título é herdado diretamente do catálogo no Mercado Livre).'
+      } else {
+        userMsg =
+          'O(s) campo(s) [' +
+          fieldList +
+          '] não são aceitos para anúncio deste catálogo no Mercado Livre.'
+      }
+    } else if (errBody.message === 'body.invalid_fields') {
+      userMsg = 'Campos inválidos enviados ao Mercado Livre para este anúncio de catálogo.'
+    } else if (rawErrorStr.indexOf('item_not_new_nor_refurbished') >= 0) {
+      userMsg =
+        'Este produto de catálogo no Mercado Livre exige condição Novo ou Recondicionado oficial elegível.'
+    } else if (errBody.message) {
+      userMsg = errBody.message
+    }
+
+    if (Array.isArray(errBody.cause) && errBody.cause.length > 0) {
+      const errorCauses = errBody.cause.filter(function (c) {
+        return c.type !== 'warning' || (c.code && c.code.indexOf('lost_me1') === -1)
+      })
+
+      const targetCauses = errorCauses.length > 0 ? errorCauses : errBody.cause
+      const translatedList = targetCauses.map(function (c) {
+        if (c.code === 'item.price.invalid' || (c.message && c.message.indexOf('price') >= 0)) {
+          return 'Preço informado (R$ ' + price + ') incompatível com as regras deste catálogo.'
+        }
+        if (c.code === 'item.catalog_product_id.invalid') {
+          return (
+            'O produto de catálogo (' +
+            catalogProductId +
+            ') não é válido para publicação direta ou está inativo.'
+          )
+        }
+        if (c.code === 'item.catalog_listing.not_eligible') {
+          if (c.message && c.message.indexOf('item_not_new_nor_refurbished') >= 0) {
+            return 'O produto de catálogo exige condição Novo (não aceita oferta direta em seminovo comum).'
+          }
+          return (
+            'Sua conta ou o produto não é elegível para disputar este catálogo (' +
+            (c.message || c.code) +
+            ').'
+          )
+        }
+        if (c.code === 'item.condition.invalid') {
+          return (
+            'A condição do item (' +
+            itemCondition +
+            ') não é permitida para este produto de catálogo no Mercado Livre.'
+          )
+        }
+        if (c.message && c.message.indexOf('The fields') >= 0) {
+          return 'Campos inválidos para anúncio de catálogo: ' + c.message
+        }
+        return c.message || c.code || JSON.stringify(c)
+      })
+
+      if (translatedList.length > 0) {
+        userMsg = translatedList.join(' | ')
+      }
+    }
+
+    rec.set('error_message', userMsg)
+    rec.set('result_data', errBody)
     appId.save(rec)
   }
 }, 'ml_catalog_publish_jobs')
