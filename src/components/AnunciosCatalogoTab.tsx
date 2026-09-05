@@ -38,6 +38,12 @@ export function AnunciosCatalogoTab() {
   const [query, setQuery] = useState('dell latitude 3420')
   const [activeSearchTerm, setActiveSearchTerm] = useState('dell latitude 3420')
   const [searching, setSearching] = useState(false)
+  const [searchProgressText, setSearchProgressText] = useState('')
+  const [searchPagingInfo, setSearchPagingInfo] = useState<{
+    total?: number
+    pages_fetched?: number
+    items_count?: number
+  } | null>(null)
   const [catalogItems, setCatalogItems] = useState<CatalogMatchResult[]>([])
   const [inventoryProducts, setInventoryProducts] = useState<Product[]>([])
   const [lastStrategy, setLastStrategy] = useState<string>('')
@@ -91,15 +97,19 @@ export function AnunciosCatalogoTab() {
       setActiveSearchTerm(q)
       setCatalogItems([])
       setSearchJobDebug([])
+      setSearchProgressText('Iniciando busca profunda no Mercado Livre...')
+      setSearchPagingInfo(null)
 
       toast({
-        title: 'Buscando no Catálogo do ML...',
-        description: 'Consultando posições ativas e concorrência no Mercado Livre.',
+        title: 'Iniciando busca profunda no ML...',
+        description: 'Vasculhando todas as páginas de anúncios de catálogo.',
       })
 
       const jobInit = await mlCatalogService.searchCatalog(q, 'MLB-NOTEBOOKS')
       const jobDone = await mlCatalogService.pollSearchJob(jobInit.id, (j) => {
         if (j.raw_debug) setSearchJobDebug(j.raw_debug)
+        if (j.progress_text) setSearchProgressText(j.progress_text)
+        if (j.paging) setSearchPagingInfo(j.paging)
       })
 
       if (jobDone.status === 'error') {
@@ -109,6 +119,8 @@ export function AnunciosCatalogoTab() {
       const results = jobDone.results || []
       setLastStrategy(jobDone.strategy_used || 'api_products_search')
       if (jobDone.raw_debug) setSearchJobDebug(jobDone.raw_debug)
+      if (jobDone.progress_text) setSearchProgressText(jobDone.progress_text)
+      if (jobDone.paging) setSearchPagingInfo(jobDone.paging)
 
       if (results.length === 0) {
         toast({
@@ -162,15 +174,18 @@ export function AnunciosCatalogoTab() {
                 ).isMatch,
             ).length
 
+      const pagesFetched = jobDone.paging?.pages_fetched || 1
+      const pageTextSummary = pagesFetched > 1 ? ` em ${pagesFetched} páginas` : ''
+
       if (!isDirectCode && tokens.length > 0 && strictCount < results.length) {
         toast({
-          title: `Filtro rigoroso: ${strictCount} de ${results.length} posições relevantes`,
-          description: `${results.length - strictCount} anúncio(s) descartado(s) por não conterem todos os termos buscados.`,
+          title: `Busca profunda: ${strictCount} de ${results.length} posições relevantes${pageTextSummary}`,
+          description: `${results.length - strictCount} anúncio(s) descartado(s) pelo filtro rigoroso de termos.`,
         })
       } else {
         const matchedCount = formatted.filter((f) => f.matchedProducts.length > 0).length
         toast({
-          title: `${results.length} posições de catálogo prontas para gerir`,
+          title: `${results.length} posições encontradas${pageTextSummary}`,
           description:
             matchedCount > 0
               ? `${matchedCount} possuem sugestão de match com seu estoque.`
@@ -561,16 +576,32 @@ export function AnunciosCatalogoTab() {
               {searching ? (
                 <>
                   <RefreshCw className="w-4 h-4 animate-spin" />
-                  Buscando no Catálogo...
+                  Buscando Profundo...
                 </>
               ) : (
                 <>
                   <Sparkles className="w-4 h-4" />
-                  Buscar Posições
+                  Busca Profunda ML
                 </>
               )}
             </Button>
           </div>
+
+          {/* Feedback de Progresso da Busca Profunda em Tempo Real */}
+          {searching && (
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center gap-3 animate-pulse">
+              <RefreshCw className="w-4 h-4 text-blue-600 animate-spin shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-blue-900">
+                  {searchProgressText ||
+                    'Buscando páginas de anúncios de catálogo no Mercado Livre...'}
+                </p>
+                <p className="text-[11px] text-blue-700 mt-0.5">
+                  Vasculhando posições paginadas para trazer todos os resultados da pesquisa.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Atalhos Rápidos */}
           <div className="flex items-center gap-2 flex-wrap text-xs text-slate-500">
@@ -599,21 +630,34 @@ export function AnunciosCatalogoTab() {
             ))}
           </div>
 
-          {/* Diagnóstico da Fonte / Cascata */}
+          {/* Diagnóstico da Fonte / Cascata e Resumo da Paginação */}
           {lastStrategy && (
-            <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs text-slate-500">
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] font-semibold text-slate-600">
-                  Método de consulta:
-                </span>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs text-slate-500">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[11px] font-semibold text-slate-600">Origem:</span>
                 <Badge variant="outline" className="text-[10px] font-mono bg-slate-50">
-                  {lastStrategy === 'api_products_search' && 'API Oficial ML (/products/search)'}
+                  {lastStrategy === 'api_products_search' && 'API Oficial ML Paginada'}
                   {lastStrategy === 'api_products_direct' &&
                     'Consulta Direta de Catálogo (/products/{id})'}
                   {lastStrategy === 'html_scrape_catalog_links' &&
                     'Cascata Scraping de Catálogo ML'}
                   {lastStrategy === 'none' && 'Nenhum resultado retornado'}
                 </Badge>
+
+                {searchPagingInfo && (
+                  <Badge
+                    variant="secondary"
+                    className="text-[10px] font-mono bg-blue-50 text-blue-800 border-blue-200"
+                  >
+                    {searchPagingInfo.pages_fetched || 1}{' '}
+                    {(searchPagingInfo.pages_fetched || 1) === 1
+                      ? 'página consultada'
+                      : 'páginas consultadas'}
+                    {searchPagingInfo.total
+                      ? ` · ${searchPagingInfo.items_count || catalogItems.length} de ${searchPagingInfo.total} total anunciado`
+                      : ''}
+                  </Badge>
+                )}
               </div>
 
               {searchJobDebug.length > 0 && (
@@ -819,7 +863,17 @@ export function AnunciosCatalogoTab() {
             </div>
           ) : (
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-slate-500 font-semibold px-1">
-              <span>Posições de Catálogo Encontradas ({catalogItems.length})</span>
+              <div className="flex items-center gap-2">
+                <span>Posições de Catálogo Encontradas ({catalogItems.length})</span>
+                {searchPagingInfo && (searchPagingInfo.pages_fetched || 0) > 1 && (
+                  <Badge
+                    variant="outline"
+                    className="text-[10px] font-mono bg-blue-50 text-blue-700 border-blue-200"
+                  >
+                    {searchPagingInfo.pages_fetched} páginas vasculhadas
+                  </Badge>
+                )}
+              </div>
               <span className="text-[11px] text-slate-400 font-normal">
                 {isDirectCode
                   ? 'Busca por código exato de produto de catálogo'

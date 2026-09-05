@@ -41,6 +41,12 @@ export interface MLCatalogSearchJob {
   error_message?: string
   strategy_used?: string
   results?: MLCatalogProduct[]
+  progress_text?: string
+  paging?: {
+    total?: number
+    pages_fetched?: number
+    items_count?: number
+  }
   raw_debug?: string[]
   created: string
 }
@@ -94,7 +100,7 @@ export const mlCatalogService = {
   async pollSearchJob(
     jobId: string,
     onProgress?: (job: MLCatalogSearchJob) => void,
-    maxWaitSecs: number = 30,
+    maxWaitSecs: number = 60,
   ): Promise<MLCatalogSearchJob> {
     const start = Date.now()
     while (Date.now() - start < maxWaitSecs * 1000) {
@@ -103,7 +109,7 @@ export const mlCatalogService = {
       if (job.status === 'done' || job.status === 'error') {
         return job
       }
-      await new Promise((r) => setTimeout(r, 1200))
+      await new Promise((r) => setTimeout(r, 800))
     }
     throw new Error('A busca no catálogo do Mercado Livre excedeu o tempo limite. Tente novamente.')
   },

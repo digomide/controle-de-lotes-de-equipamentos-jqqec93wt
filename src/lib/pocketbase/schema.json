@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-05T17:44:33.566Z",
+  "generatedAt": "2026-09-05T17:50:07.793Z",
   "collections": [
     {
       "name": "users",
@@ -2536,6 +2536,18 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "progress_text",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "paging",
+          "type": "json",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
