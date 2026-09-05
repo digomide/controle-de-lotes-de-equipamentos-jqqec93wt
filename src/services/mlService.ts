@@ -32,6 +32,7 @@ export interface MLSellerItem {
   available_quantity: number
   sold_quantity: number
   condition: string
+  condition_grade?: string
   status: 'active' | 'paused' | 'closed' | string
   permalink: string
   thumbnail: string

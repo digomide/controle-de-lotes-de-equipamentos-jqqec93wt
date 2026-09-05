@@ -123,6 +123,7 @@ onRecordAfterCreateSuccess((e) => {
   const allItemIds = []
   const seenMlbIds = {}
   let totalAnnouncedGlobal = 0
+  const statusStats = { active: 0, paused: 0, closed: 0 }
   const PAGE_LIMIT = 50
   const MAX_GLOBAL_CAP = 2000
   const MAX_PAGES_PER_STATUS = 25
@@ -153,10 +154,7 @@ onRecordAfterCreateSuccess((e) => {
     while (pageNum < MAX_PAGES_PER_STATUS && allItemIds.length < MAX_GLOBAL_CAP) {
       pageNum++
       let searchUrl =
-        'https://api.mercadolibre.com/users/' +
-        userIdMl +
-        '/items/search?search_type=scan&limit=' +
-        PAGE_LIMIT
+        'https://api.mercadolibre.com/users/' + userIdMl + '/items/search?limit=' + PAGE_LIMIT
 
       if (offset > 0) {
         searchUrl += '&offset=' + offset
@@ -366,13 +364,57 @@ onRecordAfterCreateSuccess((e) => {
             let brand = ''
             let model = ''
             let line = ''
+            let conditionGrade = ''
+            let isRefurbishedAttr = false
+
             if (Array.isArray(body.attributes)) {
               for (let a = 0; a < body.attributes.length; a++) {
                 const attr = body.attributes[a]
-                if (attr.id === 'GTIN') gtin = attr.value_name || ''
-                if (attr.id === 'BRAND') brand = attr.value_name || ''
-                if (attr.id === 'MODEL') model = attr.value_name || ''
-                if (attr.id === 'LINE') line = attr.value_name || ''
+                const attrId = (attr.id || '').toUpperCase()
+                const attrName = (attr.name || '').toLowerCase()
+
+                if (attrId === 'GTIN') gtin = attr.value_name || ''
+                if (attrId === 'BRAND') brand = attr.value_name || ''
+                if (attrId === 'MODEL') model = attr.value_name || ''
+                if (attrId === 'LINE') line = attr.value_name || ''
+
+                // Atributo oficial de Grau/Status do Recondicionado do ML
+                if (
+                  attrId === 'GRADING' ||
+                  attrId === 'RECONDITIONED_STATUS' ||
+                  attrId === 'REFURBISHED_STATUS' ||
+                  attrName.includes('recondicionado')
+                ) {
+                  if (attr.value_name) {
+                    conditionGrade = attr.value_name
+                    isRefurbishedAttr = true
+                  }
+                }
+              }
+            }
+
+            // Resolução da condição e do status de recondicionado
+            // 1) Se a condição raiz do ML for 'refurbished'
+            // 2) OU se houver atributo GRADING ("Status do recondicionado")
+            // 3) OU se o título indicar explicitamente Recondicionado
+            let resolvedCondition = body.condition || 'new'
+            const titleUpper = (body.title || '').toUpperCase()
+            if (
+              resolvedCondition === 'refurbished' ||
+              isRefurbishedAttr ||
+              titleUpper.includes('RECONDICIONADO')
+            ) {
+              resolvedCondition = 'refurbished'
+            }
+
+            // Tentar extrair o grau do título caso não esteja preenchido pelo atributo GRADING
+            if (resolvedCondition === 'refurbished' && !conditionGrade) {
+              if (titleUpper.includes('EXCELENTE')) {
+                conditionGrade = 'Excelente'
+              } else if (titleUpper.includes('BOM')) {
+                conditionGrade = 'Bom'
+              } else if (titleUpper.includes('ACEITÁVEL') || titleUpper.includes('ACEITAVEL')) {
+                conditionGrade = 'Aceitável'
               }
             }
 
@@ -392,7 +434,8 @@ onRecordAfterCreateSuccess((e) => {
               currency_id: body.currency_id || 'BRL',
               available_quantity: body.available_quantity,
               sold_quantity: body.sold_quantity || 0,
-              condition: body.condition,
+              condition: resolvedCondition,
+              condition_grade: conditionGrade || undefined,
               status: body.status,
               permalink: body.permalink,
               thumbnail: primaryPicture || body.thumbnail,
@@ -416,8 +459,14 @@ onRecordAfterCreateSuccess((e) => {
     }
   }
 
-  // 5. Ordenação amigável: Ativos primeiro, depois pausados, depois encerrados
+  // 5. Contar estatísticas por status dos itens coletados e ordenação amigável: Ativos primeiro, depois pausados, depois encerrados
   const statusWeight = { active: 1, paused: 2, closed: 3 }
+  detailedItems.forEach(function (it) {
+    if (it.status === 'active') statusStats.active++
+    else if (it.status === 'paused') statusStats.paused++
+    else if (it.status === 'closed') statusStats.closed++
+  })
+
   detailedItems.sort(function (a, b) {
     const wa = statusWeight[a.status] || 9
     const wb = statusWeight[b.status] || 9
@@ -450,6 +499,9 @@ onRecordAfterCreateSuccess((e) => {
         catalog_listing: it.catalog_listing,
         domain_id: it.domain_id,
       }
+      if (it.condition_grade) {
+        base.condition_grade = it.condition_grade
+      }
       if (level === 1) {
         base.brand = it.brand
         base.model = it.model
@@ -466,11 +518,19 @@ onRecordAfterCreateSuccess((e) => {
     total_announced: totalAnnouncedGlobal,
   }
 
+  // Formato exigido: "Ativos: X, Pausados: Y, Encerrados: Z"
   const finalProgressText =
+    'Ativos: ' +
+    statusStats.active +
+    ', Pausados: ' +
+    statusStats.paused +
+    ', Encerrados: ' +
+    statusStats.closed +
+    ' (' +
     detailedItems.length +
     ' anúncios carregados com sucesso' +
-    (totalAnnouncedGlobal > detailedItems.length ? ' (de ~' + totalAnnouncedGlobal + ')' : '') +
-    '.'
+    (totalAnnouncedGlobal > detailedItems.length ? ' de ~' + totalAnnouncedGlobal : '') +
+    ').'
 
   let saveSuccess = false
   let currentPayload = sanitizeItems(detailedItems, 1)

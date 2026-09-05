@@ -187,18 +187,39 @@ export default function AnunciosML() {
     }
   }
 
-  const renderConditionBadge = (condition: string) => {
-    const isNew = condition === 'new'
+  const renderConditionBadge = (item: MLSellerItem) => {
+    const cond = (item.condition || '').toLowerCase()
+    const grade = item.condition_grade
+
+    if (cond === 'refurbished') {
+      return (
+        <Badge
+          variant="outline"
+          className="bg-purple-50 text-purple-700 border-purple-300 text-[10px] font-semibold gap-1"
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-purple-600" />
+          Recondicionado{grade ? ` (${grade})` : ''}
+        </Badge>
+      )
+    }
+
+    if (cond === 'used') {
+      return (
+        <Badge
+          variant="outline"
+          className="bg-amber-50 text-amber-700 border-amber-200 text-[10px] font-semibold"
+        >
+          Usado{grade ? ` (${grade})` : ''}
+        </Badge>
+      )
+    }
+
     return (
       <Badge
         variant="outline"
-        className={
-          isNew
-            ? 'bg-blue-50 text-blue-700 border-blue-200 text-[10px] font-semibold'
-            : 'bg-amber-50 text-amber-700 border-amber-200 text-[10px] font-semibold'
-        }
+        className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px] font-semibold"
       >
-        {isNew ? 'Novo' : 'Recondicionado / Usado'}
+        Novo
       </Badge>
     )
   }
@@ -551,7 +572,7 @@ export default function AnunciosML() {
                           <div>
                             <div className="flex items-center gap-1.5 flex-wrap mb-1">
                               {renderStatusBadge(item.status)}
-                              {renderConditionBadge(item.condition)}
+                              {renderConditionBadge(item)}
                               {isCatalog && (
                                 <Badge className="bg-blue-600 text-white border-none gap-1 font-bold text-[10px] px-1.5 py-0 shadow-2xs font-mono">
                                   <Layers className="w-3 h-3" /> Catálogo
