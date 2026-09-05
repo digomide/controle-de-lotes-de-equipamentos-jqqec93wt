@@ -213,10 +213,19 @@ export default function RadarML() {
       const job = await mlCompetitorService.resolveFromItems(linksInput, linkNickname)
       const res = job.result_data || {}
 
-      toast({
-        title: 'Concorrente e anúncio adicionados!',
-        description: `${res.seller_nickname || 'Vendedor'} adicionado com ${res.ads_added_or_updated || 1} anúncio(s) monitorado(s).`,
-      })
+      if (res.items_failed && res.items_failed > 0 && job.error_message) {
+        // Sucesso parcial
+        toast({
+          title: 'Adicionado com sucesso parcial',
+          description: job.error_message,
+          className: 'bg-amber-50 text-amber-900 border-amber-300',
+        })
+      } else {
+        toast({
+          title: 'Concorrente e anúncio adicionados!',
+          description: `${res.seller_nickname || 'Vendedor'} adicionado com ${res.ads_added_or_updated || 1} anúncio(s) monitorado(s).`,
+        })
+      }
 
       setLinksInput('')
       setLinkNickname('')

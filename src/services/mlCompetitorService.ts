@@ -257,17 +257,53 @@ export const mlCompetitorService = {
 
   // Atalho para adicionar concorrente e anúncios a partir de links ou códigos MLB
   async resolveFromItems(input: string, sellerNickname?: string): Promise<MLCompetitorJob> {
-    const ids = extractMlbIds(input)
-    if (ids.length === 0) {
+    // Preservar URLs inteiras para não perder wid= ou slugs de produto de catálogo
+    const lines = input
+      .split(/[\r\n,;]+/)
+      .map((l) => l.trim())
+      .filter(Boolean)
+
+    const rawTargets: string[] = []
+    const seen = new Set<string>()
+
+    for (const line of lines) {
+      if (line.startsWith('http')) {
+        if (!seen.has(line)) {
+          seen.add(line)
+          rawTargets.push(line)
+        }
+      } else {
+        const ids = extractMlbIds(line)
+        for (const id of ids) {
+          if (!seen.has(id)) {
+            seen.add(id)
+            rawTargets.push(id)
+          }
+        }
+      }
+    }
+
+    // Se usuário colou texto com URLs no meio
+    if (rawTargets.length === 0) {
+      const extracted = extractMlbIds(input)
+      for (const id of extracted) {
+        if (!seen.has(id)) {
+          seen.add(id)
+          rawTargets.push(id)
+        }
+      }
+    }
+
+    if (rawTargets.length === 0) {
       throw new Error(
         'Nenhum código MLB válido encontrado. Cole o link do anúncio do Mercado Livre ou código como MLB1234567890.',
       )
     }
 
     return await this.dispatchJobAndWait('resolve_from_item', {
-      query: ids.join('\n'),
+      query: rawTargets.join('\n'),
       seller_nickname: sellerNickname,
-      result_data: { item_ids: ids },
+      result_data: { item_ids: rawTargets },
     })
   },
 
