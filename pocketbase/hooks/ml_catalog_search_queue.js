@@ -98,85 +98,163 @@ onRecordAfterCreateSuccess((e) => {
   function extractProductCondition(prod) {
     if (!prod) return { condition: 'new', condition_label: 'Novo' }
 
-    // (1) Atributo ITEM_CONDITION ou CONDITION no array attributes
+    // DOCUMENTAÇÃO (verificado com espécime real MLB2097858038 - Latitude 5420 Recondicionado):
+    // No catálogo oficial do Mercado Livre (/products/{id} e /products/search):
+    // 1. O ML cria produtos de catálogo dedicados para posições recondicionadas (mesma família, ex: "Dell Latitude 5420").
+    // 2. A condição NÃO mora apenas em ITEM_CONDITION; ela é expressa nos seguintes campos do catalog_product:
+    //    a) prod.refurbished_info (objeto presente contendo imagem/selo de recondicionado).
+    //    b) Atributo "GRADING" ("Status do recondicionado"), com value_name (ex: "Excelente", "Bom", "Aceitável").
+    //    c) Atributos "RECONDITIONED_STATUS", "REFURBISHED_STATUS" ou ITEM_CONDITION="2230581".
+    //    d) Título/nome do produto de catálogo com "(Recondicionado)" e o grau ("Excelente", "Bom").
+    //    e) buy_box_winner.condition ("refurbished") e prod.condition ("refurbished").
+
+    let gradeFound = ''
+
+    // (1) Atributos GRADING, RECONDITIONED_STATUS, ITEM_CONDITION ou CONDITION no array attributes
     if (Array.isArray(prod.attributes)) {
       for (let a = 0; a < prod.attributes.length; a++) {
         const attr = prod.attributes[a]
         if (!attr || !attr.id) continue
         const attrIdUpper = String(attr.id).toUpperCase()
+        const attrNameLower = String(attr.name || '').toLowerCase()
+        const valName = String(attr.value_name || '').trim()
+        const valId = String(attr.value_id || '').trim()
+
+        if (
+          attrIdUpper === 'GRADING' ||
+          attrIdUpper === 'RECONDITIONED_STATUS' ||
+          attrIdUpper === 'REFURBISHED_STATUS' ||
+          attrNameLower.includes('recondicionado')
+        ) {
+          if (valName) {
+            gradeFound = valName
+          }
+        }
+
         if (
           attrIdUpper === 'ITEM_CONDITION' ||
           attrIdUpper === 'CONDITION' ||
           attrIdUpper === 'PRODUCT_CONDITION'
         ) {
-          const valName = String(attr.value_name || '')
-            .toLowerCase()
-            .trim()
-          const valId = String(attr.value_id || '').trim()
-
-          if (valId === '2230284' || valName === 'novo' || valName === 'new') {
-            return { condition: 'new', condition_label: 'Novo' }
-          }
+          const valLower = valName.toLowerCase()
           if (
             valId === '2230581' ||
-            valName === 'recondicionado' ||
-            valName === 'refurbished' ||
-            valName.indexOf('recondicionado') >= 0
+            valLower.includes('recondicionado') ||
+            valLower.includes('refurbished')
           ) {
-            return { condition: 'refurbished', condition_label: 'Recondicionado' }
+            return {
+              condition: 'refurbished',
+              condition_label: 'Recondicionado',
+              condition_grade: gradeFound || undefined,
+            }
           }
           if (
             valId === '2230582' ||
-            valName === 'usado' ||
-            valName === 'used' ||
-            valName === 'segunda mão'
+            valLower === 'usado' ||
+            valLower === 'used' ||
+            valLower === 'segunda mão'
           ) {
-            return { condition: 'used', condition_label: 'Usado' }
+            return {
+              condition: 'used',
+              condition_label: 'Usado',
+              condition_grade: gradeFound || undefined,
+            }
+          }
+          if (valId === '2230284' || valLower === 'novo' || valLower === 'new') {
+            // Nota: não retorna imediatamente se tiver GRADING ou refurbished_info
           }
         }
       }
     }
 
-    // (2) buy_box_winner.condition se presente
+    // Se encontramos atributo oficial GRADING, é comprovadamente Recondicionado!
+    if (gradeFound) {
+      return {
+        condition: 'refurbished',
+        condition_label: 'Recondicionado',
+        condition_grade: gradeFound,
+      }
+    }
+
+    // (2) Presença do campo raiz refurbished_info (objeto que o ML coloca em produtos de catálogo recondicionados)
+    if (prod.refurbished_info) {
+      // Tentar extrair o grau pelo título se disponível
+      const titleLowerForGrade = String(prod.name || prod.title || '').toLowerCase()
+      let inferredGrade = ''
+      if (titleLowerForGrade.includes('excelente')) inferredGrade = 'Excelente'
+      else if (titleLowerForGrade.includes('bom')) inferredGrade = 'Bom'
+      else if (titleLowerForGrade.includes('aceit')) inferredGrade = 'Aceitável'
+
+      return {
+        condition: 'refurbished',
+        condition_label: 'Recondicionado',
+        condition_grade: inferredGrade || undefined,
+      }
+    }
+
+    // (3) buy_box_winner.condition se presente
     if (prod.buy_box_winner && prod.buy_box_winner.condition) {
       const bbCond = String(prod.buy_box_winner.condition).toLowerCase().trim()
+      if (bbCond === 'refurbished' || bbCond === 'recondicionado') {
+        return {
+          condition: 'refurbished',
+          condition_label: 'Recondicionado',
+          condition_grade: gradeFound || undefined,
+        }
+      }
+      if (bbCond === 'used' || bbCond === 'usado') {
+        return {
+          condition: 'used',
+          condition_label: 'Usado',
+          condition_grade: gradeFound || undefined,
+        }
+      }
       if (bbCond === 'new' || bbCond === 'novo') {
         return { condition: 'new', condition_label: 'Novo' }
       }
-      if (bbCond === 'refurbished' || bbCond === 'recondicionado') {
-        return { condition: 'refurbished', condition_label: 'Recondicionado' }
-      }
-      if (bbCond === 'used' || bbCond === 'usado') {
-        return { condition: 'used', condition_label: 'Usado' }
-      }
     }
 
-    // (3) Campo raiz condition (se retornado pela API)
+    // (4) Campo raiz condition (se retornado pela API)
     if (prod.condition) {
       const rootCond = String(prod.condition).toLowerCase().trim()
+      if (rootCond === 'refurbished' || rootCond === 'recondicionado') {
+        return {
+          condition: 'refurbished',
+          condition_label: 'Recondicionado',
+          condition_grade: gradeFound || undefined,
+        }
+      }
+      if (rootCond === 'used' || rootCond === 'usado') {
+        return {
+          condition: 'used',
+          condition_label: 'Usado',
+          condition_grade: gradeFound || undefined,
+        }
+      }
       if (rootCond === 'new' || rootCond === 'novo') {
         return { condition: 'new', condition_label: 'Novo' }
       }
-      if (rootCond === 'refurbished' || rootCond === 'recondicionado') {
-        return { condition: 'refurbished', condition_label: 'Recondicionado' }
-      }
-      if (rootCond === 'used' || rootCond === 'usado') {
-        return { condition: 'used', condition_label: 'Usado' }
-      }
     }
 
-    // (4) Heurística por texto no nome/título ou tags
+    // (5) Heurística por texto no nome/título ou tags
     const titleLower = String(prod.name || prod.title || '').toLowerCase()
-    if (titleLower.indexOf('recondicionado') >= 0 || titleLower.indexOf('refurbished') >= 0) {
-      return { condition: 'refurbished', condition_label: 'Recondicionado' }
+    if (titleLower.includes('recondicionado') || titleLower.includes('refurbished')) {
+      let inferredGrade = ''
+      if (titleLower.includes('excelente')) inferredGrade = 'Excelente'
+      else if (titleLower.includes('bom')) inferredGrade = 'Bom'
+      else if (titleLower.includes('aceit')) inferredGrade = 'Aceitável'
+
+      return {
+        condition: 'refurbished',
+        condition_label: 'Recondicionado',
+        condition_grade: inferredGrade || undefined,
+      }
     }
-    if (titleLower.indexOf('usado') >= 0 || titleLower.indexOf('seminovo') >= 0) {
+    if (titleLower.includes('usado') || titleLower.includes('seminovo')) {
       return { condition: 'used', condition_label: 'Usado' }
     }
 
-    // (5) No ecossistema oficial do Mercado Livre (MLB), todas as posições canônicas criadas pelo catálogo
-    // de marcas oficiais (Dell, Lenovo, HP, etc.) que não especificam recondicionado são catalogadas como "Novo".
-    // Isso é consistente com as regras de Buy Box do ML.
+    // (6) Padrão canônico do catálogo oficial ML quando não especificado
     return { condition: 'new', condition_label: 'Novo' }
   }
 
@@ -267,7 +345,13 @@ onRecordAfterCreateSuccess((e) => {
               const attr = p.attributes[a]
               if (!attr || !attr.id) continue
               const attrIdUpper = String(attr.id).toUpperCase()
-              if (attrIdUpper === 'BRAND' || attrIdUpper === 'MODEL' || attrIdUpper === 'LINE') {
+              if (
+                attrIdUpper === 'BRAND' ||
+                attrIdUpper === 'MODEL' ||
+                attrIdUpper === 'LINE' ||
+                attrIdUpper === 'GRADING' ||
+                attrIdUpper === 'ITEM_CONDITION'
+              ) {
                 leanDirectAttributes.push({
                   id: attrIdUpper,
                   name: attr.name || attrIdUpper,
@@ -298,6 +382,7 @@ onRecordAfterCreateSuccess((e) => {
             attributes: leanDirectAttributes,
             condition: condInfo.condition,
             condition_label: condInfo.condition_label,
+            condition_grade: condInfo.condition_grade || undefined,
             status: p.status || 'active',
             source: 'ml_product_direct',
           })
@@ -463,7 +548,13 @@ onRecordAfterCreateSuccess((e) => {
                 const attr = prod.attributes[a]
                 if (!attr || !attr.id) continue
                 const attrIdUpper = String(attr.id).toUpperCase()
-                if (attrIdUpper === 'BRAND' || attrIdUpper === 'MODEL' || attrIdUpper === 'LINE') {
+                if (
+                  attrIdUpper === 'BRAND' ||
+                  attrIdUpper === 'MODEL' ||
+                  attrIdUpper === 'LINE' ||
+                  attrIdUpper === 'GRADING' ||
+                  attrIdUpper === 'ITEM_CONDITION'
+                ) {
                   leanAttributes.push({
                     id: attrIdUpper,
                     name: attr.name || attrIdUpper,
@@ -494,6 +585,7 @@ onRecordAfterCreateSuccess((e) => {
               attributes: leanAttributes,
               condition: condInfo.condition,
               condition_label: condInfo.condition_label,
+              condition_grade: condInfo.condition_grade || undefined,
               status: prod.status || 'active',
               source: 'ml_products_search',
             })
@@ -571,6 +663,9 @@ onRecordAfterCreateSuccess((e) => {
               if (freshCond.condition !== 'new' || targetItem.condition === 'unknown') {
                 targetItem.condition = freshCond.condition
                 targetItem.condition_label = freshCond.condition_label
+                if (freshCond.condition_grade) {
+                  targetItem.condition_grade = freshCond.condition_grade
+                }
               }
             }
           } catch (errEnrich) {
@@ -580,9 +675,16 @@ onRecordAfterCreateSuccess((e) => {
       }
     }
 
-    // 4. Cascata se a busca de produtos não retornou nada:
-    // Scraping da busca pública do Mercado Livre para extrair os /p/MLB...
-    if (itemsFound.length === 0 && queryRaw) {
+    // 4. Cascata:
+    // A API /products/search do ML frequentemente prioriza e retorna apenas posições de catálogo "Novo"
+    // para buscas genéricas (ex: "dell latitude 5420"). Quando o usuário pesquisa por termos que incluem
+    // "recondicionado" ou "refurbished", OU se a busca da API não trouxe nada, acionamos a busca pública
+    // para descobrir posições /p/MLB... adicionais e enriquecê-las via /products/{id}.
+    const queryIncludesRefurb =
+      queryRaw.toLowerCase().includes('recondicionado') ||
+      queryRaw.toLowerCase().includes('refurbished')
+
+    if ((itemsFound.length === 0 || queryIncludesRefurb) && queryRaw) {
       try {
         debugLog.push(
           'Tentando cascata scraping público profundo para extrair produtos de catálogo /p/MLB...',
@@ -706,6 +808,7 @@ onRecordAfterCreateSuccess((e) => {
                   attributes: leanScrapeAttrs,
                   condition: condInfo.condition,
                   condition_label: condInfo.condition_label,
+                  condition_grade: condInfo.condition_grade || undefined,
                   status: p.status || 'active',
                   source: 'ml_catalog_scrape_and_enrich',
                 })
@@ -776,7 +879,7 @@ onRecordAfterCreateSuccess((e) => {
         const base = {
           id: item.id,
           catalog_product_id: item.catalog_product_id,
-          title: (item.title || '').substring(0, 130),
+          title: (item.title || '').substring(0, 140),
           domain_id: item.domain_id || '',
           permalink:
             item.permalink || 'https://www.mercadolivre.com.br/p/' + item.catalog_product_id,
@@ -790,10 +893,13 @@ onRecordAfterCreateSuccess((e) => {
           condition_label: item.condition_label || 'Novo',
           status: item.status || 'active',
         }
+        if (item.condition_grade) {
+          base.condition_grade = item.condition_grade
+        }
         if (level === 1) {
-          // Mantém BRAND e MODEL apenas se existirem
+          // Mantém BRAND, MODEL, GRADING apenas se existirem
           base.attributes = (item.attributes || []).filter(function (a) {
-            return a.id === 'BRAND' || a.id === 'MODEL'
+            return a.id === 'BRAND' || a.id === 'MODEL' || a.id === 'GRADING'
           })
         } else {
           base.attributes = []

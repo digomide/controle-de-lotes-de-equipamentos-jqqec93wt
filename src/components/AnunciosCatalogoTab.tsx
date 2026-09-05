@@ -549,9 +549,14 @@ export function AnunciosCatalogoTab() {
   const isFilterActive = !isDirectCode && currentTokens.length > 0
 
   // Helper para renderizar a badge de classificação/condição da posição de catálogo
-  function renderConditionBadge(cat: { condition?: string; condition_label?: string }) {
+  function renderConditionBadge(cat: {
+    condition?: string
+    condition_label?: string
+    condition_grade?: string
+  }) {
     const cond = cat.condition || 'new'
-    const label =
+    const grade = cat.condition_grade
+    const baseLabel =
       cat.condition_label ||
       (cond === 'refurbished' ? 'Recondicionado' : cond === 'used' ? 'Usado' : 'Novo')
 
@@ -562,7 +567,10 @@ export function AnunciosCatalogoTab() {
           title="Classificação Recondicionado no ML — estoque 100% compatível com a loja"
         >
           <Sparkles className="w-3 h-3 text-purple-200" />
-          <span>{label}</span>
+          <span>
+            {baseLabel}
+            {grade ? ` (${grade})` : ''}
+          </span>
           <span className="text-[9px] bg-purple-700/60 px-1 py-0.2 rounded text-purple-100 font-mono ml-0.5">
             Estoque compatível
           </span>
@@ -803,10 +811,11 @@ export function AnunciosCatalogoTab() {
               Sugestões rápidas:
             </span>
             {[
+              'dell latitude 5420 recondicionado',
               'dell latitude 3420',
               'lenovo thinkpad t480',
               'dell latitude 5320',
-              'hp elitebook 840',
+              'MLB2097858038',
               'thinkpad t580',
             ].map((term) => (
               <button

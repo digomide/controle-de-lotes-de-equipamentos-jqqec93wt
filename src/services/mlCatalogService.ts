@@ -17,6 +17,7 @@ export interface MLCatalogProduct {
   competition_status?: string
   condition?: 'new' | 'refurbished' | 'used' | 'unknown' | string
   condition_label?: 'Novo' | 'Recondicionado' | 'Usado' | 'Condição não informada' | string
+  condition_grade?: string
   status?: string
   source?: string
   attributes?: Array<{

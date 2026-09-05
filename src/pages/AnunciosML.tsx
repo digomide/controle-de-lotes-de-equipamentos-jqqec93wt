@@ -48,6 +48,9 @@ export default function AnunciosML() {
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [matchedFilter, setMatchedFilter] = useState<string>('all')
   const [catalogOnlyFilter, setCatalogOnlyFilter] = useState<string>('all')
+  const [conditionFilter, setConditionFilter] = useState<
+    'all' | 'new' | 'refurbished' | 'used' | 'not_specified'
+  >('all')
 
   const fetchItems = async (showToast = false) => {
     setLoading(true)
@@ -121,6 +124,22 @@ export default function AnunciosML() {
         return false
       }
 
+      // Filtro de condição ML (all, new, refurbished, used, not_specified)
+      if (conditionFilter !== 'all') {
+        const itemCond = (item.condition || '').toLowerCase()
+        if (conditionFilter === 'refurbished') {
+          if (itemCond !== 'refurbished') return false
+        } else if (conditionFilter === 'new') {
+          if (itemCond !== 'new') return false
+        } else if (conditionFilter === 'used') {
+          if (itemCond !== 'used') return false
+        } else if (conditionFilter === 'not_specified') {
+          if (itemCond && itemCond !== 'not_specified' && itemCond !== 'unknown') {
+            return false
+          }
+        }
+      }
+
       // Filtro de vínculo ao catálogo local
       if (matchedFilter === 'matched' && !item.matchedProduct) return false
       if (matchedFilter === 'unmatched' && item.matchedProduct) return false
@@ -152,6 +171,16 @@ export default function AnunciosML() {
       closed: items.filter((i) => i.status === 'closed').length,
       matched: items.filter((i) => !!i.matchedProduct).length,
       catalogListings: items.filter((i) => !!i.catalog_product_id || !!i.catalog_listing).length,
+      // Contadores de condição calculados sobre os anúncios carregados
+      condAll: items.length,
+      condNew: items.filter((i) => (i.condition || '').toLowerCase() === 'new').length,
+      condRefurbished: items.filter((i) => (i.condition || '').toLowerCase() === 'refurbished')
+        .length,
+      condUsed: items.filter((i) => (i.condition || '').toLowerCase() === 'used').length,
+      condNotSpecified: items.filter((i) => {
+        const c = (i.condition || '').toLowerCase()
+        return !c || c === 'not_specified' || c === 'unknown'
+      }).length,
     }
   }, [data])
 
@@ -484,7 +513,8 @@ export default function AnunciosML() {
                   {(search ||
                     statusFilter !== 'all' ||
                     matchedFilter !== 'all' ||
-                    catalogOnlyFilter !== 'all') && (
+                    catalogOnlyFilter !== 'all' ||
+                    conditionFilter !== 'all') && (
                     <Button
                       variant="ghost"
                       size="sm"
@@ -493,6 +523,7 @@ export default function AnunciosML() {
                         setStatusFilter('all')
                         setMatchedFilter('all')
                         setCatalogOnlyFilter('all')
+                        setConditionFilter('all')
                       }}
                       className="text-xs h-9 text-slate-600 hover:text-slate-900"
                     >
@@ -500,6 +531,122 @@ export default function AnunciosML() {
                     </Button>
                   )}
                 </div>
+              </div>
+
+              {/* Chips de Seleção por Condição */}
+              <div className="flex items-center gap-2 flex-wrap pt-3 mt-3 border-t border-slate-100 text-xs">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1 shrink-0">
+                  <Sparkles className="w-3.5 h-3.5 text-slate-400" />
+                  Condição:
+                </span>
+
+                <button
+                  type="button"
+                  onClick={() => setConditionFilter('all')}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
+                    conditionFilter === 'all'
+                      ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                      : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
+                  }`}
+                >
+                  <span>Todos</span>
+                  <span
+                    className={`text-[11px] font-mono px-1.5 py-0.2 rounded-full ${
+                      conditionFilter === 'all'
+                        ? 'bg-slate-700 text-white'
+                        : 'bg-slate-100 text-slate-600'
+                    }`}
+                  >
+                    {stats.condAll}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setConditionFilter('new')}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
+                    conditionFilter === 'new'
+                      ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs'
+                      : 'bg-white hover:bg-emerald-50 text-emerald-900 border-emerald-200'
+                  }`}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  <span>Novo</span>
+                  <span
+                    className={`text-[11px] font-mono px-1.5 py-0.2 rounded-full ${
+                      conditionFilter === 'new'
+                        ? 'bg-emerald-800 text-emerald-100'
+                        : 'bg-emerald-100 text-emerald-800'
+                    }`}
+                  >
+                    {stats.condNew}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setConditionFilter('refurbished')}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
+                    conditionFilter === 'refurbished'
+                      ? 'bg-purple-600 text-white border-purple-700 shadow-xs'
+                      : 'bg-white hover:bg-purple-50 text-purple-900 border-purple-200'
+                  }`}
+                >
+                  <Sparkles className="w-3 h-3 text-purple-300" />
+                  <span>Recondicionado</span>
+                  <span
+                    className={`text-[11px] font-mono px-1.5 py-0.2 rounded-full ${
+                      conditionFilter === 'refurbished'
+                        ? 'bg-purple-800 text-purple-100'
+                        : 'bg-purple-100 text-purple-800'
+                    }`}
+                  >
+                    {stats.condRefurbished}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setConditionFilter('used')}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
+                    conditionFilter === 'used'
+                      ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
+                      : 'bg-white hover:bg-amber-50 text-amber-900 border-amber-200'
+                  }`}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                  <span>Usado</span>
+                  <span
+                    className={`text-[11px] font-mono px-1.5 py-0.2 rounded-full ${
+                      conditionFilter === 'used'
+                        ? 'bg-amber-700 text-amber-100'
+                        : 'bg-amber-100 text-amber-800'
+                    }`}
+                  >
+                    {stats.condUsed}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setConditionFilter('not_specified')}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
+                    conditionFilter === 'not_specified'
+                      ? 'bg-slate-600 text-white border-slate-700 shadow-xs'
+                      : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
+                  }`}
+                >
+                  <span>Não especificado</span>
+                  <span
+                    className={`text-[11px] font-mono px-1.5 py-0.2 rounded-full ${
+                      conditionFilter === 'not_specified'
+                        ? 'bg-slate-800 text-slate-200'
+                        : 'bg-slate-100 text-slate-600'
+                    }`}
+                  >
+                    {stats.condNotSpecified}
+                  </span>
+                </button>
               </div>
             </CardContent>
           </Card>
@@ -526,7 +673,8 @@ export default function AnunciosML() {
                   {search ||
                   statusFilter !== 'all' ||
                   matchedFilter !== 'all' ||
-                  catalogOnlyFilter !== 'all'
+                  catalogOnlyFilter !== 'all' ||
+                  conditionFilter !== 'all'
                     ? 'Nenhum anúncio corresponde aos filtros aplicados. Tente limpar os filtros de busca.'
                     : 'Não há anúncios cadastrados ou ativos para a conta do Mercado Livre conectada no momento.'}
                 </p>
