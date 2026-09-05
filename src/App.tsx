@@ -20,6 +20,9 @@ import AnunciosML from './pages/AnunciosML'
 import LotesEntrada from './pages/LotesEntrada'
 import LoteEntradaDetalhe from './pages/LoteEntradaDetalhe'
 import LoteInventariar from './pages/LoteInventariar'
+import LojaCorporativo from './pages/LojaCorporativo'
+import PostInstagram from './pages/PostInstagram'
+import CotacoesCorporativas from './pages/CotacoesCorporativas'
 import { AuthProvider } from './contexts/AuthContext'
 import { ProtectedRoute } from './components/ProtectedRoute'
 
@@ -35,6 +38,7 @@ const App = () => (
         <Routes>
           {/* Rotas Públicas da Loja (Sem Login / Fora do Layout Privado) */}
           <Route path="/loja" element={<LojaPublica />} />
+          <Route path="/loja/corporativo" element={<LojaCorporativo />} />
           <Route path="/loja/:id" element={<LojaDetalhe />} />
 
           <Route path="/login" element={<Login />} />
@@ -59,6 +63,8 @@ const App = () => (
             <Route path="/lotes-entrada/:id/inventariar" element={<LoteInventariar />} />
             <Route path="/lotes/:id" element={<CatalogoDetalhe />} />
             <Route path="/ajustes" element={<Ajustes />} />
+            <Route path="/post-instagram" element={<PostInstagram />} />
+            <Route path="/cotacoes" element={<CotacoesCorporativas />} />
             <Route path="/configuracoes" element={<Configuracoes />} />
             <Route path="/anuncios-ml" element={<AnunciosML />} />
           </Route>

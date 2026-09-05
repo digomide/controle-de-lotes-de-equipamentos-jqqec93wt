@@ -151,3 +151,33 @@ export interface InventoryAdjustment extends RecordModel {
     user_id?: User
   }
 }
+
+export type SocialPostFormat = 'tecnico' | 'urgencia' | 'lote'
+export type SocialPostStatus = 'Pendente' | 'Postado'
+
+export interface SocialPost extends RecordModel {
+  product_id: string
+  status: SocialPostStatus
+  format?: SocialPostFormat
+  caption?: string
+  posted_at?: string
+  notes?: string
+  expand?: {
+    product_id?: Product
+  }
+}
+
+export type CorporateLeadProfile = 'Revendedor' | 'Empresa — uso interno'
+export type CorporateLeadStatus = 'novo' | 'atendido'
+
+export interface CorporateLead extends RecordModel {
+  company: string
+  contact_name: string
+  email: string
+  phone: string
+  profile: CorporateLeadProfile
+  interest?: string
+  quantity?: string
+  message?: string
+  status: CorporateLeadStatus
+}

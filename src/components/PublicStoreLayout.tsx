@@ -30,6 +30,23 @@ export const PublicStoreHeader: React.FC = () => {
             </div>
           </Link>
 
+          {/* Links de Navegação da Loja */}
+          <nav className="hidden md:flex items-center gap-1.5 text-xs font-semibold">
+            <Link
+              to="/loja"
+              className="px-3 py-1.5 rounded-lg text-slate-700 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+            >
+              Catálogo de Notebooks
+            </Link>
+            <Link
+              to="/loja/corporativo"
+              className="px-3 py-1.5 rounded-lg text-emerald-700 bg-emerald-50 hover:bg-emerald-100 hover:text-emerald-800 transition-colors flex items-center gap-1.5"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+              Vendas Corporativas & Lotes
+            </Link>
+          </nav>
+
           {/* Quick Info & WhatsApp CTA */}
           <div className="flex items-center gap-3 shrink-0">
             <div className="hidden lg:flex flex-col text-right text-xs">

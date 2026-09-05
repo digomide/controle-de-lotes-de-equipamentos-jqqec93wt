@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-04T23:10:24.793Z",
+  "generatedAt": "2026-09-05T01:52:56.245Z",
   "collections": [
     {
       "name": "users",
@@ -1083,6 +1083,163 @@
       ],
       "indexes": [
         "CREATE UNIQUE INDEX idx_ml_category_cache_category ON ml_category_cache (category_id)"
+      ]
+    },
+    {
+      "name": "social_posts",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "product_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "products"
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["Pendente", "Postado"]
+        },
+        {
+          "name": "format",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["tecnico", "urgencia", "lote"]
+        },
+        {
+          "name": "caption",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "posted_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_social_posts_status ON social_posts (status)",
+        "CREATE INDEX idx_social_posts_product ON social_posts (product_id)"
+      ]
+    },
+    {
+      "name": "corporate_leads",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "company",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "contact_name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "email",
+          "type": "email",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "phone",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "profile",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["Revendedor", "Empresa — uso interno"]
+        },
+        {
+          "name": "interest",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "quantity",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "message",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["novo", "atendido"]
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_corporate_leads_status ON corporate_leads (status)",
+        "CREATE INDEX idx_corporate_leads_created ON corporate_leads (created DESC)"
       ]
     }
   ]

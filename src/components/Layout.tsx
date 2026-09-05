@@ -17,6 +17,8 @@ import {
   ShieldAlert,
   UserCheck,
   ShoppingBag,
+  Instagram,
+  Building2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -46,6 +48,8 @@ export default function Layout() {
     { title: 'Lucratividade Lotes', path: '/lucratividade', icon: SlidersHorizontal },
     { title: 'Catálogo de Notebooks', path: '/produtos', icon: Package },
     { title: 'Anúncios ML', path: '/anuncios-ml', icon: ShoppingBag },
+    { title: 'Post Insta', path: '/post-instagram', icon: Instagram },
+    { title: 'Cotações Corporativas', path: '/cotacoes', icon: Building2 },
     { title: 'Vendas', path: '/vendas', icon: ShoppingCart },
     { title: 'Estoque / Lotes', path: '/estoque', icon: Layers },
     { title: 'Ajustes', path: '/ajustes', icon: SlidersHorizontal },
@@ -61,6 +65,8 @@ export default function Layout() {
     if (p.startsWith('/lotes-entrada')) return 'Lotes de Entrada'
     if (p.startsWith('/vendas')) return 'Gestão de Vendas'
     if (p.startsWith('/anuncios-ml')) return 'Anúncios Mercado Livre (Visualização)'
+    if (p.startsWith('/post-instagram')) return 'Estúdio de Post para Instagram'
+    if (p.startsWith('/cotacoes')) return 'Cotações Corporativas & Lotes'
     if (p.startsWith('/catalogo/')) return 'Detalhes do Equipamento'
     if (p.startsWith('/produtos') || p.startsWith('/catalogo')) return 'Catálogo de Equipamentos'
     if (p.startsWith('/estoque')) return 'Controle de Lotes & Estoque'
@@ -339,16 +345,28 @@ export default function Layout() {
             Catálogo
           </NavLink>
           <NavLink
-            to="/vendas"
+            to="/post-instagram"
             className={({ isActive }) =>
               cn(
                 'flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-2 rounded',
-                isActive ? 'text-slate-900 font-bold' : 'text-slate-500',
+                isActive ? 'text-rose-600 font-bold' : 'text-slate-500',
               )
             }
           >
-            <ShoppingCart className="w-4 h-4" />
-            Vendas
+            <Instagram className="w-4 h-4" />
+            Insta
+          </NavLink>
+          <NavLink
+            to="/cotacoes"
+            className={({ isActive }) =>
+              cn(
+                'flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-2 rounded',
+                isActive ? 'text-emerald-600 font-bold' : 'text-slate-500',
+              )
+            }
+          >
+            <Building2 className="w-4 h-4" />
+            Cotações
           </NavLink>
           <NavLink
             to="/estoque"
