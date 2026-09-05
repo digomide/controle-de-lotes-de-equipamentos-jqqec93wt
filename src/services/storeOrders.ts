@@ -113,22 +113,29 @@ export const storeOrdersService = {
 
 export const mercadoPagoService = {
   /**
-   * Obter configuração pública do Mercado Pago (para frontend da loja saber se ativa botão)
+   * Obter configuração pública do Mercado Pago (para frontend da loja saber se ativa botão).
+   * Lê diretamente da coleção mercadopago_settings (leitura pública garantida por regras RLS),
+   * eliminando dependência frágil de routerAdd em tempo de execução.
    */
   async getPublicConfig(): Promise<MPPublicConfigResponse> {
     try {
-      const res = await fetch(`${pb.baseUrl}/api/store/mp/public-config`, {
-        method: 'GET',
-        headers: {
-          Accept: 'application/json',
-        },
+      const list = await pb.collection('mercadopago_settings').getList<MercadoPagoSettings>(1, 1, {
+        sort: '-created',
       })
-      if (res.ok) {
-        return await res.json()
+      if (list.items.length > 0) {
+        const s = list.items[0]
+        const token = (s.mp_access_token || '').trim()
+        const isEnabled = Boolean(s.mp_enabled)
+        const hasValidToken = token.length > 10
+        return {
+          enabled: isEnabled && hasValidToken,
+          public_key: s.mp_public_key || '',
+          store_title: s.store_title || 'AMbicorpFlow',
+        }
       }
       return { enabled: false, public_key: '', store_title: 'AMbicorpFlow' }
     } catch (err) {
-      console.warn('Falha ao consultar config pública do Mercado Pago:', err)
+      console.warn('Falha ao consultar config do Mercado Pago via coleção:', err)
       return { enabled: false, public_key: '', store_title: 'AMbicorpFlow' }
     }
   },
@@ -139,20 +146,33 @@ export const mercadoPagoService = {
   async createPreference(orderId: string, returnUrl?: string): Promise<MPCreatePreferenceResponse> {
     const returnBase = returnUrl || (typeof window !== 'undefined' ? window.location.origin : '')
 
-    const res = await fetch(`${pb.baseUrl}/api/store/mp/create-preference`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      body: JSON.stringify({
-        order_id: orderId,
-        return_url: returnBase,
-      }),
-    })
+    try {
+      // 1. Tenta endpoint direto se estiver acessível
+      const res = await fetch(`${pb.baseURL}/api/store/mp/create-preference`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          order_id: orderId,
+          return_url: returnBase,
+        }),
+      })
 
-    const data = await res.json()
-    return data
+      if (res.ok) {
+        return await res.json()
+      }
+    } catch (_) {
+      // continua para fallback
+    }
+
+    // 2. Se endpoint direto responder com erro ou 404, fallback seguro para WhatsApp
+    return {
+      ok: false,
+      fallback_to_whatsapp: true,
+      error: 'Finalização online indisponível no momento. Conclua seu pedido via WhatsApp.',
+    }
   },
 
   /**
@@ -199,26 +219,97 @@ export const mercadoPagoService = {
   },
 
   /**
-   * Testar conexão com a API do Mercado Pago
+   * Testar conexão com a API do Mercado Pago.
+   * Utiliza EXATAMENTE o mesmo mecanismo robusto e comprovado do Mercado Livre:
+   * cria um job na coleção `mp_test_jobs`, o hook server-side `onRecordAfterCreateSuccess`
+   * executa a chamada à API oficial do Mercado Pago no backend com $http.send,
+   * e o frontend faz polling do resultado.
+   * Não depende de routerAdd ou rotas HTTP instáveis no boot do PocketBase.
    */
-  async testConnection(token?: string): Promise<MPTestConnectionResponse> {
+  async testConnection(
+    token?: string,
+    onProgress?: (msg: string) => void,
+  ): Promise<MPTestConnectionResponse> {
+    const cleanToken = (token || '').trim()
+
+    if (onProgress) {
+      onProgress('Enviando solicitação de validação ao servidor...')
+    }
+
     try {
-      const res = await pb.send<MPTestConnectionResponse>('/api/store/mp/test-connection', {
-        method: 'POST',
-        body: token ? { mp_access_token: token } : {},
+      // 1. Criar registro na coleção mp_test_jobs
+      const jobRecord = await pb.collection('mp_test_jobs').create({
+        token_override: cleanToken,
+        status: 'pending',
+        requested_by: pb.authStore.record?.id || pb.authStore.model?.id || null,
       })
-      return res
-    } catch (err: any) {
-      let msg = err.message || 'Falha ao executar teste de conexão com o Mercado Pago.'
-      // Se o backend PocketBase retornou 404 de rota não encontrada antes do deploy ou URL inexistente
-      if (err.status === 404 || msg.includes("The requested resource wasn't found")) {
-        msg =
-          'O endpoint de teste não foi localizado no backend PocketBase (/api/store/mp/test-connection). Verifique se as funções de backend estão implantadas.'
+
+      const jobId = jobRecord.id
+
+      // 2. Polling a cada 600ms (timeout 25s)
+      const timeoutMs = 25_000
+      const intervalMs = 600
+      const startTime = Date.now()
+
+      while (Date.now() - startTime < timeoutMs) {
+        await new Promise((r) => setTimeout(r, intervalMs))
+
+        const elapsed = Math.round((Date.now() - startTime) / 1000)
+        if (onProgress) {
+          onProgress(`Validando credenciais na API oficial do Mercado Pago (${elapsed}s)...`)
+        }
+
+        try {
+          const current = await pb.collection('mp_test_jobs').getOne(jobId)
+          const status = current.status
+
+          if (status === 'done') {
+            const userData = current.user_data || {}
+            return {
+              ok: true,
+              configured: true,
+              message: current.message || 'Conexão com Mercado Pago validada com sucesso!',
+              status_code: current.status_code || 200,
+              data: {
+                id: userData.id,
+                nickname: userData.nickname || '',
+                first_name: userData.first_name || '',
+                last_name: userData.last_name || '',
+                email: userData.email || '',
+                site_id: userData.site_id || 'MLB',
+                user_type: userData.user_type || '',
+                points: userData.points || 0,
+              },
+            }
+          }
+
+          if (status === 'error') {
+            return {
+              ok: false,
+              configured: true,
+              message: current.message || 'Falha ao validar credenciais no Mercado Pago.',
+              status_code: current.status_code || 400,
+            }
+          }
+        } catch (pollErr: any) {
+          // Ignora erros transitórios de rede na leitura do registro
+        }
       }
+
+      return {
+        ok: false,
+        configured: true,
+        message:
+          'Tempo limite excedido ao aguardar validação das credenciais pelo servidor. Tente novamente.',
+      }
+    } catch (err: any) {
+      console.error('Erro no fluxo de teste de conexão MP:', err)
       return {
         ok: false,
         configured: false,
-        message: msg,
+        message:
+          err.message ||
+          'Não foi possível registrar o teste de conexão. Verifique sua sessão de administrador.',
       }
     }
   },

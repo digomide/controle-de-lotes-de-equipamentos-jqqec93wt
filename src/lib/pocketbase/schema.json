@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-05T12:16:00.373Z",
+  "generatedAt": "2026-09-05T12:25:45.391Z",
   "collections": [
     {
       "name": "users",
@@ -1593,8 +1593,8 @@
       "name": "mercadopago_settings",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
+        "list": "",
+        "view": "",
         "create": "@request.auth.id != ''",
         "update": "@request.auth.id != ''",
         "delete": "@request.auth.id != ''"
@@ -1809,6 +1809,81 @@
         "CREATE INDEX idx_store_orders_pref ON store_orders (mp_preference_id)",
         "CREATE INDEX idx_store_orders_pay ON store_orders (mp_payment_id)",
         "CREATE INDEX idx_store_orders_created ON store_orders (created DESC)"
+      ]
+    },
+    {
+      "name": "mp_test_jobs",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": null,
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "token_override",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["pending", "processing", "done", "error"]
+        },
+        {
+          "name": "status_code",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "message",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "raw_message",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "user_data",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "requested_by",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_mp_test_jobs_status ON mp_test_jobs (status)",
+        "CREATE INDEX idx_mp_test_jobs_created ON mp_test_jobs (created DESC)"
       ]
     }
   ]

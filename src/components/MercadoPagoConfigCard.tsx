@@ -39,6 +39,7 @@ export function MercadoPagoConfigCard() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
+  const [testProgress, setTestProgress] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<MPTestConnectionResponse | null>(null)
 
   useEffect(() => {
@@ -107,14 +108,19 @@ export function MercadoPagoConfigCard() {
 
     setTesting(true)
     setTestResult(null)
+    setTestProgress('Iniciando verificação na API oficial do Mercado Pago...')
     try {
       // Envia o token digitado na tela (não exige salvar antes)
-      const res = await mercadoPagoService.testConnection(tokenToTest)
+      const res = await mercadoPagoService.testConnection(tokenToTest, (msg) => {
+        setTestProgress(msg)
+      })
       setTestResult(res)
       if (res.ok) {
+        const holderName = [res.data?.first_name, res.data?.last_name].filter(Boolean).join(' ')
+        const displayNick = res.data?.nickname || holderName || 'Conta Ativa'
         toast({
           title: 'Conexão validada com sucesso!',
-          description: `Mercado Pago autenticado: ${res.data?.first_name || res.data?.nickname || 'Conta ativa'} (ID: ${res.data?.id || '—'})`,
+          description: `Mercado Pago autenticado: ${displayNick} (ID: ${res.data?.id || '—'})`,
         })
       } else {
         toast({
@@ -137,6 +143,7 @@ export function MercadoPagoConfigCard() {
       })
     } finally {
       setTesting(false)
+      setTestProgress(null)
     }
   }
 
@@ -183,7 +190,7 @@ export function MercadoPagoConfigCard() {
               {testing ? (
                 <>
                   <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-600" />
-                  Verificando...
+                  {testProgress || 'Verificando...'}
                 </>
               ) : (
                 <>
