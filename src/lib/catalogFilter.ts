@@ -166,25 +166,42 @@ export function evaluateCatalogItemStrictMatch(
   title: string,
   searchTokens: string[],
   attributes?: Array<{ id: string; name?: string; value_name?: string | null }>,
-  conditionFilter?: 'all' | 'refurbished' | 'new' | 'used',
+  conditionFilter?: 'all' | 'refurbished' | 'new' | 'used' | 'open_box',
   itemCondition?: string,
 ): {
   isMatch: boolean
   matchedTokens: string[]
   missingTokens: string[]
 } {
+  const normCond = String(itemCondition || '').toLowerCase()
+  const isRefurb =
+    normCond === 'refurbished' || normCond === 'recondicionado' || normCond === '2230582'
+  const isUsed = normCond === 'used' || normCond === 'usado' || normCond === '2230581'
+  const isOpenBox =
+    normCond === 'open_box' ||
+    normCond === 'caixa aberta' ||
+    normCond === 'caixa_aberta' ||
+    normCond === '46759135'
+  const isNew =
+    (!normCond || normCond === 'new' || normCond === 'novo' || normCond === '2230284') &&
+    !isRefurb &&
+    !isUsed &&
+    !isOpenBox
+
   if (searchTokens.length === 0) {
     // Se não há tokens de texto, verifica apenas se a condição é compatível se especificada
     const conditionMatches =
       !conditionFilter || conditionFilter === 'all'
         ? true
         : conditionFilter === 'refurbished'
-          ? itemCondition === 'refurbished'
+          ? isRefurb
           : conditionFilter === 'new'
-            ? !itemCondition || itemCondition === 'new'
+            ? isNew
             : conditionFilter === 'used'
-              ? itemCondition === 'used'
-              : true
+              ? isUsed
+              : conditionFilter === 'open_box'
+                ? isOpenBox
+                : true
 
     return {
       isMatch: conditionMatches,
@@ -207,11 +224,13 @@ export function evaluateCatalogItemStrictMatch(
       }
     }
   }
-  if (itemCondition === 'refurbished') {
+  if (isRefurb) {
     extraAttrsText += ' recondicionado refurbished'
-  } else if (itemCondition === 'used') {
+  } else if (isOpenBox) {
+    extraAttrsText += ' caixa aberta open box'
+  } else if (isUsed) {
     extraAttrsText += ' usado seminovo'
-  } else if (itemCondition === 'new') {
+  } else if (isNew) {
     extraAttrsText += ' novo'
   }
   const fullTextToTest =
@@ -251,11 +270,13 @@ export function evaluateCatalogItemStrictMatch(
   let matchesConditionRule = true
   if (conditionFilter && conditionFilter !== 'all') {
     if (conditionFilter === 'refurbished') {
-      matchesConditionRule = itemCondition === 'refurbished'
+      matchesConditionRule = isRefurb
     } else if (conditionFilter === 'used') {
-      matchesConditionRule = itemCondition === 'used'
+      matchesConditionRule = isUsed
+    } else if (conditionFilter === 'open_box') {
+      matchesConditionRule = isOpenBox
     } else if (conditionFilter === 'new') {
-      matchesConditionRule = !itemCondition || itemCondition === 'new'
+      matchesConditionRule = isNew
     }
   }
 

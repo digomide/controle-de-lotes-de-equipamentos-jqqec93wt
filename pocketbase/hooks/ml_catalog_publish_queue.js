@@ -118,16 +118,21 @@ onRecordAfterCreateSuccess((e) => {
   }
 
   // 3. Determinar a condição do anúncio (condition)
-  // Aceita: "new", "refurbished", "used", ou herança automática da posição de catálogo ("catalog_auto" / vazio).
-  // IMPORTANTE: O ML só aceita 'new', 'refurbished' e 'used' (não existe 'excelente' na API do ML).
+  // Aceita as 4 opções oficiais do Mercado Livre para catálogo:
+  // - "new"         → condition: "new", attributes: [ITEM_CONDITION: 2230284]
+  // - "used"        → condition: "used", attributes: [ITEM_CONDITION: 2230581]
+  // - "open_box"    → SEM condition raiz, attributes: [ITEM_CONDITION: 46759135]
+  // - "refurbished" → SEM condition raiz, attributes: [ITEM_CONDITION: 2230582]
+  // ou "catalog_auto" / vazio (herda do catálogo ou produto).
   let localProduct = null
   let itemCondition = 'new' // fallback seguro
 
   // Se o usuário selecionou uma condição explícita
   if (
     customCondition === 'new' ||
-    customCondition === 'refurbished' ||
-    customCondition === 'used'
+    customCondition === 'used' ||
+    customCondition === 'open_box' ||
+    customCondition === 'refurbished'
   ) {
     itemCondition = customCondition
   } else {
@@ -148,22 +153,36 @@ onRecordAfterCreateSuccess((e) => {
               .toLowerCase()
               .trim()
             const valId = String(attr.value_id || '').trim()
-            if (valId === '2230284' || valName === 'novo' || valName === 'new')
+            if (valId === '2230284' || valName === 'novo' || valName === 'new') {
               detectedFromCat = 'new'
-            else if (
-              valId === '2230581' ||
+            } else if (
+              valId === '46759135' ||
+              valName.indexOf('aberta') >= 0 ||
+              valName.indexOf('open box') >= 0
+            ) {
+              detectedFromCat = 'open_box'
+            } else if (
+              valId === '2230582' ||
               valName.indexOf('recondicionado') >= 0 ||
               valName.indexOf('refurbished') >= 0
-            )
+            ) {
               detectedFromCat = 'refurbished'
-            else if (valId === '2230582' || valName === 'usado' || valName === 'used')
+            } else if (valId === '2230581' || valName === 'usado' || valName === 'used') {
               detectedFromCat = 'used'
+            }
           }
         }
       }
       if (!detectedFromCat && catDetails.condition) {
         const rootC = String(catDetails.condition).toLowerCase().trim()
-        if (rootC === 'new' || rootC === 'refurbished' || rootC === 'used') detectedFromCat = rootC
+        if (
+          rootC === 'new' ||
+          rootC === 'used' ||
+          rootC === 'refurbished' ||
+          rootC === 'open_box'
+        ) {
+          detectedFromCat = rootC
+        }
       }
     }
 
@@ -198,14 +217,15 @@ onRecordAfterCreateSuccess((e) => {
   }
 
   // 4. Montar variações de payload para publicação no Catálogo do ML
-  // REGRA CRÍTICA DO MERCADO LIVRE:
-  // Em publicação de catálogo (catalog_listing: true + catalog_product_id),
-  // o campo "title" e "pictures" NÃO PODEM ser enviados (o ML rejeita com body.invalid_fields).
-  // O título, fotos, descrição e atributos canônicos são herdados do próprio catálogo.
-  //
-  // Quando o usuário escolheu explicitamente uma condição (ex: 'refurbished' ou 'new' ou 'used'),
-  // enviamos EXATAMENTE a condição escolhida pelo usuário. Não fazemos fallback automático agressivo
-  // que altere a condição sem o usuário saber, pois ele quer testar ou saber exatamente por que a posição recusou.
+  // REGRA CRÍTICA DO MERCADO LIVRE VALIDADA EM PRODUÇÃO:
+  // - Em catálogo (catalog_listing: true + catalog_product_id), title e pictures são PROIBIDOS.
+  // - "new": condition: "new" + atributo ITEM_CONDITION 2230284
+  // - "used": condition: "used" + atributo ITEM_CONDITION 2230581
+  // - "open_box": SEM condition na raiz + atributo ITEM_CONDITION 46759135
+  // - "refurbished": SEM condition na raiz + atributo ITEM_CONDITION 2230582
+  //   (Nota: condition: "refurbished" na raiz é rejeitada pelo ML com 400 "Category MLB1652 only supports conditions: [used, new, not_specified]";
+  //    enviar condition: "used" + ITEM_CONDITION 2230582 dá conflito de atributos;
+  //    enviar SEM condition raiz + ITEM_CONDITION 2230582 só é aceito em posições que possuem variante refurb registrada).
   const baseShipping = {
     mode: 'me2',
     local_pick_up: true,
@@ -223,22 +243,47 @@ onRecordAfterCreateSuccess((e) => {
     },
   ]
 
-  const variationsToTry = []
+  // Montar payload específico para cada uma das 4 condições
+  function buildPayloadForCondition(condKey) {
+    const p = {
+      catalog_product_id: catalogProductId,
+      catalog_listing: true,
+      category_id: categoryId,
+      price: price,
+      currency_id: 'BRL',
+      available_quantity: quantity,
+      buying_mode: 'buy_it_now',
+      listing_type_id: 'gold_special',
+      sale_terms: baseSaleTerms,
+      shipping: baseShipping,
+      attributes: [],
+    }
 
-  // Variação A: Condição solicitada / resolvida
-  const payloadA = {
-    catalog_product_id: catalogProductId,
-    catalog_listing: true,
-    category_id: categoryId,
-    price: price,
-    currency_id: 'BRL',
-    available_quantity: quantity,
-    buying_mode: 'buy_it_now',
-    listing_type_id: 'gold_special',
-    condition: itemCondition,
-    sale_terms: baseSaleTerms,
-    shipping: baseShipping,
+    if (condKey === 'new') {
+      p.condition = 'new'
+      p.attributes.push({ id: 'ITEM_CONDITION', value_id: '2230284' })
+    } else if (condKey === 'used') {
+      p.condition = 'used'
+      p.attributes.push({ id: 'ITEM_CONDITION', value_id: '2230581' })
+    } else if (condKey === 'open_box') {
+      // Caixa aberta NÃO leva campo "condition" na raiz, apenas o atributo 46759135
+      delete p.condition
+      p.attributes.push({ id: 'ITEM_CONDITION', value_id: '46759135' })
+    } else if (condKey === 'refurbished') {
+      // Recondicionado NÃO leva campo "condition" na raiz, apenas o atributo 2230582
+      delete p.condition
+      p.attributes.push({ id: 'ITEM_CONDITION', value_id: '2230582' })
+    } else {
+      // Fallback genérico caso chegue algo diferente
+      p.condition = 'used'
+      p.attributes.push({ id: 'ITEM_CONDITION', value_id: '2230581' })
+    }
+
+    return p
   }
+
+  const variationsToTry = []
+  const payloadA = buildPayloadForCondition(itemCondition)
   variationsToTry.push({ name: 'padrao_' + itemCondition, payload: payloadA })
 
   // 5. Enviar POST /items para o Mercado Livre
@@ -298,51 +343,29 @@ onRecordAfterCreateSuccess((e) => {
 
         const resStr = JSON.stringify(resJson)
 
-        // RETRY / FALLBACK AUTOMÁTICO DINÂMICO PARA QUALQUER CATEGORIA:
-        // Se a tentativa foi com 'refurbished' e o ML recusou por condição não suportada na categoria
-        // (ex: "Category MLB1652 for channel marketplace only supports conditions: [used, new, not_specified]")
-        // lemos da resposta do ML qual condição a categoria aceita e usamos a melhor opção (used > not_specified > new)
-        const isConditionInvalid =
-          resStr.indexOf('item.condition.invalid') >= 0 ||
-          resStr.indexOf('only supports conditions') >= 0
-        const isRefurbishedAttempt = payloadToSend.condition === 'refurbished'
+        // FALLBACK AUTOMÁTICO DE SEGURANÇA:
+        // Se a tentativa foi com 'refurbished' e o ML recusou por:
+        // 1. "refurbished product was not found for product ..." (posição não tem variante recondicionada)
+        // 2. "Category ... only supports conditions: [used, new, not_specified]"
+        // Tentamos fallback com 'used' como rede de segurança silenciosa
+        const isRefurbishedAttempt = itemCondition === 'refurbished'
+        const isRefurbNotEligible =
+          resStr.indexOf('refurbished product was not found') >= 0 ||
+          resStr.indexOf('only supports conditions') >= 0 ||
+          resStr.indexOf('item.condition.invalid') >= 0
 
-        if (isRefurbishedAttempt && isConditionInvalid) {
-          // Extrair condições suportadas informadas pelo ML
-          let chosenFallbackCondition = 'used' // padrão preferido
-          const matchSup = resStr.match(/only supports conditions:\s*\[(.*?)\]/)
-          if (matchSup && matchSup[1]) {
-            const rawSup = matchSup[1].split(',').map(function (c) {
-              return c
-                .replace(/["'\[\]]/g, '')
-                .trim()
-                .toLowerCase()
-            })
-            if (rawSup.indexOf('used') >= 0) {
-              chosenFallbackCondition = 'used'
-            } else if (rawSup.indexOf('not_specified') >= 0) {
-              chosenFallbackCondition = 'not_specified'
-            } else if (rawSup.indexOf('new') >= 0) {
-              chosenFallbackCondition = 'new'
-            }
-          }
-
-          const fallbackVarName = 'fallback_auto_' + chosenFallbackCondition
+        if (isRefurbishedAttempt && isRefurbNotEligible) {
+          const fallbackVarName = 'fallback_auto_used'
           const alreadyQueuedFallback = variationsToTry.some(function (v) {
             return v.name === fallbackVarName
           })
           if (!alreadyQueuedFallback) {
             console.log(
-              '[ml_catalog_publish] Detectada recusa de refurbished pelo ML para ' +
+              '[ml_catalog_publish] Posição ' +
                 catalogProductId +
-                ' (categoria ' +
-                categoryId +
-                '). Enfileirando retentativa automática com condição "' +
-                chosenFallbackCondition +
-                '"...',
+                ' sem variante recondicionada registrada no ML. Enfileirando fallback como Usado...',
             )
-            const fallbackPayload = JSON.parse(JSON.stringify(payloadToSend))
-            fallbackPayload.condition = chosenFallbackCondition
+            const fallbackPayload = buildPayloadForCondition('used')
             variationsToTry.push({
               name: fallbackVarName,
               payload: fallbackPayload,
@@ -477,9 +500,12 @@ onRecordAfterCreateSuccess((e) => {
       }
     } else if (errBody.message === 'body.invalid_fields') {
       userMsg = 'Campos inválidos enviados ao Mercado Livre para este anúncio de catálogo.'
+    } else if (rawErrorStr.indexOf('refurbished product was not found') >= 0) {
+      userMsg =
+        'Esta posição de catálogo não possui variante recondicionada registrada no ML — publique em uma posição recondicionada (use o filtro Recondicionado na busca).'
     } else if (rawErrorStr.indexOf('item_not_new_nor_refurbished') >= 0) {
       userMsg =
-        'Esta posição de catálogo exige condição Novo ou Recondicionado oficial. Posições desta categoria no canal marketplace aceitam apenas as condições elegíveis (ex: Novo ou Usado).'
+        'Esta posição de catálogo aceita apenas Novo ou Caixa aberta; Usado e Recondicionado exigem suas posições próprias no catálogo.'
     } else if (errBody.message) {
       userMsg = errBody.message
     }
@@ -531,12 +557,28 @@ onRecordAfterCreateSuccess((e) => {
       const condLabelPt =
         itemCondition === 'refurbished'
           ? 'Recondicionado'
-          : itemCondition === 'used'
-            ? 'Usado'
-            : 'Novo'
+          : itemCondition === 'open_box'
+            ? 'Caixa aberta'
+            : itemCondition === 'used'
+              ? 'Usado'
+              : 'Novo'
 
       const translatedList = finalCausesToTranslate.map(function (c) {
-        if (c.code === 'item.price.invalid' || (c.message && c.message.indexOf('price') >= 0)) {
+        const cMsg = c.message || ''
+        const cCode = c.code || ''
+
+        // Regra específica da tarefa:
+        // "refurbished product was not found":
+        // "Esta posição de catálogo não possui variante recondicionada registrada no ML — publique em uma posição recondicionada (use o filtro Recondicionado na busca)"
+        if (
+          cMsg.indexOf('refurbished product was not found') >= 0 ||
+          (rawErrorStr.indexOf('refurbished product was not found') >= 0 &&
+            (cCode === 'item.catalog_listing.not_eligible' || cCode === 'item.condition.invalid'))
+        ) {
+          return 'Esta posição de catálogo não possui variante recondicionada registrada no ML — publique em uma posição recondicionada (use o filtro Recondicionado na busca).'
+        }
+
+        if (c.code === 'item.price.invalid' || (cMsg && cMsg.indexOf('price') >= 0)) {
           return 'Preço informado (R$ ' + price + ') incompatível com as regras deste catálogo.'
         }
         if (c.code === 'item.catalog_product_id.invalid') {
@@ -547,18 +589,21 @@ onRecordAfterCreateSuccess((e) => {
           )
         }
         if (c.code === 'item.catalog_listing.not_eligible') {
+          if (cMsg.indexOf('refurbished product was not found') >= 0) {
+            return 'Esta posição de catálogo não possui variante recondicionada registrada no ML — publique em uma posição recondicionada (use o filtro Recondicionado na busca).'
+          }
           let acceptedConds = 'Novo'
           if (c.cause && typeof c.cause === 'string') {
             acceptedConds = c.cause
-          } else if (c.message && c.message.indexOf('item_not_new_nor_refurbished') >= 0) {
-            acceptedConds = 'Novo (a posição não aceita publicação de usado/recondicionado)'
+          } else if (cMsg && cMsg.indexOf('item_not_new_nor_refurbished') >= 0) {
+            acceptedConds =
+              'Novo (esta posição de catálogo aceita Novo ou Caixa aberta; Usado/Recondicionado exigem suas posições próprias)'
           }
           return (
             'O ML recusou a publicação nesta posição (' +
             catalogProductId +
-            '). Motivo: esta posição do catálogo exige condição ' +
-            acceptedConds +
-            '.'
+            '). Motivo: ' +
+            (cMsg || 'esta posição do catálogo exige condição ' + acceptedConds + '.')
           )
         }
         if (

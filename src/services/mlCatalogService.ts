@@ -15,8 +15,14 @@ export interface MLCatalogProduct {
   buy_box_winner_stock?: number | null
   stock_status?: string
   competition_status?: string
-  condition?: 'new' | 'refurbished' | 'used' | 'unknown' | string
-  condition_label?: 'Novo' | 'Recondicionado' | 'Usado' | 'Condição não informada' | string
+  condition?: 'new' | 'refurbished' | 'used' | 'open_box' | 'unknown' | string
+  condition_label?:
+    | 'Novo'
+    | 'Recondicionado'
+    | 'Usado'
+    | 'Caixa aberta'
+    | 'Condição não informada'
+    | string
   condition_grade?: string
   status?: string
   source?: string
@@ -31,7 +37,109 @@ export interface MLCatalogProduct {
   }>
 }
 
-export type PublishConditionOption = 'catalog_auto' | 'new' | 'refurbished' | 'used'
+export type PublishConditionOption = 'catalog_auto' | 'new' | 'used' | 'refurbished' | 'open_box'
+
+export interface MLCatalogConditionMeta {
+  id: PublishConditionOption
+  label: string
+  mlValueId?: string
+  description: string
+  badgeClass: string
+  dotClass: string
+  borderClass: string
+}
+
+export const ML_CATALOG_CONDITIONS: Record<
+  Exclude<PublishConditionOption, 'catalog_auto'>,
+  MLCatalogConditionMeta
+> = {
+  new: {
+    id: 'new',
+    label: 'Novo',
+    mlValueId: '2230284',
+    description: 'Produto novo lacrado de fábrica. Aceito diretamente na maioria das posições.',
+    badgeClass: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+    dotClass: 'bg-emerald-400',
+    borderClass: 'border-emerald-500/40',
+  },
+  used: {
+    id: 'used',
+    label: 'Usado',
+    mlValueId: '2230581',
+    description:
+      'Equipamento usado em bom funcionamento. Requer posição de catálogo específica de usado.',
+    badgeClass: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+    dotClass: 'bg-amber-400',
+    borderClass: 'border-amber-500/40',
+  },
+  refurbished: {
+    id: 'refurbished',
+    label: 'Recondicionado',
+    mlValueId: '2230582',
+    description:
+      'Passou por inspeção/reparos. Aceito apenas em posições que já tenham variante recondicionada registrada.',
+    badgeClass: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
+    dotClass: 'bg-purple-400',
+    borderClass: 'border-purple-500/40',
+  },
+  open_box: {
+    id: 'open_box',
+    label: 'Caixa aberta',
+    mlValueId: '46759135',
+    description:
+      'Embalagem aberta ou pequenas avarias estéticas na embalagem. Aceito em posições Novas.',
+    badgeClass: 'bg-blue-500/15 text-blue-300 border-blue-500/30',
+    dotClass: 'bg-blue-400',
+    borderClass: 'border-blue-500/40',
+  },
+}
+
+export function getConditionBadgeInfo(cond?: string | null): {
+  label: string
+  badgeClass: string
+  dotClass: string
+} {
+  const c = String(cond || '').toLowerCase()
+  if (c === 'new' || c === 'novo' || c === '2230284') {
+    return {
+      label: 'Novo',
+      badgeClass: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+      dotClass: 'bg-emerald-400',
+    }
+  }
+  if (
+    c === 'open_box' ||
+    c === 'caixa aberta' ||
+    c === 'caixa_aberta' ||
+    c === 'open box' ||
+    c === '46759135'
+  ) {
+    return {
+      label: 'Caixa aberta',
+      badgeClass: 'bg-blue-500/15 text-blue-300 border-blue-500/30',
+      dotClass: 'bg-blue-400',
+    }
+  }
+  if (c === 'refurbished' || c === 'recondicionado' || c === 'refurb' || c === '2230582') {
+    return {
+      label: 'Recondicionado',
+      badgeClass: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
+      dotClass: 'bg-purple-400',
+    }
+  }
+  if (c === 'used' || c === 'usado' || c === '2230581') {
+    return {
+      label: 'Usado',
+      badgeClass: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+      dotClass: 'bg-amber-400',
+    }
+  }
+  return {
+    label: cond || 'Indefinido',
+    badgeClass: 'bg-muted text-muted-foreground border-border',
+    dotClass: 'bg-muted-foreground',
+  }
+}
 
 export interface CatalogMatchResult {
   catalogProduct: MLCatalogProduct

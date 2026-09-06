@@ -35,7 +35,13 @@ import {
 import { toast } from '@/hooks/use-toast'
 import { productsService } from '@/services/products'
 import { Product } from '@/types/inventory'
-import { mlCatalogService, CatalogMatchResult } from '@/services/mlCatalogService'
+import {
+  mlCatalogService,
+  CatalogMatchResult,
+  PublishConditionOption,
+  ML_CATALOG_CONDITIONS,
+  getConditionBadgeInfo,
+} from '@/services/mlCatalogService'
 import {
   extractCatalogSearchTokens,
   evaluateCatalogItemStrictMatch,
@@ -67,24 +73,24 @@ export function AnunciosCatalogoTab() {
   const [showPartialResults, setShowPartialResults] = useState(false)
 
   // Seletor de Condição da Busca (persistente durante a sessão da aba via sessionStorage)
-  const [searchCondition, setSearchCondition] = useState<'all' | 'new' | 'refurbished' | 'used'>(
-    () => {
-      try {
-        const saved = sessionStorage.getItem('ml_catalog_search_condition')
-        if (saved === 'new' || saved === 'refurbished' || saved === 'used') {
-          return saved
-        }
-      } catch {
-        /* ignore */
+  const [searchCondition, setSearchCondition] = useState<
+    'all' | 'new' | 'used' | 'refurbished' | 'open_box'
+  >(() => {
+    try {
+      const saved = sessionStorage.getItem('ml_catalog_search_condition')
+      if (saved === 'new' || saved === 'used' || saved === 'refurbished' || saved === 'open_box') {
+        return saved
       }
-      return 'all'
-    },
-  )
+    } catch {
+      /* ignore */
+    }
+    return 'all'
+  })
 
   // Filtro de condição nos resultados (chips)
-  const [conditionFilter, setConditionFilter] = useState<'all' | 'refurbished' | 'new' | 'used'>(
-    searchCondition,
-  )
+  const [conditionFilter, setConditionFilter] = useState<
+    'all' | 'new' | 'used' | 'refurbished' | 'open_box'
+  >(searchCondition)
 
   // Salvar no sessionStorage sempre que mudar o seletor da busca
   useEffect(() => {
@@ -127,7 +133,7 @@ export function AnunciosCatalogoTab() {
   // Disparar busca no catálogo do Mercado Livre
   async function handleSearch(
     overrideQuery?: string,
-    overrideCondition?: 'all' | 'new' | 'refurbished' | 'used',
+    overrideCondition?: 'all' | 'new' | 'used' | 'refurbished' | 'open_box',
   ) {
     const q = (overrideQuery ?? query).trim()
     if (!q) {
@@ -153,9 +159,10 @@ export function AnunciosCatalogoTab() {
 
       const condLabelMap: Record<string, string> = {
         all: 'Todas as condições',
-        refurbished: 'Recondicionado',
         new: 'Novo',
         used: 'Usado',
+        refurbished: 'Recondicionado',
+        open_box: 'Caixa aberta',
       }
       const condFeedback = condToUse !== 'all' ? ` (${condLabelMap[condToUse]})` : ''
 
@@ -218,14 +225,18 @@ export function AnunciosCatalogoTab() {
 
         // Default da condição de publicação:
         // Se a busca direcionada ou a posição for Recondicionado, default é 'refurbished'.
-        // Se a busca direcionada for 'used', default é 'used'.
+        // Se 'open_box', default é 'open_box'.
+        // Se 'used', default é 'used'.
         // Se 'new', default é 'new'. Caso contrário, 'catalog_auto'.
-        let initialCondition: 'catalog_auto' | 'new' | 'refurbished' | 'used' = 'catalog_auto'
-        if (catProd.condition === 'refurbished' || condToUse === 'refurbished') {
+        let initialCondition: PublishConditionOption = 'catalog_auto'
+        const cLower = String(catProd.condition || '').toLowerCase()
+        if (cLower === 'refurbished' || condToUse === 'refurbished') {
           initialCondition = 'refurbished'
-        } else if (catProd.condition === 'used' || condToUse === 'used') {
+        } else if (cLower === 'open_box' || condToUse === 'open_box') {
+          initialCondition = 'open_box'
+        } else if (cLower === 'used' || condToUse === 'used') {
           initialCondition = 'used'
-        } else if (catProd.condition === 'new' && condToUse === 'new') {
+        } else if (cLower === 'new' && condToUse === 'new') {
           initialCondition = 'new'
         }
 
@@ -347,10 +358,7 @@ export function AnunciosCatalogoTab() {
   }
 
   // Alterar condição inline
-  function updateCondition(
-    index: number,
-    condition: 'catalog_auto' | 'new' | 'refurbished' | 'used',
-  ) {
+  function updateCondition(index: number, condition: PublishConditionOption) {
     setCatalogItems((prev) => {
       const next = [...prev]
       next[index] = { ...next[index], formCondition: condition }
@@ -359,16 +367,17 @@ export function AnunciosCatalogoTab() {
   }
 
   // Aplicar condição em lote para os itens selecionados
-  function applyBatchCondition(condition: 'catalog_auto' | 'new' | 'refurbished' | 'used') {
+  function applyBatchCondition(condition: PublishConditionOption) {
     setCatalogItems((prev) =>
       prev.map((item) => (item.selected ? { ...item, formCondition: condition } : item)),
     )
     const count = catalogItems.filter((i) => i.selected).length
-    const labelMap: Record<string, string> = {
-      catalog_auto: 'Nova do catálogo',
+    const labelMap: Record<PublishConditionOption, string> = {
+      catalog_auto: 'Herdar do catálogo (padrão)',
       new: 'Novo',
-      refurbished: 'Recondicionado',
       used: 'Usado',
+      refurbished: 'Recondicionado',
+      open_box: 'Caixa aberta',
     }
     toast({
       title: 'Condição aplicada em lote',
@@ -632,17 +641,16 @@ export function AnunciosCatalogoTab() {
     is_own_account?: boolean
     own_ad_id?: string
   }) {
-    const cond = cat.condition || 'new'
+    const cond = (cat.condition || 'new').toLowerCase()
     const grade = cat.condition_grade
     const isOwn = Boolean(cat.is_own_account)
+    const badgeInfo = getConditionBadgeInfo(cond)
 
-    let formattedConditionText = ''
-    if (cond === 'refurbished') {
-      formattedConditionText = grade ? `Recondicionado · ${grade}` : 'Recondicionado'
-    } else if (cond === 'used') {
-      formattedConditionText = grade ? `Usado · ${grade}` : 'Usado'
-    } else {
-      formattedConditionText = 'Novo'
+    let formattedConditionText = badgeInfo.label
+    if (cond === 'refurbished' && grade) {
+      formattedConditionText = `Recondicionado · ${grade}`
+    } else if (cond === 'used' && grade) {
+      formattedConditionText = `Usado · ${grade}`
     }
 
     return (
@@ -676,6 +684,16 @@ export function AnunciosCatalogoTab() {
           </Badge>
         )}
 
+        {cond === 'open_box' && (
+          <Badge
+            className="bg-blue-600 hover:bg-blue-700 text-white border-blue-700 text-[10px] font-semibold flex items-center gap-1 shadow-2xs"
+            title="Classificação Caixa aberta no ML — aceito em posições de catálogo Novas"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-200" />
+            <span>{formattedConditionText}</span>
+          </Badge>
+        )}
+
         {cond === 'used' && (
           <Badge
             className="bg-amber-500 hover:bg-amber-600 text-white border-amber-600 text-[10px] font-semibold flex items-center gap-1 shadow-2xs"
@@ -698,6 +716,7 @@ export function AnunciosCatalogoTab() {
         )}
 
         {cond !== 'refurbished' &&
+          cond !== 'open_box' &&
           cond !== 'used' &&
           cond !== 'unknown' &&
           cond !== 'not_specified' && (
@@ -718,6 +737,9 @@ export function AnunciosCatalogoTab() {
   const countRefurbished = catalogItems.filter(
     (it) => it.catalogProduct.condition === 'refurbished',
   ).length
+  const countOpenBox = catalogItems.filter(
+    (it) => it.catalogProduct.condition === 'open_box',
+  ).length
   const countNew = catalogItems.filter(
     (it) => !it.catalogProduct.condition || it.catalogProduct.condition === 'new',
   ).length
@@ -730,9 +752,8 @@ export function AnunciosCatalogoTab() {
       ? evaluateCatalogItemStrictMatch(catProd.title, currentTokens, catProd.attributes)
       : { isMatch: true, matchedTokens: currentTokens, missingTokens: [] }
 
-    // Avalia também o filtro de condição ativo dos chips (Todas | Recondicionado | Novo | Usado)
-    // Se condição não informada/unknown: visível apenas quando o filtro for 'all'
-    const itemCond = catProd.condition || 'new'
+    // Avalia também o filtro de condição ativo dos chips (Todas | Recondicionado | Novo | Usado | Caixa aberta)
+    const itemCond = (catProd.condition || 'new').toLowerCase()
     const isUnknownCondition = itemCond === 'unknown' || itemCond === 'not_specified'
 
     const matchesCondition =
@@ -740,11 +761,13 @@ export function AnunciosCatalogoTab() {
         ? true
         : conditionFilter === 'refurbished'
           ? itemCond === 'refurbished'
-          : conditionFilter === 'new'
-            ? itemCond === 'new'
-            : conditionFilter === 'used'
-              ? itemCond === 'used'
-              : !isUnknownCondition
+          : conditionFilter === 'open_box'
+            ? itemCond === 'open_box'
+            : conditionFilter === 'new'
+              ? itemCond === 'new'
+              : conditionFilter === 'used'
+                ? itemCond === 'used'
+                : !isUnknownCondition
 
     return {
       item,
@@ -816,63 +839,78 @@ export function AnunciosCatalogoTab() {
         </CardContent>
       </Card>
 
-      {/* Box Informativo Permanente: Regras de Condição e Classificação no Catálogo */}
-      <Card className="border-amber-200 bg-gradient-to-r from-amber-50/80 via-orange-50/40 to-amber-50/60 shadow-xs">
+      {/* Box Informativo Permanente: Regras de Condição no Catálogo */}
+      <Card className="border-indigo-200 bg-gradient-to-r from-indigo-50/70 via-purple-50/40 to-slate-50/60 shadow-xs">
         <CardContent className="p-4 sm:p-5">
           <div className="flex items-start gap-3">
-            <div className="w-8 h-8 rounded-lg bg-amber-600 text-white flex items-center justify-center shrink-0 shadow-2xs mt-0.5">
+            <div className="w-8 h-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-2xs mt-0.5">
               <Info className="w-4 h-4" />
             </div>
             <div className="space-y-2 text-xs leading-relaxed text-slate-700">
               <div className="flex items-center gap-2 flex-wrap">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-amber-950">
-                  Regras de Condição no Catálogo do Mercado Livre (Todas as Categorias)
+                <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-950">
+                  Regras Reais de Condição no Catálogo do Mercado Livre (4 Opções Oficiais)
                 </h4>
                 <Badge
                   variant="outline"
-                  className="text-[10px] bg-white border-amber-300 text-amber-900 font-medium"
+                  className="text-[10px] bg-white border-indigo-300 text-indigo-900 font-medium"
                 >
-                  Regra Oficial do Canal Marketplace
+                  Regra Validada na API ML
                 </Badge>
               </div>
               <p className="font-semibold text-slate-800">
-                Na maioria das categorias (como notebooks MLB1652, monitores, celulares e
-                eletrônicos), o Mercado Livre aceita:{' '}
-                <span className="text-emerald-700 font-bold">Novo</span>,{' '}
-                <span className="text-amber-700 font-bold">Usado</span> ou{' '}
-                <span className="text-slate-600 font-bold">Não especificado</span>. Equipamentos
-                recondicionados de excelente estado entram com a condição{' '}
-                <span className="underline decoration-amber-500 font-black text-amber-900">
-                  USADO
-                </span>{' '}
-                — o grau de conservação vai na descrição e nas fotos.
+                Cada posição de catálogo aceita as condições de sua família: posições{' '}
+                <span className="text-emerald-700 font-bold">Novas</span> aceitam{' '}
+                <strong className="text-emerald-700">Novo</strong> e{' '}
+                <strong className="text-blue-700">Caixa aberta</strong>;{' '}
+                <span className="text-purple-700 font-bold">Recondicionado</span> só é aceito em
+                posições que já possuem variante recondicionada registrada no ML (suas posições
+                refurb da conta INFOPREÇOBAIXO entram diretamente pela busca usando o filtro{' '}
+                <strong>Recondicionado</strong>).
               </p>
               <p className="text-slate-600">
-                A API do Mercado Livre no canal marketplace restringe a condição{' '}
-                <code className="text-rose-700 bg-rose-50 px-1 py-0.2 rounded font-mono font-bold">
-                  refurbished
-                </code>{' '}
-                em diversas categorias. Para todas as famílias de produtos, o sistema possui{' '}
-                <strong>fallback automático inteligente</strong>: ao detectar recusa da condição
-                pela regra da categoria, ele identifica as condições aceitas pelo ML e retenta
-                automaticamente com a melhor opção (preferencialmente <strong>Usado</strong>) antes
-                de registrar qualquer falha.
+                Se você tentar publicar como Recondicionado em uma posição do catálogo que não tenha
+                variante recondicionada cadastrada, a API do ML retorna a recusa específica e o
+                sistema mantém um <strong>fallback automático para Usado</strong> como rede de
+                segurança silenciosa.
               </p>
-              <div className="flex items-center gap-2 pt-1 text-[11px] text-amber-900 font-medium flex-wrap">
-                <span className="inline-flex items-center gap-1 bg-white/90 px-2 py-0.5 rounded border border-amber-200">
-                  <span className="w-2 h-2 rounded-full bg-amber-500" />
-                  <strong>Usado:</strong> Recomendado para produtos recondicionados/seminovos de
-                  qualquer categoria.
-                </span>
-                <span className="inline-flex items-center gap-1 bg-white/90 px-2 py-0.5 rounded border border-amber-200">
-                  <span className="w-2 h-2 rounded-full bg-emerald-600" />
-                  <strong>Novo:</strong> Exclusivo para produtos novos lacrados de fábrica.
-                </span>
-                <span className="inline-flex items-center gap-1 bg-white/90 px-2 py-0.5 rounded border border-purple-200">
-                  <span className="w-2 h-2 rounded-full bg-purple-600" />
-                  <strong>Recondicionado:</strong> Para categorias com programa oficial de
-                  recondicionados ativo.
-                </span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 pt-1 text-[11px] text-slate-800 font-medium">
+                <div className="flex items-start gap-1.5 bg-white/90 p-2 rounded border border-emerald-200">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 mt-1" />
+                  <div>
+                    <strong className="text-emerald-900">Novo:</strong>
+                    <span className="text-slate-600 block text-[10px]">
+                      Lacrado de fábrica. Aceito na maioria das posições do catálogo.
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-start gap-1.5 bg-white/90 p-2 rounded border border-blue-200">
+                  <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0 mt-1" />
+                  <div>
+                    <strong className="text-blue-900">Caixa aberta:</strong>
+                    <span className="text-slate-600 block text-[10px]">
+                      Embalagem aberta/reembalado. Aceito diretamente nas posições Novas.
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-start gap-1.5 bg-white/90 p-2 rounded border border-purple-200">
+                  <span className="w-2 h-2 rounded-full bg-purple-600 shrink-0 mt-1" />
+                  <div>
+                    <strong className="text-purple-900">Recondicionado:</strong>
+                    <span className="text-slate-600 block text-[10px]">
+                      Exige posição com variante recondicionada ativa no ML.
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-start gap-1.5 bg-white/90 p-2 rounded border border-amber-200">
+                  <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0 mt-1" />
+                  <div>
+                    <strong className="text-amber-900">Usado:</strong>
+                    <span className="text-slate-600 block text-[10px]">
+                      Equipamentos usados; rede de segurança e fallback automático.
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -896,14 +934,13 @@ export function AnunciosCatalogoTab() {
               />
             </div>
 
-            {/* Seletor de Condição ao lado da Busca */}
+            {/* Seletor de Condição ao lado da Busca (4 opções reais do painel ML) */}
             <div className="w-full sm:w-auto shrink-0">
               <Select
                 value={searchCondition}
                 onValueChange={(val) => {
-                  const newCond = val as 'all' | 'new' | 'refurbished' | 'used'
+                  const newCond = val as 'all' | 'new' | 'used' | 'refurbished' | 'open_box'
                   setSearchCondition(newCond)
-                  // Se já houver itens pesquisados, atualiza também os chips de filtro para manter sincronizado
                   if (catalogItems.length > 0) {
                     setConditionFilter(newCond)
                   }
@@ -912,7 +949,7 @@ export function AnunciosCatalogoTab() {
               >
                 <SelectTrigger
                   aria-label="Condição para buscar"
-                  className="h-11 w-full sm:w-[195px] bg-slate-50 border-slate-200 focus:bg-white text-xs font-semibold text-slate-800"
+                  className="h-11 w-full sm:w-[210px] bg-slate-50 border-slate-200 focus:bg-white text-xs font-semibold text-slate-800"
                 >
                   <div className="flex items-center gap-2 truncate">
                     <Tag className="w-3.5 h-3.5 text-slate-500 shrink-0" />
@@ -927,6 +964,12 @@ export function AnunciosCatalogoTab() {
                     <span className="flex items-center gap-2">
                       <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
                       Novo
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="open_box" className="text-xs font-medium">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0" />
+                      Caixa aberta
                     </span>
                   </SelectItem>
                   <SelectItem value="refurbished" className="text-xs font-medium">
@@ -1137,28 +1180,6 @@ export function AnunciosCatalogoTab() {
 
           <button
             type="button"
-            onClick={() => setConditionFilter('refurbished')}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
-              conditionFilter === 'refurbished'
-                ? 'bg-purple-600 text-white border-purple-700 shadow-xs'
-                : 'bg-white hover:bg-purple-50 text-purple-900 border-purple-200'
-            }`}
-          >
-            <Sparkles className="w-3 h-3 text-purple-300" />
-            <span>Recondicionado</span>
-            <span
-              className={`text-[11px] font-mono px-1.5 py-0.2 rounded-full ${
-                conditionFilter === 'refurbished'
-                  ? 'bg-purple-800 text-purple-100'
-                  : 'bg-purple-100 text-purple-800'
-              }`}
-            >
-              {countRefurbished}
-            </span>
-          </button>
-
-          <button
-            type="button"
             onClick={() => setConditionFilter('new')}
             className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
               conditionFilter === 'new'
@@ -1176,6 +1197,50 @@ export function AnunciosCatalogoTab() {
               }`}
             >
               {countNew}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setConditionFilter('open_box')}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
+              conditionFilter === 'open_box'
+                ? 'bg-blue-600 text-white border-blue-700 shadow-xs'
+                : 'bg-white hover:bg-blue-50 text-blue-900 border-blue-200'
+            }`}
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+            <span>Caixa aberta</span>
+            <span
+              className={`text-[11px] font-mono px-1.5 py-0.2 rounded-full ${
+                conditionFilter === 'open_box'
+                  ? 'bg-blue-800 text-blue-100'
+                  : 'bg-blue-100 text-blue-800'
+              }`}
+            >
+              {countOpenBox}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setConditionFilter('refurbished')}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
+              conditionFilter === 'refurbished'
+                ? 'bg-purple-600 text-white border-purple-700 shadow-xs'
+                : 'bg-white hover:bg-purple-50 text-purple-900 border-purple-200'
+            }`}
+          >
+            <Sparkles className="w-3 h-3 text-purple-300" />
+            <span>Recondicionado</span>
+            <span
+              className={`text-[11px] font-mono px-1.5 py-0.2 rounded-full ${
+                conditionFilter === 'refurbished'
+                  ? 'bg-purple-800 text-purple-100'
+                  : 'bg-purple-100 text-purple-800'
+              }`}
+            >
+              {countRefurbished}
             </span>
           </button>
 
@@ -1231,7 +1296,7 @@ export function AnunciosCatalogoTab() {
             </div>
 
             <div className="flex items-center gap-2 w-full md:w-auto justify-between md:justify-end flex-wrap">
-              {/* Seletor de Condição em Lote para itens selecionados */}
+              {/* Seletor de Condição em Lote para itens selecionados com as 4 opções oficiais */}
               <div className="flex flex-col sm:flex-row items-start sm:items-center gap-1.5">
                 <span className="text-[11px] font-semibold text-slate-600 whitespace-nowrap">
                   Condição em lote:
@@ -1252,10 +1317,11 @@ export function AnunciosCatalogoTab() {
                   <option value="" disabled>
                     Alterar selecionadas...
                   </option>
-                  <option value="catalog_auto">Nova do catálogo (padrão)</option>
-                  <option value="used">Usado (recomendado p/ recondicionados)</option>
+                  <option value="catalog_auto">Herdar da posição (padrão)</option>
                   <option value="new">Novo</option>
-                  <option value="refurbished">Recondicionado (ver aviso)</option>
+                  <option value="open_box">Caixa aberta</option>
+                  <option value="used">Usado</option>
+                  <option value="refurbished">Recondicionado</option>
                 </select>
               </div>
 
@@ -1661,16 +1727,17 @@ export function AnunciosCatalogoTab() {
                               onChange={(e) =>
                                 updateCondition(
                                   originalIndex,
-                                  e.target.value as 'catalog_auto' | 'new' | 'refurbished' | 'used',
+                                  e.target.value as PublishConditionOption,
                                 )
                               }
                               disabled={!item.selected || isPublishing}
                               className="h-8 w-full text-xs bg-white border border-slate-300 rounded-md px-2 font-medium text-slate-800 disabled:opacity-50"
                               aria-label="Condição de publicação no Mercado Livre"
                             >
-                              <option value="catalog_auto">Nova do catálogo</option>
-                              <option value="used">Usado (recomendado p/ recondicionados)</option>
+                              <option value="catalog_auto">Herdar da posição</option>
                               <option value="new">Novo</option>
+                              <option value="open_box">Caixa aberta</option>
+                              <option value="used">Usado</option>
                               <option value="refurbished">Recondicionado</option>
                             </select>
                           </div>
@@ -1719,14 +1786,24 @@ export function AnunciosCatalogoTab() {
 
                         {/* Avisos inline contextuais sobre a condição escolhida */}
                         {item.formCondition === 'refurbished' && (
-                          <div className="p-2 rounded bg-amber-50 border border-amber-300 text-[11px] text-amber-950 leading-snug flex items-start gap-1.5">
-                            <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                          <div className="p-2 rounded bg-purple-50 border border-purple-300 text-[11px] text-purple-950 leading-snug flex items-start gap-1.5">
+                            <Sparkles className="w-3.5 h-3.5 text-purple-600 shrink-0 mt-0.5" />
                             <span>
-                              <strong>Aviso sobre recondicionados:</strong> Se a categoria do
-                              produto não aceitar &ldquo;refurbished&rdquo; no canal marketplace
-                              (ex: notebooks MLB1652 e outros eletrônicos), use{' '}
-                              <strong>&ldquo;Usado&rdquo;</strong>. Se o ML recusar, o sistema
-                              aplicará fallback automático para a melhor condição aceita.
+                              <strong>Recondicionado:</strong> requer posição de catálogo com
+                              variante recondicionada cadastrada no ML. Se a posição for
+                              estritamente nova, haverá recusa do ML (com fallback silencioso para
+                              Usado).
+                            </span>
+                          </div>
+                        )}
+
+                        {item.formCondition === 'open_box' && (
+                          <div className="p-2 rounded bg-blue-50 border border-blue-200 text-[11px] text-blue-950 leading-snug flex items-start gap-1.5">
+                            <Info className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5" />
+                            <span>
+                              <strong>Caixa aberta:</strong> aceito diretamente em posições Novas de
+                              catálogo. Publicação sem envio de condition raiz e com atributo
+                              ITEM_CONDITION.
                             </span>
                           </div>
                         )}
@@ -1734,8 +1811,8 @@ export function AnunciosCatalogoTab() {
                         {cat.condition === 'refurbished' &&
                           (item.formCondition === 'refurbished' ||
                             item.formCondition === 'catalog_auto') && (
-                            <div className="p-1.5 rounded bg-emerald-50 border border-emerald-200 text-[11px] text-emerald-900 leading-snug flex items-center gap-1.5">
-                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                            <div className="p-1.5 rounded bg-purple-50 border border-purple-200 text-[11px] text-purple-900 leading-snug flex items-center gap-1.5">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-purple-600 shrink-0" />
                               <span>Posição recondicionada — compatível com seu estoque.</span>
                             </div>
                           )}
@@ -1884,22 +1961,17 @@ export function AnunciosCatalogoTab() {
                                   onChange={(e) =>
                                     updateCondition(
                                       originalIndex,
-                                      e.target.value as
-                                        | 'catalog_auto'
-                                        | 'new'
-                                        | 'refurbished'
-                                        | 'used',
+                                      e.target.value as PublishConditionOption,
                                     )
                                   }
                                   disabled={!item.selected || isPublishing}
                                   className="h-7 w-full text-xs bg-slate-50 border border-slate-300 rounded px-1.5 font-medium text-slate-700 disabled:opacity-50"
                                   aria-label="Condição de publicação no Mercado Livre"
                                 >
-                                  <option value="catalog_auto">Nova do catálogo</option>
-                                  <option value="used">
-                                    Usado (recomendado p/ recondicionados)
-                                  </option>
+                                  <option value="catalog_auto">Herdar da posição</option>
                                   <option value="new">Novo</option>
+                                  <option value="open_box">Caixa aberta</option>
+                                  <option value="used">Usado</option>
                                   <option value="refurbished">Recondicionado</option>
                                 </select>
                               </div>
@@ -1945,19 +2017,24 @@ export function AnunciosCatalogoTab() {
 
                             {/* Avisos inline parciais */}
                             {item.formCondition === 'refurbished' && (
-                              <div className="p-1.5 rounded bg-amber-50 border border-amber-300 text-[10px] text-amber-950 leading-snug flex items-start gap-1">
-                                <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                              <div className="p-1.5 rounded bg-purple-50 border border-purple-300 text-[10px] text-purple-950 leading-snug flex items-start gap-1">
+                                <Sparkles className="w-3.5 h-3.5 text-purple-600 shrink-0 mt-0.5" />
                                 <span>
-                                  Se a categoria não aceitar &ldquo;refurbished&rdquo;, use{' '}
-                                  <strong>Usado</strong>. Fallback automático ativo.
+                                  Requer variante recondicionada registrada na posição do catálogo.
                                 </span>
+                              </div>
+                            )}
+                            {item.formCondition === 'open_box' && (
+                              <div className="p-1.5 rounded bg-blue-50 border border-blue-200 text-[10px] text-blue-950 leading-snug flex items-start gap-1">
+                                <Info className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5" />
+                                <span>Caixa aberta: aceito em posições Novas de catálogo.</span>
                               </div>
                             )}
                             {cat.condition === 'refurbished' &&
                               (item.formCondition === 'refurbished' ||
                                 item.formCondition === 'catalog_auto') && (
-                                <div className="p-1.5 rounded bg-emerald-50 border border-emerald-200 text-[10px] text-emerald-900 leading-snug flex items-center gap-1">
-                                  <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                                <div className="p-1.5 rounded bg-purple-50 border border-purple-200 text-[10px] text-purple-900 leading-snug flex items-center gap-1">
+                                  <CheckCircle2 className="w-3 h-3 text-purple-600 shrink-0" />
                                   <span>Posição recondicionada — compatível com seu estoque.</span>
                                 </div>
                               )}
