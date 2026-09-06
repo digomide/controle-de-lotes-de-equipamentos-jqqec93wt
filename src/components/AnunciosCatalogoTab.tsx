@@ -43,7 +43,10 @@ import {
   mlCatalogService,
   CatalogMatchResult,
   PublishConditionOption,
+  RefurbishedGrade,
   ML_CATALOG_CONDITIONS,
+  ML_REFURBISHED_GRADES,
+  normalizeRefurbishedGrade,
   getConditionBadgeInfo,
 } from '@/services/mlCatalogService'
 import {
@@ -95,6 +98,9 @@ export function AnunciosCatalogoTab() {
   const [conditionFilter, setConditionFilter] = useState<
     'all' | 'new' | 'used' | 'refurbished' | 'open_box'
   >(searchCondition)
+
+  // Sub-filtro de grau de recondicionado na aba Catálogo ('all' ou 'Excelente' | 'Bom' | 'Aceitável')
+  const [gradeFilter, setGradeFilter] = useState<'all' | RefurbishedGrade>('all')
 
   // Salvar no sessionStorage sempre que mudar o seletor da busca
   useEffect(() => {
@@ -244,6 +250,8 @@ export function AnunciosCatalogoTab() {
           initialCondition = 'new'
         }
 
+        const detectedGrade = normalizeRefurbishedGrade(catProd.condition_grade) || 'Excelente'
+
         return {
           catalogProduct: catProd,
           matchedProducts: matchInfo.matchedProducts,
@@ -253,6 +261,7 @@ export function AnunciosCatalogoTab() {
           formQuantity: 1, // Quantidade default = 1
           formPrice: fallbackPrice, // Preço default = preço de referência do catálogo
           formCondition: initialCondition,
+          formConditionGrade: detectedGrade,
           selectedProductId: primaryProduct?.id || undefined,
         }
       })
@@ -365,27 +374,60 @@ export function AnunciosCatalogoTab() {
   function updateCondition(index: number, condition: PublishConditionOption) {
     setCatalogItems((prev) => {
       const next = [...prev]
-      next[index] = { ...next[index], formCondition: condition }
+      next[index] = {
+        ...next[index],
+        formCondition: condition,
+        formConditionGrade: next[index].formConditionGrade || 'Excelente',
+      }
+      return next
+    })
+  }
+
+  // Alterar grau inline
+  function updateConditionGrade(index: number, grade: RefurbishedGrade) {
+    setCatalogItems((prev) => {
+      const next = [...prev]
+      next[index] = { ...next[index], formConditionGrade: grade }
       return next
     })
   }
 
   // Aplicar condição em lote para os itens selecionados
-  function applyBatchCondition(condition: PublishConditionOption) {
+  function applyBatchCondition(condition: PublishConditionOption, grade?: RefurbishedGrade) {
     setCatalogItems((prev) =>
-      prev.map((item) => (item.selected ? { ...item, formCondition: condition } : item)),
+      prev.map((item) =>
+        item.selected
+          ? {
+              ...item,
+              formCondition: condition,
+              ...(grade ? { formConditionGrade: grade } : {}),
+            }
+          : item,
+      ),
     )
     const count = catalogItems.filter((i) => i.selected).length
     const labelMap: Record<PublishConditionOption, string> = {
       catalog_auto: 'Herdar do catálogo (padrão)',
       new: 'Novo',
       used: 'Usado',
-      refurbished: 'Recondicionado',
+      refurbished: grade ? `Recondicionado · ${grade}` : 'Recondicionado',
       open_box: 'Caixa aberta',
     }
     toast({
       title: 'Condição aplicada em lote',
       description: `Condição "${labelMap[condition]}" aplicada para ${count} posição(ões) selecionada(s).`,
+    })
+  }
+
+  // Aplicar grau em lote para os itens selecionados
+  function applyBatchGrade(grade: RefurbishedGrade) {
+    setCatalogItems((prev) =>
+      prev.map((item) => (item.selected ? { ...item, formConditionGrade: grade } : item)),
+    )
+    const count = catalogItems.filter((i) => i.selected).length
+    toast({
+      title: 'Grau aplicado em lote',
+      description: `Grau "${grade}" aplicado para ${count} posição(ões) selecionada(s).`,
     })
   }
 
@@ -461,6 +503,9 @@ export function AnunciosCatalogoTab() {
             ? item.catalogProduct.condition || 'new'
             : item.formCondition
 
+        const gradeToSend =
+          itemCondSent === 'refurbished' ? item.formConditionGrade || 'Excelente' : undefined
+
         const job = await mlCatalogService.createPublishJob({
           catalog_product_id: item.catalogProduct.catalog_product_id,
           product_id: item.selectedProductId,
@@ -468,6 +513,7 @@ export function AnunciosCatalogoTab() {
           quantity: item.formQuantity,
           domain_id: item.catalogProduct.domain_id || '',
           condition: itemCondSent,
+          condition_grade: gradeToSend,
         })
 
         logs[i].id = job.id
@@ -486,7 +532,13 @@ export function AnunciosCatalogoTab() {
           logs[i].status = 'done'
           logs[i].listing_id = completed.ml_listing_id
           logs[i].listing_url = completed.ml_listing_url
-          logs[i].message = `Publicado com sucesso! ID: ${completed.ml_listing_id}`
+          if (itemCondSent === 'refurbished') {
+            const chosenGrade = item.formConditionGrade || 'Excelente'
+            logs[i].message =
+              `Recondicionado · Grau ${chosenGrade} publicado com sucesso! ID: ${completed.ml_listing_id}`
+          } else {
+            logs[i].message = `Publicado com sucesso! ID: ${completed.ml_listing_id}`
+          }
           logs[i].canRetry = false
         } else {
           errorCount++
@@ -554,6 +606,9 @@ export function AnunciosCatalogoTab() {
           ? item.catalogProduct.condition || 'new'
           : item.formCondition
 
+      const gradeToSend =
+        itemCondSent === 'refurbished' ? item.formConditionGrade || 'Excelente' : undefined
+
       const newJob = await mlCatalogService.createPublishJob({
         catalog_product_id: item.catalogProduct.catalog_product_id,
         product_id: item.selectedProductId,
@@ -561,6 +616,7 @@ export function AnunciosCatalogoTab() {
         quantity: item.formQuantity,
         domain_id: item.catalogProduct.domain_id || '',
         condition: itemCondSent,
+        condition_grade: gradeToSend,
       })
 
       const completed = await mlCatalogService.pollPublishJob(newJob.id, (cur) => {
@@ -590,9 +646,13 @@ export function AnunciosCatalogoTab() {
           }
           return next
         })
+        const successDesc =
+          itemCondSent === 'refurbished'
+            ? `Anúncio ${completed.ml_listing_id} criado como Recondicionado · Grau ${item.formConditionGrade || 'Excelente'}.`
+            : `Anúncio ${completed.ml_listing_id} criado no catálogo.`
         toast({
           title: 'Anúncio publicado com sucesso!',
-          description: `Anúncio ${completed.ml_listing_id} criado no catálogo.`,
+          description: successDesc,
         })
       } else {
         const errorMsgToShow = completed.error_message || 'Falha na publicação.'
@@ -646,16 +706,9 @@ export function AnunciosCatalogoTab() {
     own_ad_id?: string
   }) {
     const cond = (cat.condition || 'new').toLowerCase()
-    const grade = cat.condition_grade
+    const normGrade = normalizeRefurbishedGrade(cat.condition_grade)
     const isOwn = Boolean(cat.is_own_account)
-    const badgeInfo = getConditionBadgeInfo(cond)
-
-    let formattedConditionText = badgeInfo.label
-    if (cond === 'refurbished' && grade) {
-      formattedConditionText = `Recondicionado · ${grade}`
-    } else if (cond === 'used' && grade) {
-      formattedConditionText = `Usado · ${grade}`
-    }
+    const badgeInfo = getConditionBadgeInfo(cond, cat.condition_grade)
 
     return (
       <div className="flex items-center gap-1.5 flex-wrap">
@@ -677,12 +730,20 @@ export function AnunciosCatalogoTab() {
 
         {cond === 'refurbished' && (
           <Badge
-            className="bg-purple-600 hover:bg-purple-700 text-white border-purple-700 text-[10px] font-semibold flex items-center gap-1 shadow-2xs"
-            title="Classificação Recondicionado no ML — estoque 100% compatível com a loja"
+            className={`text-[10px] font-semibold flex items-center gap-1 shadow-2xs ${
+              normGrade === 'Excelente'
+                ? 'bg-purple-900 text-white border-purple-950'
+                : normGrade === 'Bom'
+                  ? 'bg-purple-600 text-white border-purple-700'
+                  : normGrade === 'Aceitável'
+                    ? 'bg-purple-300 text-purple-950 border-purple-400 font-bold'
+                    : 'bg-purple-600 text-white border-purple-700'
+            }`}
+            title={`Classificação Recondicionado ${normGrade ? `(Grau ${normGrade})` : ''} no ML — estoque compatível com a loja`}
           >
-            <Sparkles className="w-3 h-3 text-purple-200" />
-            <span>{formattedConditionText}</span>
-            <span className="text-[9px] bg-purple-700/60 px-1 py-0.2 rounded text-purple-100 font-mono ml-0.5">
+            <Sparkles className="w-3 h-3 opacity-90" />
+            <span>{badgeInfo.label}</span>
+            <span className="text-[9px] bg-black/20 px-1 py-0.2 rounded font-mono ml-0.5">
               Estoque compatível
             </span>
           </Badge>
@@ -694,7 +755,7 @@ export function AnunciosCatalogoTab() {
             title="Classificação Caixa aberta no ML — aceito em posições de catálogo Novas"
           >
             <span className="w-1.5 h-1.5 rounded-full bg-blue-200" />
-            <span>{formattedConditionText}</span>
+            <span>{badgeInfo.label}</span>
           </Badge>
         )}
 
@@ -704,7 +765,7 @@ export function AnunciosCatalogoTab() {
             title="Classificação Usado no catálogo Mercado Livre"
           >
             <span className="w-1.5 h-1.5 rounded-full bg-amber-100" />
-            <span>{formattedConditionText}</span>
+            <span>{badgeInfo.label}</span>
           </Badge>
         )}
 
@@ -729,7 +790,7 @@ export function AnunciosCatalogoTab() {
               title="Classificação Novo de fábrica no catálogo oficial Mercado Livre"
             >
               <span className="w-1.5 h-1.5 rounded-full bg-white" />
-              <span>{formattedConditionText}</span>
+              <span>{badgeInfo.label}</span>
             </Badge>
           )}
       </div>
@@ -749,6 +810,21 @@ export function AnunciosCatalogoTab() {
   ).length
   const countUsed = catalogItems.filter((it) => it.catalogProduct.condition === 'used').length
 
+  // Contadores específicos de cada grau de recondicionado entre os itens recondicionados
+  const countGradeExcelente = catalogItems.filter((it) => {
+    if (it.catalogProduct.condition !== 'refurbished') return false
+    const g = normalizeRefurbishedGrade(it.catalogProduct.condition_grade)
+    return g === 'Excelente' || !g
+  }).length
+  const countGradeBom = catalogItems.filter((it) => {
+    if (it.catalogProduct.condition !== 'refurbished') return false
+    return normalizeRefurbishedGrade(it.catalogProduct.condition_grade) === 'Bom'
+  }).length
+  const countGradeAceitavel = catalogItems.filter((it) => {
+    if (it.catalogProduct.condition !== 'refurbished') return false
+    return normalizeRefurbishedGrade(it.catalogProduct.condition_grade) === 'Aceitável'
+  }).length
+
   // Avaliação de cada item em relação aos termos buscados e ao filtro de condição dos chips
   const evaluatedItems = catalogItems.map((item, originalIndex) => {
     const catProd = item.catalogProduct
@@ -760,7 +836,7 @@ export function AnunciosCatalogoTab() {
     const itemCond = (catProd.condition || 'new').toLowerCase()
     const isUnknownCondition = itemCond === 'unknown' || itemCond === 'not_specified'
 
-    const matchesCondition =
+    let matchesCondition =
       conditionFilter === 'all'
         ? true
         : conditionFilter === 'refurbished'
@@ -772,6 +848,14 @@ export function AnunciosCatalogoTab() {
               : conditionFilter === 'used'
                 ? itemCond === 'used'
                 : !isUnknownCondition
+
+    // Se o filtro de condição for 'refurbished' e houver sub-filtro de grau selecionado
+    if (matchesCondition && conditionFilter === 'refurbished' && gradeFilter !== 'all') {
+      const itemGrade = normalizeRefurbishedGrade(catProd.condition_grade) || 'Excelente'
+      if (itemGrade !== gradeFilter) {
+        matchesCondition = false
+      }
+    }
 
     return {
       item,
@@ -869,15 +953,16 @@ export function AnunciosCatalogoTab() {
                 <strong className="text-blue-700">Caixa aberta</strong>;{' '}
                 <span className="text-purple-700 font-bold">Recondicionado</span> agora utiliza o
                 mecanismo oficial descoberto do painel do Mercado Livre (envia a condição raiz
-                aceita com atributo de recondicionado e grau <strong>Excelente</strong>), permitindo
-                publicar a partir da posição base da família mesmo que ela não possuísse anúncio
-                recondicionado prévio.
+                aceita com atributo de recondicionado e o Grau selecionado (Excelente, Bom ou
+                Aceitável — os 3 graus oficiais do Mercado Livre)), permitindo publicar a partir da
+                posição base da família mesmo que ela não possuísse anúncio recondicionado prévio.
               </p>
               <p className="text-slate-600">
                 Ao publicar como <strong>Recondicionado</strong>, o Mercado Livre cria e vincula
-                automaticamente a posição de recondicionado da família na sua conta com Grau
-                Excelente. Caso o ML exija posição prévia estrita, o sistema ainda conta com o{' '}
-                <strong>fallback automático para Usado</strong> como rede de segurança.
+                automaticamente a posição de recondicionado da família na sua conta com o Grau
+                selecionado (Excelente, Bom ou Aceitável). Caso o ML exija posição prévia estrita, o
+                sistema ainda conta com o <strong>fallback automático para Usado</strong> como rede
+                de segurança.
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 pt-1 text-[11px] text-slate-800 font-medium">
                 <div className="flex items-start gap-1.5 bg-white/90 p-2 rounded border border-emerald-200">
@@ -903,7 +988,8 @@ export function AnunciosCatalogoTab() {
                   <div>
                     <strong className="text-purple-900">Recondicionado:</strong>
                     <span className="text-slate-600 block text-[10px]">
-                      Mecanismo Painel ML (Grau Excelente). Cria posição recondicionada na família.
+                      3 graus oficiais: Excelente (roxo escuro), Bom (roxo médio) e Aceitável (roxo
+                      claro).
                     </span>
                   </div>
                 </div>
@@ -1229,7 +1315,10 @@ export function AnunciosCatalogoTab() {
 
           <button
             type="button"
-            onClick={() => setConditionFilter('refurbished')}
+            onClick={() => {
+              setConditionFilter('refurbished')
+              setGradeFilter('all')
+            }}
             className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
               conditionFilter === 'refurbished'
                 ? 'bg-purple-600 text-white border-purple-700 shadow-xs'
@@ -1273,6 +1362,106 @@ export function AnunciosCatalogoTab() {
         </div>
       )}
 
+      {/* Sub-chips de Grau quando a classificação Recondicionado estiver ativa na aba Catálogo */}
+      {catalogItems.length > 0 && conditionFilter === 'refurbished' && (
+        <div className="flex items-center gap-2 flex-wrap px-1 pt-1 pb-1 animate-fadeIn bg-purple-50/60 p-2.5 rounded-lg border border-purple-200/80">
+          <span className="text-[11px] font-bold text-purple-900 uppercase tracking-wider flex items-center gap-1">
+            <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+            Grau Recondicionado:
+          </span>
+
+          <button
+            type="button"
+            onClick={() => setGradeFilter('all')}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold transition-all border ${
+              gradeFilter === 'all'
+                ? 'bg-purple-950 text-white border-purple-950 shadow-2xs'
+                : 'bg-white text-purple-900 border-purple-200 hover:bg-purple-100/60'
+            }`}
+          >
+            <span>Todos os graus</span>
+            <span
+              className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
+                gradeFilter === 'all'
+                  ? 'bg-purple-800 text-purple-100'
+                  : 'bg-purple-100 text-purple-800'
+              }`}
+            >
+              {countRefurbished}
+            </span>
+          </button>
+
+          {/* Excelente: Roxo escuro */}
+          <button
+            type="button"
+            onClick={() => setGradeFilter('Excelente')}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold transition-all border ${
+              gradeFilter === 'Excelente'
+                ? 'bg-purple-900 text-white border-purple-950 shadow-2xs ring-1 ring-purple-950'
+                : 'bg-white text-purple-950 border-purple-800 hover:bg-purple-900/10'
+            }`}
+          >
+            <span className="w-2 h-2 rounded-full bg-purple-900" />
+            <span>Excelente</span>
+            <span
+              className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
+                gradeFilter === 'Excelente'
+                  ? 'bg-purple-950 text-purple-100'
+                  : 'bg-purple-100 text-purple-900 font-bold'
+              }`}
+            >
+              {countGradeExcelente}
+            </span>
+          </button>
+
+          {/* Bom: Roxo médio */}
+          <button
+            type="button"
+            onClick={() => setGradeFilter('Bom')}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold transition-all border ${
+              gradeFilter === 'Bom'
+                ? 'bg-purple-600 text-white border-purple-700 shadow-2xs ring-1 ring-purple-700'
+                : 'bg-white text-purple-700 border-purple-400 hover:bg-purple-600/10'
+            }`}
+          >
+            <span className="w-2 h-2 rounded-full bg-purple-600" />
+            <span>Bom</span>
+            <span
+              className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
+                gradeFilter === 'Bom'
+                  ? 'bg-purple-800 text-purple-100'
+                  : 'bg-purple-100 text-purple-800 font-bold'
+              }`}
+            >
+              {countGradeBom}
+            </span>
+          </button>
+
+          {/* Aceitável: Roxo claro */}
+          <button
+            type="button"
+            onClick={() => setGradeFilter('Aceitável')}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold transition-all border ${
+              gradeFilter === 'Aceitável'
+                ? 'bg-purple-400 text-purple-950 border-purple-500 shadow-2xs ring-1 ring-purple-500 font-bold'
+                : 'bg-white text-purple-800 border-purple-300 hover:bg-purple-300/20'
+            }`}
+          >
+            <span className="w-2 h-2 rounded-full bg-purple-400" />
+            <span>Aceitável</span>
+            <span
+              className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
+                gradeFilter === 'Aceitável'
+                  ? 'bg-purple-500 text-purple-950 font-black'
+                  : 'bg-purple-100 text-purple-800 font-bold'
+              }`}
+            >
+              {countGradeAceitavel}
+            </span>
+          </button>
+        </div>
+      )}
+
       {/* Barra de Ações em Massa (quando há resultados) */}
       {catalogItems.length > 0 && (
         <Card className="border-blue-200 bg-blue-50/40 shadow-xs">
@@ -1301,7 +1490,7 @@ export function AnunciosCatalogoTab() {
             </div>
 
             <div className="flex items-center gap-2 w-full md:w-auto justify-between md:justify-end flex-wrap">
-              {/* Seletor de Condição em Lote para itens selecionados com as 4 opções oficiais */}
+              {/* Seletor de Condição e Grau em Lote para itens selecionados */}
               <div className="flex flex-col sm:flex-row items-start sm:items-center gap-1.5">
                 <span className="text-[11px] font-semibold text-slate-600 whitespace-nowrap">
                   Condição em lote:
@@ -1310,11 +1499,15 @@ export function AnunciosCatalogoTab() {
                   disabled={selectedCount === 0 || isPublishing}
                   defaultValue=""
                   onChange={(e) => {
-                    const val = e.target.value as any
-                    if (val) {
-                      applyBatchCondition(val)
-                      e.target.value = ''
+                    const val = e.target.value
+                    if (!val) return
+                    if (val.startsWith('refurbished_')) {
+                      const grade = val.replace('refurbished_', '') as RefurbishedGrade
+                      applyBatchCondition('refurbished', grade)
+                    } else {
+                      applyBatchCondition(val as PublishConditionOption)
                     }
+                    e.target.value = ''
                   }}
                   className="h-8 text-xs bg-white border border-slate-300 rounded-md px-2 font-medium text-slate-700 disabled:opacity-50"
                   aria-label="Aplicar condição em lote para selecionados"
@@ -1326,7 +1519,11 @@ export function AnunciosCatalogoTab() {
                   <option value="new">Novo</option>
                   <option value="open_box">Caixa aberta</option>
                   <option value="used">Usado</option>
-                  <option value="refurbished">Recondicionado</option>
+                  <optgroup label="Recondicionado (3 Graus Oficiais ML)">
+                    <option value="refurbished_Excelente">Recondicionado · Excelente</option>
+                    <option value="refurbished_Bom">Recondicionado · Bom</option>
+                    <option value="refurbished_Aceitável">Recondicionado · Aceitável</option>
+                  </optgroup>
                 </select>
               </div>
 
@@ -1822,6 +2019,50 @@ export function AnunciosCatalogoTab() {
                             </select>
                           </div>
 
+                          {/* Sub-seletor de Grau quando Recondicionado estiver ativo nesta linha */}
+                          {item.formCondition === 'refurbished' && (
+                            <div className="w-32 space-y-1 animate-fadeIn">
+                              <label className="text-[10px] uppercase font-bold text-purple-900 block flex items-center gap-1">
+                                <Sparkles className="w-2.5 h-2.5 text-purple-600" />
+                                Grau ML
+                              </label>
+                              <select
+                                value={item.formConditionGrade || 'Excelente'}
+                                onChange={(e) =>
+                                  updateConditionGrade(
+                                    originalIndex,
+                                    e.target.value as RefurbishedGrade,
+                                  )
+                                }
+                                disabled={!item.selected || isPublishing}
+                                className={`h-8 w-full text-xs border rounded-md px-2 font-bold disabled:opacity-50 transition-colors ${
+                                  (item.formConditionGrade || 'Excelente') === 'Excelente'
+                                    ? 'bg-purple-900 text-white border-purple-950 focus:ring-purple-900'
+                                    : (item.formConditionGrade || 'Excelente') === 'Bom'
+                                      ? 'bg-purple-600 text-white border-purple-700 focus:ring-purple-600'
+                                      : 'bg-purple-200 text-purple-950 border-purple-400 font-black'
+                                }`}
+                                aria-label="Grau de recondicionado oficial do Mercado Livre"
+                              >
+                                <option
+                                  value="Excelente"
+                                  className="bg-purple-950 text-white font-bold"
+                                >
+                                  Excelente
+                                </option>
+                                <option value="Bom" className="bg-purple-700 text-white font-bold">
+                                  Bom
+                                </option>
+                                <option
+                                  value="Aceitável"
+                                  className="bg-purple-200 text-purple-950 font-bold"
+                                >
+                                  Aceitável
+                                </option>
+                              </select>
+                            </div>
+                          )}
+
                           {/* Quantidade */}
                           <div className="w-20 space-y-1">
                             <label className="text-[10px] uppercase font-bold text-slate-500 block">
@@ -1901,10 +2142,13 @@ export function AnunciosCatalogoTab() {
                           <div className="p-2 rounded bg-purple-50 border border-purple-300 text-[11px] text-purple-950 leading-snug flex items-start gap-1.5">
                             <Sparkles className="w-3.5 h-3.5 text-purple-600 shrink-0 mt-0.5" />
                             <span>
-                              <strong>Recondicionado:</strong> requer posição de catálogo com
-                              variante recondicionada cadastrada no ML. Se a posição for
-                              estritamente nova, haverá recusa do ML (com fallback silencioso para
-                              Usado).
+                              <strong>
+                                Recondicionado (Grau {item.formConditionGrade || 'Excelente'}):
+                              </strong>{' '}
+                              utiliza o mecanismo oficial do ML com atributo GRADING={' '}
+                              <strong>{item.formConditionGrade || 'Excelente'}</strong>. Cria ou
+                              vincula à posição recondicionada da família no catálogo (com fallback
+                              de segurança para Usado caso a categoria exija posição estrita).
                             </span>
                           </div>
                         )}
@@ -2116,6 +2360,46 @@ export function AnunciosCatalogoTab() {
                                   <option value="refurbished">Recondicionado</option>
                                 </select>
                               </div>
+
+                              {/* Sub-seletor de Grau Parciais */}
+                              {item.formCondition === 'refurbished' && (
+                                <div className="w-28 space-y-1 animate-fadeIn">
+                                  <label className="text-[10px] uppercase font-bold text-purple-900 block">
+                                    Grau ML
+                                  </label>
+                                  <select
+                                    value={item.formConditionGrade || 'Excelente'}
+                                    onChange={(e) =>
+                                      updateConditionGrade(
+                                        originalIndex,
+                                        e.target.value as RefurbishedGrade,
+                                      )
+                                    }
+                                    disabled={!item.selected || isPublishing}
+                                    className={`h-7 w-full text-[11px] border rounded px-1 font-bold disabled:opacity-50 ${
+                                      (item.formConditionGrade || 'Excelente') === 'Excelente'
+                                        ? 'bg-purple-900 text-white border-purple-950'
+                                        : (item.formConditionGrade || 'Excelente') === 'Bom'
+                                          ? 'bg-purple-600 text-white border-purple-700'
+                                          : 'bg-purple-200 text-purple-950 border-purple-400'
+                                    }`}
+                                    aria-label="Grau de recondicionado"
+                                  >
+                                    <option value="Excelente" className="bg-purple-950 text-white">
+                                      Excelente
+                                    </option>
+                                    <option value="Bom" className="bg-purple-700 text-white">
+                                      Bom
+                                    </option>
+                                    <option
+                                      value="Aceitável"
+                                      className="bg-purple-200 text-purple-950"
+                                    >
+                                      Aceitável
+                                    </option>
+                                  </select>
+                                </div>
+                              )}
 
                               <div className="w-20 space-y-1">
                                 <label className="text-[10px] uppercase font-bold text-slate-400 block">

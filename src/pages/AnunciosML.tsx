@@ -51,6 +51,9 @@ export default function AnunciosML() {
   const [conditionFilter, setConditionFilter] = useState<
     'all' | 'new' | 'refurbished' | 'used' | 'not_specified'
   >('all')
+  const [refurbishedGradeFilter, setRefurbishedGradeFilter] = useState<
+    'all' | 'Excelente' | 'Bom' | 'Aceitável'
+  >('all')
 
   const fetchItems = async (showToast = false) => {
     setLoading(true)
@@ -129,6 +132,25 @@ export default function AnunciosML() {
         const itemCond = (item.condition || '').toLowerCase()
         if (conditionFilter === 'refurbished') {
           if (itemCond !== 'refurbished') return false
+          // Sub-filtro de grau de recondicionado
+          if (refurbishedGradeFilter !== 'all') {
+            const rawG = String(item.condition_grade || '')
+              .normalize('NFD')
+              .replace(/[\u0300-\u036f]/g, '')
+              .toLowerCase()
+              .trim()
+            let normalizedG: 'Excelente' | 'Bom' | 'Aceitável' | null = null
+            if (rawG === 'excelente' || rawG.includes('excelent') || rawG === '40108830') {
+              normalizedG = 'Excelente'
+            } else if (rawG === 'bom' || rawG.includes('good') || rawG === '40108831') {
+              normalizedG = 'Bom'
+            } else if (rawG === 'aceitavel' || rawG.includes('accept') || rawG === '40108832') {
+              normalizedG = 'Aceitável'
+            }
+            // Se não tiver grau explícito mas for recondicionado, o ML assume Excelente por padrão
+            const effectiveGrade = normalizedG || 'Excelente'
+            if (effectiveGrade !== refurbishedGradeFilter) return false
+          }
         } else if (conditionFilter === 'new') {
           if (itemCond !== 'new') return false
         } else if (conditionFilter === 'used') {
@@ -157,13 +179,58 @@ export default function AnunciosML() {
 
       return true
     })
-  }, [data, search, statusFilter, matchedFilter, catalogOnlyFilter, conditionFilter])
+  }, [
+    data,
+    search,
+    statusFilter,
+    matchedFilter,
+    catalogOnlyFilter,
+    conditionFilter,
+    refurbishedGradeFilter,
+  ])
 
   const stats = useMemo(() => {
     if (!data?.items) {
-      return { total: 0, active: 0, paused: 0, closed: 0, matched: 0, catalogListings: 0 }
+      return {
+        total: 0,
+        active: 0,
+        paused: 0,
+        closed: 0,
+        matched: 0,
+        catalogListings: 0,
+        condAll: 0,
+        condNew: 0,
+        condRefurbished: 0,
+        condUsed: 0,
+        condNotSpecified: 0,
+        refurbGradeExcelente: 0,
+        refurbGradeBom: 0,
+        refurbGradeAceitavel: 0,
+      }
     }
     const items = data.items
+    const refurbs = items.filter((i) => (i.condition || '').toLowerCase() === 'refurbished')
+
+    let countExcelente = 0
+    let countBom = 0
+    let countAceitavel = 0
+
+    refurbs.forEach((i) => {
+      const g = String(i.condition_grade || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .trim()
+      if (g === 'bom' || g.includes('good') || g === '40108831') {
+        countBom++
+      } else if (g === 'aceitavel' || g.includes('accept') || g === '40108832') {
+        countAceitavel++
+      } else {
+        // Excelente é o padrão oficial
+        countExcelente++
+      }
+    })
+
     return {
       total: items.length,
       active: items.filter((i) => i.status === 'active').length,
@@ -174,13 +241,15 @@ export default function AnunciosML() {
       // Contadores de condição calculados sobre os anúncios carregados
       condAll: items.length,
       condNew: items.filter((i) => (i.condition || '').toLowerCase() === 'new').length,
-      condRefurbished: items.filter((i) => (i.condition || '').toLowerCase() === 'refurbished')
-        .length,
+      condRefurbished: refurbs.length,
       condUsed: items.filter((i) => (i.condition || '').toLowerCase() === 'used').length,
       condNotSpecified: items.filter((i) => {
         const c = (i.condition || '').toLowerCase()
         return !c || c === 'not_specified' || c === 'unknown'
       }).length,
+      refurbGradeExcelente: countExcelente,
+      refurbGradeBom: countBom,
+      refurbGradeAceitavel: countAceitavel,
     }
   }, [data])
 
@@ -218,16 +287,37 @@ export default function AnunciosML() {
 
   const renderConditionBadge = (item: MLSellerItem) => {
     const cond = (item.condition || '').toLowerCase()
-    const grade = item.condition_grade
+    const rawG = String(item.condition_grade || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim()
+
+    let normGrade: 'Excelente' | 'Bom' | 'Aceitável' = 'Excelente'
+    if (rawG === 'bom' || rawG.includes('good') || rawG === '40108831') {
+      normGrade = 'Bom'
+    } else if (rawG === 'aceitavel' || rawG.includes('accept') || rawG === '40108832') {
+      normGrade = 'Aceitável'
+    } else if (rawG === 'excelente' || rawG.includes('excelent') || rawG === '40108830') {
+      normGrade = 'Excelente'
+    }
 
     if (cond === 'refurbished') {
+      // Cores: Excelente roxo escuro, Bom roxo médio, Aceitável roxo claro
+      const gradeStyles =
+        normGrade === 'Excelente'
+          ? 'bg-purple-900 text-white border-purple-950'
+          : normGrade === 'Bom'
+            ? 'bg-purple-600 text-white border-purple-700'
+            : 'bg-purple-300 text-purple-950 border-purple-400 font-bold'
+
       return (
         <Badge
-          variant="outline"
-          className="bg-purple-50 text-purple-700 border-purple-300 text-[10px] font-semibold gap-1"
+          className={`text-[10px] font-semibold gap-1 shadow-2xs ${gradeStyles}`}
+          title={`Recondicionado Grau ${normGrade}`}
         >
-          <span className="w-1.5 h-1.5 rounded-full bg-purple-600" />
-          Recondicionado{grade ? ` (${grade})` : ''}
+          <Sparkles className="w-3 h-3 opacity-90" />
+          Recondicionado · {normGrade}
         </Badge>
       )
     }
@@ -238,7 +328,7 @@ export default function AnunciosML() {
           variant="outline"
           className="bg-amber-50 text-amber-700 border-amber-200 text-[10px] font-semibold"
         >
-          Usado{grade ? ` (${grade})` : ''}
+          Usado{item.condition_grade ? ` (${item.condition_grade})` : ''}
         </Badge>
       )
     }
@@ -457,6 +547,107 @@ export default function AnunciosML() {
                     </Button>
                   </Link>
                 </div>
+
+                {/* Sub-chips de Grau quando o filtro Recondicionado estiver ativo */}
+                {conditionFilter === 'refurbished' && (
+                  <div className="pt-3 border-t border-purple-100 flex items-center gap-2 flex-wrap">
+                    <span className="text-[11px] font-bold text-purple-900 uppercase tracking-wider flex items-center gap-1">
+                      <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+                      Grau Oficial ML:
+                    </span>
+
+                    {/* Todos os graus */}
+                    <button
+                      type="button"
+                      onClick={() => setRefurbishedGradeFilter('all')}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold transition-all border ${
+                        refurbishedGradeFilter === 'all'
+                          ? 'bg-purple-950 text-white border-purple-950 shadow-2xs'
+                          : 'bg-white text-purple-900 border-purple-200 hover:bg-purple-100/60'
+                      }`}
+                    >
+                      <span>Todos os graus</span>
+                      <span
+                        className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
+                          refurbishedGradeFilter === 'all'
+                            ? 'bg-purple-800 text-purple-100'
+                            : 'bg-purple-100 text-purple-800'
+                        }`}
+                      >
+                        {stats.condRefurbished}
+                      </span>
+                    </button>
+
+                    {/* Excelente: Roxo escuro */}
+                    <button
+                      type="button"
+                      onClick={() => setRefurbishedGradeFilter('Excelente')}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold transition-all border ${
+                        refurbishedGradeFilter === 'Excelente'
+                          ? 'bg-purple-900 text-white border-purple-950 shadow-2xs ring-1 ring-purple-950'
+                          : 'bg-white text-purple-950 border-purple-800 hover:bg-purple-900/10'
+                      }`}
+                    >
+                      <span className="w-2 h-2 rounded-full bg-purple-900" />
+                      <span>Excelente</span>
+                      <span
+                        className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
+                          refurbishedGradeFilter === 'Excelente'
+                            ? 'bg-purple-950 text-purple-100'
+                            : 'bg-purple-100 text-purple-900 font-bold'
+                        }`}
+                      >
+                        {stats.refurbGradeExcelente}
+                      </span>
+                    </button>
+
+                    {/* Bom: Roxo médio */}
+                    <button
+                      type="button"
+                      onClick={() => setRefurbishedGradeFilter('Bom')}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold transition-all border ${
+                        refurbishedGradeFilter === 'Bom'
+                          ? 'bg-purple-600 text-white border-purple-700 shadow-2xs ring-1 ring-purple-700'
+                          : 'bg-white text-purple-700 border-purple-400 hover:bg-purple-600/10'
+                      }`}
+                    >
+                      <span className="w-2 h-2 rounded-full bg-purple-600" />
+                      <span>Bom</span>
+                      <span
+                        className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
+                          refurbishedGradeFilter === 'Bom'
+                            ? 'bg-purple-800 text-purple-100'
+                            : 'bg-purple-100 text-purple-800 font-bold'
+                        }`}
+                      >
+                        {stats.refurbGradeBom}
+                      </span>
+                    </button>
+
+                    {/* Aceitável: Roxo claro */}
+                    <button
+                      type="button"
+                      onClick={() => setRefurbishedGradeFilter('Aceitável')}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold transition-all border ${
+                        refurbishedGradeFilter === 'Aceitável'
+                          ? 'bg-purple-400 text-purple-950 border-purple-500 shadow-2xs ring-1 ring-purple-500 font-bold'
+                          : 'bg-white text-purple-800 border-purple-300 hover:bg-purple-300/20'
+                      }`}
+                    >
+                      <span className="w-2 h-2 rounded-full bg-purple-400" />
+                      <span>Aceitável</span>
+                      <span
+                        className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
+                          refurbishedGradeFilter === 'Aceitável'
+                            ? 'bg-purple-500 text-purple-950 font-black'
+                            : 'bg-purple-100 text-purple-800 font-bold'
+                        }`}
+                      >
+                        {stats.refurbGradeAceitavel}
+                      </span>
+                    </button>
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}
@@ -585,7 +776,10 @@ export default function AnunciosML() {
 
                 <button
                   type="button"
-                  onClick={() => setConditionFilter('refurbished')}
+                  onClick={() => {
+                    setConditionFilter('refurbished')
+                    setRefurbishedGradeFilter('all')
+                  }}
                   className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
                     conditionFilter === 'refurbished'
                       ? 'bg-purple-600 text-white border-purple-700 shadow-xs'

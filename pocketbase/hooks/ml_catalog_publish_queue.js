@@ -21,6 +21,32 @@ onRecordAfterCreateSuccess((e) => {
   const quantity = rec.getInt('quantity') || 1
   const domainId = rec.getString('domain_id') || ''
   const customCondition = rec.getString('condition') || ''
+  let customGrade = (rec.getString('condition_grade') || '').trim()
+
+  // Se não foi gravado diretamente em condition_grade, verifica se veio em result_data ou payload se houver
+  if (!customGrade) {
+    try {
+      const rd = rec.get('result_data')
+      if (rd && typeof rd === 'object' && rd.condition_grade) {
+        customGrade = String(rd.condition_grade).trim()
+      }
+    } catch (_) {}
+  }
+
+  // Mapeamento dos 3 graus oficiais de recondicionado do Mercado Livre:
+  // Excelente (40108830), Bom (40108831), Aceitável (40108832)
+  const GRADING_MAP = {
+    excelente: { value_id: '40108830', value_name: 'Excelente' },
+    bom: { value_id: '40108831', value_name: 'Bom' },
+    aceitavel: { value_id: '40108832', value_name: 'Aceitável' },
+    aceitável: { value_id: '40108832', value_name: 'Aceitável' },
+  }
+
+  function resolveGrading(rawGrade) {
+    if (!rawGrade) return GRADING_MAP.excelente
+    const norm = String(rawGrade).toLowerCase().trim()
+    return GRADING_MAP[norm] || GRADING_MAP.excelente
+  }
 
   // 1. Obter token ML e configurações
   let token = ''
@@ -233,8 +259,12 @@ onRecordAfterCreateSuccess((e) => {
   // - "open_box": SEM condition na raiz + ITEM_CONDITION 46759135
   // - "used": condition: "used" + ITEM_CONDITION 2230581
   // - "refurbished":
-  //     Variação Primária (Mecanismo Painel ML): condition: "new" + ITEM_CONDITION 2230582 + GRADING 40108830
-  //     Variação Secundária: SEM condition raiz + ITEM_CONDITION 2230582 + GRADING 40108830
+  //     Variação Primária (Mecanismo Painel ML): condition: "new" + ITEM_CONDITION 2230582 + GRADING (Excelente, Bom ou Aceitável)
+  //     Variação Secundária: SEM condition raiz + ITEM_CONDITION 2230582 + GRADING
+  const gradingResolved = resolveGrading(
+    customGrade || (localProduct ? localProduct.getString('condition_grade') : ''),
+  )
+
   const baseShipping = {
     mode: 'me2',
     local_pick_up: true,
@@ -280,14 +310,18 @@ onRecordAfterCreateSuccess((e) => {
       p.attributes.push({ id: 'ITEM_CONDITION', value_id: '46759135' })
     } else if (condKey === 'refurbished') {
       // MECANISMO REAL DO PAINEL MERCADO LIVRE:
-      // condition: "new" na raiz + ITEM_CONDITION 2230582 + GRADING 40108830 (Excelente)
+      // condition: "new" na raiz + ITEM_CONDITION 2230582 + GRADING (Excelente/Bom/Aceitável)
       if (variantStyle === 'no_root_cond') {
         delete p.condition
       } else {
         p.condition = 'new'
       }
       p.attributes.push({ id: 'ITEM_CONDITION', value_id: '2230582' })
-      p.attributes.push({ id: 'GRADING', value_id: '40108830', value_name: 'Excelente' })
+      p.attributes.push({
+        id: 'GRADING',
+        value_id: gradingResolved.value_id,
+        value_name: gradingResolved.value_name,
+      })
     } else {
       // Fallback genérico caso chegue algo diferente
       p.condition = 'used'
@@ -299,14 +333,14 @@ onRecordAfterCreateSuccess((e) => {
 
   const variationsToTry = []
   if (itemCondition === 'refurbished') {
-    // 1ª tentativa: Mecanismo exato do painel ML (condition "new" + ITEM_CONDITION 2230582 + GRADING 40108830)
+    // 1ª tentativa: Mecanismo exato do painel ML (condition "new" + ITEM_CONDITION 2230582 + GRADING)
     variationsToTry.push({
-      name: 'painel_ml_refurbished_graded',
+      name: 'painel_ml_refurbished_graded_' + gradingResolved.value_name.toLowerCase(),
       payload: buildPayloadForCondition('refurbished', 'with_root_new'),
     })
-    // 2ª tentativa: Sem condition raiz + GRADING 40108830 (aceito em posições recondicionadas pré-existentes)
+    // 2ª tentativa: Sem condition raiz + GRADING (aceito em posições recondicionadas pré-existentes)
     variationsToTry.push({
-      name: 'refurbished_graded_no_root',
+      name: 'refurbished_graded_no_root_' + gradingResolved.value_name.toLowerCase(),
       payload: buildPayloadForCondition('refurbished', 'no_root_cond'),
     })
   } else {
@@ -447,7 +481,10 @@ onRecordAfterCreateSuccess((e) => {
     const finalCatId = finalResponse.catalog_product_id || catalogProductId
 
     if (isRefurbishedSuccess) {
-      let successNote = 'Publicado com sucesso como Recondicionado (Grau Excelente) no catálogo ML.'
+      let successNote =
+        'Publicado com sucesso como Recondicionado (Grau ' +
+        gradingResolved.value_name +
+        ') no catálogo ML.'
       if (finalCatId && finalCatId !== catalogProductId) {
         successNote += ' Vinculado à posição recondicionada da família ' + finalCatId + '.'
       }
@@ -466,7 +503,9 @@ onRecordAfterCreateSuccess((e) => {
       const appliedLabel = condTransMap[successfulPayload.condition] || successfulPayload.condition
       const catCodeText = categoryId ? ' (categoria ' + categoryId + ')' : ''
       const fallbackNote =
-        'Recusado como "Recondicionado" pelo ML' +
+        'Recusado como "Recondicionado · Grau ' +
+        gradingResolved.value_name +
+        '" pelo ML' +
         catCodeText +
         ', republicado automaticamente como "' +
         appliedLabel +
@@ -713,7 +752,11 @@ onRecordAfterCreateSuccess((e) => {
     }
 
     if (fallbackFromCondition) {
-      userMsg = 'Recusado como "Recondicionado" pelo ML. ' + userMsg
+      userMsg =
+        'Recusado como "Recondicionado · Grau ' +
+        gradingResolved.value_name +
+        '" pelo ML. ' +
+        userMsg
     }
 
     rec.set('error_message', userMsg)

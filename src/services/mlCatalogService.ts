@@ -45,6 +45,84 @@ export interface MLCatalogProduct {
 
 export type PublishConditionOption = 'catalog_auto' | 'new' | 'used' | 'refurbished' | 'open_box'
 
+export type RefurbishedGrade = 'Excelente' | 'Bom' | 'Aceitável'
+
+export interface RefurbishedGradeOption {
+  value: RefurbishedGrade
+  label: string
+  mlValueId: string
+  colorTheme: {
+    // Cores: Excelente roxo escuro, Bom roxo médio, Aceitável roxo claro
+    bg: string
+    text: string
+    border: string
+    badgeBg: string
+    dotBg: string
+  }
+  description: string
+}
+
+export const ML_REFURBISHED_GRADES: Record<RefurbishedGrade, RefurbishedGradeOption> = {
+  Excelente: {
+    value: 'Excelente',
+    label: 'Excelente',
+    mlValueId: '40108830',
+    colorTheme: {
+      bg: 'bg-purple-900/10 text-purple-900 border-purple-800',
+      text: 'text-purple-950',
+      border: 'border-purple-800',
+      badgeBg: 'bg-purple-800 text-white border-purple-900',
+      dotBg: 'bg-purple-900',
+    },
+    description: 'Estado estético impecável, sem marcas de uso visíveis.',
+  },
+  Bom: {
+    value: 'Bom',
+    label: 'Bom',
+    mlValueId: '40108831',
+    colorTheme: {
+      bg: 'bg-purple-600/10 text-purple-700 border-purple-600',
+      text: 'text-purple-800',
+      border: 'border-purple-500',
+      badgeBg: 'bg-purple-600 text-white border-purple-700',
+      dotBg: 'bg-purple-600',
+    },
+    description: 'Pequenas marcas de uso superficiais quase imperceptíveis.',
+  },
+  Aceitável: {
+    value: 'Aceitável',
+    label: 'Aceitável',
+    mlValueId: '40108832',
+    colorTheme: {
+      bg: 'bg-purple-400/10 text-purple-600 border-purple-300',
+      text: 'text-purple-700',
+      border: 'border-purple-400',
+      badgeBg: 'bg-purple-400 text-purple-950 border-purple-500',
+      dotBg: 'bg-purple-400',
+    },
+    description: 'Sinais visíveis de uso ou arranhões, 100% funcional.',
+  },
+}
+
+export function normalizeRefurbishedGrade(grade?: string | null): RefurbishedGrade | null {
+  if (!grade) return null
+  const clean = String(grade)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+  if (clean === 'excelente' || clean.includes('excelent') || clean === '40108830') {
+    return 'Excelente'
+  }
+  if (clean === 'bom' || clean.includes('good') || clean === '40108831') {
+    return 'Bom'
+  }
+  if (clean === 'aceitavel' || clean.includes('accept') || clean === '40108832') {
+    return 'Aceitável'
+  }
+  return null
+}
+
 export interface MLCatalogConditionMeta {
   id: PublishConditionOption
   label: string
@@ -83,7 +161,7 @@ export const ML_CATALOG_CONDITIONS: Record<
     label: 'Recondicionado',
     mlValueId: '2230582',
     description:
-      'Equipamento recondicionado certificado (Grau Excelente). O sistema reproduz o mecanismo oficial do painel do ML criando ou vinculando à posição recondicionada da família.',
+      'Equipamento recondicionado certificado com escolha de grau (Excelente, Bom ou Aceitável — os 3 graus oficiais do Mercado Livre).',
     badgeClass: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
     dotClass: 'bg-purple-400',
     borderClass: 'border-purple-500/40',
@@ -100,12 +178,19 @@ export const ML_CATALOG_CONDITIONS: Record<
   },
 }
 
-export function getConditionBadgeInfo(cond?: string | null): {
+export function getConditionBadgeInfo(
+  cond?: string | null,
+  grade?: string | null,
+): {
   label: string
   badgeClass: string
   dotClass: string
+  gradeInfo?: RefurbishedGradeOption
 } {
   const c = String(cond || '').toLowerCase()
+  const normGrade = normalizeRefurbishedGrade(grade)
+  const gradeOpt = normGrade ? ML_REFURBISHED_GRADES[normGrade] : undefined
+
   if (c === 'new' || c === 'novo' || c === '2230284') {
     return {
       label: 'Novo',
@@ -127,6 +212,14 @@ export function getConditionBadgeInfo(cond?: string | null): {
     }
   }
   if (c === 'refurbished' || c === 'recondicionado' || c === 'refurb' || c === '2230582') {
+    if (gradeOpt) {
+      return {
+        label: `Recondicionado · ${gradeOpt.label}`,
+        badgeClass: gradeOpt.colorTheme.badgeBg,
+        dotClass: gradeOpt.colorTheme.dotBg,
+        gradeInfo: gradeOpt,
+      }
+    }
     return {
       label: 'Recondicionado',
       badgeClass: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
@@ -156,6 +249,7 @@ export interface CatalogMatchResult {
   formQuantity: number
   formPrice: number
   formCondition: PublishConditionOption
+  formConditionGrade?: RefurbishedGrade
   selectedProductId?: string
 }
 
@@ -193,6 +287,7 @@ export interface MLCatalogPublishJob {
   quantity: number
   domain_id?: string
   condition?: string
+  condition_grade?: string
   status: 'pending' | 'processing' | 'done' | 'error'
   status_code?: number
   error_message?: string
@@ -281,9 +376,10 @@ export const mlCatalogService = {
     quantity: number
     domain_id?: string
     condition?: string
+    condition_grade?: string
   }): Promise<MLCatalogPublishJob> {
     const userId = pb.authStore.model?.id || null
-    const job = await pb.collection('ml_catalog_publish_jobs').create({
+    const createData: Record<string, any> = {
       catalog_product_id: payload.catalog_product_id,
       product_id: payload.product_id || null,
       price: Math.max(1, Math.round(payload.price)),
@@ -292,7 +388,14 @@ export const mlCatalogService = {
       condition: payload.condition || 'used',
       status: 'pending',
       requested_by: userId,
-    })
+    }
+
+    if (payload.condition_grade) {
+      createData.condition_grade = payload.condition_grade
+      createData.result_data = { condition_grade: payload.condition_grade }
+    }
+
+    const job = await pb.collection('ml_catalog_publish_jobs').create(createData)
     return job as unknown as MLCatalogPublishJob
   },
 
