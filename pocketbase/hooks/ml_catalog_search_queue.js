@@ -431,6 +431,14 @@ onRecordAfterCreateSuccess((e) => {
       }
     }
 
+    // Enriquecer nicknames de todos os concorrentes da lista (até 15 concorrentes para evitar overhead)
+    for (let cIdx = 0; cIdx < competitorsList.length && cIdx < 15; cIdx++) {
+      const c = competitorsList[cIdx]
+      if (c && c.seller_id && !c.seller_nickname) {
+        c.seller_nickname = getSellerNickname(c.seller_id)
+      }
+    }
+
     // Enriquecer nickname do melhor concorrente se seller_id disponível
     if (bestCompetitor && bestCompetitor.seller_id && !bestCompetitor.seller_nickname) {
       bestCompetitor.seller_nickname = getSellerNickname(bestCompetitor.seller_id)
@@ -459,6 +467,7 @@ onRecordAfterCreateSuccess((e) => {
     let suggestedPrice = null
     let competitionRawStatus = ''
     let competitorsCount = 0
+    let competitors = []
     let stockStatus = 'Estoque não público'
     let competitionStatus = 'Sem concorrente ativo'
 
@@ -548,6 +557,7 @@ onRecordAfterCreateSuccess((e) => {
         }
         if (Array.isArray(deep.competitorsList)) {
           competitorsCount = deep.competitorsList.length
+          competitors = deep.competitorsList
         }
       } catch (eDeep) {
         debugLog.push('Aviso fetchDeepCompetition: ' + String(eDeep))
@@ -573,6 +583,7 @@ onRecordAfterCreateSuccess((e) => {
       suggested_price_to_win: suggestedPrice,
       competition_raw_status: competitionRawStatus,
       competitors_count: competitorsCount,
+      competitors: competitors,
       stock_status: stockStatus,
       competition_status: competitionStatus,
     }
@@ -940,6 +951,7 @@ onRecordAfterCreateSuccess((e) => {
                 suggested_price_to_win: compInfo.suggested_price_to_win,
                 competition_raw_status: compInfo.competition_raw_status || '',
                 competitors_count: compInfo.competitors_count || 0,
+                competitors: compInfo.competitors || [],
                 stock_status: compInfo.stock_status,
                 competition_status: compInfo.competition_status,
                 attributes: leanAttrs,
@@ -1071,6 +1083,7 @@ onRecordAfterCreateSuccess((e) => {
             suggested_price_to_win: fallbackComp.suggested_price_to_win,
             competition_raw_status: fallbackComp.competition_raw_status || '',
             competitors_count: fallbackComp.competitors_count || 1,
+            competitors: fallbackComp.competitors || [],
             stock_status: fallbackComp.stock_status,
             competition_status: fallbackComp.competition_status,
             attributes: itemAttrs,
@@ -1158,6 +1171,7 @@ onRecordAfterCreateSuccess((e) => {
             suggested_price_to_win: compInfo.suggested_price_to_win,
             competition_raw_status: compInfo.competition_raw_status || '',
             competitors_count: compInfo.competitors_count || 0,
+            competitors: compInfo.competitors || [],
             stock_status: compInfo.stock_status,
             competition_status: compInfo.competition_status,
             attributes: leanDirectAttributes,
@@ -1506,8 +1520,17 @@ onRecordAfterCreateSuccess((e) => {
               buy_box_winner_price: compInfo.buy_box_winner_price,
               min_price: compInfo.min_price,
               buy_box_winner_seller_id: compInfo.buy_box_winner_seller_id,
+              buy_box_winner_seller_nickname: compInfo.buy_box_winner_seller_nickname || '',
               buy_box_winner_item_id: compInfo.buy_box_winner_item_id,
               buy_box_winner_stock: compInfo.buy_box_winner_stock,
+              buy_box_winner_listing_type: compInfo.buy_box_winner_listing_type || '',
+              buy_box_winner_listing_type_label: compInfo.buy_box_winner_listing_type_label || '',
+              buy_box_winner_free_shipping: compInfo.buy_box_winner_free_shipping,
+              buy_box_winner_shipping_mode: compInfo.buy_box_winner_shipping_mode || '',
+              suggested_price_to_win: compInfo.suggested_price_to_win,
+              competition_raw_status: compInfo.competition_raw_status || '',
+              competitors_count: compInfo.competitors_count || 0,
+              competitors: compInfo.competitors || [],
               stock_status: compInfo.stock_status,
               competition_status: compInfo.competition_status,
               attributes: leanAttributes,
@@ -1615,6 +1638,7 @@ onRecordAfterCreateSuccess((e) => {
                 targetItem.suggested_price_to_win = freshComp.suggested_price_to_win
                 targetItem.competition_raw_status = freshComp.competition_raw_status
                 targetItem.competitors_count = freshComp.competitors_count
+                targetItem.competitors = freshComp.competitors || []
                 targetItem.stock_status = freshComp.stock_status
                 targetItem.competition_status = freshComp.competition_status
               } else if (
@@ -1622,6 +1646,10 @@ onRecordAfterCreateSuccess((e) => {
                 !targetItem.buy_box_winner_seller_nickname
               ) {
                 targetItem.buy_box_winner_seller_nickname = freshComp.buy_box_winner_seller_nickname
+              }
+              if (freshComp.competitors && freshComp.competitors.length > 0) {
+                targetItem.competitors = freshComp.competitors
+                targetItem.competitors_count = freshComp.competitors.length
               }
               const freshCond = extractProductCondition(pDetail)
               if (freshCond.condition !== 'new' || targetItem.condition === 'unknown') {
@@ -1737,6 +1765,39 @@ onRecordAfterCreateSuccess((e) => {
         if (item.condition_grade) {
           base.condition_grade = item.condition_grade
         }
+
+        // Sanitização e preservação dos concorrentes
+        if (Array.isArray(item.competitors) && item.competitors.length > 0) {
+          if (level === 1) {
+            base.competitors = item.competitors.slice(0, 15).map(function (c) {
+              return {
+                item_id: String(c.item_id || ''),
+                seller_id: String(c.seller_id || ''),
+                seller_nickname: String(c.seller_nickname || '').substring(0, 50),
+                price: Number(c.price) || 0,
+                available_quantity:
+                  c.available_quantity != null ? Number(c.available_quantity) : null,
+                listing_type_id: String(c.listing_type_id || ''),
+                listing_type_label: String(c.listing_type_label || ''),
+                is_buy_box_winner: Boolean(c.is_buy_box_winner),
+                is_own: Boolean(c.is_own),
+              }
+            })
+          } else {
+            // Nível compacto de fallback: versão enxuta dos concorrentes
+            base.competitors = item.competitors.slice(0, 8).map(function (c) {
+              return {
+                seller_nickname: String(c.seller_nickname || '').substring(0, 40),
+                price: Number(c.price) || 0,
+                available_quantity:
+                  c.available_quantity != null ? Number(c.available_quantity) : null,
+                is_buy_box_winner: Boolean(c.is_buy_box_winner),
+                is_own: Boolean(c.is_own),
+              }
+            })
+          }
+        }
+
         if (level === 1) {
           base.attributes = (item.attributes || []).filter(function (a) {
             return (

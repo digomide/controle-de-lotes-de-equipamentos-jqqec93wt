@@ -1,6 +1,18 @@
 import pb from '@/lib/pocketbase/client'
 import { Product } from '@/types/inventory'
 
+export interface MLCatalogCompetitor {
+  item_id?: string
+  seller_id?: string
+  seller_nickname?: string
+  price: number
+  available_quantity?: number | null
+  listing_type_id?: string
+  listing_type_label?: string
+  is_buy_box_winner?: boolean
+  is_own?: boolean
+}
+
 export interface MLCatalogProduct {
   id: string
   catalog_product_id: string
@@ -19,6 +31,7 @@ export interface MLCatalogProduct {
   suggested_price_to_win?: number | null
   competition_raw_status?: string | null
   competitors_count?: number | null
+  competitors?: MLCatalogCompetitor[]
   stock_status?: string
   competition_status?: string
   condition?: 'new' | 'refurbished' | 'used' | 'open_box' | 'unknown' | string
@@ -364,6 +377,39 @@ export const mlCatalogService = {
     throw new Error(
       'A busca no catálogo do Mercado Livre excedeu o tempo limite aguardando os resultados. Tente refazer a busca.',
     )
+  },
+
+  /**
+   * Consulta concorrentes sob demanda para uma posição de catálogo
+   */
+  async getCatalogCompetition(catalogProductId: string): Promise<{
+    catalog_product_id: string
+    competitors_count: number
+    competitors: MLCatalogCompetitor[]
+    winner?: MLCatalogCompetitor | null
+    suggested_price_to_win?: number | null
+    competition_raw_status?: string
+    best_competitor?: any
+  }> {
+    try {
+      const res = await pb.send(
+        `/api/ml/catalog-competition/${encodeURIComponent(catalogProductId)}`,
+        {
+          method: 'GET',
+        },
+      )
+      return res
+    } catch (err: any) {
+      console.warn(
+        `[mlCatalogService] Falha ao consultar concorrência de ${catalogProductId}:`,
+        err,
+      )
+      return {
+        catalog_product_id: catalogProductId,
+        competitors_count: 0,
+        competitors: [],
+      }
+    }
   },
 
   /**

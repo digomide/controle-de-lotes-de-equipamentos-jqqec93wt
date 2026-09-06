@@ -28,7 +28,9 @@ import {
   Zap,
   ArrowDownRight,
   ShieldCheck,
+  Users,
 } from 'lucide-react'
+import type { MLCatalogCompetitor } from '@/services/mlCatalogService'
 import {
   Select,
   SelectContent,
@@ -78,6 +80,61 @@ export function AnunciosCatalogoTab() {
   const [searchJobDebug, setSearchJobDebug] = useState<string[]>([])
   const [showDebug, setShowDebug] = useState(false)
   const [showPartialResults, setShowPartialResults] = useState(false)
+
+  // Controle de expansão da lista de concorrentes por item (chave: catalog_product_id ou id)
+  const [expandedCompetitors, setExpandedCompetitors] = useState<Record<string, boolean>>({})
+  const [loadingCompetitors, setLoadingCompetitors] = useState<Record<string, boolean>>({})
+
+  // Alternar visualização da lista de concorrentes e buscar sob demanda se necessário
+  async function toggleCompetitorsList(originalIndex: number) {
+    const item = catalogItems[originalIndex]
+    if (!item) return
+    const cat = item.catalogProduct
+    const key = cat.catalog_product_id || cat.id || String(originalIndex)
+    const isCurrentlyOpen = Boolean(expandedCompetitors[key])
+
+    // Se vai abrir e não tem a lista ainda, busca sob demanda
+    if (
+      !isCurrentlyOpen &&
+      (!cat.competitors || cat.competitors.length === 0) &&
+      cat.catalog_product_id
+    ) {
+      setLoadingCompetitors((prev) => ({ ...prev, [key]: true }))
+      try {
+        const compData = await mlCatalogService.getCatalogCompetition(cat.catalog_product_id)
+        if (compData && Array.isArray(compData.competitors) && compData.competitors.length > 0) {
+          setCatalogItems((prev) => {
+            const next = [...prev]
+            if (next[originalIndex]) {
+              next[originalIndex] = {
+                ...next[originalIndex],
+                catalogProduct: {
+                  ...next[originalIndex].catalogProduct,
+                  competitors: compData.competitors,
+                  competitors_count: compData.competitors.length,
+                  buy_box_winner_seller_nickname:
+                    next[originalIndex].catalogProduct.buy_box_winner_seller_nickname ||
+                    compData.winner?.seller_nickname ||
+                    undefined,
+                  suggested_price_to_win:
+                    next[originalIndex].catalogProduct.suggested_price_to_win ||
+                    compData.suggested_price_to_win ||
+                    undefined,
+                },
+              }
+            }
+            return next
+          })
+        }
+      } catch (err) {
+        console.warn('Erro ao carregar concorrentes:', err)
+      } finally {
+        setLoadingCompetitors((prev) => ({ ...prev, [key]: false }))
+      }
+    }
+
+    setExpandedCompetitors((prev) => ({ ...prev, [key]: !isCurrentlyOpen }))
+  }
 
   // Seletor de Condição da Busca (persistente durante a sessão da aba via sessionStorage)
   const [searchCondition, setSearchCondition] = useState<
@@ -1956,15 +2013,48 @@ export function AnunciosCatalogoTab() {
                                 </span>
                               </div>
 
-                              {/* Contagem de Concorrentes */}
-                              {cat.competitors_count != null && cat.competitors_count > 1 && (
-                                <Badge
-                                  variant="outline"
-                                  className="text-[10px] font-mono text-slate-600 border-slate-300 bg-white"
-                                >
-                                  {cat.competitors_count} concorrentes
-                                </Badge>
-                              )}
+                              {/* Contagem de Concorrentes (Chip Interativo para expandir/recolher) */}
+                              {(() => {
+                                const cKey =
+                                  cat.catalog_product_id || cat.id || String(originalIndex)
+                                const count =
+                                  cat.competitors && cat.competitors.length > 0
+                                    ? cat.competitors.length
+                                    : cat.competitors_count != null
+                                      ? cat.competitors_count
+                                      : 0
+                                const isOpen = Boolean(expandedCompetitors[cKey])
+                                const isLoading = Boolean(loadingCompetitors[cKey])
+
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleCompetitorsList(originalIndex)}
+                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-mono transition-colors border cursor-pointer ${
+                                      isOpen
+                                        ? 'bg-blue-100 text-blue-900 border-blue-300 font-semibold'
+                                        : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'
+                                    }`}
+                                    title={
+                                      isOpen
+                                        ? 'Recolher lista de concorrentes'
+                                        : 'Ver concorrentes da disputa'
+                                    }
+                                  >
+                                    <Users className="w-3 h-3 text-slate-500 shrink-0" />
+                                    <span>
+                                      {count} {count === 1 ? 'concorrente' : 'concorrentes'}
+                                    </span>
+                                    {isLoading ? (
+                                      <RefreshCw className="w-2.5 h-2.5 animate-spin text-blue-600" />
+                                    ) : isOpen ? (
+                                      <ChevronUp className="w-3 h-3 text-slate-500" />
+                                    ) : (
+                                      <ChevronDown className="w-3 h-3 text-slate-500" />
+                                    )}
+                                  </button>
+                                )
+                              })()}
 
                               {/* Status da Disputa */}
                               {cat.competition_status && (
@@ -1987,6 +2077,170 @@ export function AnunciosCatalogoTab() {
                                 </a>
                               )}
                             </div>
+
+                            {/* LISTA DE CONCORRENTES NA DISPUTA */}
+                            {(() => {
+                              const cKey = cat.catalog_product_id || cat.id || String(originalIndex)
+                              const isOpen = Boolean(expandedCompetitors[cKey])
+                              const isLoading = Boolean(loadingCompetitors[cKey])
+                              const competitors = cat.competitors || []
+
+                              if (!isOpen) return null
+
+                              return (
+                                <div className="mt-2.5 p-3 rounded-lg bg-slate-50/90 border border-slate-200/90 space-y-2 animate-fadeIn">
+                                  <div className="flex items-center justify-between gap-2 border-b border-slate-200 pb-1.5">
+                                    <div className="flex items-center gap-1.5">
+                                      <Users className="w-3.5 h-3.5 text-blue-600" />
+                                      <span className="text-xs font-bold text-slate-800">
+                                        Concorrentes na Disputa ({competitors.length})
+                                      </span>
+                                    </div>
+                                    <span className="text-[10px] text-slate-500 font-medium">
+                                      Formato: CONCORRENTE · PREÇO · ESTOQUE
+                                    </span>
+                                  </div>
+
+                                  {isLoading ? (
+                                    <div className="flex items-center gap-2 py-3 justify-center text-xs text-slate-500">
+                                      <RefreshCw className="w-4 h-4 animate-spin text-blue-600" />
+                                      <span>
+                                        Consultando concorrentes em tempo real no Mercado Livre...
+                                      </span>
+                                    </div>
+                                  ) : competitors.length > 0 ? (
+                                    <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+                                      {competitors.map((comp, cIdx) => {
+                                        const isOwn =
+                                          Boolean(comp.is_own) ||
+                                          (comp.seller_nickname &&
+                                            comp.seller_nickname.toUpperCase() === 'INFOPRECOBAIXO')
+                                        const isLeader =
+                                          Boolean(comp.is_buy_box_winner) ||
+                                          (cIdx === 0 &&
+                                            cat.buy_box_winner_price != null &&
+                                            Number(comp.price) === Number(cat.buy_box_winner_price))
+
+                                        const stockLabel =
+                                          comp.available_quantity != null &&
+                                          comp.available_quantity > 0
+                                            ? `${comp.available_quantity} un. disponíveis`
+                                            : 'estoque não público'
+
+                                        const sellerName = isOwn
+                                          ? 'INFOPRECOBAIXO (Sua conta)'
+                                          : comp.seller_nickname ||
+                                            (comp.seller_id
+                                              ? `Seller #${comp.seller_id}`
+                                              : `Concorrente ${cIdx + 1}`)
+
+                                        return (
+                                          <div
+                                            key={comp.item_id || comp.seller_id || cIdx}
+                                            className={`flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-md text-xs border transition-colors ${
+                                              isOwn
+                                                ? 'bg-purple-50/80 border-purple-200 text-purple-950 font-medium'
+                                                : isLeader
+                                                  ? 'bg-emerald-50/60 border-emerald-200 text-slate-900'
+                                                  : 'bg-white border-slate-200 text-slate-700'
+                                            }`}
+                                          >
+                                            <div className="flex items-center gap-2 min-w-0">
+                                              {/* Badges de Líder e Sua Conta */}
+                                              {isLeader && (
+                                                <Badge
+                                                  variant="outline"
+                                                  className="bg-emerald-600 text-white border-emerald-700 text-[9px] px-1.5 py-0 font-bold shrink-0 shadow-2xs"
+                                                >
+                                                  Líder
+                                                </Badge>
+                                              )}
+                                              {isOwn && (
+                                                <Badge
+                                                  variant="outline"
+                                                  className="bg-purple-600 text-white border-purple-700 text-[9px] px-1.5 py-0 font-bold shrink-0 shadow-2xs"
+                                                >
+                                                  Você
+                                                </Badge>
+                                              )}
+
+                                              {/* Nome do concorrente */}
+                                              <span
+                                                className={`truncate uppercase ${
+                                                  isOwn
+                                                    ? 'font-bold text-purple-900'
+                                                    : isLeader
+                                                      ? 'font-bold text-slate-900'
+                                                      : 'font-semibold text-slate-800'
+                                                }`}
+                                                title={sellerName}
+                                              >
+                                                {sellerName}
+                                              </span>
+
+                                              {/* Selo Premium / Clássico se disponível */}
+                                              {comp.listing_type_label && (
+                                                <Badge
+                                                  variant="outline"
+                                                  className="text-[9px] px-1 py-0 font-normal border-slate-300 bg-slate-50 text-slate-600 shrink-0 hidden sm:inline-flex"
+                                                >
+                                                  {comp.listing_type_label}
+                                                </Badge>
+                                              )}
+                                            </div>
+
+                                            <div className="flex items-center gap-2.5 shrink-0 font-mono text-[11px]">
+                                              {/* Valor do concorrente */}
+                                              <span
+                                                className={`font-bold ${
+                                                  isLeader ? 'text-emerald-700' : 'text-slate-900'
+                                                }`}
+                                              >
+                                                {Number(comp.price || 0).toLocaleString('pt-BR', {
+                                                  style: 'currency',
+                                                  currency: 'BRL',
+                                                })}
+                                              </span>
+
+                                              <span className="text-slate-300">·</span>
+
+                                              {/* Quantidade em estoque */}
+                                              <span
+                                                className={`${
+                                                  comp.available_quantity != null &&
+                                                  comp.available_quantity > 0
+                                                    ? 'text-slate-600'
+                                                    : 'text-slate-400 italic text-[10px]'
+                                                }`}
+                                              >
+                                                {stockLabel}
+                                              </span>
+                                            </div>
+                                          </div>
+                                        )
+                                      })}
+                                    </div>
+                                  ) : (
+                                    <div className="text-center py-2 text-[11px] text-slate-500">
+                                      {cat.buy_box_winner_seller_nickname ? (
+                                        <span>
+                                          Apenas o líder{' '}
+                                          <strong className="text-slate-700">
+                                            {cat.buy_box_winner_seller_nickname}
+                                          </strong>{' '}
+                                          registrado nesta posição (sem outros concorrentes diretos
+                                          no momento).
+                                        </span>
+                                      ) : (
+                                        <span>
+                                          Nenhum outro concorrente na disputa desta posição.
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              )
+                            })()}
                           </div>
                         </div>
                       </div>
@@ -2320,6 +2574,44 @@ export function AnunciosCatalogoTab() {
                                   </strong>
                                 </span>
 
+                                {(() => {
+                                  const cKey =
+                                    cat.catalog_product_id || cat.id || String(originalIndex)
+                                  const count =
+                                    cat.competitors && cat.competitors.length > 0
+                                      ? cat.competitors.length
+                                      : cat.competitors_count != null
+                                        ? cat.competitors_count
+                                        : 0
+                                  const isOpen = Boolean(expandedCompetitors[cKey])
+                                  const isLoading = Boolean(loadingCompetitors[cKey])
+
+                                  return (
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleCompetitorsList(originalIndex)}
+                                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono border cursor-pointer ${
+                                        isOpen
+                                          ? 'bg-blue-100 text-blue-900 border-blue-300 font-semibold'
+                                          : 'bg-white hover:bg-slate-100 text-slate-600 border-slate-300'
+                                      }`}
+                                      title="Ver concorrentes"
+                                    >
+                                      <Users className="w-2.5 h-2.5 text-slate-500 shrink-0" />
+                                      <span>
+                                        {count} {count === 1 ? 'concorrente' : 'concorrentes'}
+                                      </span>
+                                      {isLoading ? (
+                                        <RefreshCw className="w-2 h-2 animate-spin text-blue-600" />
+                                      ) : isOpen ? (
+                                        <ChevronUp className="w-2.5 h-2.5 text-slate-500" />
+                                      ) : (
+                                        <ChevronDown className="w-2.5 h-2.5 text-slate-500" />
+                                      )}
+                                    </button>
+                                  )
+                                })()}
+
                                 {cat.permalink && (
                                   <a
                                     href={cat.permalink}
@@ -2331,6 +2623,113 @@ export function AnunciosCatalogoTab() {
                                   </a>
                                 )}
                               </div>
+
+                              {/* LISTA DE CONCORRENTES NOS PARCIAIS */}
+                              {(() => {
+                                const cKey =
+                                  cat.catalog_product_id || cat.id || String(originalIndex)
+                                const isOpen = Boolean(expandedCompetitors[cKey])
+                                const isLoading = Boolean(loadingCompetitors[cKey])
+                                const competitors = cat.competitors || []
+
+                                if (!isOpen) return null
+
+                                return (
+                                  <div className="mt-2 p-2.5 rounded bg-white border border-slate-200 text-xs space-y-1.5 animate-fadeIn">
+                                    <div className="flex items-center justify-between font-bold text-slate-700 text-[11px] border-b pb-1">
+                                      <span>Concorrentes na Disputa ({competitors.length})</span>
+                                      <span className="text-[10px] text-slate-400 font-normal">
+                                        CONCORRENTE · VALOR · ESTOQUE
+                                      </span>
+                                    </div>
+                                    {isLoading ? (
+                                      <div className="flex items-center gap-2 py-2 justify-center text-xs text-slate-500">
+                                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                                        <span>Consultando concorrentes...</span>
+                                      </div>
+                                    ) : competitors.length > 0 ? (
+                                      <div className="space-y-1 max-h-48 overflow-y-auto">
+                                        {competitors.map((comp, cIdx) => {
+                                          const isOwn =
+                                            Boolean(comp.is_own) ||
+                                            (comp.seller_nickname &&
+                                              comp.seller_nickname.toUpperCase() ===
+                                                'INFOPRECOBAIXO')
+                                          const isLeader =
+                                            Boolean(comp.is_buy_box_winner) ||
+                                            (cIdx === 0 &&
+                                              cat.buy_box_winner_price != null &&
+                                              Number(comp.price) ===
+                                                Number(cat.buy_box_winner_price))
+
+                                          const stockLabel =
+                                            comp.available_quantity != null &&
+                                            comp.available_quantity > 0
+                                              ? `${comp.available_quantity} un.`
+                                              : 'não público'
+
+                                          const sellerName = isOwn
+                                            ? 'INFOPRECOBAIXO (Sua conta)'
+                                            : comp.seller_nickname ||
+                                              (comp.seller_id
+                                                ? `Seller #${comp.seller_id}`
+                                                : `Concorrente ${cIdx + 1}`)
+
+                                          return (
+                                            <div
+                                              key={comp.item_id || comp.seller_id || cIdx}
+                                              className={`flex items-center justify-between gap-2 p-1.5 rounded text-[11px] border ${
+                                                isOwn
+                                                  ? 'bg-purple-50 border-purple-200 text-purple-900 font-medium'
+                                                  : isLeader
+                                                    ? 'bg-emerald-50/70 border-emerald-200 text-slate-900'
+                                                    : 'bg-slate-50 border-slate-200 text-slate-700'
+                                              }`}
+                                            >
+                                              <div className="flex items-center gap-1.5 min-w-0">
+                                                {isLeader && (
+                                                  <Badge
+                                                    variant="outline"
+                                                    className="bg-emerald-600 text-white text-[9px] px-1 py-0 font-bold"
+                                                  >
+                                                    Líder
+                                                  </Badge>
+                                                )}
+                                                {isOwn && (
+                                                  <Badge
+                                                    variant="outline"
+                                                    className="bg-purple-600 text-white text-[9px] px-1 py-0 font-bold"
+                                                  >
+                                                    Você
+                                                  </Badge>
+                                                )}
+                                                <span className="truncate font-semibold uppercase">
+                                                  {sellerName}
+                                                </span>
+                                              </div>
+                                              <div className="flex items-center gap-2 font-mono shrink-0">
+                                                <span className="font-bold text-slate-900">
+                                                  {Number(comp.price || 0).toLocaleString('pt-BR', {
+                                                    style: 'currency',
+                                                    currency: 'BRL',
+                                                  })}
+                                                </span>
+                                                <span className="text-slate-300">·</span>
+                                                <span className="text-slate-500">{stockLabel}</span>
+                                              </div>
+                                            </div>
+                                          )
+                                        })}
+                                      </div>
+                                    ) : (
+                                      <div className="text-center py-1 text-[10px] text-slate-500">
+                                        Nenhum outro concorrente registrado na disputa desta
+                                        posição.
+                                      </div>
+                                    )}
+                                  </div>
+                                )
+                              })()}
                             </div>
                           </div>
 
