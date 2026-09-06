@@ -31,7 +31,6 @@ import {
   Users,
   X,
 } from 'lucide-react'
-import type { MLCatalogCompetitor, MLCatalogProduct } from '@/services/mlCatalogService'
 import {
   Select,
   SelectContent,
@@ -44,7 +43,10 @@ import { productsService } from '@/services/products'
 import { Product } from '@/types/inventory'
 import {
   mlCatalogService,
+  MLCatalogProduct,
+  MLCatalogCompetitor,
   CatalogMatchResult,
+  formatMLSoldQuantity,
   PublishConditionOption,
   RefurbishedGrade,
   ML_CATALOG_CONDITIONS,
@@ -130,6 +132,7 @@ export function AnunciosCatalogoTab() {
                     compData.competitors_count != null
                       ? compData.competitors_count
                       : currentProd.competitors_count,
+                  sold_quantity: updatedSold,
                   buy_box_winner_seller_nickname:
                     currentProd.buy_box_winner_seller_nickname ||
                     compData.winner?.seller_nickname ||
@@ -138,7 +141,6 @@ export function AnunciosCatalogoTab() {
                     currentProd.suggested_price_to_win ||
                     compData.suggested_price_to_win ||
                     undefined,
-                  sold_quantity: updatedSold,
                 },
               }
             }
@@ -180,9 +182,33 @@ export function AnunciosCatalogoTab() {
 
   // Critério de ordenação da grade (padrão 'relevance' = ordem da busca/relevância do ML)
   const [catalogSortBy, setCatalogSortBy] = useState<
-    'relevance' | 'sold_desc' | 'price_asc' | 'price_desc'
-  >('relevance')
+    'relevance' | 'price_asc' | 'price_desc' | 'stock_desc' | 'sold_desc'
+  >(() => {
+    try {
+      const saved = sessionStorage.getItem('ml_catalog_sort_by')
+      if (
+        saved === 'relevance' ||
+        saved === 'sold_desc' ||
+        saved === 'price_asc' ||
+        saved === 'price_desc' ||
+        saved === 'stock_desc'
+      ) {
+        return saved
+      }
+    } catch {
+      /* ignore */
+    }
+    return 'relevance'
+  })
 
+  // Salvar no sessionStorage sempre que mudar a ordenação
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('ml_catalog_sort_by', catalogSortBy)
+    } catch {
+      /* ignore */
+    }
+  }, [catalogSortBy])
   // Salvar no sessionStorage sempre que mudar o seletor da busca
   useEffect(() => {
     try {
@@ -831,6 +857,40 @@ export function AnunciosCatalogoTab() {
   const currentTokens = isDirectCode ? [] : extractCatalogSearchTokens(activeSearchTerm)
   const isFilterActive = !isDirectCode && currentTokens.length > 0
 
+  // Helper para renderizar badge de vendas
+  function renderSoldBadge(sold?: number | null) {
+    if (sold === null || sold === undefined || isNaN(sold)) {
+      return (
+        <Badge
+          variant="outline"
+          className="bg-slate-50 text-slate-400 border-slate-200 text-[10px] font-normal"
+          title="Quantidade de vendas não informada pelo Mercado Livre"
+        >
+          Vendas não informadas
+        </Badge>
+      )
+    }
+    const label = formatMLSoldQuantity(sold)
+    const n = Math.max(0, Math.floor(sold))
+    const isHot = n >= 100
+    return (
+      <Badge
+        variant="outline"
+        className={`text-[10px] font-semibold gap-1 ${
+          isHot
+            ? 'bg-amber-50 text-amber-900 border-amber-300'
+            : n > 0
+              ? 'bg-blue-50 text-blue-800 border-blue-200'
+              : 'bg-slate-50 text-slate-500 border-slate-200'
+        }`}
+        title={`Histórico no Mercado Livre: ${label}`}
+      >
+        <span>🛒</span>
+        <span>{label}</span>
+      </Badge>
+    )
+  }
+
   // Helper para renderizar a badge de classificação/condição da posição de catálogo
   function renderConditionBadge(cat: {
     condition?: string
@@ -1001,9 +1061,63 @@ export function AnunciosCatalogoTab() {
     }
   })
 
-  // Itens estritos e parciais/descartados filtrados pela condição selecionada
-  const strictItems = evaluatedItems.filter((entry) => entry.isMatch && entry.matchesCondition)
-  const partialItems = evaluatedItems.filter((entry) => !entry.isMatch && entry.matchesCondition)
+  // Ordenador de itens conforme critério catalogSortBy
+  function sortEvaluatedEntries<T extends { item: CatalogMatchResult; originalIndex: number }>(
+    entries: T[],
+  ): T[] {
+    if (catalogSortBy === 'relevance') {
+      return entries
+    }
+    const cloned = [...entries]
+    return cloned.sort((a, b) => {
+      const prodA = a.item.catalogProduct
+      const prodB = b.item.catalogProduct
+
+      if (catalogSortBy === 'sold_desc') {
+        const soldA =
+          prodA.sold_quantity != null && !isNaN(prodA.sold_quantity) ? prodA.sold_quantity : -1
+        const soldB =
+          prodB.sold_quantity != null && !isNaN(prodB.sold_quantity) ? prodB.sold_quantity : -1
+        // Se ambos não tiverem informação de vendas (-1), mantém ordem original
+        if (soldA === -1 && soldB === -1) return a.originalIndex - b.originalIndex
+        // Posições sem informação de vendas vão para o fim da lista
+        if (soldA === -1) return 1
+        if (soldB === -1) return -1
+        if (soldB !== soldA) {
+          return soldB - soldA
+        }
+        return a.originalIndex - b.originalIndex
+      }
+
+      if (catalogSortBy === 'price_asc') {
+        const pA = a.item.formPrice ?? prodA.buy_box_winner_price ?? 999999999
+        const pB = b.item.formPrice ?? prodB.buy_box_winner_price ?? 999999999
+        return pA - pB
+      }
+
+      if (catalogSortBy === 'price_desc') {
+        const pA = a.item.formPrice ?? prodA.buy_box_winner_price ?? 0
+        const pB = b.item.formPrice ?? prodB.buy_box_winner_price ?? 0
+        return pB - pA
+      }
+
+      if (catalogSortBy === 'stock_desc') {
+        const sA = prodA.buy_box_winner_stock ?? a.item.totalAvailableStock ?? 0
+        const sB = prodB.buy_box_winner_stock ?? b.item.totalAvailableStock ?? 0
+        return sB - sA
+      }
+
+      return a.originalIndex - b.originalIndex
+    })
+  }
+
+  // Itens estritos e parciais/descartados filtrados pela condição selecionada e ordenados
+  const strictItems = sortEvaluatedEntries(
+    evaluatedItems.filter((entry) => entry.isMatch && entry.matchesCondition),
+  )
+  const partialItems = sortEvaluatedEntries(
+    evaluatedItems.filter((entry) => !entry.isMatch && entry.matchesCondition),
+  )
 
   const selectedCount = catalogItems.filter((i) => i.selected).length
 
@@ -2002,6 +2116,9 @@ export function AnunciosCatalogoTab() {
                             {/* Badge de Classificação / Condição do Mercado Livre */}
                             {renderConditionBadge(cat)}
 
+                            {/* Badge discreto de vendas */}
+                            {renderSoldBadge(cat.sold_quantity)}
+
                             {/* Badge de correspondência com a busca */}
                             {isFilterActive && (
                               <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] flex items-center gap-1 font-semibold py-0.5">
@@ -2228,7 +2345,7 @@ export function AnunciosCatalogoTab() {
                                       </span>
                                     </div>
                                     <span className="text-[10px] text-slate-500 font-medium">
-                                      Formato: CONCORRENTE · PREÇO · ESTOQUE
+                                      Formato: CONCORRENTE · PREÇO · ESTOQUE · VENDAS
                                     </span>
                                   </div>
 
@@ -2346,6 +2463,23 @@ export function AnunciosCatalogoTab() {
                                               >
                                                 {stockLabel}
                                               </span>
+
+                                              {/* Quantidade de vendas do concorrente */}
+                                              {comp.sold_quantity != null ? (
+                                                <>
+                                                  <span className="text-slate-300">·</span>
+                                                  <span
+                                                    className={`text-[10px] ${
+                                                      comp.sold_quantity > 0
+                                                        ? 'text-blue-700 font-semibold'
+                                                        : 'text-slate-400'
+                                                    }`}
+                                                    title={`Vendas deste concorrente: ${formatMLSoldQuantity(comp.sold_quantity)}`}
+                                                  >
+                                                    {formatMLSoldQuantity(comp.sold_quantity)}
+                                                  </span>
+                                                </>
+                                              ) : null}
                                             </div>
                                           </div>
                                         )
@@ -2639,6 +2773,7 @@ export function AnunciosCatalogoTab() {
                                   {cat.catalog_product_id}
                                 </Badge>
                                 {renderConditionBadge(cat)}
+                                {renderSoldBadge(cat.sold_quantity)}
                                 <Badge
                                   variant="outline"
                                   className="bg-amber-50 text-amber-800 border-amber-200 text-[10px]"
@@ -2770,7 +2905,7 @@ export function AnunciosCatalogoTab() {
                                     <div className="flex items-center justify-between font-bold text-slate-700 text-[11px] border-b pb-1">
                                       <span>Concorrentes na Disputa ({competitors.length})</span>
                                       <span className="text-[10px] text-slate-400 font-normal">
-                                        CONCORRENTE · VALOR · ESTOQUE
+                                        CONCORRENTE · VALOR · ESTOQUE · VENDAS
                                       </span>
                                     </div>
                                     {isLoading ? (
@@ -2847,6 +2982,20 @@ export function AnunciosCatalogoTab() {
                                                 </span>
                                                 <span className="text-slate-300">·</span>
                                                 <span className="text-slate-500">{stockLabel}</span>
+                                                {comp.sold_quantity != null ? (
+                                                  <>
+                                                    <span className="text-slate-300">·</span>
+                                                    <span
+                                                      className={`text-[10px] ${
+                                                        comp.sold_quantity > 0
+                                                          ? 'text-blue-700 font-semibold'
+                                                          : 'text-slate-400'
+                                                      }`}
+                                                    >
+                                                      {formatMLSoldQuantity(comp.sold_quantity)}
+                                                    </span>
+                                                  </>
+                                                ) : null}
                                               </div>
                                             </div>
                                           )
