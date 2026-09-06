@@ -60,7 +60,9 @@ export function RaioXMercadoTab() {
   const [savingSnapshot, setSavingSnapshot] = useState(false)
   const [selectedSellerDetail, setSelectedSellerDetail] =
     useState<SellerPerformanceAggregate | null>(null)
-  const [filterExactOnly, setFilterExactOnly] = useState(true)
+  const [showSellersDrawer, setShowSellersDrawer] = useState(false)
+  const [showAllAdsDrawer, setShowAllAdsDrawer] = useState(false)
+  const [adsListingFilter, setAdsListingFilter] = useState<'all' | 'premium' | 'classic'>('all')
 
   // Sugestões de produtos exatos para pesquisa rápida
   const suggestedExactProducts = [
@@ -220,14 +222,15 @@ export function RaioXMercadoTab() {
                 </div>
                 <div>
                   <h2 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-                    Raio-X de Produto Exato & Termômetro de Vendas
+                    Raio-X de Mercado Global
                     <Badge className="bg-amber-400 text-slate-950 hover:bg-amber-300 text-[10px] font-bold">
-                      Filtro Rigoroso + Termômetro por Seller
+                      Análise Global do Produto
                     </Badge>
                   </h2>
                   <p className="text-xs text-slate-300">
-                    Filtra exatamente os anúncios do produto pesquisado, audita os sellers
-                    concorrentes, rastreia vendas expostas e avalia giro, fluxo e margem de entrada.
+                    Consolida o universo completo de anúncios do produto exato no Mercado Livre:
+                    força de mercado, estoque agregado, faixa de preços, liquidez, distribuição de
+                    anúncios e oportunidade de margem.
                   </p>
                 </div>
               </div>
@@ -267,12 +270,12 @@ export function RaioXMercadoTab() {
 
               <div className="bg-slate-900/80 p-3.5 rounded-lg border border-slate-800 space-y-1.5">
                 <span className="font-bold text-indigo-300 flex items-center gap-1.5 text-xs">
-                  <Flame className="w-3.5 h-3.5" /> 2. Termômetro de Vendas (0–100)
+                  <TrendingUp className="w-3.5 h-3.5" /> 2. Métricas Globais Consolidadas
                 </span>
                 <p className="text-[11px] leading-relaxed text-slate-400">
-                  Ranqueia cada seller por: <strong>🔥 Giro Alto (65–100)</strong>,{' '}
-                  <strong>🌡️ Médio (35–64)</strong> e <strong>❄️ Baixo (0–34)</strong>, ponderando
-                  vendas confirmadas, posse da Buy Box, volume de estoque e tipo de anúncio.
+                  Reúne todos os anúncios ativos legítimos do produto para mensurar a força real do
+                  item no ML: estoque total visível, dispersão de preço (mín/méd/máx), volume de
+                  vendedores e mix Premium vs Clássico.
                 </p>
               </div>
 
@@ -324,7 +327,7 @@ export function RaioXMercadoTab() {
                   ) : (
                     <TrendingUp className="w-4 h-4" />
                   )}
-                  {loading ? 'Analisando Sellers...' : 'Analisar Produto Exato'}
+                  {loading ? 'Analisando Mercado...' : 'Analisar Mercado Global'}
                 </Button>
 
                 <Button
@@ -418,41 +421,65 @@ export function RaioXMercadoTab() {
         </Card>
       )}
 
-      {/* CONTEÚDO PRINCIPAL: PAINEL SÍNTESE + TERMÔMETRO POR SELLER */}
+      {/* CONTEÚDO PRINCIPAL: SÍNTESE GLOBAL DO PRODUTO + GAVETA DE ANÚNCIOS + GAVETA DE SELLERS */}
       {summary && (
         <div className="space-y-6">
-          {/* 1. PAINEL SÍNTESE NO TOPO */}
-          <Card className="border-indigo-100 bg-gradient-to-br from-indigo-50/60 via-white to-slate-50 shadow-xs">
-            <CardHeader className="pb-3 border-b border-indigo-100/60">
+          {/* 1. PAINEL PRINCIPAL: SÍNTESE GLOBAL DO PRODUTO */}
+          <Card className="border-indigo-100 bg-gradient-to-br from-indigo-50/70 via-white to-slate-50 shadow-sm">
+            <CardHeader className="pb-4 border-b border-indigo-100/60">
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <div className="space-y-1">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <Badge className="bg-indigo-600 text-white text-[10px] uppercase font-bold tracking-wider">
-                      Síntese de Mercado
+                      Síntese Global do Produto
                     </Badge>
                     <span className="text-xs font-bold text-slate-900">
                       &quot;{summary.searchTerm}&quot;
                     </span>
+                    <Badge
+                      variant="outline"
+                      className="bg-emerald-50 text-emerald-800 border-emerald-200 text-[10px] font-semibold"
+                    >
+                      {summary.marketForceExplanation}
+                    </Badge>
                   </div>
-                  <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                  <h3 className="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
                     {summary.exactMatchedPositionsCount} de {summary.totalRawPositions} posições são
                     deste produto exato
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Filtro de precisão descartou {summary.filteredOutCount} anúncio(s) irrelevantes
-                    ou de outros produtos.
+                    Filtro taxonômico preservou {summary.exactMatchedPositionsCount} anúncio(s)
+                    legítimos e descartou {summary.filteredOutCount} produto(s) de modelos ou
+                    categorias incompatíveis.
                   </p>
                 </div>
 
-                {/* Botão para Gravar Snapshot Periódico */}
-                <div className="flex items-center gap-2">
+                {/* Ações Globais: Gravar Snapshot e Abrir Anúncios */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setShowAllAdsDrawer(!showAllAdsDrawer)}
+                    className="text-xs h-9 bg-white border-slate-300 text-slate-700 hover:bg-slate-50 gap-1.5"
+                  >
+                    <Package className="w-3.5 h-3.5 text-blue-600" />
+                    {showAllAdsDrawer
+                      ? 'Ocultar Anúncios'
+                      : `Ver Todos os Anúncios (${summary.allAds.length})`}
+                    {showAllAdsDrawer ? (
+                      <ChevronUp className="w-3.5 h-3.5" />
+                    ) : (
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    )}
+                  </Button>
+
                   <Button
                     size="sm"
                     variant="outline"
                     onClick={handleSaveSnapshot}
                     disabled={savingSnapshot || snapshotSaved}
-                    className="text-xs h-9 bg-white border-slate-300 text-slate-700 hover:bg-slate-50 gap-1.5"
-                    title="Gravar foto atual de estoque, preço e vendas para histórico de 60 dias"
+                    className="text-xs h-9 bg-white border-indigo-200 text-indigo-700 hover:bg-indigo-50 gap-1.5"
+                    title="Gravar foto atual de estoque, preço e vendas para histórico global de 60 dias"
                   >
                     <Database className="w-3.5 h-3.5 text-indigo-600" />
                     {snapshotSaved
@@ -465,32 +492,33 @@ export function RaioXMercadoTab() {
               </div>
             </CardHeader>
 
-            <CardContent className="p-5">
-              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3">
-                {/* Sellers Únicos */}
-                <div className="p-3 bg-white rounded-lg border border-slate-200">
+            <CardContent className="p-5 space-y-4">
+              {/* Linha 1 de Cards Globais: 6 Métricas Principais */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                {/* Total de Anúncios Ativos */}
+                <div className="p-3.5 bg-white rounded-lg border border-slate-200 shadow-2xs">
                   <span className="text-[10px] font-bold uppercase text-slate-400 block flex items-center gap-1">
-                    <Users className="w-3 h-3 text-indigo-500" /> Vendedores Ativos
+                    <Layers className="w-3 h-3 text-indigo-500" /> Anúncios Ativos
                   </span>
                   <span className="text-2xl font-black text-slate-900 font-mono mt-0.5 block">
-                    {summary.uniqueSellersCount}
+                    {summary.totalActiveAds}
                   </span>
-                  <span className="text-[10px] text-slate-500">Disputando este produto</span>
+                  <span className="text-[10px] text-slate-500">Posições do produto exato</span>
                 </div>
 
-                {/* Estoque Total Visível */}
-                <div className="p-3 bg-white rounded-lg border border-slate-200">
+                {/* Estoque Total Somado */}
+                <div className="p-3.5 bg-white rounded-lg border border-slate-200 shadow-2xs">
                   <span className="text-[10px] font-bold uppercase text-slate-400 block flex items-center gap-1">
-                    <Package className="w-3 h-3 text-blue-500" /> Estoque Visível
+                    <Package className="w-3 h-3 text-blue-500" /> Estoque Somado
                   </span>
                   <span className="text-2xl font-black text-blue-700 font-mono mt-0.5 block">
                     {summary.totalVisibleStock} un.
                   </span>
-                  <span className="text-[10px] text-slate-500">Somado entre os sellers</span>
+                  <span className="text-[10px] text-slate-500">Volume total visível</span>
                 </div>
 
-                {/* Faixa de Preço */}
-                <div className="p-3 bg-white rounded-lg border border-slate-200">
+                {/* Faixa de Preço Global */}
+                <div className="p-3.5 bg-white rounded-lg border border-slate-200 shadow-2xs col-span-2 sm:col-span-1">
                   <span className="text-[10px] font-bold uppercase text-slate-400 block flex items-center gap-1">
                     <DollarSign className="w-3 h-3 text-emerald-500" /> Faixa de Preço
                   </span>
@@ -500,352 +528,634 @@ export function RaioXMercadoTab() {
                       currency: 'BRL',
                     })}
                   </span>
-                  <span className="text-[10px] text-slate-500 font-mono">
+                  <span className="text-[10px] text-slate-500 font-mono block truncate">
                     Até{' '}
                     {summary.priceMax.toLocaleString('pt-BR', {
                       style: 'currency',
                       currency: 'BRL',
-                    })}{' '}
-                    (méd.{' '}
+                    })}
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-mono block">
+                    Méd.{' '}
                     {summary.priceAvg.toLocaleString('pt-BR', {
                       style: 'currency',
                       currency: 'BRL',
                     })}
-                    )
                   </span>
                 </div>
 
-                {/* Vendas Confirmadas */}
-                <div className="p-3 bg-white rounded-lg border border-slate-200">
+                {/* Vendas Expostas Somadas */}
+                <div className="p-3.5 bg-white rounded-lg border border-slate-200 shadow-2xs">
                   <span className="text-[10px] font-bold uppercase text-slate-400 block flex items-center gap-1">
-                    <Activity className="w-3 h-3 text-amber-500" /> Vendas Confirmadas
+                    <Activity className="w-3 h-3 text-amber-500" /> Vendas Expostas
                   </span>
                   <span className="text-xl font-black text-slate-900 font-mono mt-1 block">
                     {summary.hasAnyConfirmedSales
                       ? `${summary.totalConfirmedSalesAcrossSellers} un.`
                       : 'Não exposto'}
                   </span>
-                  <span className="text-[10px] text-slate-500">
+                  <span className="text-[10px] text-slate-500 block leading-tight">
                     {summary.hasAnyConfirmedSales
-                      ? 'Dados reais auditados'
+                      ? 'Auditadas via ML/Delta'
                       : 'ML restringe 403 p/ terceiros'}
                   </span>
                 </div>
 
-                {/* Melhor Entrada para Margem */}
-                <div className="p-3 bg-amber-50/60 rounded-lg border border-amber-200 col-span-2 sm:col-span-4 lg:col-span-1">
-                  <span className="text-[10px] font-bold uppercase text-amber-900 block flex items-center gap-1">
-                    <Trophy className="w-3 h-3 text-amber-600" /> Oportunidade Margem
+                {/* Vendedores Distintos */}
+                <div className="p-3.5 bg-white rounded-lg border border-slate-200 shadow-2xs">
+                  <span className="text-[10px] font-bold uppercase text-slate-400 block flex items-center gap-1">
+                    <Users className="w-3 h-3 text-purple-500" /> Vendedores
                   </span>
-                  {summary.bestOpportunityMargin ? (
-                    <div className="mt-0.5 space-y-0.5">
-                      <span className="text-sm font-black text-amber-950 font-mono block">
-                        {summary.bestOpportunityMargin.price.toLocaleString('pt-BR', {
-                          style: 'currency',
-                          currency: 'BRL',
-                        })}
+                  <span className="text-2xl font-black text-slate-900 font-mono mt-0.5 block">
+                    {summary.uniqueSellersCount}
+                  </span>
+                  <span className="text-[10px] text-slate-500">Lojas concorrentes</span>
+                </div>
+
+                {/* Distribuição Premium / Clássico */}
+                <div className="p-3.5 bg-white rounded-lg border border-slate-200 shadow-2xs">
+                  <span className="text-[10px] font-bold uppercase text-slate-400 block flex items-center gap-1">
+                    <Percent className="w-3 h-3 text-indigo-500" /> Premium / Clássico
+                  </span>
+                  <div className="mt-1 flex items-baseline gap-1.5">
+                    <span className="text-base font-black text-emerald-700 font-mono">
+                      {summary.distribution.premiumPercent}%
+                    </span>
+                    <span className="text-xs text-slate-400">/</span>
+                    <span className="text-base font-bold text-slate-700 font-mono">
+                      {summary.distribution.classicPercent}%
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-slate-500 block leading-tight">
+                    {summary.distribution.premiumCount} Prem. · {summary.distribution.classicCount}{' '}
+                    Cláss.
+                  </span>
+                </div>
+              </div>
+
+              {/* Linha 2 de Cards Globais: Força de Mercado no ML + Oportunidade de Margem na Buy Box */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 pt-1">
+                {/* Indicador de Força de Mercado Global */}
+                <div className="lg:col-span-5 p-4 bg-white rounded-lg border border-slate-200 shadow-2xs flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-bold uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
+                        <Flame className="w-3.5 h-3.5 text-amber-500" /> Força do Produto no Mercado
+                        Livre
                       </span>
-                      <p className="text-[10px] text-amber-900 leading-snug">
-                        {summary.bestOpportunityMargin.marginDiffPercent > 0
-                          ? `${summary.bestOpportunityMargin.marginDiffPercent}% menor que o líder (${summary.bestOpportunityMargin.leaderPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})`
-                          : 'Pouca concorrência ativa'}
-                      </p>
+                      <Badge
+                        className={`text-[10px] font-bold px-2 py-0.5 ${
+                          summary.marketForceTier === 'strong'
+                            ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                            : summary.marketForceTier === 'moderate'
+                              ? 'bg-amber-100 text-amber-800 border-amber-200'
+                              : 'bg-blue-100 text-blue-800 border-blue-200'
+                        }`}
+                      >
+                        {summary.marketForceTier === 'strong'
+                          ? '🔥 Forte / Alta Demanda'
+                          : summary.marketForceTier === 'moderate'
+                            ? '🌡️ Demanda Moderada'
+                            : '❄️ Nicho / Disputa Baixa'}
+                      </Badge>
                     </div>
-                  ) : (
-                    <span className="text-xs text-slate-500 mt-1 block">Sob consulta</span>
-                  )}
+
+                    <div className="flex items-baseline gap-2 mt-2">
+                      <span className="text-3xl font-black font-mono text-slate-900">
+                        {summary.marketForceScore}
+                      </span>
+                      <span className="text-xs text-slate-400 font-mono">/ 100 pontos</span>
+                    </div>
+
+                    <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                      {summary.marketForceExplanation}. Avaliação baseada no volume de{' '}
+                      {summary.totalActiveAds} anúncios,
+                      {summary.uniqueSellersCount} sellers em disputa e estoque de{' '}
+                      {summary.totalVisibleStock} unidades.
+                    </p>
+                  </div>
+
+                  {/* Barra visual de força do produto */}
+                  <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden border border-slate-200 mt-3">
+                    <div
+                      className={`h-full rounded-full transition-all duration-500 ${
+                        summary.marketForceTier === 'strong'
+                          ? 'bg-emerald-600'
+                          : summary.marketForceTier === 'moderate'
+                            ? 'bg-amber-500'
+                            : 'bg-blue-500'
+                      }`}
+                      style={{ width: `${Math.max(10, summary.marketForceScore)}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* Leitura Estratégica de Oportunidade de Margem contra o Líder da Buy Box */}
+                <div className="lg:col-span-7 p-4 bg-amber-50/70 rounded-lg border border-amber-200 shadow-2xs flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-bold uppercase text-amber-900 tracking-wider flex items-center gap-1.5">
+                        <Trophy className="w-3.5 h-3.5 text-amber-600" /> Oportunidade de Margem vs
+                        Líder da Buy Box
+                      </span>
+                      {summary.bestOpportunityMargin && (
+                        <Badge className="bg-amber-400 text-slate-950 font-bold text-[10px]">
+                          Piso Concorrencial:{' '}
+                          {summary.bestOpportunityMargin.price.toLocaleString('pt-BR', {
+                            style: 'currency',
+                            currency: 'BRL',
+                          })}
+                        </Badge>
+                      )}
+                    </div>
+
+                    {summary.bestOpportunityMargin ? (
+                      <div className="mt-2 space-y-1.5">
+                        <div className="flex items-baseline gap-3 flex-wrap">
+                          <span className="text-2xl font-black text-amber-950 font-mono">
+                            {summary.bestOpportunityMargin.price.toLocaleString('pt-BR', {
+                              style: 'currency',
+                              currency: 'BRL',
+                            })}
+                          </span>
+                          <span className="text-xs text-amber-800 font-semibold">
+                            Líder da Buy Box ({summary.bestOpportunityMargin.sellerNickname}):{' '}
+                            <span className="font-mono font-bold">
+                              {summary.bestOpportunityMargin.leaderPrice.toLocaleString('pt-BR', {
+                                style: 'currency',
+                                currency: 'BRL',
+                              })}
+                            </span>
+                          </span>
+                        </div>
+                        <p className="text-xs text-amber-900 leading-relaxed">
+                          {summary.bestOpportunityMargin.explanation}
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-500 mt-2">
+                        Dados de margem sob consulta ou pouca dispersão de preço observada.
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="pt-2 text-[11px] text-amber-800/80 flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                    <span>
+                      Dica de publicação: anuncie no tipo Premium se a concorrência estiver
+                      majoritariamente no Clássico para capturar cliques de parcelamento sem juros.
+                    </span>
+                  </div>
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          {/* 2. TABELA DO TERMÔMETRO DE VENDAS POR SELLER */}
-          <Card className="border-slate-200 shadow-xs bg-white">
-            <CardHeader className="pb-3 border-b border-slate-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-              <div>
-                <CardTitle className="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2">
-                  <Flame className="w-4 h-4 text-amber-500" />
-                  Termômetro de Vendas por Seller ({summary.sellersRanked.length} vendedores
-                  ranqueados)
-                </CardTitle>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Classificação baseada em vendas reais (quando expostas), Buy Box conquistada,
-                  estoque disponível e tipo de anúncio.
-                </p>
-              </div>
+          {/* GAVETA GLOBAL 1: TODOS OS ANÚNCIOS DO PRODUTO EXATO */}
+          {showAllAdsDrawer && (
+            <Card className="border-slate-200 shadow-sm bg-white">
+              <CardHeader className="pb-3 border-b border-slate-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div>
+                  <CardTitle className="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2">
+                    <Package className="w-4 h-4 text-blue-600" />
+                    Universo de Anúncios do Produto Exato ({summary.allAds.length} anúncios ativos)
+                  </CardTitle>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Lista completa de anúncios catalogados para este modelo no Mercado Livre.
+                  </p>
+                </div>
 
-              {/* Legenda do Termômetro */}
-              <div className="flex items-center gap-2 flex-wrap">
-                <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[10px] font-bold">
-                  🔥 Giro Alto (65–100)
-                </Badge>
-                <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[10px] font-bold">
-                  🌡️ Médio (35–64)
-                </Badge>
-                <Badge className="bg-blue-100 text-blue-800 border-blue-200 text-[10px] font-bold">
-                  ❄️ Baixo (0–34)
-                </Badge>
-              </div>
-            </CardHeader>
+                {/* Filtro por tipo de anúncio */}
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    size="sm"
+                    variant={adsListingFilter === 'all' ? 'default' : 'outline'}
+                    onClick={() => setAdsListingFilter('all')}
+                    className="h-7 text-xs px-2.5"
+                  >
+                    Todos ({summary.allAds.length})
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={adsListingFilter === 'premium' ? 'default' : 'outline'}
+                    onClick={() => setAdsListingFilter('premium')}
+                    className="h-7 text-xs px-2.5"
+                  >
+                    Premium ({summary.distribution.premiumCount})
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={adsListingFilter === 'classic' ? 'default' : 'outline'}
+                    onClick={() => setAdsListingFilter('classic')}
+                    className="h-7 text-xs px-2.5"
+                  >
+                    Clássico ({summary.distribution.classicCount})
+                  </Button>
+                </div>
+              </CardHeader>
 
-            <CardContent className="p-0">
-              <div className="divide-y divide-slate-100">
-                {summary.sellersRanked.map((seller, sIdx) => {
-                  const isTopSeller = sIdx === 0
-                  const isOwn = seller.isOwnAccount
-                  const hasSales = seller.hasRealSalesData && seller.totalConfirmedSales > 0
-
-                  return (
-                    <div
-                      key={seller.sellerId || sIdx}
-                      className={`p-4 transition-colors hover:bg-slate-50/70 ${
-                        isOwn ? 'bg-indigo-50/30' : ''
-                      }`}
-                    >
-                      <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
-                        {/* Identificação do Seller + Badges */}
-                        <div className="flex items-start gap-3 flex-1 min-w-0">
-                          {/* Posição no ranking */}
-                          <div
-                            className={`w-8 h-8 rounded-lg flex items-center justify-center font-mono font-bold text-xs shrink-0 mt-0.5 ${
-                              sIdx === 0
-                                ? 'bg-amber-400 text-slate-950 shadow-xs'
-                                : sIdx === 1
-                                  ? 'bg-slate-300 text-slate-800'
-                                  : sIdx === 2
-                                    ? 'bg-amber-700 text-white'
-                                    : 'bg-slate-100 text-slate-600'
-                            }`}
-                          >
-                            #{sIdx + 1}
-                          </div>
-
-                          <div className="space-y-1 min-w-0 flex-1">
+              <CardContent className="p-0">
+                <div className="divide-y divide-slate-100 max-h-[500px] overflow-y-auto">
+                  {summary.allAds
+                    .filter((ad) => {
+                      if (adsListingFilter === 'premium') return ad.listingTypeLabel === 'Premium'
+                      if (adsListingFilter === 'classic') return ad.listingTypeLabel !== 'Premium'
+                      return true
+                    })
+                    .map((ad, idx) => (
+                      <div
+                        key={ad.id || idx}
+                        className="p-3.5 hover:bg-slate-50/70 transition-colors flex items-center justify-between gap-3 text-xs"
+                      >
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          {ad.thumbnail ? (
+                            <img
+                              src={ad.thumbnail}
+                              alt={ad.title}
+                              className="w-11 h-11 object-cover rounded border border-slate-200 shrink-0"
+                            />
+                          ) : (
+                            <Package className="w-11 h-11 text-slate-300 shrink-0" />
+                          )}
+                          <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <h4 className="text-sm font-bold text-slate-900 truncate flex items-center gap-1.5">
-                                <Store className="w-3.5 h-3.5 text-slate-400" />
-                                {seller.sellerNickname}
-                              </h4>
-
-                              {isOwn && (
-                                <Badge className="bg-indigo-600 text-white text-[9px] font-bold px-1.5 py-0 h-4">
-                                  🏅 Sua Conta
-                                </Badge>
-                              )}
-
-                              {seller.hasBuyBox && (
-                                <Badge className="bg-amber-100 text-amber-900 border-amber-300 text-[9px] font-bold gap-1 px-1.5 py-0 h-4">
-                                  <Trophy className="w-2.5 h-2.5 text-amber-600" />
+                              <h5 className="font-bold text-slate-900 truncate" title={ad.title}>
+                                {ad.title}
+                              </h5>
+                              {ad.isBuyBoxWinner && (
+                                <Badge className="bg-amber-100 text-amber-900 border-amber-300 text-[9px] font-bold px-1.5 py-0 h-4">
                                   Detém Buy Box
                                 </Badge>
                               )}
-
-                              <Badge
-                                variant="outline"
-                                className="text-[9px] text-slate-600 bg-slate-50 border-slate-200"
-                              >
-                                {seller.totalAdsCount} anúncio(s) do produto
-                              </Badge>
-
-                              {seller.premiumListingsCount > 0 && (
-                                <Badge className="bg-emerald-50 text-emerald-800 border-emerald-200 text-[9px] font-semibold px-1.5 py-0 h-4">
-                                  Premium (S/ Juros)
+                              {ad.isOwnAccount && (
+                                <Badge className="bg-indigo-600 text-white text-[9px] font-bold px-1.5 py-0 h-4">
+                                  Sua Conta
                                 </Badge>
                               )}
                             </div>
-
-                            {/* Detalhes de Preço e Estoque */}
-                            <div className="flex items-center gap-3 text-xs text-slate-600 font-mono flex-wrap pt-0.5">
+                            <div className="flex items-center gap-2.5 text-[11px] text-slate-500 font-mono flex-wrap pt-0.5">
                               <span>
-                                Faixa:{' '}
-                                <strong>
-                                  {seller.minPrice.toLocaleString('pt-BR', {
-                                    style: 'currency',
-                                    currency: 'BRL',
-                                  })}
-                                </strong>
-                                {seller.maxPrice > seller.minPrice
-                                  ? ` a ${seller.maxPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`
-                                  : ''}
+                                Vendedor: <strong>{ad.sellerNickname}</strong>
                               </span>
                               <span>·</span>
-                              <span>
-                                Estoque somado: <strong>{seller.totalAvailableStock} un.</strong>
+                              <span>ID: {ad.id}</span>
+                              <span>·</span>
+                              <span
+                                className={
+                                  ad.listingTypeLabel === 'Premium'
+                                    ? 'text-emerald-700 font-semibold'
+                                    : 'text-slate-600'
+                                }
+                              >
+                                Tipo: {ad.listingTypeLabel}
                               </span>
                               <span>·</span>
-                              <span>
-                                Vendas auditadas:{' '}
-                                {hasSales ? (
-                                  <strong className="text-emerald-700 font-bold">
-                                    {seller.totalConfirmedSales} un.
-                                  </strong>
-                                ) : (
-                                  <span className="text-slate-400">Não informado pelo ML</span>
-                                )}
-                              </span>
-                            </div>
-
-                            {/* Motivos que compõem o termômetro */}
-                            <div className="pt-1 flex items-center gap-1.5 flex-wrap">
-                              {seller.thermometerReasons.map((reason, rIdx) => (
-                                <span
-                                  key={rIdx}
-                                  className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md border border-slate-200"
-                                >
-                                  {reason}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Termômetro Visual e Ações */}
-                        <div className="flex items-center justify-between lg:justify-end gap-4 w-full lg:w-auto shrink-0 pt-3 lg:pt-0 border-t lg:border-t-0 border-slate-100">
-                          {/* Termômetro Score */}
-                          <div className="text-right min-w-[140px]">
-                            <div className="flex items-center justify-end gap-1.5">
-                              <span className="text-[10px] font-bold uppercase text-slate-400">
-                                Termômetro de Vendas
-                              </span>
-                              {seller.thermometerTier === 'high' ? (
-                                <span className="text-xs font-bold text-emerald-700 flex items-center gap-0.5">
-                                  <Flame className="w-3.5 h-3.5 text-emerald-600" /> Giro Alto
-                                </span>
-                              ) : seller.thermometerTier === 'medium' ? (
-                                <span className="text-xs font-bold text-amber-700 flex items-center gap-0.5">
-                                  🌡️ Médio
-                                </span>
-                              ) : (
-                                <span className="text-xs font-bold text-blue-700 flex items-center gap-0.5">
-                                  ❄️ Baixo
-                                </span>
+                              <span>Estoque: {ad.stock} un.</span>
+                              {ad.soldQuantity != null && (
+                                <>
+                                  <span>·</span>
+                                  <span className="text-emerald-700 font-bold">
+                                    Vendas: {formatMLSoldQuantity(ad.soldQuantity)}
+                                  </span>
+                                </>
                               )}
                             </div>
-
-                            <div className="flex items-baseline justify-end gap-1 mt-0.5">
-                              <span className="text-2xl font-black font-mono text-slate-900">
-                                {seller.thermometerScore}
-                              </span>
-                              <span className="text-xs font-semibold text-slate-400 font-mono">
-                                / 100
-                              </span>
-                            </div>
-
-                            {/* Mini Barra do Termômetro */}
-                            <div className="w-32 bg-slate-100 rounded-full h-2 overflow-hidden border border-slate-200 ml-auto mt-1">
-                              <div
-                                className={`h-full rounded-full transition-all duration-500 ${
-                                  seller.thermometerTier === 'high'
-                                    ? 'bg-emerald-600'
-                                    : seller.thermometerTier === 'medium'
-                                      ? 'bg-amber-500'
-                                      : 'bg-blue-500'
-                                }`}
-                                style={{ width: `${Math.max(5, seller.thermometerScore)}%` }}
-                              />
-                            </div>
                           </div>
+                        </div>
 
-                          {/* Botão Ver Anúncios do Seller */}
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              setSelectedSellerDetail(
-                                selectedSellerDetail?.sellerId === seller.sellerId ? null : seller,
-                              )
-                            }}
-                            className="text-xs h-9 border-slate-300 text-slate-700 hover:bg-slate-50 gap-1 shrink-0"
-                          >
-                            {selectedSellerDetail?.sellerId === seller.sellerId
-                              ? 'Recolher'
-                              : 'Ver Anúncios'}
-                            {selectedSellerDetail?.sellerId === seller.sellerId ? (
-                              <ChevronUp className="w-3.5 h-3.5" />
-                            ) : (
-                              <ChevronDown className="w-3.5 h-3.5" />
-                            )}
-                          </Button>
+                        <div className="flex items-center gap-3 shrink-0">
+                          <span className="text-sm font-black font-mono text-slate-900">
+                            {ad.price.toLocaleString('pt-BR', {
+                              style: 'currency',
+                              currency: 'BRL',
+                            })}
+                          </span>
+
+                          {ad.permalink && (
+                            <a
+                              href={ad.permalink}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="p-1.5 rounded bg-slate-100 hover:bg-indigo-50 text-slate-600 hover:text-indigo-600"
+                              title="Abrir no Mercado Livre"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                            </a>
+                          )}
                         </div>
                       </div>
+                    ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
-                      {/* Gaveta de Anúncios deste Seller */}
-                      {selectedSellerDetail?.sellerId === seller.sellerId && (
-                        <div className="mt-4 pt-4 border-t border-slate-200 bg-slate-50/80 rounded-lg p-3 space-y-2">
-                          <span className="text-xs font-bold text-slate-800 block">
-                            Anúncios do vendedor para este produto ({seller.ads.length}):
-                          </span>
-                          <div className="space-y-2">
-                            {seller.ads.map((ad, aIdx) => (
-                              <div
-                                key={ad.id || aIdx}
-                                className="bg-white p-3 rounded-md border border-slate-200 flex items-center justify-between gap-3 text-xs"
-                              >
-                                <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                                  {ad.thumbnail ? (
-                                    <img
-                                      src={ad.thumbnail}
-                                      alt={ad.title}
-                                      className="w-10 h-10 object-cover rounded border border-slate-200 shrink-0"
-                                    />
-                                  ) : (
-                                    <Package className="w-10 h-10 text-slate-300 shrink-0" />
-                                  )}
-                                  <div className="min-w-0 flex-1">
-                                    <h5
-                                      className="font-bold text-slate-900 truncate"
-                                      title={ad.title}
-                                    >
-                                      {ad.title}
-                                    </h5>
-                                    <div className="flex items-center gap-2 text-[11px] text-slate-500 font-mono flex-wrap">
-                                      <span>ID: {ad.id}</span>
-                                      <span>·</span>
-                                      <span>Tipo: {ad.listingTypeLabel}</span>
-                                      <span>·</span>
-                                      <span>Estoque: {ad.stock} un.</span>
-                                      {ad.soldQuantity != null && (
-                                        <>
-                                          <span>·</span>
-                                          <span className="text-emerald-700 font-bold">
-                                            Vendas: {formatMLSoldQuantity(ad.soldQuantity)}
-                                          </span>
-                                        </>
-                                      )}
-                                    </div>
-                                  </div>
-                                </div>
+          {/* GAVETA SECUNDÁRIA: DISPUTA POR SELLERS & TERMÔMETRO DE GIRO */}
+          <Card className="border-slate-200 shadow-xs bg-white">
+            <CardHeader
+              className="pb-3 border-b border-slate-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 cursor-pointer select-none"
+              onClick={() => setShowSellersDrawer(!showSellersDrawer)}
+            >
+              <div>
+                <CardTitle className="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2">
+                  <Flame className="w-4 h-4 text-amber-500" />
+                  Disputa por Vendedor & Termômetro de Vendas ({summary.sellersRanked.length}{' '}
+                  vendedores ranqueados)
+                  <Badge variant="outline" className="text-[10px] text-slate-600 ml-1">
+                    Seção Secundária
+                  </Badge>
+                </CardTitle>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Visualização detalhada por loja concorrente: ranqueamento de força (0-100), Buy
+                  Box e estoque por seller.
+                </p>
+              </div>
 
-                                <div className="flex items-center gap-3 shrink-0">
-                                  <span className="text-sm font-black font-mono text-slate-900">
-                                    {ad.price.toLocaleString('pt-BR', {
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 hidden sm:flex">
+                  <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[10px] font-bold">
+                    🔥 Giro Alto (65–100)
+                  </Badge>
+                  <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[10px] font-bold">
+                    🌡️ Médio (35–64)
+                  </Badge>
+                  <Badge className="bg-blue-100 text-blue-800 border-blue-200 text-[10px] font-bold">
+                    ❄️ Baixo (0–34)
+                  </Badge>
+                </div>
+                <Button variant="ghost" size="sm" className="h-8 px-2 text-xs text-slate-600 gap-1">
+                  {showSellersDrawer ? 'Recolher Sellers' : 'Expandir Sellers'}
+                  {showSellersDrawer ? (
+                    <ChevronUp className="w-4 h-4" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4" />
+                  )}
+                </Button>
+              </div>
+            </CardHeader>
+
+            {showSellersDrawer && (
+              <CardContent className="p-0">
+                <div className="divide-y divide-slate-100">
+                  {summary.sellersRanked.map((seller, sIdx) => {
+                    const isTopSeller = sIdx === 0
+                    const isOwn = seller.isOwnAccount
+                    const hasSales = seller.hasRealSalesData && seller.totalConfirmedSales > 0
+
+                    return (
+                      <div
+                        key={seller.sellerId || sIdx}
+                        className={`p-4 transition-colors hover:bg-slate-50/70 ${
+                          isOwn ? 'bg-indigo-50/30' : ''
+                        }`}
+                      >
+                        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+                          {/* Identificação do Seller + Badges */}
+                          <div className="flex items-start gap-3 flex-1 min-w-0">
+                            {/* Posição no ranking */}
+                            <div
+                              className={`w-8 h-8 rounded-lg flex items-center justify-center font-mono font-bold text-xs shrink-0 mt-0.5 ${
+                                sIdx === 0
+                                  ? 'bg-amber-400 text-slate-950 shadow-xs'
+                                  : sIdx === 1
+                                    ? 'bg-slate-300 text-slate-800'
+                                    : sIdx === 2
+                                      ? 'bg-amber-700 text-white'
+                                      : 'bg-slate-100 text-slate-600'
+                              }`}
+                            >
+                              #{sIdx + 1}
+                            </div>
+
+                            <div className="space-y-1 min-w-0 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h4 className="text-sm font-bold text-slate-900 truncate flex items-center gap-1.5">
+                                  <Store className="w-3.5 h-3.5 text-slate-400" />
+                                  {seller.sellerNickname}
+                                </h4>
+
+                                {isOwn && (
+                                  <Badge className="bg-indigo-600 text-white text-[9px] font-bold px-1.5 py-0 h-4">
+                                    🏅 Sua Conta
+                                  </Badge>
+                                )}
+
+                                {seller.hasBuyBox && (
+                                  <Badge className="bg-amber-100 text-amber-900 border-amber-300 text-[9px] font-bold gap-1 px-1.5 py-0 h-4">
+                                    <Trophy className="w-2.5 h-2.5 text-amber-600" />
+                                    Detém Buy Box
+                                  </Badge>
+                                )}
+
+                                <Badge
+                                  variant="outline"
+                                  className="text-[9px] text-slate-600 bg-slate-50 border-slate-200"
+                                >
+                                  {seller.totalAdsCount} anúncio(s) do produto
+                                </Badge>
+
+                                {seller.premiumListingsCount > 0 && (
+                                  <Badge className="bg-emerald-50 text-emerald-800 border-emerald-200 text-[9px] font-semibold px-1.5 py-0 h-4">
+                                    Premium (S/ Juros)
+                                  </Badge>
+                                )}
+                              </div>
+
+                              {/* Detalhes de Preço e Estoque */}
+                              <div className="flex items-center gap-3 text-xs text-slate-600 font-mono flex-wrap pt-0.5">
+                                <span>
+                                  Faixa:{' '}
+                                  <strong>
+                                    {seller.minPrice.toLocaleString('pt-BR', {
                                       style: 'currency',
                                       currency: 'BRL',
                                     })}
-                                  </span>
-
-                                  {ad.permalink && (
-                                    <a
-                                      href={ad.permalink}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="p-1.5 rounded bg-slate-100 hover:bg-indigo-50 text-slate-600 hover:text-indigo-600"
-                                      title="Abrir no Mercado Livre"
-                                    >
-                                      <ExternalLink className="w-3.5 h-3.5" />
-                                    </a>
+                                  </strong>
+                                  {seller.maxPrice > seller.minPrice
+                                    ? ` a ${seller.maxPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`
+                                    : ''}
+                                </span>
+                                <span>·</span>
+                                <span>
+                                  Estoque somado: <strong>{seller.totalAvailableStock} un.</strong>
+                                </span>
+                                <span>·</span>
+                                <span>
+                                  Vendas auditadas:{' '}
+                                  {hasSales ? (
+                                    <strong className="text-emerald-700 font-bold">
+                                      {seller.totalConfirmedSales} un.
+                                    </strong>
+                                  ) : (
+                                    <span className="text-slate-400">Não informado pelo ML</span>
                                   )}
-                                </div>
+                                </span>
                               </div>
-                            ))}
+
+                              {/* Motivos que compõem o termômetro */}
+                              <div className="pt-1 flex items-center gap-1.5 flex-wrap">
+                                {seller.thermometerReasons.map((reason, rIdx) => (
+                                  <span
+                                    key={rIdx}
+                                    className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md border border-slate-200"
+                                  >
+                                    {reason}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Termômetro Visual e Ações */}
+                          <div className="flex items-center justify-between lg:justify-end gap-4 w-full lg:w-auto shrink-0 pt-3 lg:pt-0 border-t lg:border-t-0 border-slate-100">
+                            {/* Termômetro Score */}
+                            <div className="text-right min-w-[140px]">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <span className="text-[10px] font-bold uppercase text-slate-400">
+                                  Termômetro de Vendas
+                                </span>
+                                {seller.thermometerTier === 'high' ? (
+                                  <span className="text-xs font-bold text-emerald-700 flex items-center gap-0.5">
+                                    <Flame className="w-3.5 h-3.5 text-emerald-600" /> Giro Alto
+                                  </span>
+                                ) : seller.thermometerTier === 'medium' ? (
+                                  <span className="text-xs font-bold text-amber-700 flex items-center gap-0.5">
+                                    🌡️ Médio
+                                  </span>
+                                ) : (
+                                  <span className="text-xs font-bold text-blue-700 flex items-center gap-0.5">
+                                    ❄️ Baixo
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="flex items-baseline justify-end gap-1 mt-0.5">
+                                <span className="text-2xl font-black font-mono text-slate-900">
+                                  {seller.thermometerScore}
+                                </span>
+                                <span className="text-xs font-semibold text-slate-400 font-mono">
+                                  / 100
+                                </span>
+                              </div>
+
+                              {/* Mini Barra do Termômetro */}
+                              <div className="w-32 bg-slate-100 rounded-full h-2 overflow-hidden border border-slate-200 ml-auto mt-1">
+                                <div
+                                  className={`h-full rounded-full transition-all duration-500 ${
+                                    seller.thermometerTier === 'high'
+                                      ? 'bg-emerald-600'
+                                      : seller.thermometerTier === 'medium'
+                                        ? 'bg-amber-500'
+                                        : 'bg-blue-500'
+                                  }`}
+                                  style={{ width: `${Math.max(5, seller.thermometerScore)}%` }}
+                                />
+                              </div>
+                            </div>
+
+                            {/* Botão Ver Anúncios do Seller */}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setSelectedSellerDetail(
+                                  selectedSellerDetail?.sellerId === seller.sellerId
+                                    ? null
+                                    : seller,
+                                )
+                              }}
+                              className="text-xs h-9 border-slate-300 text-slate-700 hover:bg-slate-50 gap-1 shrink-0"
+                            >
+                              {selectedSellerDetail?.sellerId === seller.sellerId
+                                ? 'Recolher'
+                                : 'Ver Anúncios'}
+                              {selectedSellerDetail?.sellerId === seller.sellerId ? (
+                                <ChevronUp className="w-3.5 h-3.5" />
+                              ) : (
+                                <ChevronDown className="w-3.5 h-3.5" />
+                              )}
+                            </Button>
                           </div>
                         </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            </CardContent>
+
+                        {/* Gaveta de Anúncios deste Seller */}
+                        {selectedSellerDetail?.sellerId === seller.sellerId && (
+                          <div className="mt-4 pt-4 border-t border-slate-200 bg-slate-50/80 rounded-lg p-3 space-y-2">
+                            <span className="text-xs font-bold text-slate-800 block">
+                              Anúncios do vendedor para este produto ({seller.ads.length}):
+                            </span>
+                            <div className="space-y-2">
+                              {seller.ads.map((ad, aIdx) => (
+                                <div
+                                  key={ad.id || aIdx}
+                                  className="bg-white p-3 rounded-md border border-slate-200 flex items-center justify-between gap-3 text-xs"
+                                >
+                                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                    {ad.thumbnail ? (
+                                      <img
+                                        src={ad.thumbnail}
+                                        alt={ad.title}
+                                        className="w-10 h-10 object-cover rounded border border-slate-200 shrink-0"
+                                      />
+                                    ) : (
+                                      <Package className="w-10 h-10 text-slate-300 shrink-0" />
+                                    )}
+                                    <div className="min-w-0 flex-1">
+                                      <h5
+                                        className="font-bold text-slate-900 truncate"
+                                        title={ad.title}
+                                      >
+                                        {ad.title}
+                                      </h5>
+                                      <div className="flex items-center gap-2 text-[11px] text-slate-500 font-mono flex-wrap">
+                                        <span>ID: {ad.id}</span>
+                                        <span>·</span>
+                                        <span>Tipo: {ad.listingTypeLabel}</span>
+                                        <span>·</span>
+                                        <span>Estoque: {ad.stock} un.</span>
+                                        {ad.soldQuantity != null && (
+                                          <>
+                                            <span>·</span>
+                                            <span className="text-emerald-700 font-bold">
+                                              Vendas: {formatMLSoldQuantity(ad.soldQuantity)}
+                                            </span>
+                                          </>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-3 shrink-0">
+                                    <span className="text-sm font-black font-mono text-slate-900">
+                                      {ad.price.toLocaleString('pt-BR', {
+                                        style: 'currency',
+                                        currency: 'BRL',
+                                      })}
+                                    </span>
+
+                                    {ad.permalink && (
+                                      <a
+                                        href={ad.permalink}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="p-1.5 rounded bg-slate-100 hover:bg-indigo-50 text-slate-600 hover:text-indigo-600"
+                                        title="Abrir no Mercado Livre"
+                                      >
+                                        <ExternalLink className="w-3.5 h-3.5" />
+                                      </a>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </CardContent>
+            )}
           </Card>
         </div>
       )}

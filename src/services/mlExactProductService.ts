@@ -62,6 +62,19 @@ export interface ExactProductSummary {
   priceMax: number
   priceMedian: number
   priceAvg: number
+
+  // Métricas Globais Adicionais
+  totalActiveAds: number
+  distribution: {
+    premiumCount: number
+    classicCount: number
+    premiumPercent: number
+    classicPercent: number
+  }
+  marketForceTier: 'strong' | 'moderate' | 'emerging'
+  marketForceScore: number
+  marketForceExplanation: string
+
   bestOpportunityMargin: {
     sellerNickname: string
     price: number
@@ -75,6 +88,20 @@ export interface ExactProductSummary {
   exactProducts: Array<{
     product: MLCatalogProduct
     scoreResult: ExactProductScoreResult
+  }>
+  allAds: Array<{
+    id: string
+    title: string
+    price: number
+    stock: number
+    soldQuantity: number | null
+    isBuyBoxWinner: boolean
+    listingTypeLabel: string
+    permalink: string
+    thumbnail: string
+    catalogProductId?: string
+    sellerNickname: string
+    isOwnAccount: boolean
   }>
 }
 
@@ -422,7 +449,33 @@ export function aggregateSellersByExactProduct(
     return b.totalAvailableStock - a.totalAvailableStock
   })
 
-  // 4. ESTATÍSTICAS SÍNTESE
+  // 4. CONSOLIDAÇÃO GLOBAL DE TODOS OS ANÚNCIOS DO PRODUTO EXATO
+  const allAds: ExactProductSummary['allAds'] = []
+  let globalPremiumCount = 0
+  let globalClassicCount = 0
+
+  sellersList.forEach((s) => {
+    s.ads.forEach((a) => {
+      if (a.listingTypeLabel === 'Premium') {
+        globalPremiumCount++
+      } else {
+        globalClassicCount++
+      }
+      allAds.push({
+        ...a,
+        sellerNickname: s.sellerNickname,
+        isOwnAccount: s.isOwnAccount,
+      })
+    })
+  })
+
+  // Se não foi coletado preço individual em allPrices, popula a partir de allAds
+  if (allPrices.length === 0) {
+    allAds.forEach((a) => {
+      if (a.price > 0) allPrices.push(a.price)
+    })
+  }
+
   allPrices.sort((a, b) => a - b)
   const priceMin = allPrices.length > 0 ? allPrices[0] : 0
   const priceMax = allPrices.length > 0 ? allPrices[allPrices.length - 1] : 0
@@ -437,12 +490,55 @@ export function aggregateSellersByExactProduct(
         : Math.round(allPrices[Math.floor(allPrices.length / 2)])
       : 0
 
+  const totalActiveAds = allAds.length > 0 ? allAds.length : exactProducts.length
+  const totalAdsSum = globalPremiumCount + globalClassicCount
+  const premiumPercent = totalAdsSum > 0 ? Math.round((globalPremiumCount / totalAdsSum) * 100) : 0
+  const classicPercent = totalAdsSum > 0 ? 100 - premiumPercent : 0
+
   const totalVisibleStock = sellersList.reduce((acc, s) => acc + s.totalAvailableStock, 0)
   const totalConfirmedSalesAcrossSellers = sellersList.reduce(
     (acc, s) => acc + s.totalConfirmedSales,
     0,
   )
   const hasAnyConfirmedSales = totalConfirmedSalesAcrossSellers > 0
+
+  // Força de Mercado do Produto Global (0 a 100)
+  // Avalia o produto no ecossistema: volume de anúncios, disputa de sellers, liquidez e estoque
+  let forceScore = 0
+  if (totalActiveAds >= 30) forceScore += 30
+  else if (totalActiveAds >= 15) forceScore += 22
+  else if (totalActiveAds >= 5) forceScore += 15
+  else forceScore += 8
+
+  if (sellersList.length >= 8) forceScore += 25
+  else if (sellersList.length >= 4) forceScore += 18
+  else if (sellersList.length >= 2) forceScore += 12
+  else forceScore += 5
+
+  if (totalVisibleStock >= 50) forceScore += 25
+  else if (totalVisibleStock >= 15) forceScore += 18
+  else if (totalVisibleStock >= 5) forceScore += 10
+  else forceScore += 5
+
+  if (hasAnyConfirmedSales && totalConfirmedSalesAcrossSellers >= 100) forceScore += 20
+  else if (hasAnyConfirmedSales && totalConfirmedSalesAcrossSellers >= 20) forceScore += 14
+  else if (premiumPercent >= 20) forceScore += 10
+  else forceScore += 5
+
+  forceScore = Math.min(100, Math.max(10, forceScore))
+
+  let marketForceTier: 'strong' | 'moderate' | 'emerging' = 'moderate'
+  let marketForceExplanation = ''
+  if (forceScore >= 70) {
+    marketForceTier = 'strong'
+    marketForceExplanation = 'Alta liquidez e demanda estabelecida no Mercado Livre'
+  } else if (forceScore >= 40) {
+    marketForceTier = 'moderate'
+    marketForceExplanation = 'Demanda estável e concorrência ativa moderada'
+  } else {
+    marketForceTier = 'emerging'
+    marketForceExplanation = 'Nicho pontual ou produto com pouca oferta concorrente'
+  }
 
   // Melhor entrada para margem:
   // Se tiver líder com preço alto ou se houver dispersão de preços, calcula gap entre o menor preço do líder e a média
@@ -460,7 +556,7 @@ export function aggregateSellersByExactProduct(
         price: priceMin,
         leaderPrice: leaderPrice,
         marginDiffPercent: pct,
-        explanation: `O líder pratica ${leaderPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}. Entrando a ${priceMin.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}, há ${pct}% de margem competitiva para conquistar a Buy Box.`,
+        explanation: `O líder da Buy Box pratica ${leaderPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}. Entrando a ${priceMin.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}, há ${pct}% de margem competitiva.`,
       }
     } else if (sellersList.length === 1) {
       bestOpportunityMargin = {
@@ -469,6 +565,14 @@ export function aggregateSellersByExactProduct(
         leaderPrice: leaderPrice,
         marginDiffPercent: 0,
         explanation: `Apenas 1 vendedor detém as posições deste produto exato. Baixa disputa e excelente oportunidade de entrada.`,
+      }
+    } else {
+      bestOpportunityMargin = {
+        sellerNickname: leader.sellerNickname,
+        price: priceMin,
+        leaderPrice: leaderPrice,
+        marginDiffPercent: 0,
+        explanation: `Preços altamente alinhados no piso de ${priceMin.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}. Disputa focada na Buy Box por frete ou tipo de anúncio.`,
       }
     }
   }
@@ -484,11 +588,22 @@ export function aggregateSellersByExactProduct(
     priceMax,
     priceMedian,
     priceAvg,
+    totalActiveAds,
+    distribution: {
+      premiumCount: globalPremiumCount,
+      classicCount: globalClassicCount,
+      premiumPercent,
+      classicPercent,
+    },
+    marketForceTier,
+    marketForceScore: forceScore,
+    marketForceExplanation,
     bestOpportunityMargin,
     hasAnyConfirmedSales,
     totalConfirmedSalesAcrossSellers,
     sellersRanked: sellersList,
     exactProducts,
+    allAds,
   }
 }
 

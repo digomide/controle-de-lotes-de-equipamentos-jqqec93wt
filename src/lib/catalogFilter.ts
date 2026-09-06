@@ -129,6 +129,17 @@ export function extractExactProductTokens(query: string): string[] {
     'uns',
     'umas',
     'original', // Adjetivo promocional frequente que não define o modelo exato
+    'novo',
+    'usado',
+    'seminovo',
+    'recondicionado',
+    'garantia',
+    'frete',
+    'gratis',
+    'envio',
+    'imediato',
+    'promocao',
+    'oferta',
   ])
 
   const filtered = rawTokens.filter((token) => !EXACT_STOPWORDS.has(token))
@@ -145,19 +156,102 @@ export interface ExactProductScoreResult {
   reasons: string[]
 }
 
+// Conjuntos de palavras-chave para classificação taxonômica de produto
+const HARDWARE_COMPONENTS = new Set([
+  'fonte',
+  'carregador',
+  'bateria',
+  'teclado',
+  'tela',
+  'display',
+  'cooler',
+  'ventoinha',
+  'placa',
+  'motherboard',
+  'memoria',
+  'ram',
+  'ssd',
+  'hd',
+  'cabo',
+  'flat',
+  'dobradica',
+  'carcaca',
+  'tampa',
+  'palmrest',
+  'touchpad',
+  'gabinete',
+  'ventoinha',
+])
+
+const POPULAR_BRANDS = new Set([
+  'dell',
+  'lenovo',
+  'hp',
+  'acer',
+  'asus',
+  'samsung',
+  'apple',
+  'positiv',
+  'positivo',
+  'lg',
+  'intelbras',
+  'vaio',
+  'toshiba',
+])
+
+// Palavras contextuais que descrevem formato/linha/aplicação mas NÃO devem
+// reprovar um anúncio legítimo se ausentes ou presentes no título
+const CONTEXT_WORDS = new Set([
+  'desktop',
+  'pc',
+  'computador',
+  'computadores',
+  'notebook',
+  'notebooks',
+  'laptop',
+  'laptops',
+  'optiplex',
+  'thinkcentre',
+  'thinkpad',
+  'latitude',
+  'inspiron',
+  'vostro',
+  'prodesk',
+  'elitedesk',
+  'elitebook',
+  'probook',
+  'sff',
+  'mini',
+  'micro',
+  'tower',
+  'torre',
+  'all',
+  'one',
+  'aio',
+  'slim',
+])
+
 /**
- * Avalia casamento rigoroso de PRODUTO EXATO:
- * Ex.: "fonte desktop dell 3020" -> Deve casar com "Fonte Dell 3020 Desktop 240W",
- * mas NÃO com "notebook dell latitude", nem "gabinete dell 3020", nem "placa mae dell 3020".
+ * Avalia casamento de PRODUTO EXATO:
+ * Ex.: "fonte dell 3020" ou "fonte desktop dell 3020" -> Deve casar com:
+ * - "Fonte Desktop Dell Optiplex 3020 7020 9020 T1700 H1fwx 255w"
+ * - "Fonte Dell 3020 240W"
+ * - "Fonte Para Dell Optiplex 3020 SFF D255AS-00"
  *
- * Regras do cálculo de similaridade e relevância:
- * 1. Todos os tokens essenciais (códigos de modelo numéricos/alfanuméricos como "3020", "5420", "t480")
- *    são OBRIGATÓRIOS. Se faltar o código do modelo, score = 0 e isExactMatch = false.
- * 2. Categoria do componente (ex: "fonte", "bateria", "teclado", "tela", "cooler")
- *    se presente no termo de busca, DEVE estar presente no título. Evita que busca de "fonte dell 3020"
- *    traga "desktop dell 3020" ou "placa dell 3020".
- * 3. Marca (ex: "dell", "lenovo", "hp") se presente no termo, deve estar no título ou atributos.
- * 4. Tokens secundários (ex: "desktop", "sff", "mini") elevam a pontuação para 100%.
+ * E deve REJEITAR produtos incompatíveis:
+ * - Notebook/computador completo sem ser fonte (ex.: "Computador Dell Optiplex 3020 Core i5")
+ * - Outros componentes para o mesmo modelo (ex.: "Placa Mae Dell 3020", "Gabinete Dell 3020", "Teclado Dell 3020")
+ * - Fontes de outro modelo incompatível (ex.: "Fonte Dell 745 755 760" sem menção ao 3020)
+ *
+ * Regras:
+ * 1. Tokens de COMPONENTE (ex: "fonte", "bateria", "teclado") devem bater com o produto.
+ * 2. Tokens de MODELO (ex: "3020", "5420", "t480") devem estar presentes no anúncio.
+ * 3. Tokens de MARCA (ex: "dell", "lenovo", "hp") se buscados devem estar presentes.
+ * 4. Tokens de CONTEXTO (ex: "desktop", "optiplex", "notebook") e variações de potência
+ *    ("240w", "255w", etc.) refinam relevância mas não desclassificam o anúncio legítimo.
+ * 5. Se o usuário busca um componente específico (ex: "fonte"), o anúncio NÃO pode
+ *    ser de outro componente conflitante (ex: anúncio de "placa mae" sem menção a fonte,
+ *    ou anúncio de computador desktop completo sem ser a fonte).
  */
 export function evaluateExactProductMatch(
   title: string,
@@ -184,7 +278,12 @@ export function evaluateExactProductMatch(
   let extraAttrsText = ''
   if (Array.isArray(attributes)) {
     for (const attr of attributes) {
-      if (attr.id === 'BRAND' || attr.id === 'MODEL' || attr.id === 'LINE') {
+      if (
+        attr.id === 'BRAND' ||
+        attr.id === 'MODEL' ||
+        attr.id === 'LINE' ||
+        attr.id === 'PART_NUMBER'
+      ) {
         extraAttrsText += ' ' + (attr.value_name || '')
       }
     }
@@ -197,111 +296,185 @@ export function evaluateExactProductMatch(
       .toLowerCase()
       .replace(/[^a-z0-9]/g, '')
 
-  // Classificação dos tokens por importância
-  const KEY_COMPONENT_TYPES = new Set([
-    'fonte',
-    'carregador',
-    'bateria',
-    'teclado',
-    'tela',
-    'display',
-    'cooler',
-    'ventoinha',
-    'placa',
-    'motherboard',
-    'memoria',
-    'ram',
-    'ssd',
-    'hd',
-    'cabo',
-    'flat',
-    'dobradica',
-    'carcaca',
-    'tampa',
-    'palmrest',
-    'touchpad',
-    'desktop',
-    'gabinete',
-    'servidor',
-    'notebook',
-  ])
+  // Classificar tokens da consulta por tipo
+  const componentTokens: string[] = []
+  const modelTokens: string[] = []
+  const brandTokens: string[] = []
+  const contextTokens: string[] = []
+  const otherTokens: string[] = []
+
+  for (const token of queryTokens) {
+    // Variação de potência (ex: "240w", "255w", "65w", "45w", "90w", "130w")
+    const isWattage = /^[0-9]{1,4}w$/i.test(token)
+    // Código de modelo: ex "3020", "7020", "5420", "t480", "g15", "e7440"
+    const isModelCode =
+      (!isWattage && /^[0-9]{3,5}$/.test(token)) ||
+      /^[a-z]{1,2}[0-9]{2,5}[a-z]?$/i.test(token) ||
+      /^[a-z]{2,}[0-9]{2,5}/i.test(token)
+
+    if (HARDWARE_COMPONENTS.has(token)) {
+      // Exceção: "desktop" na consulta pode ser contexto de forma ("fonte desktop"),
+      // mas se o usuário buscou só "desktop dell 3020", vira componente se não houver outro
+      if (
+        token === 'desktop' &&
+        queryTokens.some((t) => HARDWARE_COMPONENTS.has(t) && t !== 'desktop')
+      ) {
+        contextTokens.push(token)
+      } else {
+        componentTokens.push(token)
+      }
+    } else if (isModelCode) {
+      modelTokens.push(token)
+    } else if (POPULAR_BRANDS.has(token)) {
+      brandTokens.push(token)
+    } else if (CONTEXT_WORDS.has(token) || isWattage) {
+      contextTokens.push(token)
+    } else {
+      otherTokens.push(token)
+    }
+  }
 
   const matchedTokens: string[] = []
   const missingTokens: string[] = []
   const reasons: string[] = []
 
-  let hasMissingCriticalModel = false
-  let hasMissingComponentType = false
-
-  for (const token of queryTokens) {
-    const isModelCode = /^[0-9]{3,5}$/.test(token) || /^[a-z]{1,2}[0-9]{2,5}[a-z]?$/i.test(token)
-    const isComponentType = KEY_COMPONENT_TYPES.has(token)
-
-    let tokenMatches = matchesCatalogToken(fullTextToTest, fullCompactToTest, token)
-
-    // Se o token contiver hífen (ex: "d255as-00" ou "optiplex-3020")
-    if (!tokenMatches && token.includes('-')) {
-      const parts = token.split('-').filter((p) => p.length >= 2)
-      if (
-        parts.length > 0 &&
-        parts.every((p) => matchesCatalogToken(fullTextToTest, fullCompactToTest, p))
-      ) {
-        tokenMatches = true
-      }
-    }
-
-    if (tokenMatches) {
-      matchedTokens.push(token)
+  // 1. Validar COMPONENTES
+  let missingComponentCount = 0
+  for (const cToken of componentTokens) {
+    const matches = matchesCatalogToken(fullTextToTest, fullCompactToTest, cToken)
+    if (matches) {
+      matchedTokens.push(cToken)
     } else {
-      missingTokens.push(token)
-      if (isModelCode) {
-        hasMissingCriticalModel = true
-        reasons.push(`Modelo exato "${token}" ausente`)
-      } else if (isComponentType) {
-        hasMissingComponentType = true
-        reasons.push(`Tipo de componente "${token}" ausente`)
-      } else {
-        reasons.push(`Token "${token}" ausente`)
+      missingTokens.push(cToken)
+      missingComponentCount++
+      reasons.push(`Componente "${cToken}" ausente no anúncio`)
+    }
+  }
+
+  // Se buscou componente (ex: "fonte"), conferir se o anúncio é de OUTRO componente
+  // concorrente sem conter a palavra-chave de componente.
+  // Ex: buscou "fonte dell 3020" e o anúncio é "Placa Mae Dell Optiplex 3020" ou "Cooler Dell 3020"
+  if (componentTokens.length > 0 && missingComponentCount === 0) {
+    const conflictingComponents = [
+      'placa',
+      'motherboard',
+      'teclado',
+      'bateria',
+      'tela',
+      'display',
+      'cooler',
+      'ventoinha',
+      'cabo',
+      'dobradica',
+      'carcaca',
+      'palmrest',
+      'gabinete',
+      'memoria',
+      'ssd',
+      'hd',
+    ]
+
+    // Se o usuário buscou "fonte", qualquer um dos acima presentes sem ser o componente buscado
+    // pode indicar peça diferente, a menos que o título deixe claro que é a peça buscada
+    // Ex: "Cabo de Fonte Dell 3020" -> é cabo, não fonte direta. Mas "Fonte Dell 3020 com cabo" -> é fonte.
+    const requestedHasFonte =
+      componentTokens.includes('fonte') || componentTokens.includes('carregador')
+    if (requestedHasFonte) {
+      // Se não contém fonte nem carregador no título do ML, não pode ser fonte
+      const hasFonteInTitle =
+        matchesCatalogToken(fullTextToTest, fullCompactToTest, 'fonte') ||
+        matchesCatalogToken(fullTextToTest, fullCompactToTest, 'fontes') ||
+        matchesCatalogToken(fullTextToTest, fullCompactToTest, 'carregador') ||
+        matchesCatalogToken(fullTextToTest, fullCompactToTest, 'power') ||
+        matchesCatalogToken(fullTextToTest, fullCompactToTest, 'psu')
+      if (!hasFonteInTitle) {
+        missingComponentCount++
+        reasons.push('Anúncio não é do componente fonte/carregador')
       }
     }
   }
 
-  // Se o usuário procurou um tipo de componente específico (ex: "fonte"), garantir que não é um produto que NÃO é fonte
-  // Exemplo: se procurou "fonte dell 3020", o título não deve ser apenas o computador inteiro sem mencionar fonte
-  const requestedComponentTypes = queryTokens.filter((t) => KEY_COMPONENT_TYPES.has(t))
-  if (requestedComponentTypes.length > 0) {
-    const hasAnyRequestedComponent = requestedComponentTypes.some((ct) =>
-      matchesCatalogToken(fullTextToTest, fullCompactToTest, ct),
-    )
-    if (!hasAnyRequestedComponent) {
-      hasMissingComponentType = true
+  // 2. Validar MODELOS
+  let missingModelCount = 0
+  for (const mToken of modelTokens) {
+    const matches = matchesCatalogToken(fullTextToTest, fullCompactToTest, mToken)
+    if (matches) {
+      matchedTokens.push(mToken)
+    } else {
+      missingTokens.push(mToken)
+      missingModelCount++
+      reasons.push(`Modelo "${mToken}" ausente no anúncio`)
     }
   }
 
-  // Pontuação de Similaridade (0 a 100)
-  const matchRatio = matchedTokens.length / queryTokens.length
-  let similarityScore = Math.round(matchRatio * 100)
-
-  // Penalidades severas para faltas críticas
-  if (hasMissingCriticalModel) {
-    similarityScore = Math.min(similarityScore, 30)
+  // 3. Validar MARCAS
+  let missingBrandCount = 0
+  for (const bToken of brandTokens) {
+    const matches = matchesCatalogToken(fullTextToTest, fullCompactToTest, bToken)
+    if (matches) {
+      matchedTokens.push(bToken)
+    } else {
+      missingTokens.push(bToken)
+      missingBrandCount++
+      reasons.push(`Marca "${bToken}" ausente no anúncio`)
+    }
   }
-  if (hasMissingComponentType) {
-    similarityScore = Math.min(similarityScore, 20)
+
+  // 4. Validar CONTEXTO (desktop, optiplex, 240w...) - são bônus, não desclassificam
+  for (const ctxToken of contextTokens) {
+    const matches = matchesCatalogToken(fullTextToTest, fullCompactToTest, ctxToken)
+    if (matches) {
+      matchedTokens.push(ctxToken)
+    } else {
+      // Não entra como missing crítico
+      missingTokens.push(ctxToken)
+    }
   }
 
-  // Casamento exato exige que todos os tokens críticos e no mínimo 80% dos tokens estejam presentes
-  // E nenhuma falta de modelo ou componente
-  const isExactMatch =
-    !hasMissingCriticalModel && !hasMissingComponentType && missingTokens.length === 0
+  // 5. Outros tokens
+  for (const oToken of otherTokens) {
+    const matches = matchesCatalogToken(fullTextToTest, fullCompactToTest, oToken)
+    if (matches) {
+      matchedTokens.push(oToken)
+    } else {
+      missingTokens.push(oToken)
+    }
+  }
 
+  // CRITÉRIO DE CASAMENTO EXATO REFORMULADO:
+  // - TODOS os modelos obrigatórios devem estar presentes (missingModelCount === 0)
+  // - TODOS os componentes obrigatórios devem bater (missingComponentCount === 0)
+  // - MARCA se pesquisada deve bater (missingBrandCount === 0)
+  // Contexto (como "desktop", "optiplex") e potência ("240w") NÃO desclassificam o anúncio!
+  const hasCriticalMismatch =
+    missingModelCount > 0 || missingComponentCount > 0 || missingBrandCount > 0
+
+  const isExactMatch = !hasCriticalMismatch
+
+  // Cálculo de pontuação de similaridade (0 a 100)
+  let similarityScore = 0
   if (isExactMatch) {
-    reasons.push('Casamento exato de especificações e modelo')
+    // Começa em 85 pelo casamento de componentes, modelo e marca essenciais
+    similarityScore = 85
+    // Bônus para contexto que casou
+    const contextMatchedCount = contextTokens.filter((t) => matchedTokens.includes(t)).length
+    if (contextTokens.length > 0) {
+      const bonus = Math.round((contextMatchedCount / contextTokens.length) * 15)
+      similarityScore += bonus
+    } else {
+      similarityScore = 100
+    }
+    reasons.push('Casamento legítimo de modelo, componente e marca')
+  } else {
+    // Penalização conforme a severidade
+    const totalTokens = queryTokens.length
+    const matchedCount = matchedTokens.length
+    similarityScore = Math.max(0, Math.min(60, Math.round((matchedCount / totalTokens) * 50)))
   }
 
   return {
     isExactMatch,
-    similarityScore,
+    similarityScore: Math.min(100, similarityScore),
     matchedTokens,
     missingTokens,
     reasons,
