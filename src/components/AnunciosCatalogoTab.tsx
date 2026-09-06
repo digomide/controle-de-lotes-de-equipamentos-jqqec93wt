@@ -863,16 +863,17 @@ export function AnunciosCatalogoTab() {
                 <span className="text-emerald-700 font-bold">Novas</span> aceitam{' '}
                 <strong className="text-emerald-700">Novo</strong> e{' '}
                 <strong className="text-blue-700">Caixa aberta</strong>;{' '}
-                <span className="text-purple-700 font-bold">Recondicionado</span> só é aceito em
-                posições que já possuem variante recondicionada registrada no ML (suas posições
-                refurb da conta INFOPREÇOBAIXO entram diretamente pela busca usando o filtro{' '}
-                <strong>Recondicionado</strong>).
+                <span className="text-purple-700 font-bold">Recondicionado</span> agora utiliza o
+                mecanismo oficial descoberto do painel do Mercado Livre (envia a condição raiz
+                aceita com atributo de recondicionado e grau <strong>Excelente</strong>), permitindo
+                publicar a partir da posição base da família mesmo que ela não possuísse anúncio
+                recondicionado prévio.
               </p>
               <p className="text-slate-600">
-                Se você tentar publicar como Recondicionado em uma posição do catálogo que não tenha
-                variante recondicionada cadastrada, a API do ML retorna a recusa específica e o
-                sistema mantém um <strong>fallback automático para Usado</strong> como rede de
-                segurança silenciosa.
+                Ao publicar como <strong>Recondicionado</strong>, o Mercado Livre cria e vincula
+                automaticamente a posição de recondicionado da família na sua conta com Grau
+                Excelente. Caso o ML exija posição prévia estrita, o sistema ainda conta com o{' '}
+                <strong>fallback automático para Usado</strong> como rede de segurança.
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 pt-1 text-[11px] text-slate-800 font-medium">
                 <div className="flex items-start gap-1.5 bg-white/90 p-2 rounded border border-emerald-200">
@@ -898,7 +899,7 @@ export function AnunciosCatalogoTab() {
                   <div>
                     <strong className="text-purple-900">Recondicionado:</strong>
                     <span className="text-slate-600 block text-[10px]">
-                      Exige posição com variante recondicionada ativa no ML.
+                      Mecanismo Painel ML (Grau Excelente). Cria posição recondicionada na família.
                     </span>
                   </div>
                 </div>

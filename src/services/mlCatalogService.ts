@@ -77,7 +77,7 @@ export const ML_CATALOG_CONDITIONS: Record<
     label: 'Recondicionado',
     mlValueId: '2230582',
     description:
-      'Passou por inspeção/reparos. Aceito apenas em posições que já tenham variante recondicionada registrada.',
+      'Equipamento recondicionado certificado (Grau Excelente). O sistema reproduz o mecanismo oficial do painel do ML criando ou vinculando à posição recondicionada da família.',
     badgeClass: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
     dotClass: 'bg-purple-400',
     borderClass: 'border-purple-500/40',

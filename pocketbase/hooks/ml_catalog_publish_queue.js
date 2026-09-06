@@ -217,15 +217,24 @@ onRecordAfterCreateSuccess((e) => {
   }
 
   // 4. Montar variações de payload para publicação no Catálogo do ML
-  // REGRA CRÍTICA DO MERCADO LIVRE VALIDADA EM PRODUÇÃO:
-  // - Em catálogo (catalog_listing: true + catalog_product_id), title e pictures são PROIBIDOS.
-  // - "new": condition: "new" + atributo ITEM_CONDITION 2230284
-  // - "used": condition: "used" + atributo ITEM_CONDITION 2230581
-  // - "open_box": SEM condition na raiz + atributo ITEM_CONDITION 46759135
-  // - "refurbished": SEM condition na raiz + atributo ITEM_CONDITION 2230582
-  //   (Nota: condition: "refurbished" na raiz é rejeitada pelo ML com 400 "Category MLB1652 only supports conditions: [used, new, not_specified]";
-  //    enviar condition: "used" + ITEM_CONDITION 2230582 dá conflito de atributos;
-  //    enviar SEM condition raiz + ITEM_CONDITION 2230582 só é aceito em posições que possuem variante refurb registrada).
+  // DESCOBERTA FORENSE CRÍTICA DO PAINEL DO MERCADO LIVRE (validada com MLB7566367408 e teste real):
+  // O painel do Mercado Livre consegue criar anúncios de catálogo como Recondicionado a partir de posições
+  // padrão (mesmo onde condition "refurbished" é rejeitada como item_not_new_nor_refurbished) porque o painel envia:
+  // 1) condition: "new" na raiz (a categoria MLB1652 aceita [used, new, not_specified])
+  // 2) Atributo ITEM_CONDITION com value_id "2230582" (Recondicionado)
+  // 3) Atributo OBRIGATÓRIO GRADING com value_id "40108830" (Status do recondicionado: Excelente)
+  // Ao receber esse trio (condition: "new" + ITEM_CONDITION 2230582 + GRADING 40108830), o Mercado Livre:
+  // - Aceita a publicação (HTTP 201 Created)
+  // - Cria automaticamente a posição de catálogo recondicionada do item vinculada à família!
+  // - Classifica o anúncio como Recondicionado - Excelente no catálogo e na Buy Box!
+  //
+  // REGRAS POR CONDIÇÃO:
+  // - "new": condition: "new" + ITEM_CONDITION 2230284
+  // - "open_box": SEM condition na raiz + ITEM_CONDITION 46759135
+  // - "used": condition: "used" + ITEM_CONDITION 2230581
+  // - "refurbished":
+  //     Variação Primária (Mecanismo Painel ML): condition: "new" + ITEM_CONDITION 2230582 + GRADING 40108830
+  //     Variação Secundária: SEM condition raiz + ITEM_CONDITION 2230582 + GRADING 40108830
   const baseShipping = {
     mode: 'me2',
     local_pick_up: true,
@@ -244,7 +253,7 @@ onRecordAfterCreateSuccess((e) => {
   ]
 
   // Montar payload específico para cada uma das 4 condições
-  function buildPayloadForCondition(condKey) {
+  function buildPayloadForCondition(condKey, variantStyle) {
     const p = {
       catalog_product_id: catalogProductId,
       catalog_listing: true,
@@ -270,9 +279,15 @@ onRecordAfterCreateSuccess((e) => {
       delete p.condition
       p.attributes.push({ id: 'ITEM_CONDITION', value_id: '46759135' })
     } else if (condKey === 'refurbished') {
-      // Recondicionado NÃO leva campo "condition" na raiz, apenas o atributo 2230582
-      delete p.condition
+      // MECANISMO REAL DO PAINEL MERCADO LIVRE:
+      // condition: "new" na raiz + ITEM_CONDITION 2230582 + GRADING 40108830 (Excelente)
+      if (variantStyle === 'no_root_cond') {
+        delete p.condition
+      } else {
+        p.condition = 'new'
+      }
       p.attributes.push({ id: 'ITEM_CONDITION', value_id: '2230582' })
+      p.attributes.push({ id: 'GRADING', value_id: '40108830', value_name: 'Excelente' })
     } else {
       // Fallback genérico caso chegue algo diferente
       p.condition = 'used'
@@ -283,8 +298,21 @@ onRecordAfterCreateSuccess((e) => {
   }
 
   const variationsToTry = []
-  const payloadA = buildPayloadForCondition(itemCondition)
-  variationsToTry.push({ name: 'padrao_' + itemCondition, payload: payloadA })
+  if (itemCondition === 'refurbished') {
+    // 1ª tentativa: Mecanismo exato do painel ML (condition "new" + ITEM_CONDITION 2230582 + GRADING 40108830)
+    variationsToTry.push({
+      name: 'painel_ml_refurbished_graded',
+      payload: buildPayloadForCondition('refurbished', 'with_root_new'),
+    })
+    // 2ª tentativa: Sem condition raiz + GRADING 40108830 (aceito em posições recondicionadas pré-existentes)
+    variationsToTry.push({
+      name: 'refurbished_graded_no_root',
+      payload: buildPayloadForCondition('refurbished', 'no_root_cond'),
+    })
+  } else {
+    const payloadA = buildPayloadForCondition(itemCondition)
+    variationsToTry.push({ name: 'padrao_' + itemCondition, payload: payloadA })
+  }
 
   // 5. Enviar POST /items para o Mercado Livre
   let finalResponse = null
@@ -344,17 +372,20 @@ onRecordAfterCreateSuccess((e) => {
         const resStr = JSON.stringify(resJson)
 
         // FALLBACK AUTOMÁTICO DE SEGURANÇA:
-        // Se a tentativa foi com 'refurbished' e o ML recusou por:
-        // 1. "refurbished product was not found for product ..." (posição não tem variante recondicionada)
-        // 2. "Category ... only supports conditions: [used, new, not_specified]"
-        // Tentamos fallback com 'used' como rede de segurança silenciosa
+        // Se a tentativa foi com 'refurbished' e todas as variações de recondicionado foram esgotadas,
+        // tentamos fallback com 'used' como rede de segurança apenas se o erro foi de elegibilidade de catálogo
         const isRefurbishedAttempt = itemCondition === 'refurbished'
         const isRefurbNotEligible =
           resStr.indexOf('refurbished product was not found') >= 0 ||
           resStr.indexOf('only supports conditions') >= 0 ||
+          resStr.indexOf('item_not_new_nor_refurbished') >= 0 ||
           resStr.indexOf('item.condition.invalid') >= 0
 
-        if (isRefurbishedAttempt && isRefurbNotEligible) {
+        const isLastRefurbishedVariation =
+          vIdx >= variationsToTry.length - 1 ||
+          (variationsToTry[vIdx + 1] && variationsToTry[vIdx + 1].name.indexOf('fallback') >= 0)
+
+        if (isRefurbishedAttempt && isRefurbNotEligible && isLastRefurbishedVariation) {
           const fallbackVarName = 'fallback_auto_used'
           const alreadyQueuedFallback = variationsToTry.some(function (v) {
             return v.name === fallbackVarName
@@ -363,7 +394,7 @@ onRecordAfterCreateSuccess((e) => {
             console.log(
               '[ml_catalog_publish] Posição ' +
                 catalogProductId +
-                ' sem variante recondicionada registrada no ML. Enfileirando fallback como Usado...',
+                ' recusou recondicionado direto. Tentando fallback automático como Usado...',
             )
             const fallbackPayload = buildPayloadForCondition('used')
             variationsToTry.push({
@@ -405,8 +436,24 @@ onRecordAfterCreateSuccess((e) => {
     rec.set('ml_listing_url', listingUrl)
     rec.set('result_data', finalResponse)
 
-    // Se houve fallback automático de condição com sucesso, registrar mensagem informativa
-    if (
+    // Se publicado com sucesso como Recondicionado (inclusive via posição criada automaticamente pelo ML)
+    const isRefurbishedSuccess =
+      itemCondition === 'refurbished' &&
+      successfulPayload &&
+      (successfulPayload.attributes || []).some(function (a) {
+        return a.id === 'ITEM_CONDITION' && a.value_id === '2230582'
+      })
+
+    const finalCatId = finalResponse.catalog_product_id || catalogProductId
+
+    if (isRefurbishedSuccess) {
+      let successNote = 'Publicado com sucesso como Recondicionado (Grau Excelente) no catálogo ML.'
+      if (finalCatId && finalCatId !== catalogProductId) {
+        successNote += ' Vinculado à posição recondicionada da família ' + finalCatId + '.'
+      }
+      rec.set('error_message', successNote)
+      console.log('[ml_catalog_publish] ' + successNote + ' ID: ' + listingId)
+    } else if (
       fallbackFromCondition &&
       successfulPayload &&
       successfulPayload.condition !== fallbackFromCondition
