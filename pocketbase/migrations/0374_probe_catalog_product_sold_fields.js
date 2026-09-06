@@ -1,0 +1,40 @@
+migrate(
+  (app) => {
+    let token = ''
+    const sRecords = app.findRecordsByFilter('ml_settings', '1=1', '-created', 1, 0)
+    if (sRecords && sRecords.length > 0) {
+      token = sRecords[0].getString('access_token')
+    }
+
+    const testUrl = 'https://api.mercadolibre.com/products/MLB26899510'
+    const res = $http.send({
+      url: testUrl,
+      method: 'GET',
+      headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+      timeout: 10,
+    })
+
+    const p = res.json || {}
+    const soldAttrs = (p.attributes || []).filter(function (a) {
+      return (
+        a.id.toLowerCase().includes('sold') ||
+        (a.name && a.name.toLowerCase().includes('venda')) ||
+        (a.name && a.name.toLowerCase().includes('vendid'))
+      )
+    })
+
+    const info = {
+      id: p.id,
+      sold_quantity: p.sold_quantity,
+      sold_quantity_mercadopago: p.sold_quantity_mercadopago,
+      initial_quantity: p.initial_quantity,
+      available_quantity: p.available_quantity,
+      soldAttrs: soldAttrs,
+    }
+
+    const job = app.findRecordById('ml_competitor_jobs', 'wp8elpqepb1vao9')
+    job.set('error_message', JSON.stringify(info))
+    app.save(job)
+  },
+  (app) => {},
+)

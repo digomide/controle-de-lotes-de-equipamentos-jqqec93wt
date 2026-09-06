@@ -64,6 +64,33 @@ routerAdd('GET', '/api/ml/catalog-competition/{catalog_product_id}', (e) => {
     headers['Authorization'] = 'Bearer ' + token
   }
 
+  // Helper para extrair sold_quantity
+  function extractSoldQuantity(obj) {
+    if (!obj) return null
+    if (obj.sold_quantity != null && !isNaN(Number(obj.sold_quantity))) {
+      return Number(obj.sold_quantity)
+    }
+    if (obj.sold_quantity_mercadopago != null && !isNaN(Number(obj.sold_quantity_mercadopago))) {
+      return Number(obj.sold_quantity_mercadopago)
+    }
+    if (Array.isArray(obj.attributes)) {
+      for (let a = 0; a < obj.attributes.length; a++) {
+        const attr = obj.attributes[a]
+        if (!attr || !attr.id) continue
+        const attrIdUpper = String(attr.id).toUpperCase()
+        if (
+          attrIdUpper === 'SOLD_QUANTITY' ||
+          attrIdUpper === 'TOTAL_SOLD' ||
+          attrIdUpper === 'ITEMS_SOLD'
+        ) {
+          const valNum = Number(attr.value_name || attr.value_id)
+          if (!isNaN(valNum)) return valNum
+        }
+      }
+    }
+    return null
+  }
+
   // 1. Consultar /products/{id}/items
   let itemsUrl = 'https://api.mercadolibre.com/products/' + encodeURIComponent(catId) + '/items'
   let competitorsList = []
@@ -71,6 +98,7 @@ routerAdd('GET', '/api/ml/catalog-competition/{catalog_product_id}', (e) => {
   let suggestedPrice = null
   let competitionRawStatus = ''
   let ownItemId = null
+  let maxItemSoldQuantity = null
 
   try {
     const itRes = $http.send({
@@ -95,6 +123,10 @@ routerAdd('GET', '/api/ml/catalog-competition/{catalog_product_id}', (e) => {
         const sNick = (it.seller && it.seller.nickname) || ''
         const sIdStr = sId ? String(sId).trim() : ''
         const isOwn = Boolean(ownSellerId && sIdStr === String(ownSellerId).trim())
+        const itSold = extractSoldQuantity(it)
+        if (itSold != null && (maxItemSoldQuantity == null || itSold > maxItemSoldQuantity)) {
+          maxItemSoldQuantity = itSold
+        }
 
         if (isOwn && it.id) {
           ownItemId = it.id
@@ -106,6 +138,7 @@ routerAdd('GET', '/api/ml/catalog-competition/{catalog_product_id}', (e) => {
           seller_nickname: sNick,
           price: itemPrice,
           available_quantity: it.available_quantity != null ? Number(it.available_quantity) : null,
+          sold_quantity: itSold,
           listing_type_id: it.listing_type_id || '',
           listing_type_label:
             it.listing_type_id === 'gold_pro' || it.listing_type_id === 'premium'
@@ -152,6 +185,7 @@ routerAdd('GET', '/api/ml/catalog-competition/{catalog_product_id}', (e) => {
               pj.competitor.available_quantity != null
                 ? Number(pj.competitor.available_quantity)
                 : null,
+            sold_quantity: extractSoldQuantity(pj.competitor),
             listing_type_id: pj.competitor.listing_type_id || '',
           }
         }
@@ -180,6 +214,25 @@ routerAdd('GET', '/api/ml/catalog-competition/{catalog_product_id}', (e) => {
     return (a.price || 999999) - (b.price || 999999)
   })
 
+  // Se ainda não tivermos sold_quantity e houver produto de catálogo, tentar ler de /products/{catId}
+  let productSoldQuantity = maxItemSoldQuantity
+  if (productSoldQuantity == null && token) {
+    try {
+      const prodRes = $http.send({
+        url: 'https://api.mercadolibre.com/products/' + encodeURIComponent(catId),
+        method: 'GET',
+        headers: headers,
+        timeout: 6,
+      })
+      if (prodRes.statusCode === 200 && prodRes.json) {
+        productSoldQuantity = extractSoldQuantity(prodRes.json)
+        if (productSoldQuantity == null && prodRes.json.buy_box_winner) {
+          productSoldQuantity = extractSoldQuantity(prodRes.json.buy_box_winner)
+        }
+      }
+    } catch (_) {}
+  }
+
   return e.json(200, {
     catalog_product_id: catId,
     competitors_count: sortedCompetitors.length,
@@ -188,5 +241,6 @@ routerAdd('GET', '/api/ml/catalog-competition/{catalog_product_id}', (e) => {
     suggested_price_to_win: suggestedPrice,
     competition_raw_status: competitionRawStatus,
     best_competitor: bestCompetitor,
+    sold_quantity: productSoldQuantity != null ? Number(productSoldQuantity) : null,
   })
 })

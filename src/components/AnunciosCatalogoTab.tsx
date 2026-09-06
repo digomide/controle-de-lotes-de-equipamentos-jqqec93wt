@@ -109,24 +109,36 @@ export function AnunciosCatalogoTab() {
       setLoadingCompetitors((prev) => ({ ...prev, [key]: true }))
       try {
         const compData = await mlCatalogService.getCatalogCompetition(cat.catalog_product_id)
-        if (compData && Array.isArray(compData.competitors) && compData.competitors.length > 0) {
+        if (compData) {
           setCatalogItems((prev) => {
             const next = [...prev]
             if (next[originalIndex]) {
+              const currentProd = next[originalIndex].catalogProduct
+              const updatedCompetitors =
+                Array.isArray(compData.competitors) && compData.competitors.length > 0
+                  ? compData.competitors
+                  : currentProd.competitors
+              const updatedSold =
+                compData.sold_quantity != null ? compData.sold_quantity : currentProd.sold_quantity
+
               next[originalIndex] = {
                 ...next[originalIndex],
                 catalogProduct: {
-                  ...next[originalIndex].catalogProduct,
-                  competitors: compData.competitors,
-                  competitors_count: compData.competitors.length,
+                  ...currentProd,
+                  competitors: updatedCompetitors,
+                  competitors_count:
+                    compData.competitors_count != null
+                      ? compData.competitors_count
+                      : currentProd.competitors_count,
                   buy_box_winner_seller_nickname:
-                    next[originalIndex].catalogProduct.buy_box_winner_seller_nickname ||
+                    currentProd.buy_box_winner_seller_nickname ||
                     compData.winner?.seller_nickname ||
                     undefined,
                   suggested_price_to_win:
-                    next[originalIndex].catalogProduct.suggested_price_to_win ||
+                    currentProd.suggested_price_to_win ||
                     compData.suggested_price_to_win ||
                     undefined,
+                  sold_quantity: updatedSold,
                 },
               }
             }
@@ -165,6 +177,11 @@ export function AnunciosCatalogoTab() {
 
   // Sub-filtro de grau de recondicionado na aba Catálogo ('all' ou 'Excelente' | 'Bom' | 'Aceitável')
   const [gradeFilter, setGradeFilter] = useState<'all' | RefurbishedGrade>('all')
+
+  // Critério de ordenação da grade (padrão 'relevance' = ordem da busca/relevância do ML)
+  const [catalogSortBy, setCatalogSortBy] = useState<
+    'relevance' | 'sold_desc' | 'price_asc' | 'price_desc'
+  >('relevance')
 
   // Salvar no sessionStorage sempre que mudar o seletor da busca
   useEffect(() => {

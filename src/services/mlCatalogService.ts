@@ -7,6 +7,7 @@ export interface MLCatalogCompetitor {
   seller_nickname?: string
   price: number
   available_quantity?: number | null
+  sold_quantity?: number | null
   listing_type_id?: string
   listing_type_label?: string
   is_buy_box_winner?: boolean
@@ -47,6 +48,7 @@ export interface MLCatalogProduct {
   source?: string
   is_own_account?: boolean
   own_ad_id?: string
+  sold_quantity?: number | null
   attributes?: Array<{
     id: string
     name: string
@@ -54,6 +56,29 @@ export interface MLCatalogProduct {
     value_name?: string | null
     [key: string]: any
   }>
+}
+
+/**
+ * Formata a quantidade de vendas no padrão visual do Mercado Livre
+ * Ex.: "+1.000 vendidos", "25 vendidos", "Nenhum vendido", "Vendas não informadas"
+ */
+export function formatMLSoldQuantity(sold?: number | null): string {
+  if (sold === null || sold === undefined || isNaN(sold)) {
+    return 'Vendas não informadas'
+  }
+  const n = Math.max(0, Math.floor(sold))
+  if (n === 0) {
+    return 'Nenhum vendido'
+  }
+  if (n >= 1000) {
+    // No ML aparece "+1.000 vendidos", "+5.000 vendidos", "+50mil vendidos", etc.
+    const thousands = Math.floor(n / 1000) * 1000
+    return `+${thousands.toLocaleString('pt-BR')} vendidos`
+  }
+  if (n === 1) {
+    return '1 vendido'
+  }
+  return `${n.toLocaleString('pt-BR')} vendidos`
 }
 
 export type PublishConditionOption = 'catalog_auto' | 'new' | 'used' | 'refurbished' | 'open_box'
@@ -412,6 +437,7 @@ export const mlCatalogService = {
     suggested_price_to_win?: number | null
     competition_raw_status?: string
     best_competitor?: any
+    sold_quantity?: number | null
   }> {
     try {
       const res = await pb.send(

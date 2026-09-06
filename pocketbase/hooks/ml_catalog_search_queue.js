@@ -362,6 +362,33 @@ onRecordAfterCreateSuccess((e) => {
     return ''
   }
 
+  // Helper para extrair sold_quantity de um item ou produto com fallback seguro
+  function extractSoldQuantity(obj) {
+    if (!obj) return null
+    if (obj.sold_quantity != null && !isNaN(Number(obj.sold_quantity))) {
+      return Number(obj.sold_quantity)
+    }
+    if (obj.sold_quantity_mercadopago != null && !isNaN(Number(obj.sold_quantity_mercadopago))) {
+      return Number(obj.sold_quantity_mercadopago)
+    }
+    if (Array.isArray(obj.attributes)) {
+      for (let a = 0; a < obj.attributes.length; a++) {
+        const attr = obj.attributes[a]
+        if (!attr || !attr.id) continue
+        const attrIdUpper = String(attr.id).toUpperCase()
+        if (
+          attrIdUpper === 'SOLD_QUANTITY' ||
+          attrIdUpper === 'TOTAL_SOLD' ||
+          attrIdUpper === 'ITEMS_SOLD'
+        ) {
+          const valNum = Number(attr.value_name || attr.value_id)
+          if (!isNaN(valNum)) return valNum
+        }
+      }
+    }
+    return null
+  }
+
   // Função auxiliar para consultar concorrência profunda via /products/{id}/items e price_to_win
   function fetchDeepCompetition(catId, ownItemId) {
     let bestCompetitor = null
@@ -369,6 +396,7 @@ onRecordAfterCreateSuccess((e) => {
     let competitionRawStatus = ''
     let sharingFirstPlace = null
     let competitorsList = []
+    let maxItemSoldQuantity = null
 
     if (!catId || !token) {
       return {
@@ -376,6 +404,7 @@ onRecordAfterCreateSuccess((e) => {
         suggestedPrice: null,
         competitionRawStatus: '',
         competitorsList: [],
+        deepSoldQuantity: null,
       }
     }
 
@@ -395,6 +424,10 @@ onRecordAfterCreateSuccess((e) => {
           const itSellerId = String(it.seller_id || '')
           const itItemId = String(it.item_id || it.id || '')
           const isOwn = itSellerId === '626774396' || (ownItemId && itItemId === String(ownItemId))
+          const itSold = extractSoldQuantity(it)
+          if (itSold != null && (maxItemSoldQuantity == null || itSold > maxItemSoldQuantity)) {
+            maxItemSoldQuantity = itSold
+          }
 
           const competitorEntry = {
             item_id: itItemId,
@@ -403,6 +436,7 @@ onRecordAfterCreateSuccess((e) => {
             price: Number(it.price) || 0,
             available_quantity:
               it.available_quantity != null ? Number(it.available_quantity) : null,
+            sold_quantity: itSold,
             listing_type_id: it.listing_type_id || '',
             listing_type_label:
               it.listing_type_id === 'gold_pro'
@@ -510,6 +544,7 @@ onRecordAfterCreateSuccess((e) => {
       suggestedPrice: suggestedPrice,
       competitionRawStatus: competitionRawStatus,
       competitorsList: competitorsList,
+      deepSoldQuantity: maxItemSoldQuantity,
     }
   }
 
@@ -531,6 +566,7 @@ onRecordAfterCreateSuccess((e) => {
     let competitors = []
     let stockStatus = 'Estoque não público'
     let competitionStatus = 'Sem concorrente ativo'
+    let soldQuantity = extractSoldQuantity(prod)
 
     if (prod && prod.buy_box_winner) {
       const bb = prod.buy_box_winner
@@ -562,6 +598,9 @@ onRecordAfterCreateSuccess((e) => {
       if (bb.shipping) {
         winnerFreeShipping = Boolean(bb.shipping.free_shipping)
         winnerShippingMode = bb.shipping.mode || ''
+      }
+      if (soldQuantity == null) {
+        soldQuantity = extractSoldQuantity(bb)
       }
       competitionStatus = 'Disputa ativa na Buy Box'
     } else if (prod && prod.price && prod.price > 0) {
@@ -605,6 +644,9 @@ onRecordAfterCreateSuccess((e) => {
           if (bc.shipping_mode) {
             winnerShippingMode = bc.shipping_mode
           }
+          if (soldQuantity == null && bc.sold_quantity != null) {
+            soldQuantity = bc.sold_quantity
+          }
           competitionStatus = 'Disputa ativa na Buy Box'
         }
 
@@ -617,6 +659,9 @@ onRecordAfterCreateSuccess((e) => {
         if (Array.isArray(deep.competitorsList)) {
           competitorsCount = deep.competitorsList.length
           competitors = deep.competitorsList
+        }
+        if (soldQuantity == null && deep.deepSoldQuantity != null) {
+          soldQuantity = deep.deepSoldQuantity
         }
       } catch (eDeep) {
         debugLog.push('Aviso fetchDeepCompetition: ' + String(eDeep))
@@ -644,6 +689,7 @@ onRecordAfterCreateSuccess((e) => {
       competitors: competitors,
       stock_status: stockStatus,
       competition_status: competitionStatus,
+      sold_quantity: soldQuantity != null ? Number(soldQuantity) : null,
     }
   }
 
@@ -756,6 +802,10 @@ onRecordAfterCreateSuccess((e) => {
         status: item.status || 'active',
         is_own_account: Boolean(item.is_own_account),
         own_ad_id: item.own_ad_id || undefined,
+        sold_quantity:
+          item.sold_quantity != null && !isNaN(Number(item.sold_quantity))
+            ? Number(item.sold_quantity)
+            : null,
       }
       if (item.condition_grade) {
         base.condition_grade = item.condition_grade
@@ -768,6 +818,10 @@ onRecordAfterCreateSuccess((e) => {
             seller_nickname: String(c.seller_nickname || '').substring(0, 30),
             price: Number(c.price) || 0,
             available_quantity: c.available_quantity != null ? Number(c.available_quantity) : null,
+            sold_quantity:
+              c.sold_quantity != null && !isNaN(Number(c.sold_quantity))
+                ? Number(c.sold_quantity)
+                : null,
             is_buy_box_winner: Boolean(c.is_buy_box_winner),
             is_own: Boolean(c.is_own),
           }
@@ -901,6 +955,11 @@ onRecordAfterCreateSuccess((e) => {
             adGrade = 'Excelente'
           }
 
+          const adSold =
+            ad.sold_quantity != null && !isNaN(Number(ad.sold_quantity))
+              ? Number(ad.sold_quantity)
+              : null
+
           ownCandidates.push({
             catalog_product_id: effectiveCatalogId,
             real_catalog_product_id: adCatId || '',
@@ -912,6 +971,7 @@ onRecordAfterCreateSuccess((e) => {
             thumbnail: ad.thumbnail || '',
             permalink: ad.permalink || 'https://produto.mercadolivre.com.br/' + ad.id,
             available_quantity: ad.available_quantity != null ? ad.available_quantity : null,
+            sold_quantity: adSold,
             source: 'own_account_ads_fetch',
           })
         }
@@ -963,6 +1023,7 @@ onRecordAfterCreateSuccess((e) => {
             condition: pCond,
             condition_grade: pGrade,
             price: prodRec.getNumber('unit_price') || null,
+            sold_quantity: null,
             source: 'own_account_local_product',
           })
         }
@@ -1090,6 +1151,8 @@ onRecordAfterCreateSuccess((e) => {
                 source: 'own_account_enriched',
                 is_own_account: true,
                 own_ad_id: cand.own_ad_id,
+                sold_quantity:
+                  cand.sold_quantity != null ? cand.sold_quantity : compInfo.sold_quantity,
               })
               isEnriched = true
               strategyUsed = 'own_account_mined'
@@ -1107,7 +1170,9 @@ onRecordAfterCreateSuccess((e) => {
           let itemStock = cand.available_quantity != null ? cand.available_quantity : 1
           let itemPrice = cand.price || null
 
-          if (cand.own_ad_id && token && (!itemThumb || !itemPrice)) {
+          let candSold = cand.sold_quantity != null ? cand.sold_quantity : null
+
+          if (cand.own_ad_id && token && (!itemThumb || !itemPrice || candSold == null)) {
             try {
               const itRes = $http.send({
                 url: 'https://api.mercadolibre.com/items/' + cand.own_ad_id,
@@ -1124,6 +1189,10 @@ onRecordAfterCreateSuccess((e) => {
                 }
                 if (ij.price) itemPrice = Number(ij.price)
                 if (ij.available_quantity != null) itemStock = Number(ij.available_quantity)
+                if (candSold == null) {
+                  const s = extractSoldQuantity(ij)
+                  if (s != null) candSold = s
+                }
 
                 if (Array.isArray(ij.attributes)) {
                   for (let a = 0; a < ij.attributes.length; a++) {
@@ -1190,6 +1259,7 @@ onRecordAfterCreateSuccess((e) => {
             source: 'own_account_mined_direct',
             is_own_account: true,
             own_ad_id: cand.own_ad_id,
+            sold_quantity: candSold,
           })
           strategyUsed = 'own_account_mined'
         }
@@ -1280,6 +1350,7 @@ onRecordAfterCreateSuccess((e) => {
             condition_grade: condInfo.condition_grade || undefined,
             status: p.status || 'active',
             source: 'ml_product_direct',
+            sold_quantity: compInfo.sold_quantity != null ? compInfo.sold_quantity : null,
           })
           seenCatalogIds[p.id] = true
           strategyUsed = 'api_products_direct'
@@ -1626,6 +1697,7 @@ onRecordAfterCreateSuccess((e) => {
               condition_grade: condInfo.condition_grade || undefined,
               status: prod.status || 'active',
               source: 'ml_products_search_fanout',
+              sold_quantity: compInfo.sold_quantity != null ? compInfo.sold_quantity : null,
             })
           }
 
@@ -1720,6 +1792,9 @@ onRecordAfterCreateSuccess((e) => {
               targetItem.competitors = freshComp.competitors || []
               targetItem.stock_status = freshComp.stock_status
               targetItem.competition_status = freshComp.competition_status
+            }
+            if (freshComp.sold_quantity != null && targetItem.sold_quantity == null) {
+              targetItem.sold_quantity = freshComp.sold_quantity
             }
           }
         } catch (_) {}
