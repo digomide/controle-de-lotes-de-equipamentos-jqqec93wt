@@ -24,6 +24,10 @@ import {
   EyeOff,
   Tag,
   BadgeCheck,
+  User,
+  Zap,
+  ArrowDownRight,
+  ShieldCheck,
 } from 'lucide-react'
 import {
   Select,
@@ -1653,69 +1657,144 @@ export function AnunciosCatalogoTab() {
                             )}
                           </h4>
 
-                          {/* Painel de Disputa e Concorrência na Buy Box */}
-                          <div className="flex items-center gap-3 text-xs pt-1 flex-wrap">
-                            {/* Preço da Buy Box Concorrente */}
-                            {cat.buy_box_winner_price ? (
-                              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-50 border border-emerald-200">
-                                <TrendingDown className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                <span className="text-[11px] text-slate-600 font-medium">
-                                  Buy Box Concorrente:
-                                </span>
-                                <span className="font-mono font-bold text-emerald-700">
-                                  {Number(cat.buy_box_winner_price).toLocaleString('pt-BR', {
-                                    style: 'currency',
-                                    currency: 'BRL',
-                                  })}
-                                </span>
-                              </div>
-                            ) : (
-                              <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[11px]">
-                                <span>Buy Box: sem disputa ativa</span>
-                              </div>
-                            )}
+                          {/* Painel Completo de Disputa e Concorrência na Buy Box */}
+                          <div className="flex flex-col gap-2 pt-1 text-xs">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {/* Vendedor Líder da Buy Box / Identificação */}
+                              {cat.is_own_account ? (
+                                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-purple-50 border border-purple-200 text-purple-900 font-semibold text-[11px]">
+                                  <ShieldCheck className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                                  <span>
+                                    Líder Buy Box: <strong>Você</strong>
+                                  </span>
+                                </div>
+                              ) : cat.buy_box_winner_seller_nickname ? (
+                                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-100 border border-slate-200 text-slate-800 text-[11px]">
+                                  <User className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                                  <span>
+                                    Líder: <strong>{cat.buy_box_winner_seller_nickname}</strong>
+                                  </span>
+                                </div>
+                              ) : cat.buy_box_winner_price ? (
+                                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-100 border border-slate-200 text-slate-700 text-[11px]">
+                                  <User className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                                  <span>
+                                    Líder:{' '}
+                                    <strong className="font-mono">
+                                      {cat.buy_box_winner_seller_id
+                                        ? `Seller #${cat.buy_box_winner_seller_id}`
+                                        : 'Concorrente'}
+                                    </strong>
+                                  </span>
+                                </div>
+                              ) : (
+                                <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[11px]">
+                                  <span>Sem disputa ativa</span>
+                                </div>
+                              )}
 
-                            {/* Estoque do Concorrente / Status da Disputa */}
-                            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-100 border border-slate-200 text-slate-700">
-                              <Package className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                              <span className="text-[11px] font-medium text-slate-600">
-                                Estoque concorrência:
-                              </span>
-                              <span className="font-mono font-bold text-slate-900 text-[11px]">
-                                {cat.buy_box_winner_stock != null && cat.buy_box_winner_stock > 0
-                                  ? `${cat.buy_box_winner_stock} un.`
-                                  : cat.stock_status ||
-                                    (cat.buy_box_winner_price
-                                      ? '1+ un. (pronta entrega)'
-                                      : 'Estoque não público')}
-                              </span>
+                              {/* Tipo de Anúncio do Concorrente (Premium / Clássico) */}
+                              {cat.buy_box_winner_listing_type && (
+                                <Badge
+                                  variant="outline"
+                                  className={`text-[10px] font-semibold border ${
+                                    cat.buy_box_winner_listing_type.includes('gold_pro') ||
+                                    cat.buy_box_winner_listing_type === 'premium'
+                                      ? 'bg-amber-50 text-amber-900 border-amber-300'
+                                      : 'bg-slate-50 text-slate-700 border-slate-300'
+                                  }`}
+                                  title={`Tipo de anúncio do líder: ${cat.buy_box_winner_listing_type}`}
+                                >
+                                  {cat.buy_box_winner_listing_type_label ||
+                                    (cat.buy_box_winner_listing_type.includes('gold_pro')
+                                      ? 'Premium'
+                                      : 'Clássico')}
+                                </Badge>
+                              )}
+
+                              {/* Preço do Líder da Buy Box */}
+                              {cat.buy_box_winner_price ? (
+                                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-50 border border-emerald-200">
+                                  <TrendingDown className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                  <span className="text-[11px] text-slate-600 font-medium">
+                                    Preço líder:
+                                  </span>
+                                  <span className="font-mono font-bold text-emerald-700">
+                                    {Number(cat.buy_box_winner_price).toLocaleString('pt-BR', {
+                                      style: 'currency',
+                                      currency: 'BRL',
+                                    })}
+                                  </span>
+                                </div>
+                              ) : null}
+
+                              {/* Menor Preço Ativo da Concorrência (min_price) se diferente do líder */}
+                              {cat.min_price &&
+                                cat.buy_box_winner_price &&
+                                Number(cat.min_price) !== Number(cat.buy_box_winner_price) && (
+                                  <div className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-slate-50 border border-slate-200 text-slate-600 text-[11px]">
+                                    <span>Menor preço ativo:</span>
+                                    <span className="font-mono font-semibold text-slate-800">
+                                      {Number(cat.min_price).toLocaleString('pt-BR', {
+                                        style: 'currency',
+                                        currency: 'BRL',
+                                      })}
+                                    </span>
+                                  </div>
+                                )}
+
+                              {/* Estoque do Líder / Status */}
+                              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-100 border border-slate-200 text-slate-700">
+                                <Package className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                                <span className="text-[11px] font-medium text-slate-600">
+                                  Estoque líder:
+                                </span>
+                                <span className="font-mono font-bold text-slate-900 text-[11px]">
+                                  {cat.buy_box_winner_stock != null && cat.buy_box_winner_stock > 0
+                                    ? `${cat.buy_box_winner_stock} un.`
+                                    : cat.stock_status ||
+                                      (cat.buy_box_winner_price
+                                        ? 'Pronta entrega (1+ un.)'
+                                        : 'Estoque não público')}
+                                </span>
+                              </div>
+
+                              {/* Contagem de Concorrentes */}
+                              {cat.competitors_count != null && cat.competitors_count > 1 && (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px] font-mono text-slate-600 border-slate-300 bg-white"
+                                >
+                                  {cat.competitors_count} concorrentes
+                                </Badge>
+                              )}
+
+                              {/* Status da Disputa */}
+                              {cat.competition_status && (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px] font-mono text-slate-600 border-slate-300 bg-white"
+                                >
+                                  {cat.competition_status}
+                                </Badge>
+                              )}
+
+                              {cat.permalink && (
+                                <a
+                                  href={cat.permalink}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-600 hover:underline inline-flex items-center gap-1 font-mono text-[11px] ml-auto sm:ml-0"
+                                >
+                                  Ver anúncio no ML <ExternalLink className="w-2.5 h-2.5" />
+                                </a>
+                              )}
                             </div>
-
-                            {/* Status da Disputa */}
-                            {cat.competition_status && (
-                              <Badge
-                                variant="outline"
-                                className="text-[10px] font-mono text-slate-600 border-slate-300 bg-white"
-                              >
-                                {cat.competition_status}
-                              </Badge>
-                            )}
-
-                            {cat.permalink && (
-                              <a
-                                href={cat.permalink}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-blue-600 hover:underline inline-flex items-center gap-1 font-mono text-[11px] ml-auto sm:ml-0"
-                              >
-                                Ver anúncio concorrente <ExternalLink className="w-2.5 h-2.5" />
-                              </a>
-                            )}
                           </div>
                         </div>
                       </div>
 
-                      {/* Edição Inline: Condição, Quantidade e Valor */}
+                      {/* Edição Inline: Condição, Quantidade e Valor + Ações de Preço */}
                       <div className="w-full lg:w-96 flex flex-col gap-2 shrink-0 bg-slate-50 lg:bg-slate-50/70 p-3 rounded-lg border border-slate-200">
                         <div className="flex items-center gap-2.5">
                           {/* Condição de publicação */}
@@ -1766,9 +1845,10 @@ export function AnunciosCatalogoTab() {
                               <span>Preço (R$)</span>
                               {isBelowBuyBox && (
                                 <span
-                                  className="text-emerald-600 font-bold text-[9px]"
+                                  className="text-emerald-600 font-bold text-[9px] flex items-center gap-0.5"
                                   title="Seu preço está mais agressivo que o concorrente da Buy Box!"
                                 >
+                                  <Zap className="w-2.5 h-2.5 text-emerald-600 fill-emerald-600" />
                                   Vencedor!
                                 </span>
                               )}
@@ -1784,6 +1864,37 @@ export function AnunciosCatalogoTab() {
                             />
                           </div>
                         </div>
+
+                        {/* Botão de Atalho "Baixar para R$ X" (Price to Win / Vencer Buy Box) */}
+                        {cat.suggested_price_to_win &&
+                          cat.suggested_price_to_win > 0 &&
+                          item.formPrice !== cat.suggested_price_to_win && (
+                            <div className="pt-0.5">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() =>
+                                  updatePrice(originalIndex, Number(cat.suggested_price_to_win))
+                                }
+                                disabled={!item.selected || isPublishing}
+                                className="w-full h-7 text-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300 font-semibold flex items-center justify-center gap-1.5 shadow-2xs"
+                                title="Preço exato sugerido pelo Mercado Livre para superar a concorrência e assumir a Buy Box"
+                              >
+                                <ArrowDownRight className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>
+                                  Baixar para{' '}
+                                  <strong className="font-mono">
+                                    {Number(cat.suggested_price_to_win).toLocaleString('pt-BR', {
+                                      style: 'currency',
+                                      currency: 'BRL',
+                                    })}
+                                  </strong>{' '}
+                                  (Vencer Buy Box)
+                                </span>
+                              </Button>
+                            </div>
+                          )}
 
                         {/* Avisos inline contextuais sobre a condição escolhida */}
                         {item.formCondition === 'refurbished' && (
@@ -1914,10 +2025,35 @@ export function AnunciosCatalogoTab() {
                                 {cat.title}
                               </h5>
 
-                              <div className="flex items-center gap-3 text-[11px] pt-0.5 text-slate-500 flex-wrap">
+                              {/* Painel de Disputa nos Parciais */}
+                              <div className="flex items-center gap-2 text-[11px] pt-1 text-slate-600 flex-wrap">
+                                {cat.buy_box_winner_seller_nickname ? (
+                                  <span className="inline-flex items-center gap-1 text-slate-700 font-medium">
+                                    <User className="w-3 h-3 text-slate-400" />
+                                    Líder: <strong>{cat.buy_box_winner_seller_nickname}</strong>
+                                  </span>
+                                ) : cat.is_own_account ? (
+                                  <span className="inline-flex items-center gap-1 text-purple-700 font-bold">
+                                    <ShieldCheck className="w-3 h-3 text-purple-600" />
+                                    Líder: Você
+                                  </span>
+                                ) : null}
+
+                                {cat.buy_box_winner_listing_type && (
+                                  <Badge
+                                    variant="outline"
+                                    className="text-[9px] py-0 px-1 font-semibold text-slate-600 border-slate-300"
+                                  >
+                                    {cat.buy_box_winner_listing_type_label ||
+                                      (cat.buy_box_winner_listing_type.includes('gold_pro')
+                                        ? 'Premium'
+                                        : 'Clássico')}
+                                  </Badge>
+                                )}
+
                                 {cat.buy_box_winner_price ? (
                                   <span className="font-mono text-emerald-700 font-semibold">
-                                    Buy Box:{' '}
+                                    Líder:{' '}
                                     {Number(cat.buy_box_winner_price).toLocaleString('pt-BR', {
                                       style: 'currency',
                                       currency: 'BRL',
@@ -1926,16 +2062,20 @@ export function AnunciosCatalogoTab() {
                                 ) : (
                                   <span className="text-slate-400">Buy Box: sem disputa ativa</span>
                                 )}
+
                                 <span className="text-slate-600">
-                                  Estoque concorrente:{' '}
+                                  Estoque:{' '}
                                   <strong className="text-slate-800 font-mono">
                                     {cat.buy_box_winner_stock != null &&
                                     cat.buy_box_winner_stock > 0
                                       ? `${cat.buy_box_winner_stock} un.`
                                       : cat.stock_status ||
-                                        (cat.buy_box_winner_price ? '1+ un.' : 'Não público')}
+                                        (cat.buy_box_winner_price
+                                          ? 'Pronta entrega (1+ un.)'
+                                          : 'Não público')}
                                   </strong>
                                 </span>
+
                                 {cat.permalink && (
                                   <a
                                     href={cat.permalink}
@@ -1997,8 +2137,9 @@ export function AnunciosCatalogoTab() {
                                 <label className="text-[10px] uppercase font-bold text-slate-400 block flex items-center justify-between">
                                   <span>Preço (R$)</span>
                                   {isBelowBuyBox && (
-                                    <span className="text-emerald-600 font-bold text-[9px]">
-                                      Abaixo Buy Box
+                                    <span className="text-emerald-600 font-bold text-[9px] flex items-center gap-0.5">
+                                      <Zap className="w-2.5 h-2.5 text-emerald-600 fill-emerald-600" />
+                                      Vencedor!
                                     </span>
                                   )}
                                 </label>
@@ -2015,6 +2156,39 @@ export function AnunciosCatalogoTab() {
                                 />
                               </div>
                             </div>
+
+                            {/* Botão de Atalho "Baixar para R$ X" (Price to Win) nos Parciais */}
+                            {cat.suggested_price_to_win &&
+                              cat.suggested_price_to_win > 0 &&
+                              item.formPrice !== cat.suggested_price_to_win && (
+                                <div className="pt-0.5">
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() =>
+                                      updatePrice(originalIndex, Number(cat.suggested_price_to_win))
+                                    }
+                                    disabled={!item.selected || isPublishing}
+                                    className="w-full h-6 text-[11px] bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300 font-semibold flex items-center justify-center gap-1"
+                                    title="Preço exato sugerido pelo Mercado Livre para superar a concorrência"
+                                  >
+                                    <ArrowDownRight className="w-3 h-3 text-emerald-600" />
+                                    <span>
+                                      Baixar para{' '}
+                                      <strong className="font-mono">
+                                        {Number(cat.suggested_price_to_win).toLocaleString(
+                                          'pt-BR',
+                                          {
+                                            style: 'currency',
+                                            currency: 'BRL',
+                                          },
+                                        )}
+                                      </strong>
+                                    </span>
+                                  </Button>
+                                </div>
+                              )}
 
                             {/* Avisos inline parciais */}
                             {item.formCondition === 'refurbished' && (

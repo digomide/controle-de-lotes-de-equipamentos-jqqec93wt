@@ -36,15 +36,13 @@ migrate(
         rd.search_catalog_product_id &&
         rd.search_catalog_product_id.json &&
         Array.isArray(rd.search_catalog_product_id.json.results)
-          ? rd.search_catalog_product_id.json.results
-              .slice(0, 3)
-              .map((r) => ({
-                id: r.id,
-                title: r.title,
-                price: r.price,
-                seller: r.seller,
-                available_quantity: r.available_quantity,
-              }))
+          ? rd.search_catalog_product_id.json.results.slice(0, 3).map((r) => ({
+              id: r.id,
+              title: r.title,
+              price: r.price,
+              seller: r.seller,
+              available_quantity: r.available_quantity,
+            }))
           : null,
     }
 

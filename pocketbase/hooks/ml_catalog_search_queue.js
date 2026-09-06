@@ -273,17 +273,197 @@ onRecordAfterCreateSuccess((e) => {
     return { condition: 'new', condition_label: 'Novo' }
   }
 
+  // Cache de nicknames de sellers para evitar requisições repetidas
+  const sellerNicknameCache = {}
+  function getSellerNickname(sId) {
+    if (!sId) return ''
+    const key = String(sId)
+    if (sellerNicknameCache[key]) return sellerNicknameCache[key]
+    if (!token) return ''
+    try {
+      const uRes = $http.send({
+        url: 'https://api.mercadolibre.com/users/' + key,
+        method: 'GET',
+        headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+        timeout: 4,
+      })
+      if (uRes.statusCode === 200 && uRes.json && uRes.json.nickname) {
+        sellerNicknameCache[key] = uRes.json.nickname
+        return uRes.json.nickname
+      }
+    } catch (_) {}
+    return ''
+  }
+
+  // Função auxiliar para consultar concorrência profunda via /products/{id}/items e price_to_win
+  function fetchDeepCompetition(catId, ownItemId) {
+    let bestCompetitor = null
+    let suggestedPrice = null
+    let competitionRawStatus = ''
+    let sharingFirstPlace = null
+    let competitorsList = []
+
+    if (!catId || !token) {
+      return {
+        bestCompetitor: null,
+        suggestedPrice: null,
+        competitionRawStatus: '',
+        competitorsList: [],
+      }
+    }
+
+    // 1. Consultar /products/{id}/items (lista de anúncios disputando esta posição)
+    try {
+      const itRes = $http.send({
+        url: 'https://api.mercadolibre.com/products/' + catId + '/items',
+        method: 'GET',
+        headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+        timeout: 8,
+      })
+      if (itRes.statusCode === 200 && itRes.json && Array.isArray(itRes.json.results)) {
+        const results = itRes.json.results
+        for (let r = 0; r < results.length; r++) {
+          const it = results[r]
+          if (!it) continue
+          const itSellerId = String(it.seller_id || '')
+          const itItemId = String(it.item_id || it.id || '')
+          const isOwn = itSellerId === '626774396' || (ownItemId && itItemId === String(ownItemId))
+
+          const competitorEntry = {
+            item_id: itItemId,
+            seller_id: itSellerId,
+            seller_nickname: '',
+            price: Number(it.price) || 0,
+            available_quantity:
+              it.available_quantity != null ? Number(it.available_quantity) : null,
+            listing_type_id: it.listing_type_id || '',
+            listing_type_label:
+              it.listing_type_id === 'gold_pro'
+                ? 'Premium'
+                : it.listing_type_id === 'gold_special'
+                  ? 'Clássico'
+                  : it.listing_type_id || '',
+            free_shipping: Boolean(it.shipping && it.shipping.free_shipping),
+            shipping_mode: (it.shipping && it.shipping.mode) || '',
+            is_buy_box_winner: Boolean(it.is_buy_box_winner),
+            is_own: isOwn,
+          }
+
+          competitorsList.push(competitorEntry)
+        }
+      }
+    } catch (eIt) {
+      debugLog.push('Aviso /products/' + catId + '/items: ' + String(eIt))
+    }
+
+    // 2. Se houver anúncio próprio nesta posição, consultar GET /items/{ownItemId}/price_to_win
+    if (ownItemId) {
+      try {
+        const ptwRes = $http.send({
+          url:
+            'https://api.mercadolibre.com/items/' +
+            ownItemId +
+            '/price_to_win?siteId=MLB&version=v2',
+          method: 'GET',
+          headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+          timeout: 8,
+        })
+        if (ptwRes.statusCode === 200 && ptwRes.json) {
+          const pj = ptwRes.json
+          suggestedPrice = pj.price_to_win ? Number(pj.price_to_win) : null
+          competitionRawStatus = pj.status || '' // 'winning' | 'competing' | 'sharing_first_place' | 'listed'
+          sharingFirstPlace = pj.competitors_sharing_first_place
+
+          // Se winner veio no price_to_win
+          if (pj.winner && pj.winner.price) {
+            const wItemId = pj.winner.item_id || ''
+            // Procurar se temos este item na lista de competitorsList para obter dados adicionais
+            const matched = competitorsList.find(function (c) {
+              return c.item_id === wItemId
+            })
+            if (matched) {
+              matched.is_buy_box_winner = true
+              bestCompetitor = matched
+            } else {
+              bestCompetitor = {
+                item_id: wItemId,
+                seller_id: pj.winner.seller_id ? String(pj.winner.seller_id) : '',
+                seller_nickname: '',
+                price: Number(pj.winner.price),
+                available_quantity:
+                  pj.winner.available_quantity != null
+                    ? Number(pj.winner.available_quantity)
+                    : null,
+                listing_type_id: pj.winner.listing_type_id || '',
+                listing_type_label:
+                  pj.winner.listing_type_id === 'gold_pro'
+                    ? 'Premium'
+                    : pj.winner.listing_type_id === 'gold_special'
+                      ? 'Clássico'
+                      : '',
+                free_shipping: true,
+                shipping_mode: 'me2',
+                is_buy_box_winner: true,
+                is_own: false,
+              }
+            }
+          }
+        }
+      } catch (ePtw) {
+        debugLog.push('Aviso price_to_win para item ' + ownItemId + ': ' + String(ePtw))
+      }
+    }
+
+    // Se ainda não temos bestCompetitor definido mas temos lista de concorrentes, eleger o concorrente não-próprio com menor preço ou winner
+    if (!bestCompetitor && competitorsList.length > 0) {
+      const nonOwnCompetitors = competitorsList.filter(function (c) {
+        return !c.is_own && c.price > 0
+      })
+      if (nonOwnCompetitors.length > 0) {
+        // Ordenar: primeiro quem tem is_buy_box_winner, depois menor preço
+        nonOwnCompetitors.sort(function (a, b) {
+          if (a.is_buy_box_winner !== b.is_buy_box_winner) {
+            return a.is_buy_box_winner ? -1 : 1
+          }
+          return a.price - b.price
+        })
+        bestCompetitor = nonOwnCompetitors[0]
+      }
+    }
+
+    // Enriquecer nickname do melhor concorrente se seller_id disponível
+    if (bestCompetitor && bestCompetitor.seller_id && !bestCompetitor.seller_nickname) {
+      bestCompetitor.seller_nickname = getSellerNickname(bestCompetitor.seller_id)
+    }
+
+    return {
+      bestCompetitor: bestCompetitor,
+      suggestedPrice: suggestedPrice,
+      competitionRawStatus: competitionRawStatus,
+      competitorsList: competitorsList,
+    }
+  }
+
   // Função auxiliar para extrair e normalizar dados de disputa/concorrência da Buy Box
-  function extractCompetitionData(prod) {
+  function extractCompetitionData(prod, ownItemId) {
     let bbPrice = null
     let minPrice = null
     let winnerSellerId = null
+    let winnerSellerNickname = ''
     let winnerItemId = null
     let winnerStock = null
+    let winnerListingType = ''
+    let winnerListingTypeLabel = ''
+    let winnerFreeShipping = null
+    let winnerShippingMode = ''
+    let suggestedPrice = null
+    let competitionRawStatus = ''
+    let competitorsCount = 0
     let stockStatus = 'Estoque não público'
     let competitionStatus = 'Sem concorrente ativo'
 
-    if (prod.buy_box_winner) {
+    // 1. Dados básicos da Buy Box raiz
+    if (prod && prod.buy_box_winner) {
       const bb = prod.buy_box_winner
       if (bb.price && bb.price > 0) {
         bbPrice = Number(bb.price)
@@ -301,20 +481,98 @@ onRecordAfterCreateSuccess((e) => {
       } else if (bb.price) {
         stockStatus = 'Pronta entrega (1+ un.)'
       }
+      if (bb.listing_type_id) {
+        winnerListingType = bb.listing_type_id
+        winnerListingTypeLabel =
+          bb.listing_type_id === 'gold_pro'
+            ? 'Premium'
+            : bb.listing_type_id === 'gold_special'
+              ? 'Clássico'
+              : bb.listing_type_id
+      }
+      if (bb.shipping) {
+        winnerFreeShipping = Boolean(bb.shipping.free_shipping)
+        winnerShippingMode = bb.shipping.mode || ''
+      }
       competitionStatus = 'Disputa ativa na Buy Box'
-    } else if (prod.price && prod.price > 0) {
+    } else if (prod && prod.price && prod.price > 0) {
       bbPrice = Number(prod.price)
       minPrice = bbPrice
       competitionStatus = 'Preço de referência do catálogo'
       stockStatus = 'Estoque sob consulta'
     }
 
+    // 2. Enriquecimento profundo via /products/{id}/items e price_to_win se id do produto estiver disponível
+    const catId = prod ? prod.id || prod.catalog_product_id : null
+    if (catId && token) {
+      try {
+        const deep = fetchDeepCompetition(catId, ownItemId)
+        if (deep.bestCompetitor) {
+          const bc = deep.bestCompetitor
+          if (bc.price > 0) {
+            bbPrice = bc.price
+            minPrice = bc.price
+          }
+          if (bc.seller_id) {
+            winnerSellerId = bc.seller_id
+          }
+          if (bc.seller_nickname) {
+            winnerSellerNickname = bc.seller_nickname
+          }
+          if (bc.item_id) {
+            winnerItemId = bc.item_id
+          }
+          if (bc.available_quantity != null) {
+            winnerStock = bc.available_quantity
+            stockStatus = winnerStock + ' un. em estoque'
+          }
+          if (bc.listing_type_id) {
+            winnerListingType = bc.listing_type_id
+            winnerListingTypeLabel =
+              bc.listing_type_label || (bc.listing_type_id === 'gold_pro' ? 'Premium' : 'Clássico')
+          }
+          if (bc.free_shipping != null) {
+            winnerFreeShipping = bc.free_shipping
+          }
+          if (bc.shipping_mode) {
+            winnerShippingMode = bc.shipping_mode
+          }
+          competitionStatus = 'Disputa ativa na Buy Box'
+        }
+
+        if (deep.suggestedPrice != null) {
+          suggestedPrice = deep.suggestedPrice
+        }
+        if (deep.competitionRawStatus) {
+          competitionRawStatus = deep.competitionRawStatus
+        }
+        if (Array.isArray(deep.competitorsList)) {
+          competitorsCount = deep.competitorsList.length
+        }
+      } catch (eDeep) {
+        debugLog.push('Aviso fetchDeepCompetition: ' + String(eDeep))
+      }
+    }
+
+    // Enriquecer nickname se temos seller_id mas não nickname
+    if (winnerSellerId && !winnerSellerNickname) {
+      winnerSellerNickname = getSellerNickname(winnerSellerId)
+    }
+
     return {
       buy_box_winner_price: bbPrice,
       min_price: minPrice,
       buy_box_winner_seller_id: winnerSellerId,
+      buy_box_winner_seller_nickname: winnerSellerNickname,
       buy_box_winner_item_id: winnerItemId,
       buy_box_winner_stock: winnerStock,
+      buy_box_winner_listing_type: winnerListingType,
+      buy_box_winner_listing_type_label: winnerListingTypeLabel,
+      buy_box_winner_free_shipping: winnerFreeShipping,
+      buy_box_winner_shipping_mode: winnerShippingMode,
+      suggested_price_to_win: suggestedPrice,
+      competition_raw_status: competitionRawStatus,
+      competitors_count: competitorsCount,
       stock_status: stockStatus,
       competition_status: competitionStatus,
     }
@@ -607,7 +865,7 @@ onRecordAfterCreateSuccess((e) => {
             if (enrichRes.statusCode === 200 && enrichRes.json) {
               const p = enrichRes.json
               const condInfo = extractProductCondition(p)
-              const compInfo = extractCompetitionData(p)
+              const compInfo = extractCompetitionData(p, cand.own_ad_id)
 
               let thumb = ''
               if (p.pictures && p.pictures.length > 0) {
@@ -672,8 +930,16 @@ onRecordAfterCreateSuccess((e) => {
                 buy_box_winner_price: compInfo.buy_box_winner_price || cand.price,
                 min_price: compInfo.min_price || cand.price,
                 buy_box_winner_seller_id: compInfo.buy_box_winner_seller_id,
+                buy_box_winner_seller_nickname: compInfo.buy_box_winner_seller_nickname || '',
                 buy_box_winner_item_id: compInfo.buy_box_winner_item_id || cand.own_ad_id,
                 buy_box_winner_stock: compInfo.buy_box_winner_stock,
+                buy_box_winner_listing_type: compInfo.buy_box_winner_listing_type || '',
+                buy_box_winner_listing_type_label: compInfo.buy_box_winner_listing_type_label || '',
+                buy_box_winner_free_shipping: compInfo.buy_box_winner_free_shipping,
+                buy_box_winner_shipping_mode: compInfo.buy_box_winner_shipping_mode || '',
+                suggested_price_to_win: compInfo.suggested_price_to_win,
+                competition_raw_status: compInfo.competition_raw_status || '',
+                competitors_count: compInfo.competitors_count || 0,
                 stock_status: compInfo.stock_status,
                 competition_status: compInfo.competition_status,
                 attributes: leanAttrs,
@@ -753,6 +1019,34 @@ onRecordAfterCreateSuccess((e) => {
             candCond === 'refurbished' ? 'Recondicionado' : candCond === 'used' ? 'Usado' : 'Novo'
 
           seenCatalogIds[catId] = true
+          // Se tiver catalog_product_id mesmo na injeção direta sem enrich de produto, tenta puxar concorrência
+          let fallbackComp = {
+            buy_box_winner_price: itemPrice,
+            min_price: itemPrice,
+            buy_box_winner_seller_id: '626774396',
+            buy_box_winner_seller_nickname: '',
+            buy_box_winner_item_id: cand.own_ad_id,
+            buy_box_winner_stock: itemStock,
+            buy_box_winner_listing_type: '',
+            buy_box_winner_listing_type_label: '',
+            buy_box_winner_free_shipping: null,
+            buy_box_winner_shipping_mode: '',
+            suggested_price_to_win: null,
+            competition_raw_status: '',
+            competitors_count: 1,
+            stock_status: itemStock + ' un. em estoque (sua conta)',
+            competition_status: 'Sua posição de venda ativa no ML',
+          }
+          if (catId && token) {
+            try {
+              const directComp = extractCompetitionData({ id: catId }, cand.own_ad_id)
+              if (directComp.buy_box_winner_price) {
+                fallbackComp = directComp
+              }
+            } catch (_) {}
+          }
+
+          seenCatalogIds[catId] = true
           itemsFound.push({
             id: cand.own_ad_id || catId,
             catalog_product_id: cand.own_ad_id || catId,
@@ -761,13 +1055,24 @@ onRecordAfterCreateSuccess((e) => {
             permalink:
               cand.permalink || 'https://produto.mercadolivre.com.br/' + (cand.own_ad_id || catId),
             thumbnail: itemThumb,
-            buy_box_winner_price: itemPrice,
-            min_price: itemPrice,
-            buy_box_winner_seller_id: '626774396',
-            buy_box_winner_item_id: cand.own_ad_id,
-            buy_box_winner_stock: itemStock,
-            stock_status: itemStock + ' un. em estoque (sua conta)',
-            competition_status: 'Sua posição de venda ativa no ML',
+            buy_box_winner_price: fallbackComp.buy_box_winner_price || itemPrice,
+            min_price: fallbackComp.min_price || itemPrice,
+            buy_box_winner_seller_id: fallbackComp.buy_box_winner_seller_id || '626774396',
+            buy_box_winner_seller_nickname: fallbackComp.buy_box_winner_seller_nickname || '',
+            buy_box_winner_item_id: fallbackComp.buy_box_winner_item_id || cand.own_ad_id,
+            buy_box_winner_stock:
+              fallbackComp.buy_box_winner_stock != null
+                ? fallbackComp.buy_box_winner_stock
+                : itemStock,
+            buy_box_winner_listing_type: fallbackComp.buy_box_winner_listing_type || '',
+            buy_box_winner_listing_type_label: fallbackComp.buy_box_winner_listing_type_label || '',
+            buy_box_winner_free_shipping: fallbackComp.buy_box_winner_free_shipping,
+            buy_box_winner_shipping_mode: fallbackComp.buy_box_winner_shipping_mode || '',
+            suggested_price_to_win: fallbackComp.suggested_price_to_win,
+            competition_raw_status: fallbackComp.competition_raw_status || '',
+            competitors_count: fallbackComp.competitors_count || 1,
+            stock_status: fallbackComp.stock_status,
+            competition_status: fallbackComp.competition_status,
             attributes: itemAttrs,
             condition: candCond,
             condition_label: candLabel,
@@ -843,8 +1148,16 @@ onRecordAfterCreateSuccess((e) => {
             buy_box_winner_price: compInfo.buy_box_winner_price,
             min_price: compInfo.min_price,
             buy_box_winner_seller_id: compInfo.buy_box_winner_seller_id,
+            buy_box_winner_seller_nickname: compInfo.buy_box_winner_seller_nickname || '',
             buy_box_winner_item_id: compInfo.buy_box_winner_item_id,
             buy_box_winner_stock: compInfo.buy_box_winner_stock,
+            buy_box_winner_listing_type: compInfo.buy_box_winner_listing_type || '',
+            buy_box_winner_listing_type_label: compInfo.buy_box_winner_listing_type_label || '',
+            buy_box_winner_free_shipping: compInfo.buy_box_winner_free_shipping,
+            buy_box_winner_shipping_mode: compInfo.buy_box_winner_shipping_mode || '',
+            suggested_price_to_win: compInfo.suggested_price_to_win,
+            competition_raw_status: compInfo.competition_raw_status || '',
+            competitors_count: compInfo.competitors_count || 0,
             stock_status: compInfo.stock_status,
             competition_status: compInfo.competition_status,
             attributes: leanDirectAttributes,
@@ -1256,16 +1569,24 @@ onRecordAfterCreateSuccess((e) => {
     }
 
     // =========================================================================
-    // ETAPA 3: ENRIQUECIMENTO DAS PRIMEIRAS POSIÇÕES SEM PREÇO
+    // ETAPA 3: ENRIQUECIMENTO DE CONCORRÊNCIA DAS PRIMEIRAS POSIÇÕES
+    // (Enriquece as top posições visíveis que não possuem dados de concorrência ou seller_nickname)
     // =========================================================================
     if (itemsFound.length > 0 && token) {
-      const candidatesToEnrich = itemsFound.filter((it) => !it.buy_box_winner_price).slice(0, 5)
+      // Priorizar posições que não têm buy_box_winner_price ou não têm seller_nickname enriquecido (máximo 10)
+      const candidatesToEnrich = itemsFound
+        .filter(
+          (it) =>
+            !it.buy_box_winner_price ||
+            (it.buy_box_winner_seller_id && !it.buy_box_winner_seller_nickname),
+        )
+        .slice(0, 10)
 
       if (candidatesToEnrich.length > 0) {
         debugLog.push(
           'Enriquecendo ' +
             candidatesToEnrich.length +
-            ' primeiras posições sem preço via GET /products/{id}...',
+            ' primeiras posições via GET /products/{id} e concorrência profunda...',
         )
         for (let eIdx = 0; eIdx < candidatesToEnrich.length; eIdx++) {
           const targetItem = candidatesToEnrich[eIdx]
@@ -1278,15 +1599,29 @@ onRecordAfterCreateSuccess((e) => {
             })
             if (enrichRes.statusCode === 200 && enrichRes.json) {
               const pDetail = enrichRes.json
-              const freshComp = extractCompetitionData(pDetail)
+              const freshComp = extractCompetitionData(pDetail, targetItem.own_ad_id)
               if (freshComp.buy_box_winner_price) {
                 targetItem.buy_box_winner_price = freshComp.buy_box_winner_price
                 targetItem.min_price = freshComp.min_price
                 targetItem.buy_box_winner_seller_id = freshComp.buy_box_winner_seller_id
+                targetItem.buy_box_winner_seller_nickname = freshComp.buy_box_winner_seller_nickname
                 targetItem.buy_box_winner_item_id = freshComp.buy_box_winner_item_id
                 targetItem.buy_box_winner_stock = freshComp.buy_box_winner_stock
+                targetItem.buy_box_winner_listing_type = freshComp.buy_box_winner_listing_type
+                targetItem.buy_box_winner_listing_type_label =
+                  freshComp.buy_box_winner_listing_type_label
+                targetItem.buy_box_winner_free_shipping = freshComp.buy_box_winner_free_shipping
+                targetItem.buy_box_winner_shipping_mode = freshComp.buy_box_winner_shipping_mode
+                targetItem.suggested_price_to_win = freshComp.suggested_price_to_win
+                targetItem.competition_raw_status = freshComp.competition_raw_status
+                targetItem.competitors_count = freshComp.competitors_count
                 targetItem.stock_status = freshComp.stock_status
                 targetItem.competition_status = freshComp.competition_status
+              } else if (
+                freshComp.buy_box_winner_seller_nickname &&
+                !targetItem.buy_box_winner_seller_nickname
+              ) {
+                targetItem.buy_box_winner_seller_nickname = freshComp.buy_box_winner_seller_nickname
               }
               const freshCond = extractProductCondition(pDetail)
               if (freshCond.condition !== 'new' || targetItem.condition === 'unknown') {
@@ -1357,6 +1692,7 @@ onRecordAfterCreateSuccess((e) => {
     )
 
     // Função para sanitizar e compactar itens mantendo tudo que a UI precisa
+    // Preserva dados cruciais da concorrência na Buy Box de forma compacta e resiliente
     // Nível 1: mantém BRAND, MODEL, GRADING
     // Nível 2: remove attributes totalmente
     function sanitizeForDatabase(items, level) {
@@ -1369,11 +1705,29 @@ onRecordAfterCreateSuccess((e) => {
           permalink:
             item.permalink || 'https://www.mercadolivre.com.br/p/' + item.catalog_product_id,
           thumbnail: item.thumbnail || '',
-          buy_box_winner_price: item.buy_box_winner_price,
-          min_price: item.min_price,
-          buy_box_winner_stock: item.buy_box_winner_stock,
-          stock_status: item.stock_status,
-          competition_status: item.competition_status,
+          buy_box_winner_price:
+            item.buy_box_winner_price != null ? Number(item.buy_box_winner_price) : null,
+          min_price: item.min_price != null ? Number(item.min_price) : null,
+          buy_box_winner_seller_id: item.buy_box_winner_seller_id
+            ? String(item.buy_box_winner_seller_id)
+            : '',
+          buy_box_winner_seller_nickname: (item.buy_box_winner_seller_nickname || '').substring(
+            0,
+            50,
+          ),
+          buy_box_winner_item_id: item.buy_box_winner_item_id
+            ? String(item.buy_box_winner_item_id)
+            : '',
+          buy_box_winner_listing_type: item.buy_box_winner_listing_type || '',
+          buy_box_winner_listing_type_label: item.buy_box_winner_listing_type_label || '',
+          buy_box_winner_stock:
+            item.buy_box_winner_stock != null ? Number(item.buy_box_winner_stock) : null,
+          suggested_price_to_win:
+            item.suggested_price_to_win != null ? Number(item.suggested_price_to_win) : null,
+          competition_raw_status: item.competition_raw_status || '',
+          competitors_count: item.competitors_count != null ? Number(item.competitors_count) : 0,
+          stock_status: item.stock_status || '',
+          competition_status: item.competition_status || '',
           condition: item.condition || 'new',
           condition_label: item.condition_label || 'Novo',
           status: item.status || 'active',

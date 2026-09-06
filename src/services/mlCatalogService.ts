@@ -11,8 +11,14 @@ export interface MLCatalogProduct {
   buy_box_winner_price?: number | null
   min_price?: number | null
   buy_box_winner_seller_id?: string | null
+  buy_box_winner_seller_nickname?: string | null
   buy_box_winner_item_id?: string | null
+  buy_box_winner_listing_type?: string | null
+  buy_box_winner_listing_type_label?: string | null
   buy_box_winner_stock?: number | null
+  suggested_price_to_win?: number | null
+  competition_raw_status?: string | null
+  competitors_count?: number | null
   stock_status?: string
   competition_status?: string
   condition?: 'new' | 'refurbished' | 'used' | 'open_box' | 'unknown' | string
@@ -384,9 +390,11 @@ export const mlCatalogService = {
     })
 
     const totalAvailableStock = matches.length
-    // Preço sugerido: buy_box_winner_price do ML, ou min_price, ou média/menor dos preços do nosso estoque se houver match
+    // Preço sugerido: suggested_price_to_win (oficial do price_to_win para vencer Buy Box), ou buy_box_winner_price, ou min_price, ou menor dos preços do estoque
     let suggestedPrice = 0
-    if (catalogProd.buy_box_winner_price && catalogProd.buy_box_winner_price > 0) {
+    if (catalogProd.suggested_price_to_win && catalogProd.suggested_price_to_win > 0) {
+      suggestedPrice = catalogProd.suggested_price_to_win
+    } else if (catalogProd.buy_box_winner_price && catalogProd.buy_box_winner_price > 0) {
       suggestedPrice = catalogProd.buy_box_winner_price
     } else if (catalogProd.min_price && catalogProd.min_price > 0) {
       suggestedPrice = catalogProd.min_price
