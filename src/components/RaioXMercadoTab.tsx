@@ -1,10 +1,8 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import {
   TrendingUp,
   Search,
   Sparkles,
-  BarChart3,
-  ShieldCheck,
   RefreshCw,
   Trophy,
   Package,
@@ -18,76 +16,36 @@ import {
   ChevronDown,
   ChevronUp,
   Info,
+  Store,
+  DollarSign,
+  Activity,
+  Filter,
+  ShieldCheck,
+  Clock,
+  Database,
+  Users,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { useToast } from '@/hooks/use-toast'
+import pb from '@/lib/pocketbase/client'
 import {
   mlCatalogService,
   formatMLSoldQuantity,
-  normalizeRefurbishedGrade,
   type MLCatalogProduct,
-  type MLCatalogSearchJob,
 } from '@/services/mlCatalogService'
-
-interface FamilyAnalysisResult {
-  query: string
-  totalItems: number
-  totalStock: number
-  itemsWithStock: number
-  priceMin: number
-  priceMedian: number
-  priceMax: number
-  priceAvg: number
-  // Condições
-  countNew: number
-  countRefurbished: number
-  countUsed: number
-  countOpenBox: number
-  countRefurbExcelente: number
-  countRefurbBom: number
-  countRefurbAceitavel: number
-  pctRefurbished: number
-  // Concorrência e Buy Box
-  itemsWithWinner: number
-  itemsWithCompetition: number
-  itemsSingleSeller: number
-  itemsHighDispute: number // 3+ concorrentes
-  totalCompetitorsTracked: number
-  // Vendas
-  knownSalesSum: number
-  itemsWithReportedSales: number
-  // Itens da própria conta minerados
-  ownAccountCount: number
-  // Índice de Força (0 a 100)
-  forceIndex: number
-  forceTier: 'Alta Força' | 'Média Força' | 'Baixa Força' | 'Oportunidade de Entrada'
-  forceComponents: {
-    densityScore: number // Densidade de anúncios / demanda (0-25)
-    refurbScore: number // Presença e viabilidade do recondicionado (0-25)
-    dispersionScore: number // Liquidez e consistência de preços (0-25)
-    competitionScore: number // Oportunidade de Buy Box / disputa (0-25)
-  }
-  // Ranking dos mais fortes
-  topRanked: Array<{
-    catalogProduct: MLCatalogProduct
-    rankScore: number
-    rankReasons: string[]
-    conditionLabel: string
-    effectivePrice: number
-    effectiveStock: number
-    hasBuyBox: boolean
-    competitorCount: number
-    isOwn: boolean
-    soldQuantity: number | null
-  }>
-}
+import {
+  aggregateSellersByExactProduct,
+  recordAdSnapshots,
+  type ExactProductSummary,
+  type SellerPerformanceAggregate,
+} from '@/services/mlExactProductService'
 
 export function RaioXMercadoTab() {
   const { toast } = useToast()
-  const [searchTerm, setSearchTerm] = useState('dell latitude')
+  const [searchTerm, setSearchTerm] = useState('fonte desktop dell 3020')
   const [activeQuery, setActiveQuery] = useState('')
   const [loading, setLoading] = useState(false)
   const [progressText, setSearchProgressText] = useState('')
@@ -96,17 +54,40 @@ export function RaioXMercadoTab() {
   const [isCached, setIsCached] = useState(false)
   const [cachedAt, setCachedAt] = useState<string | null>(null)
   const [rawProducts, setRawProducts] = useState<MLCatalogProduct[]>([])
+  const [historicalSnapshots, setHistoricalSnapshots] = useState<any[]>([])
   const [showHowItWorks, setShowHowItWorks] = useState(false)
+  const [snapshotSaved, setSnapshotSaved] = useState(false)
+  const [savingSnapshot, setSavingSnapshot] = useState(false)
+  const [selectedSellerDetail, setSelectedSellerDetail] =
+    useState<SellerPerformanceAggregate | null>(null)
+  const [filterExactOnly, setFilterExactOnly] = useState(true)
 
-  // Sugestões rápidas de famílias
-  const suggestedFamilies = [
-    'dell latitude',
+  // Sugestões de produtos exatos para pesquisa rápida
+  const suggestedExactProducts = [
+    'fonte desktop dell 3020',
+    'dell latitude 5420 i5',
     'thinkpad t480',
-    'hp elitebook',
-    'dell optiplex',
-    'macbook air',
-    'fonte dell 3020',
+    'carregador dell 65w 4.5mm',
+    'bateria dell inspiron 15',
+    'placa mae dell optiplex 3020',
   ]
+
+  // Carregar snapshots existentes do banco ao montar
+  useEffect(() => {
+    async function loadSnapshots() {
+      try {
+        const snaps = await pb.collection('ml_ad_snapshots').getList(1, 300, {
+          sort: '-created',
+        })
+        if (snaps && snaps.items) {
+          setHistoricalSnapshots(snaps.items)
+        }
+      } catch {
+        /* intentionally ignored */
+      }
+    }
+    loadSnapshots()
+  }, [])
 
   // Interromper busca
   async function handleStop() {
@@ -116,7 +97,7 @@ export function RaioXMercadoTab() {
       await mlCatalogService.stopSearchJob(currentJobId)
       toast({
         title: 'Parando varredura...',
-        description: 'Compilando os dados já minerados da família.',
+        description: 'Compilando os dados já minerados do produto exato.',
       })
     } catch (err) {
       console.warn('Erro ao parar job:', err)
@@ -130,8 +111,8 @@ export function RaioXMercadoTab() {
     const q = (queryToUse ?? searchTerm).trim()
     if (!q) {
       toast({
-        title: 'Informe uma família ou termo',
-        description: 'Ex.: "dell latitude", "thinkpad t480", "notebook hp"',
+        title: 'Informe um produto exato',
+        description: 'Ex.: "fonte desktop dell 3020", "dell latitude 5420 i5", "thinkpad t480"',
         variant: 'destructive',
       })
       return
@@ -143,10 +124,12 @@ export function RaioXMercadoTab() {
     setCurrentJobId(null)
     setIsCached(false)
     setCachedAt(null)
+    setSnapshotSaved(false)
+    setSelectedSellerDetail(null)
     setSearchProgressText(
       forceRefresh
-        ? 'Varrendo posições em tempo real (sem cache)...'
-        : 'Iniciando varredura de mercado para ' + q + '...',
+        ? 'Varrendo o Mercado Livre em tempo real para o produto exato...'
+        : 'Iniciando varredura profunda para "' + q + '"...',
     )
 
     try {
@@ -174,19 +157,19 @@ export function RaioXMercadoTab() {
 
       if (results.length === 0) {
         toast({
-          title: 'Nenhum item encontrado para esta família',
+          title: 'Nenhum anúncio encontrado no Mercado Livre',
           description: 'Tente outro termo ou amplie a busca.',
         })
       } else {
         toast({
-          title: `Raio-X concluído: ${results.length} posições mapeadas`,
-          description: `Análise compilada com dados reais do Mercado Livre para "${q}".`,
+          title: `Varredura concluída: ${results.length} posições mineradas`,
+          description: `Aplicando filtro de precisão de produto exato para "${q}".`,
         })
       }
     } catch (err: any) {
       console.error('Erro no Raio-X:', err)
       toast({
-        title: 'Falha na varredura da família',
+        title: 'Falha na varredura do produto',
         description: err?.message || 'Não foi possível carregar os dados do Mercado Livre.',
         variant: 'destructive',
       })
@@ -196,273 +179,55 @@ export function RaioXMercadoTab() {
     }
   }
 
-  // Análise Estatística Agregada dos dados REAIS
-  const analysis: FamilyAnalysisResult | null = useMemo(() => {
-    if (!rawProducts || rawProducts.length === 0) return null
+  // Agregação dos dados por PRODUTO EXATO e por SELLER
+  const summary: ExactProductSummary | null = useMemo(() => {
+    if (!rawProducts || rawProducts.length === 0 || !activeQuery) return null
+    return aggregateSellersByExactProduct(rawProducts, activeQuery, historicalSnapshots)
+  }, [rawProducts, activeQuery, historicalSnapshots])
 
-    const totalItems = rawProducts.length
-    let totalStock = 0
-    let itemsWithStock = 0
-    const prices: number[] = []
-
-    let countNew = 0
-    let countRefurbished = 0
-    let countUsed = 0
-    let countOpenBox = 0
-    let countRefurbExcelente = 0
-    let countRefurbBom = 0
-    let countRefurbAceitavel = 0
-
-    let itemsWithWinner = 0
-    let itemsWithCompetition = 0
-    let itemsSingleSeller = 0
-    let itemsHighDispute = 0
-    let totalCompetitorsTracked = 0
-
-    let knownSalesSum = 0
-    let itemsWithReportedSales = 0
-    let ownAccountCount = 0
-
-    rawProducts.forEach((p) => {
-      // Condição
-      const c = (p.condition || 'new').toLowerCase()
-      if (c === 'refurbished') {
-        countRefurbished++
-        const g = normalizeRefurbishedGrade(p.condition_grade) || 'Excelente'
-        if (g === 'Excelente') countRefurbExcelente++
-        else if (g === 'Bom') countRefurbBom++
-        else if (g === 'Aceitável') countRefurbAceitavel++
-      } else if (c === 'used') {
-        countUsed++
-      } else if (c === 'open_box') {
-        countOpenBox++
-      } else {
-        countNew++
-      }
-
-      // Preço de referência da posição
-      const pPrice = p.buy_box_winner_price || p.min_price || null
-      if (pPrice && pPrice > 0) {
-        prices.push(pPrice)
-      }
-
-      // Estoque visível
-      const stock = p.buy_box_winner_stock ?? 0
-      if (stock > 0) {
-        totalStock += stock
-        itemsWithStock++
-      }
-
-      // Concorrência e Buy Box
-      if (p.buy_box_winner_price || p.buy_box_winner_seller_nickname) {
-        itemsWithWinner++
-      }
-
-      const compCount = p.competitors_count ?? (p.competitors ? p.competitors.length : 0)
-      if (compCount > 0) {
-        totalCompetitorsTracked += compCount
-        if (compCount === 1) itemsSingleSeller++
-        else if (compCount >= 3) itemsHighDispute++
-        itemsWithCompetition++
-      }
-
-      // Vendas informadas (quando existirem de contas próprias ou fontes que entreguem)
-      if (p.sold_quantity != null && !isNaN(p.sold_quantity) && p.sold_quantity > 0) {
-        knownSalesSum += p.sold_quantity
-        itemsWithReportedSales++
-      }
-
-      // Própria conta
-      if (p.is_own_account) {
-        ownAccountCount++
-      }
-    })
-
-    // Estatísticas de preço
-    prices.sort((a, b) => a - b)
-    const priceMin = prices.length > 0 ? prices[0] : 0
-    const priceMax = prices.length > 0 ? prices[prices.length - 1] : 0
-    const priceAvg = prices.length > 0 ? prices.reduce((acc, v) => acc + v, 0) / prices.length : 0
-    const priceMedian =
-      prices.length > 0
-        ? prices.length % 2 === 0
-          ? (prices[prices.length / 2 - 1] + prices[prices.length / 2]) / 2
-          : prices[Math.floor(prices.length / 2)]
-        : 0
-
-    const pctRefurbished = totalItems > 0 ? Math.round((countRefurbished / totalItems) * 100) : 0
-
-    // CÁLCULO DO ÍNDICE DE FORÇA DA FAMÍLIA (0 a 100)
-    // 1. Densidade (0-25): volume de posições ativas no ML (ampla variedade = família demandada)
-    const densityScore = Math.min(25, Math.round((totalItems / 40) * 25))
-
-    // 2. Presença do Recondicionado (0-25): mercado aberto para nosso modelo de negócio
-    // Se a família já tem posições refurb ativas, é um sinal de extrema força para o nosso nicho
-    const refurbScore = Math.min(
-      25,
-      countRefurbished > 0
-        ? Math.round(15 + Math.min(10, countRefurbished * 2))
-        : countUsed > 0
-          ? 10
-          : 5,
-    )
-
-    // 3. Dispersão de Preço / Liquidez (0-25): faixa de preços saudável (preço mediano entre R$ 800 e R$ 4.000)
-    let dispersionScore = 15
-    if (priceMedian >= 1000 && priceMedian <= 4500) dispersionScore = 25
-    else if (priceMedian > 500 && priceMedian < 6000) dispersionScore = 20
-    else if (priceMedian > 0) dispersionScore = 12
-
-    // 4. Oportunidade de Concorrência (0-25): Buy Box disputada vs. posições sem vencedor/líder
-    // Alta proporção de posições com Buy Box ativa = mercado vivo; presença de posições com 1 só concorrente = oportunidade de entrar ganhando
-    const winnerRatio = totalItems > 0 ? itemsWithWinner / totalItems : 0
-    const singleRatio = totalItems > 0 ? itemsSingleSeller / totalItems : 0
-    const competitionScore = Math.min(
-      25,
-      Math.round(winnerRatio * 15 + Math.min(10, singleRatio * 20)),
-    )
-
-    const forceIndex = Math.min(
-      100,
-      densityScore + refurbScore + dispersionScore + competitionScore,
-    )
-
-    let forceTier: FamilyAnalysisResult['forceTier'] = 'Média Força'
-    if (forceIndex >= 75) forceTier = 'Alta Força'
-    else if (forceIndex >= 50) forceTier = 'Média Força'
-    else if (itemsSingleSeller >= 3 || countRefurbished === 0) forceTier = 'Oportunidade de Entrada'
-    else forceTier = 'Baixa Força'
-
-    // RANKING DOS ITENS MAIS FORTES DA FAMÍLIA
-    // Cada anúncio pontuado por visibilidade (posição ordinal da busca do ML), Buy Box conquistada, estoque e preço
-    const rankedList = rawProducts.map((p, index) => {
-      let rankScore = 0
-      const rankReasons: string[] = []
-
-      // 1. Ordem da busca do Mercado Livre (o próprio algoritmo de relevância do ML prioriza os mais visitados/vendidos)
-      const mlbRelevancePoints = Math.max(0, 40 - Math.min(40, Math.floor(index * 1.5)))
-      rankScore += mlbRelevancePoints
-      if (index < 5) {
-        rankReasons.push(`Top ${index + 1} em relevância no ML`)
-      }
-
-      // 2. Vencedor de Buy Box conquistado
-      if (p.buy_box_winner_seller_nickname) {
-        rankScore += 25
-        rankReasons.push(`Líder de Buy Box (${p.buy_box_winner_seller_nickname})`)
-      }
-
-      // 3. Estoque visível
-      const stock = p.buy_box_winner_stock ?? 0
-      if (stock >= 10) {
-        rankScore += 15
-        rankReasons.push(`Estoque forte (${stock} un.)`)
-      } else if (stock > 0) {
-        rankScore += 8
-      }
-
-      // 4. Condição recondicionada / compatível
-      const c = (p.condition || '').toLowerCase()
-      if (c === 'refurbished') {
-        rankScore += 10
-        rankReasons.push('Posição oficial Recondicionado')
-      }
-
-      // 5. Vendas confirmadas quando existirem
-      if (p.sold_quantity != null && p.sold_quantity > 0) {
-        rankScore += Math.min(20, Math.floor(p.sold_quantity / 5))
-        rankReasons.push(`Vendas confirmadas (${p.sold_quantity})`)
-      }
-
-      // 6. Preço competitivo (acima de zero)
-      const effPrice = p.buy_box_winner_price || p.min_price || 0
-      if (effPrice >= 800) {
-        rankScore += 5
-      }
-
-      const condMeta =
-        c === 'refurbished'
-          ? `Recondicionado (${p.condition_grade || 'Excelente'})`
-          : c === 'used'
-            ? 'Usado'
-            : c === 'open_box'
-              ? 'Caixa aberta'
-              : 'Novo'
-
-      return {
-        catalogProduct: p,
-        rankScore,
-        rankReasons,
-        conditionLabel: condMeta,
-        effectivePrice: effPrice,
-        effectiveStock: stock,
-        hasBuyBox: Boolean(p.buy_box_winner_seller_nickname),
-        competitorCount: p.competitors_count ?? (p.competitors?.length || 0),
-        isOwn: Boolean(p.is_own_account),
-        soldQuantity: p.sold_quantity ?? null,
-      }
-    })
-
-    rankedList.sort((a, b) => b.rankScore - a.rankScore)
-
-    return {
-      query: activeQuery,
-      totalItems,
-      totalStock,
-      itemsWithStock,
-      priceMin,
-      priceMedian,
-      priceMax,
-      priceAvg,
-      countNew,
-      countRefurbished,
-      countUsed,
-      countOpenBox,
-      countRefurbExcelente,
-      countRefurbBom,
-      countRefurbAceitavel,
-      pctRefurbished,
-      itemsWithWinner,
-      itemsWithCompetition,
-      itemsSingleSeller,
-      itemsHighDispute,
-      totalCompetitorsTracked,
-      knownSalesSum,
-      itemsWithReportedSales,
-      ownAccountCount,
-      forceIndex,
-      forceTier,
-      forceComponents: {
-        densityScore,
-        refurbScore,
-        dispersionScore,
-        competitionScore,
-      },
-      topRanked: rankedList.slice(0, 15),
+  // Salvar snapshot periódico no banco
+  async function handleSaveSnapshot() {
+    if (!summary || savingSnapshot) return
+    setSavingSnapshot(true)
+    try {
+      const res = await recordAdSnapshots(summary)
+      setSnapshotSaved(true)
+      toast({
+        title: 'Snapshot de histórico registrado!',
+        description: `${res.savedCount} anúncio(s) e preços salvos para acumular histórico real de vendas e deltas nos próximos 60 dias.`,
+      })
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao salvar snapshot',
+        description: err?.message || 'Falha ao gravar no banco.',
+        variant: 'destructive',
+      })
+    } finally {
+      setSavingSnapshot(false)
     }
-  }, [rawProducts, activeQuery])
+  }
 
   return (
     <div className="space-y-6">
-      {/* Banner Superior */}
+      {/* Banner Superior com Explicação Transparente */}
       <Card className="border-slate-800 bg-gradient-to-r from-slate-950 via-slate-900 to-indigo-950 text-white shadow-md">
         <CardContent className="p-6">
           <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
             <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <div className="w-10 h-10 rounded-xl bg-amber-400/20 text-amber-300 border border-amber-400/30 flex items-center justify-center">
-                  <TrendingUp className="w-5 h-5" />
+                <div className="w-10 h-10 rounded-xl bg-amber-400/20 text-amber-300 border border-amber-400/30 flex items-center justify-center shrink-0">
+                  <Flame className="w-5 h-5 text-amber-400" />
                 </div>
                 <div>
                   <h2 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-                    Raio-X de Força do Produto
+                    Raio-X de Produto Exato & Termômetro de Vendas
                     <Badge className="bg-amber-400 text-slate-950 hover:bg-amber-300 text-[10px] font-bold">
-                      Fase A · Dados Reais
+                      Filtro Rigoroso + Termômetro por Seller
                     </Badge>
                   </h2>
                   <p className="text-xs text-slate-300">
-                    Descubra o comportamento de mercado, densidade de anúncios, viabilidade de
-                    recondicionado e quem são os campeões de visibilidade da família.
+                    Filtra exatamente os anúncios do produto pesquisado, audita os sellers
+                    concorrentes, rastreia vendas expostas e avalia giro, fluxo e margem de entrada.
                   </p>
                 </div>
               </div>
@@ -476,7 +241,7 @@ export function RaioXMercadoTab() {
                 className="text-xs h-9 bg-slate-800/80 border-slate-700 text-slate-200 hover:bg-slate-700 hover:text-white gap-1.5"
               >
                 <Info className="w-3.5 h-3.5" />
-                Como é calculado?
+                Como funciona o Termômetro?
                 {showHowItWorks ? (
                   <ChevronUp className="w-3.5 h-3.5" />
                 ) : (
@@ -486,38 +251,39 @@ export function RaioXMercadoTab() {
             </div>
           </div>
 
-          {/* Explicação Expansível dos Critérios Honestos */}
+          {/* Explicação Expansível dos Critérios Transparentes */}
           {showHowItWorks && (
             <div className="mt-4 pt-4 border-t border-slate-800 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-slate-300">
-              <div className="bg-slate-900/80 p-3 rounded-lg border border-slate-800">
-                <span className="font-bold text-amber-300 block mb-1 flex items-center gap-1.5">
-                  <BarChart3 className="w-3.5 h-3.5" /> 1. Sem Inventar Números
+              <div className="bg-slate-900/80 p-3.5 rounded-lg border border-slate-800 space-y-1.5">
+                <span className="font-bold text-amber-300 flex items-center gap-1.5 text-xs">
+                  <Filter className="w-3.5 h-3.5" /> 1. Filtro de Produto Exato
                 </span>
                 <p className="text-[11px] leading-relaxed text-slate-400">
-                  O Mercado Livre bloqueia o acesso a vendas históricas de terceiros via API pública
-                  (403). Exibimos vendas reais da sua conta e de qualquer fonte pública entregue;
-                  quando não informado, exibimos com clareza &quot;Vendas não informadas&quot;.
+                  Descarta automaticamente produtos genéricos, acessórios desconexos e modelos
+                  diferentes. Ao buscar &quot;fonte desktop dell 3020&quot;, preserva apenas fontes
+                  compatíveis com o Dell 3020.
                 </p>
               </div>
 
-              <div className="bg-slate-900/80 p-3 rounded-lg border border-slate-800">
-                <span className="font-bold text-indigo-300 block mb-1 flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5" /> 2. Índice de Força (0–100)
+              <div className="bg-slate-900/80 p-3.5 rounded-lg border border-slate-800 space-y-1.5">
+                <span className="font-bold text-indigo-300 flex items-center gap-1.5 text-xs">
+                  <Flame className="w-3.5 h-3.5" /> 2. Termômetro de Vendas (0–100)
                 </span>
                 <p className="text-[11px] leading-relaxed text-slate-400">
-                  Combina 4 pilares auditáveis: <strong>Densidade</strong> (oferta ativa),{' '}
-                  <strong>Recondicionado</strong> (espaço para nosso nicho), <strong>Preço</strong>{' '}
-                  (mediana e liquidez) e <strong>Buy Box</strong> (disputa de concorrência).
+                  Ranqueia cada seller por: <strong>🔥 Giro Alto (65–100)</strong>,{' '}
+                  <strong>🌡️ Médio (35–64)</strong> e <strong>❄️ Baixo (0–34)</strong>, ponderando
+                  vendas confirmadas, posse da Buy Box, volume de estoque e tipo de anúncio.
                 </p>
               </div>
 
-              <div className="bg-slate-900/80 p-3 rounded-lg border border-slate-800">
-                <span className="font-bold text-emerald-300 block mb-1 flex items-center gap-1.5">
-                  <Trophy className="w-3.5 h-3.5" /> 3. Campeões de Visibilidade
+              <div className="bg-slate-900/80 p-3.5 rounded-lg border border-slate-800 space-y-1.5">
+                <span className="font-bold text-emerald-300 flex items-center gap-1.5 text-xs">
+                  <Database className="w-3.5 h-3.5" /> 3. Honestidade e Snapshots
                 </span>
                 <p className="text-[11px] leading-relaxed text-slate-400">
-                  Rankeia as posições mais proeminentes da família pelo algoritmo de busca oficial
-                  do ML, líderes que detêm a Buy Box, disponibilidade de estoque e compatibilidade.
+                  Nunca inventamos números. Onde a API do ML bloqueia vendas de terceiros (403),
+                  usamos os sinais reais auditáveis e gravamos snapshots no banco para medir deltas
+                  reais de 60 dias conforme acumulamos histórico.
                 </p>
               </div>
             </div>
@@ -539,7 +305,7 @@ export function RaioXMercadoTab() {
               <div className="relative flex-1">
                 <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <Input
-                  placeholder="Digite uma família, modelo ou categoria (ex: dell latitude, thinkpad t480, fonte dell)..."
+                  placeholder="Pesquise o produto exato (ex.: fonte desktop dell 3020, thinkpad t480, latitude 5420)..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-9 h-10 text-sm bg-slate-50 border-slate-200 focus:bg-white"
@@ -558,7 +324,7 @@ export function RaioXMercadoTab() {
                   ) : (
                     <TrendingUp className="w-4 h-4" />
                   )}
-                  {loading ? 'Analisando Mercado...' : 'Calcular Raio-X'}
+                  {loading ? 'Analisando Sellers...' : 'Analisar Produto Exato'}
                 </Button>
 
                 <Button
@@ -567,7 +333,7 @@ export function RaioXMercadoTab() {
                   onClick={() => runAnalysis(searchTerm, true)}
                   disabled={loading}
                   className="h-10 px-3 text-xs border-slate-300 text-slate-700 hover:bg-slate-50 gap-1.5"
-                  title="Forçar atualização ignorando o cache de 15 minutos"
+                  title="Forçar varredura ignorando o cache"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
                   Atualizar
@@ -588,22 +354,22 @@ export function RaioXMercadoTab() {
               </div>
             </div>
 
-            {/* Chips de famílias sugeridas para clique rápido */}
+            {/* Chips de produtos sugeridos para clique rápido */}
             <div className="flex items-center gap-1.5 flex-wrap pt-1">
               <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-1">
-                Famílias sugeridas:
+                Sugestões de produtos:
               </span>
-              {suggestedFamilies.map((fam) => (
+              {suggestedExactProducts.map((prod) => (
                 <button
-                  key={fam}
+                  key={prod}
                   type="button"
                   onClick={() => {
-                    setSearchTerm(fam)
-                    runAnalysis(fam, false)
+                    setSearchTerm(prod)
+                    runAnalysis(prod, false)
                   }}
                   className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 border border-slate-200 transition-colors"
                 >
-                  {fam}
+                  {prod}
                 </button>
               ))}
             </div>
@@ -613,7 +379,8 @@ export function RaioXMercadoTab() {
               <div className="p-3 bg-indigo-50/70 border border-indigo-200 rounded-lg flex items-center gap-3 text-xs text-indigo-900 animate-pulse">
                 <RefreshCw className="w-4 h-4 animate-spin text-indigo-600 shrink-0" />
                 <span className="font-medium">
-                  {progressText || 'Consultando Mercado Livre...'}
+                  {progressText ||
+                    'Varrendo posições e consultando concorrência no Mercado Livre...'}
                 </span>
               </div>
             )}
@@ -621,9 +388,11 @@ export function RaioXMercadoTab() {
             {!loading && isCached && cachedAt && (
               <div className="text-[11px] text-slate-500 flex items-center gap-1.5 pt-1">
                 <Badge variant="outline" className="bg-slate-50 text-slate-600 text-[10px] h-4">
-                  Cache Inteligente (15 min)
+                  Cache Ativo (15 min)
                 </Badge>
-                <span>Dados preservados da busca realizada às {cachedAt.substring(11, 16)}.</span>
+                <span>
+                  Resultados preservados da varredura realizada às {cachedAt.substring(11, 16)}.
+                </span>
               </div>
             )}
           </form>
@@ -631,464 +400,451 @@ export function RaioXMercadoTab() {
       </Card>
 
       {/* Estado Vazio */}
-      {!analysis && !loading && (
+      {!summary && !loading && (
         <Card className="border-dashed border-slate-300 shadow-none bg-slate-50/60">
           <CardContent className="p-16 text-center space-y-3">
             <div className="w-12 h-12 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center mx-auto">
-              <TrendingUp className="w-6 h-6" />
+              <Flame className="w-6 h-6 text-amber-500" />
             </div>
             <h3 className="font-bold text-slate-900 text-base">
-              Nenhuma análise de mercado carregada
+              Nenhuma análise de produto exato carregada
             </h3>
             <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
-              Digite uma família de produtos acima (como &quot;dell latitude&quot; ou
-              &quot;thinkpad&quot;) para mapear a força do produto, volume de recondicionados,
-              preços praticados e quem são os campeões de visibilidade.
+              Digite acima o produto desejado (ex.: &quot;fonte desktop dell 3020&quot;). O sistema
+              fará a busca no ML, aplicará o filtro de similaridade rigorosa e montará o{' '}
+              <strong>Termômetro de Vendas por Seller</strong>.
             </p>
           </CardContent>
         </Card>
       )}
 
-      {/* PAINEL AGREGADO DE MERCADO COM DADOS REAIS */}
-      {analysis && (
+      {/* CONTEÚDO PRINCIPAL: PAINEL SÍNTESE + TERMÔMETRO POR SELLER */}
+      {summary && (
         <div className="space-y-6">
-          {/* Card Principal: Termômetro do Índice de Força + KPIs Principais */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            {/* Termômetro Índice 0 a 100 */}
-            <Card className="border-slate-200 shadow-xs bg-white lg:col-span-1 flex flex-col justify-between">
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] uppercase tracking-wider text-slate-400 font-bold">
-                    Índice de Força da Família
-                  </span>
-                  <Badge
-                    className={`text-xs font-bold ${
-                      analysis.forceIndex >= 75
-                        ? 'bg-emerald-600 text-white'
-                        : analysis.forceIndex >= 50
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-amber-500 text-white'
-                    }`}
-                  >
-                    {analysis.forceTier}
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4 pt-1">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-5xl font-black text-slate-900 tracking-tight font-mono">
-                    {analysis.forceIndex}
-                  </span>
-                  <span className="text-sm font-semibold text-slate-400 font-mono">/ 100</span>
-                </div>
-
-                {/* Barra de Progresso visual */}
-                <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden p-0.5 border border-slate-200">
-                  <div
-                    className={`h-full rounded-full transition-all duration-500 ${
-                      analysis.forceIndex >= 75
-                        ? 'bg-gradient-to-r from-emerald-500 to-teal-600'
-                        : analysis.forceIndex >= 50
-                          ? 'bg-gradient-to-r from-blue-500 to-indigo-600'
-                          : 'bg-gradient-to-r from-amber-400 to-orange-500'
-                    }`}
-                    style={{ width: `${Math.max(5, analysis.forceIndex)}%` }}
-                  />
-                </div>
-
-                {/* 4 Componentes que compõem o índice */}
-                <div className="space-y-2 pt-2 border-t border-slate-100 text-xs">
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-600 flex items-center gap-1.5">
-                      <Layers className="w-3.5 h-3.5 text-blue-500" />
-                      Densidade / Oferta Ativa:
-                    </span>
-                    <strong className="font-mono text-slate-800">
-                      {analysis.forceComponents.densityScore}/25
-                    </strong>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-600 flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5 text-purple-500" />
-                      Espaço Recondicionado:
-                    </span>
-                    <strong className="font-mono text-slate-800">
-                      {analysis.forceComponents.refurbScore}/25
-                    </strong>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-600 flex items-center gap-1.5">
-                      <Percent className="w-3.5 h-3.5 text-emerald-500" />
-                      Faixa / Consistência de Preço:
-                    </span>
-                    <strong className="font-mono text-slate-800">
-                      {analysis.forceComponents.dispersionScore}/25
-                    </strong>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-600 flex items-center gap-1.5">
-                      <Trophy className="w-3.5 h-3.5 text-amber-500" />
-                      Disputa Buy Box & Concorrência:
-                    </span>
-                    <strong className="font-mono text-slate-800">
-                      {analysis.forceComponents.competitionScore}/25
-                    </strong>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Grid com os 6 KPIs principais agregados */}
-            <div className="lg:col-span-2 grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {/* Total de Posições */}
-              <Card className="border-slate-200 shadow-xs bg-white">
-                <CardContent className="p-4 space-y-1">
-                  <span className="text-[11px] uppercase tracking-wider text-slate-400 font-bold block">
-                    Posições no ML
-                  </span>
-                  <div className="flex items-baseline justify-between">
-                    <span className="text-2xl font-black text-slate-900 font-mono">
-                      {analysis.totalItems}
-                    </span>
-                    {analysis.ownAccountCount > 0 && (
-                      <Badge className="bg-indigo-100 text-indigo-800 border-indigo-200 text-[10px] font-mono">
-                        {analysis.ownAccountCount} sua conta
-                      </Badge>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-slate-500">
-                    Posições ativas mapeadas para &quot;{analysis.query}&quot;
-                  </p>
-                </CardContent>
-              </Card>
-
-              {/* Presença do Recondicionado */}
-              <Card className="border-purple-200 bg-purple-50/40 shadow-xs">
-                <CardContent className="p-4 space-y-1">
-                  <span className="text-[11px] uppercase tracking-wider text-purple-700 font-bold block flex items-center gap-1">
-                    <Sparkles className="w-3 h-3 text-purple-600" /> Recondicionado
-                  </span>
-                  <div className="flex items-baseline justify-between">
-                    <span className="text-2xl font-black text-purple-900 font-mono">
-                      {analysis.countRefurbished}
-                    </span>
-                    <Badge className="bg-purple-600 text-white text-[10px] font-mono">
-                      {analysis.pctRefurbished}%
+          {/* 1. PAINEL SÍNTESE NO TOPO */}
+          <Card className="border-indigo-100 bg-gradient-to-br from-indigo-50/60 via-white to-slate-50 shadow-xs">
+            <CardHeader className="pb-3 border-b border-indigo-100/60">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Badge className="bg-indigo-600 text-white text-[10px] uppercase font-bold tracking-wider">
+                      Síntese de Mercado
                     </Badge>
+                    <span className="text-xs font-bold text-slate-900">
+                      &quot;{summary.searchTerm}&quot;
+                    </span>
                   </div>
-                  <p className="text-[11px] text-purple-800">
-                    {analysis.countRefurbished > 0
-                      ? 'Nicho altamente viável nesta família'
-                      : 'Oportunidade para pioneirismo'}
+                  <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                    {summary.exactMatchedPositionsCount} de {summary.totalRawPositions} posições são
+                    deste produto exato
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Filtro de precisão descartou {summary.filteredOutCount} anúncio(s) irrelevantes
+                    ou de outros produtos.
                   </p>
-                </CardContent>
-              </Card>
+                </div>
 
-              {/* Preço Mediano da Família */}
-              <Card className="border-slate-200 shadow-xs bg-white">
-                <CardContent className="p-4 space-y-1">
-                  <span className="text-[11px] uppercase tracking-wider text-slate-400 font-bold block">
-                    Preço Mediano
+                {/* Botão para Gravar Snapshot Periódico */}
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleSaveSnapshot}
+                    disabled={savingSnapshot || snapshotSaved}
+                    className="text-xs h-9 bg-white border-slate-300 text-slate-700 hover:bg-slate-50 gap-1.5"
+                    title="Gravar foto atual de estoque, preço e vendas para histórico de 60 dias"
+                  >
+                    <Database className="w-3.5 h-3.5 text-indigo-600" />
+                    {snapshotSaved
+                      ? 'Snapshot Gravado ✓'
+                      : savingSnapshot
+                        ? 'Gravando...'
+                        : 'Gravar Snapshot Histórico'}
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+
+            <CardContent className="p-5">
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3">
+                {/* Sellers Únicos */}
+                <div className="p-3 bg-white rounded-lg border border-slate-200">
+                  <span className="text-[10px] font-bold uppercase text-slate-400 block flex items-center gap-1">
+                    <Users className="w-3 h-3 text-indigo-500" /> Vendedores Ativos
                   </span>
-                  <span className="text-2xl font-black text-emerald-700 font-mono block">
-                    {analysis.priceMedian.toLocaleString('pt-BR', {
+                  <span className="text-2xl font-black text-slate-900 font-mono mt-0.5 block">
+                    {summary.uniqueSellersCount}
+                  </span>
+                  <span className="text-[10px] text-slate-500">Disputando este produto</span>
+                </div>
+
+                {/* Estoque Total Visível */}
+                <div className="p-3 bg-white rounded-lg border border-slate-200">
+                  <span className="text-[10px] font-bold uppercase text-slate-400 block flex items-center gap-1">
+                    <Package className="w-3 h-3 text-blue-500" /> Estoque Visível
+                  </span>
+                  <span className="text-2xl font-black text-blue-700 font-mono mt-0.5 block">
+                    {summary.totalVisibleStock} un.
+                  </span>
+                  <span className="text-[10px] text-slate-500">Somado entre os sellers</span>
+                </div>
+
+                {/* Faixa de Preço */}
+                <div className="p-3 bg-white rounded-lg border border-slate-200">
+                  <span className="text-[10px] font-bold uppercase text-slate-400 block flex items-center gap-1">
+                    <DollarSign className="w-3 h-3 text-emerald-500" /> Faixa de Preço
+                  </span>
+                  <span className="text-lg font-black text-emerald-700 font-mono mt-1 block">
+                    {summary.priceMin.toLocaleString('pt-BR', {
                       style: 'currency',
                       currency: 'BRL',
                     })}
                   </span>
-                  <p className="text-[11px] text-slate-500 font-mono">
-                    Faixa: R$ {Math.round(analysis.priceMin)} a R$ {Math.round(analysis.priceMax)}
-                  </p>
-                </CardContent>
-              </Card>
-
-              {/* Estoque Total Visível */}
-              <Card className="border-slate-200 shadow-xs bg-white">
-                <CardContent className="p-4 space-y-1">
-                  <span className="text-[11px] uppercase tracking-wider text-slate-400 font-bold block flex items-center gap-1">
-                    <Package className="w-3 h-3 text-blue-600" /> Estoque Visível
-                  </span>
-                  <span className="text-2xl font-black text-blue-700 font-mono block">
-                    {analysis.totalStock} un.
-                  </span>
-                  <p className="text-[11px] text-slate-500">
-                    Em {analysis.itemsWithStock} posições com estoque declarado
-                  </p>
-                </CardContent>
-              </Card>
-
-              {/* Buy Box Disputada */}
-              <Card className="border-slate-200 shadow-xs bg-white">
-                <CardContent className="p-4 space-y-1">
-                  <span className="text-[11px] uppercase tracking-wider text-slate-400 font-bold block flex items-center gap-1">
-                    <Trophy className="w-3 h-3 text-amber-500" /> Buy Box com Líder
-                  </span>
-                  <span className="text-2xl font-black text-slate-800 font-mono block">
-                    {analysis.itemsWithWinner} pos.
-                  </span>
-                  <p className="text-[11px] text-slate-500">
-                    {analysis.itemsHighDispute} em briga intensa (3+ conc.)
-                  </p>
-                </CardContent>
-              </Card>
-
-              {/* Posições sem concorrência (Entrada Fácil) */}
-              <Card className="border-emerald-200 bg-emerald-50/40 shadow-xs">
-                <CardContent className="p-4 space-y-1">
-                  <span className="text-[11px] uppercase tracking-wider text-emerald-700 font-bold block flex items-center gap-1">
-                    <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Concorrência Leve
-                  </span>
-                  <span className="text-2xl font-black text-emerald-800 font-mono block">
-                    {analysis.itemsSingleSeller} pos.
-                  </span>
-                  <p className="text-[11px] text-emerald-700">
-                    Apenas 1 vendedor — fácil de bater preço
-                  </p>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-
-          {/* Seção 2: Distribuição por Condição & Graus do Recondicionado */}
-          <Card className="border-slate-200 shadow-xs bg-white">
-            <CardHeader className="pb-3 border-b border-slate-100">
-              <CardTitle className="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-purple-600" />
-                Distribuição de Condições na Família & Força do Recondicionado
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-5 space-y-4">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div className="p-3 rounded-lg border border-emerald-200 bg-emerald-50/50">
-                  <span className="text-[10px] font-bold uppercase text-emerald-800 block">
-                    Novo Lacrado
-                  </span>
-                  <span className="text-xl font-black text-emerald-900 font-mono mt-0.5 block">
-                    {analysis.countNew}
-                  </span>
-                  <span className="text-[10px] text-slate-600">
-                    {Math.round((analysis.countNew / analysis.totalItems) * 100)}% das posições
+                  <span className="text-[10px] text-slate-500 font-mono">
+                    Até{' '}
+                    {summary.priceMax.toLocaleString('pt-BR', {
+                      style: 'currency',
+                      currency: 'BRL',
+                    })}{' '}
+                    (méd.{' '}
+                    {summary.priceAvg.toLocaleString('pt-BR', {
+                      style: 'currency',
+                      currency: 'BRL',
+                    })}
+                    )
                   </span>
                 </div>
 
-                <div className="p-3 rounded-lg border border-purple-300 bg-purple-50">
-                  <span className="text-[10px] font-bold uppercase text-purple-900 block flex items-center gap-1">
-                    <Sparkles className="w-3 h-3 text-purple-600" /> Recondicionado
+                {/* Vendas Confirmadas */}
+                <div className="p-3 bg-white rounded-lg border border-slate-200">
+                  <span className="text-[10px] font-bold uppercase text-slate-400 block flex items-center gap-1">
+                    <Activity className="w-3 h-3 text-amber-500" /> Vendas Confirmadas
                   </span>
-                  <span className="text-xl font-black text-purple-950 font-mono mt-0.5 block">
-                    {analysis.countRefurbished}
+                  <span className="text-xl font-black text-slate-900 font-mono mt-1 block">
+                    {summary.hasAnyConfirmedSales
+                      ? `${summary.totalConfirmedSalesAcrossSellers} un.`
+                      : 'Não exposto'}
                   </span>
-                  <span className="text-[10px] text-purple-800 font-medium">
-                    {analysis.pctRefurbished}% das posições
-                  </span>
-                </div>
-
-                <div className="p-3 rounded-lg border border-amber-200 bg-amber-50/50">
-                  <span className="text-[10px] font-bold uppercase text-amber-800 block">
-                    Usado Comum
-                  </span>
-                  <span className="text-xl font-black text-amber-900 font-mono mt-0.5 block">
-                    {analysis.countUsed}
-                  </span>
-                  <span className="text-[10px] text-slate-600">
-                    {Math.round((analysis.countUsed / analysis.totalItems) * 100)}% das posições
+                  <span className="text-[10px] text-slate-500">
+                    {summary.hasAnyConfirmedSales
+                      ? 'Dados reais auditados'
+                      : 'ML restringe 403 p/ terceiros'}
                   </span>
                 </div>
 
-                <div className="p-3 rounded-lg border border-blue-200 bg-blue-50/50">
-                  <span className="text-[10px] font-bold uppercase text-blue-800 block">
-                    Caixa Aberta (Open Box)
+                {/* Melhor Entrada para Margem */}
+                <div className="p-3 bg-amber-50/60 rounded-lg border border-amber-200 col-span-2 sm:col-span-4 lg:col-span-1">
+                  <span className="text-[10px] font-bold uppercase text-amber-900 block flex items-center gap-1">
+                    <Trophy className="w-3 h-3 text-amber-600" /> Oportunidade Margem
                   </span>
-                  <span className="text-xl font-black text-blue-900 font-mono mt-0.5 block">
-                    {analysis.countOpenBox}
-                  </span>
-                  <span className="text-[10px] text-slate-600">
-                    {Math.round((analysis.countOpenBox / analysis.totalItems) * 100)}% das posições
-                  </span>
+                  {summary.bestOpportunityMargin ? (
+                    <div className="mt-0.5 space-y-0.5">
+                      <span className="text-sm font-black text-amber-950 font-mono block">
+                        {summary.bestOpportunityMargin.price.toLocaleString('pt-BR', {
+                          style: 'currency',
+                          currency: 'BRL',
+                        })}
+                      </span>
+                      <p className="text-[10px] text-amber-900 leading-snug">
+                        {summary.bestOpportunityMargin.marginDiffPercent > 0
+                          ? `${summary.bestOpportunityMargin.marginDiffPercent}% menor que o líder (${summary.bestOpportunityMargin.leaderPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})`
+                          : 'Pouca concorrência ativa'}
+                      </p>
+                    </div>
+                  ) : (
+                    <span className="text-xs text-slate-500 mt-1 block">Sob consulta</span>
+                  )}
                 </div>
               </div>
-
-              {/* Sub-detalhamento dos Graus do Recondicionado */}
-              {analysis.countRefurbished > 0 && (
-                <div className="p-3.5 rounded-lg bg-slate-50 border border-purple-100 flex items-center justify-between gap-3 flex-wrap">
-                  <div className="flex items-center gap-2">
-                    <Badge className="bg-purple-900 text-white text-[10px]">
-                      Graus Oficiais ML
-                    </Badge>
-                    <span className="text-xs text-slate-700">
-                      Dispersão entre os 3 graus de recondicionado catalogados:
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <Badge className="bg-purple-900 text-white text-[10px] font-mono">
-                      Excelente: {analysis.countRefurbExcelente}
-                    </Badge>
-                    <Badge className="bg-purple-600 text-white text-[10px] font-mono">
-                      Bom: {analysis.countRefurbBom}
-                    </Badge>
-                    <Badge className="bg-purple-300 text-purple-950 border-purple-400 text-[10px] font-mono font-bold">
-                      Aceitável: {analysis.countRefurbAceitavel}
-                    </Badge>
-                  </div>
-                </div>
-              )}
             </CardContent>
           </Card>
 
-          {/* Seção 3: Ranking dos Itens Mais Fortes da Família (Campeões de Visibilidade) */}
+          {/* 2. TABELA DO TERMÔMETRO DE VENDAS POR SELLER */}
           <Card className="border-slate-200 shadow-xs bg-white">
             <CardHeader className="pb-3 border-b border-slate-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
               <div>
                 <CardTitle className="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2">
-                  <Trophy className="w-4 h-4 text-amber-500" />
-                  Campeões de Visibilidade da Família (Top {analysis.topRanked.length})
+                  <Flame className="w-4 h-4 text-amber-500" />
+                  Termômetro de Vendas por Seller ({summary.sellersRanked.length} vendedores
+                  ranqueados)
                 </CardTitle>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Pontuados pelo algoritmo do ML, posse de Buy Box, estoque ativo e compatibilidade.
+                  Classificação baseada em vendas reais (quando expostas), Buy Box conquistada,
+                  estoque disponível e tipo de anúncio.
                 </p>
               </div>
 
-              {/* Informação sobre vendas públicas */}
-              <div className="text-right">
-                <span className="text-[11px] text-slate-400 block font-sans">
-                  Total de vendas confirmadas:
-                </span>
-                <span className="text-xs font-bold text-slate-700 font-mono">
-                  {analysis.knownSalesSum > 0
-                    ? `${analysis.knownSalesSum} un. (em ${analysis.itemsWithReportedSales} anúncio(s))`
-                    : 'Vendas não informadas (403 ML terceiros)'}
-                </span>
+              {/* Legenda do Termômetro */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[10px] font-bold">
+                  🔥 Giro Alto (65–100)
+                </Badge>
+                <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[10px] font-bold">
+                  🌡️ Médio (35–64)
+                </Badge>
+                <Badge className="bg-blue-100 text-blue-800 border-blue-200 text-[10px] font-bold">
+                  ❄️ Baixo (0–34)
+                </Badge>
               </div>
             </CardHeader>
 
-            <CardContent className="p-0 divide-y divide-slate-100">
-              {analysis.topRanked.map((ranked, idx) => {
-                const prod = ranked.catalogProduct
-                const isWinner = ranked.hasBuyBox
-                const isOwn = ranked.isOwn
+            <CardContent className="p-0">
+              <div className="divide-y divide-slate-100">
+                {summary.sellersRanked.map((seller, sIdx) => {
+                  const isTopSeller = sIdx === 0
+                  const isOwn = seller.isOwnAccount
+                  const hasSales = seller.hasRealSalesData && seller.totalConfirmedSales > 0
 
-                return (
-                  <div
-                    key={prod.id || prod.catalog_product_id || idx}
-                    className="p-4 hover:bg-slate-50/80 transition-colors flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
-                  >
-                    {/* Medalha / Posição + Thumbnail + Título */}
-                    <div className="flex items-start gap-3 flex-1 min-w-0">
-                      <div className="w-7 h-7 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold text-xs font-mono shrink-0 mt-1">
-                        #{idx + 1}
-                      </div>
-
-                      <div className="w-14 h-14 rounded-lg bg-slate-100 border border-slate-200 shrink-0 overflow-hidden flex items-center justify-center">
-                        {prod.thumbnail ? (
-                          <img
-                            src={prod.thumbnail}
-                            alt={prod.title}
-                            className="w-full h-full object-cover"
-                            onError={(e) => {
-                              ;(e.target as HTMLImageElement).src =
-                                'https://img.usecurling.com/p/100/100?q=laptop'
-                            }}
-                          />
-                        ) : (
-                          <Package className="w-6 h-6 text-slate-300" />
-                        )}
-                      </div>
-
-                      <div className="min-w-0 flex-1 space-y-1">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          {isOwn && (
-                            <Badge className="bg-indigo-600 text-white text-[9px] font-bold px-1.5 py-0 h-4">
-                              🏅 Sua Posição
-                            </Badge>
-                          )}
-                          <Badge
-                            variant="outline"
-                            className="text-[10px] font-semibold bg-slate-50 border-slate-200 text-slate-700"
+                  return (
+                    <div
+                      key={seller.sellerId || sIdx}
+                      className={`p-4 transition-colors hover:bg-slate-50/70 ${
+                        isOwn ? 'bg-indigo-50/30' : ''
+                      }`}
+                    >
+                      <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+                        {/* Identificação do Seller + Badges */}
+                        <div className="flex items-start gap-3 flex-1 min-w-0">
+                          {/* Posição no ranking */}
+                          <div
+                            className={`w-8 h-8 rounded-lg flex items-center justify-center font-mono font-bold text-xs shrink-0 mt-0.5 ${
+                              sIdx === 0
+                                ? 'bg-amber-400 text-slate-950 shadow-xs'
+                                : sIdx === 1
+                                  ? 'bg-slate-300 text-slate-800'
+                                  : sIdx === 2
+                                    ? 'bg-amber-700 text-white'
+                                    : 'bg-slate-100 text-slate-600'
+                            }`}
                           >
-                            {ranked.conditionLabel}
-                          </Badge>
-                          {isWinner && (
-                            <Badge className="bg-amber-100 text-amber-900 border-amber-300 text-[10px] font-bold gap-1">
-                              <Trophy className="w-3 h-3 text-amber-600" />
-                              Líder: {prod.buy_box_winner_seller_nickname}
-                            </Badge>
-                          )}
-                          {/* Sold Badge honesto */}
-                          {ranked.soldQuantity != null ? (
-                            <Badge className="bg-blue-50 text-blue-800 border-blue-200 text-[10px] font-semibold">
-                              🛒 {formatMLSoldQuantity(ranked.soldQuantity)}
-                            </Badge>
-                          ) : (
-                            <Badge
-                              variant="outline"
-                              className="text-slate-400 bg-slate-50 border-slate-200 text-[9px]"
-                            >
-                              Vendas não informadas
-                            </Badge>
-                          )}
+                            #{sIdx + 1}
+                          </div>
+
+                          <div className="space-y-1 min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h4 className="text-sm font-bold text-slate-900 truncate flex items-center gap-1.5">
+                                <Store className="w-3.5 h-3.5 text-slate-400" />
+                                {seller.sellerNickname}
+                              </h4>
+
+                              {isOwn && (
+                                <Badge className="bg-indigo-600 text-white text-[9px] font-bold px-1.5 py-0 h-4">
+                                  🏅 Sua Conta
+                                </Badge>
+                              )}
+
+                              {seller.hasBuyBox && (
+                                <Badge className="bg-amber-100 text-amber-900 border-amber-300 text-[9px] font-bold gap-1 px-1.5 py-0 h-4">
+                                  <Trophy className="w-2.5 h-2.5 text-amber-600" />
+                                  Detém Buy Box
+                                </Badge>
+                              )}
+
+                              <Badge
+                                variant="outline"
+                                className="text-[9px] text-slate-600 bg-slate-50 border-slate-200"
+                              >
+                                {seller.totalAdsCount} anúncio(s) do produto
+                              </Badge>
+
+                              {seller.premiumListingsCount > 0 && (
+                                <Badge className="bg-emerald-50 text-emerald-800 border-emerald-200 text-[9px] font-semibold px-1.5 py-0 h-4">
+                                  Premium (S/ Juros)
+                                </Badge>
+                              )}
+                            </div>
+
+                            {/* Detalhes de Preço e Estoque */}
+                            <div className="flex items-center gap-3 text-xs text-slate-600 font-mono flex-wrap pt-0.5">
+                              <span>
+                                Faixa:{' '}
+                                <strong>
+                                  {seller.minPrice.toLocaleString('pt-BR', {
+                                    style: 'currency',
+                                    currency: 'BRL',
+                                  })}
+                                </strong>
+                                {seller.maxPrice > seller.minPrice
+                                  ? ` a ${seller.maxPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`
+                                  : ''}
+                              </span>
+                              <span>·</span>
+                              <span>
+                                Estoque somado: <strong>{seller.totalAvailableStock} un.</strong>
+                              </span>
+                              <span>·</span>
+                              <span>
+                                Vendas auditadas:{' '}
+                                {hasSales ? (
+                                  <strong className="text-emerald-700 font-bold">
+                                    {seller.totalConfirmedSales} un.
+                                  </strong>
+                                ) : (
+                                  <span className="text-slate-400">Não informado pelo ML</span>
+                                )}
+                              </span>
+                            </div>
+
+                            {/* Motivos que compõem o termômetro */}
+                            <div className="pt-1 flex items-center gap-1.5 flex-wrap">
+                              {seller.thermometerReasons.map((reason, rIdx) => (
+                                <span
+                                  key={rIdx}
+                                  className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md border border-slate-200"
+                                >
+                                  {reason}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
                         </div>
 
-                        <h4
-                          className="text-xs font-bold text-slate-900 line-clamp-1 hover:line-clamp-none leading-snug"
-                          title={prod.title}
-                        >
-                          {prod.title}
-                        </h4>
+                        {/* Termômetro Visual e Ações */}
+                        <div className="flex items-center justify-between lg:justify-end gap-4 w-full lg:w-auto shrink-0 pt-3 lg:pt-0 border-t lg:border-t-0 border-slate-100">
+                          {/* Termômetro Score */}
+                          <div className="text-right min-w-[140px]">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <span className="text-[10px] font-bold uppercase text-slate-400">
+                                Termômetro de Vendas
+                              </span>
+                              {seller.thermometerTier === 'high' ? (
+                                <span className="text-xs font-bold text-emerald-700 flex items-center gap-0.5">
+                                  <Flame className="w-3.5 h-3.5 text-emerald-600" /> Giro Alto
+                                </span>
+                              ) : seller.thermometerTier === 'medium' ? (
+                                <span className="text-xs font-bold text-amber-700 flex items-center gap-0.5">
+                                  🌡️ Médio
+                                </span>
+                              ) : (
+                                <span className="text-xs font-bold text-blue-700 flex items-center gap-0.5">
+                                  ❄️ Baixo
+                                </span>
+                              )}
+                            </div>
 
-                        <div className="flex items-center gap-2 text-[11px] text-slate-500 font-mono flex-wrap">
-                          <span>ID: {prod.catalog_product_id || prod.id}</span>
-                          <span>·</span>
-                          <span>
-                            Concorrentes:{' '}
-                            <strong className="text-slate-700">{ranked.competitorCount}</strong>
-                          </span>
-                          <span>·</span>
-                          <span>
-                            Estoque visível:{' '}
-                            <strong className="text-slate-700">{ranked.effectiveStock} un.</strong>
-                          </span>
+                            <div className="flex items-baseline justify-end gap-1 mt-0.5">
+                              <span className="text-2xl font-black font-mono text-slate-900">
+                                {seller.thermometerScore}
+                              </span>
+                              <span className="text-xs font-semibold text-slate-400 font-mono">
+                                / 100
+                              </span>
+                            </div>
+
+                            {/* Mini Barra do Termômetro */}
+                            <div className="w-32 bg-slate-100 rounded-full h-2 overflow-hidden border border-slate-200 ml-auto mt-1">
+                              <div
+                                className={`h-full rounded-full transition-all duration-500 ${
+                                  seller.thermometerTier === 'high'
+                                    ? 'bg-emerald-600'
+                                    : seller.thermometerTier === 'medium'
+                                      ? 'bg-amber-500'
+                                      : 'bg-blue-500'
+                                }`}
+                                style={{ width: `${Math.max(5, seller.thermometerScore)}%` }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Botão Ver Anúncios do Seller */}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setSelectedSellerDetail(
+                                selectedSellerDetail?.sellerId === seller.sellerId ? null : seller,
+                              )
+                            }}
+                            className="text-xs h-9 border-slate-300 text-slate-700 hover:bg-slate-50 gap-1 shrink-0"
+                          >
+                            {selectedSellerDetail?.sellerId === seller.sellerId
+                              ? 'Recolher'
+                              : 'Ver Anúncios'}
+                            {selectedSellerDetail?.sellerId === seller.sellerId ? (
+                              <ChevronUp className="w-3.5 h-3.5" />
+                            ) : (
+                              <ChevronDown className="w-3.5 h-3.5" />
+                            )}
+                          </Button>
                         </div>
                       </div>
-                    </div>
 
-                    {/* Pontuação & Preço & Ações */}
-                    <div className="flex items-center justify-between md:justify-end gap-4 w-full md:w-auto shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-slate-100">
-                      <div className="text-right">
-                        <span className="text-[10px] uppercase tracking-wider text-slate-400 font-bold block">
-                          Preço Líder
-                        </span>
-                        <span className="text-base font-black text-slate-900 font-mono block">
-                          {ranked.effectivePrice > 0
-                            ? ranked.effectivePrice.toLocaleString('pt-BR', {
-                                style: 'currency',
-                                currency: 'BRL',
-                              })
-                            : 'Sob consulta'}
-                        </span>
-                        <span className="text-[10px] font-mono text-emerald-700 font-bold">
-                          Score: {ranked.rankScore} pts
-                        </span>
-                      </div>
+                      {/* Gaveta de Anúncios deste Seller */}
+                      {selectedSellerDetail?.sellerId === seller.sellerId && (
+                        <div className="mt-4 pt-4 border-t border-slate-200 bg-slate-50/80 rounded-lg p-3 space-y-2">
+                          <span className="text-xs font-bold text-slate-800 block">
+                            Anúncios do vendedor para este produto ({seller.ads.length}):
+                          </span>
+                          <div className="space-y-2">
+                            {seller.ads.map((ad, aIdx) => (
+                              <div
+                                key={ad.id || aIdx}
+                                className="bg-white p-3 rounded-md border border-slate-200 flex items-center justify-between gap-3 text-xs"
+                              >
+                                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                  {ad.thumbnail ? (
+                                    <img
+                                      src={ad.thumbnail}
+                                      alt={ad.title}
+                                      className="w-10 h-10 object-cover rounded border border-slate-200 shrink-0"
+                                    />
+                                  ) : (
+                                    <Package className="w-10 h-10 text-slate-300 shrink-0" />
+                                  )}
+                                  <div className="min-w-0 flex-1">
+                                    <h5
+                                      className="font-bold text-slate-900 truncate"
+                                      title={ad.title}
+                                    >
+                                      {ad.title}
+                                    </h5>
+                                    <div className="flex items-center gap-2 text-[11px] text-slate-500 font-mono flex-wrap">
+                                      <span>ID: {ad.id}</span>
+                                      <span>·</span>
+                                      <span>Tipo: {ad.listingTypeLabel}</span>
+                                      <span>·</span>
+                                      <span>Estoque: {ad.stock} un.</span>
+                                      {ad.soldQuantity != null && (
+                                        <>
+                                          <span>·</span>
+                                          <span className="text-emerald-700 font-bold">
+                                            Vendas: {formatMLSoldQuantity(ad.soldQuantity)}
+                                          </span>
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
 
-                      {prod.permalink ? (
-                        <a
-                          href={prod.permalink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="p-2 rounded-lg bg-slate-100 hover:bg-indigo-50 text-slate-600 hover:text-indigo-600 transition-colors"
-                          title="Abrir no Mercado Livre"
-                        >
-                          <ExternalLink className="w-4 h-4" />
-                        </a>
-                      ) : null}
+                                <div className="flex items-center gap-3 shrink-0">
+                                  <span className="text-sm font-black font-mono text-slate-900">
+                                    {ad.price.toLocaleString('pt-BR', {
+                                      style: 'currency',
+                                      currency: 'BRL',
+                                    })}
+                                  </span>
+
+                                  {ad.permalink && (
+                                    <a
+                                      href={ad.permalink}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="p-1.5 rounded bg-slate-100 hover:bg-indigo-50 text-slate-600 hover:text-indigo-600"
+                                      title="Abrir no Mercado Livre"
+                                    >
+                                      <ExternalLink className="w-3.5 h-3.5" />
+                                    </a>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                )
-              })}
+                  )
+                })}
+              </div>
             </CardContent>
           </Card>
         </div>

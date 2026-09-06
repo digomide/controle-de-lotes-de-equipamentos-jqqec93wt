@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-06T22:18:17.792Z",
+  "generatedAt": "2026-09-06T22:33:00.691Z",
   "collections": [
     {
       "name": "users",
@@ -2700,6 +2700,104 @@
       "indexes": [
         "CREATE INDEX idx_ml_catalog_publish_jobs_status ON ml_catalog_publish_jobs (status, created DESC)",
         "CREATE INDEX idx_ml_catalog_publish_jobs_catalog ON ml_catalog_publish_jobs (catalog_product_id)"
+      ]
+    },
+    {
+      "name": "ml_ad_snapshots",
+      "type": "base",
+      "apiRules": {
+        "list": "",
+        "view": "",
+        "create": "",
+        "update": "",
+        "delete": ""
+      },
+      "fields": [
+        {
+          "name": "item_id",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "catalog_product_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "seller_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "seller_nickname",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "title",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "price",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "available_quantity",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "sold_quantity",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "listing_type",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "is_buy_box_winner",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "snapshot_date",
+          "type": "date",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_ml_ad_snapshots_item ON ml_ad_snapshots (item_id)",
+        "CREATE INDEX idx_ml_ad_snapshots_seller ON ml_ad_snapshots (seller_id)",
+        "CREATE INDEX idx_ml_ad_snapshots_date ON ml_ad_snapshots (snapshot_date)"
       ]
     }
   ]

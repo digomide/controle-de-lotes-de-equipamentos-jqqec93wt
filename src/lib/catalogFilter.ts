@@ -90,6 +90,225 @@ export function extractCatalogSearchTokens(query: string): string[] {
 }
 
 /**
+ * Extrai tokens com stopwords específicas para buscas de peças e componentes
+ * (onde "fonte", "desktop", "3020", "carregador" são altamente relevantes).
+ * Não remove "pc", "computador" ou "desktop" se fizerem parte da especificação do hardware.
+ */
+export function extractExactProductTokens(query: string): string[] {
+  if (isDirectCatalogCodeQuery(query)) {
+    return []
+  }
+
+  const normalized = removeAccents(query)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+
+  if (!normalized) return []
+
+  const rawTokens = normalized.split(/\s+/).filter(Boolean)
+
+  // Stopwords genéricas de pontuação/artigos/preposições puras
+  const EXACT_STOPWORDS = new Set([
+    'de',
+    'do',
+    'da',
+    'dos',
+    'das',
+    'com',
+    'para',
+    'em',
+    'e',
+    'a',
+    'o',
+    'as',
+    'os',
+    'por',
+    'um',
+    'uma',
+    'uns',
+    'umas',
+    'original', // Adjetivo promocional frequente que não define o modelo exato
+  ])
+
+  const filtered = rawTokens.filter((token) => !EXACT_STOPWORDS.has(token))
+  const finalTokens = filtered.length > 0 ? filtered : rawTokens
+
+  return Array.from(new Set(finalTokens))
+}
+
+export interface ExactProductScoreResult {
+  isExactMatch: boolean
+  similarityScore: number // 0 a 100
+  matchedTokens: string[]
+  missingTokens: string[]
+  reasons: string[]
+}
+
+/**
+ * Avalia casamento rigoroso de PRODUTO EXATO:
+ * Ex.: "fonte desktop dell 3020" -> Deve casar com "Fonte Dell 3020 Desktop 240W",
+ * mas NÃO com "notebook dell latitude", nem "gabinete dell 3020", nem "placa mae dell 3020".
+ *
+ * Regras do cálculo de similaridade e relevância:
+ * 1. Todos os tokens essenciais (códigos de modelo numéricos/alfanuméricos como "3020", "5420", "t480")
+ *    são OBRIGATÓRIOS. Se faltar o código do modelo, score = 0 e isExactMatch = false.
+ * 2. Categoria do componente (ex: "fonte", "bateria", "teclado", "tela", "cooler")
+ *    se presente no termo de busca, DEVE estar presente no título. Evita que busca de "fonte dell 3020"
+ *    traga "desktop dell 3020" ou "placa dell 3020".
+ * 3. Marca (ex: "dell", "lenovo", "hp") se presente no termo, deve estar no título ou atributos.
+ * 4. Tokens secundários (ex: "desktop", "sff", "mini") elevam a pontuação para 100%.
+ */
+export function evaluateExactProductMatch(
+  title: string,
+  searchQuery: string,
+  attributes?: Array<{ id: string; name?: string; value_name?: string | null }>,
+): ExactProductScoreResult {
+  const queryTokens = extractExactProductTokens(searchQuery)
+  if (queryTokens.length === 0) {
+    return {
+      isExactMatch: true,
+      similarityScore: 100,
+      matchedTokens: [],
+      missingTokens: [],
+      reasons: ['Nenhum token específico exigido'],
+    }
+  }
+
+  const normalizedTitle = normalizeCatalogText(title)
+  const compactTitle = removeAccents(title)
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+
+  // Atributos adicionais
+  let extraAttrsText = ''
+  if (Array.isArray(attributes)) {
+    for (const attr of attributes) {
+      if (attr.id === 'BRAND' || attr.id === 'MODEL' || attr.id === 'LINE') {
+        extraAttrsText += ' ' + (attr.value_name || '')
+      }
+    }
+  }
+  const fullTextToTest =
+    normalizedTitle + (extraAttrsText ? ' ' + normalizeCatalogText(extraAttrsText) : '')
+  const fullCompactToTest =
+    compactTitle +
+    removeAccents(extraAttrsText)
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '')
+
+  // Classificação dos tokens por importância
+  const KEY_COMPONENT_TYPES = new Set([
+    'fonte',
+    'carregador',
+    'bateria',
+    'teclado',
+    'tela',
+    'display',
+    'cooler',
+    'ventoinha',
+    'placa',
+    'motherboard',
+    'memoria',
+    'ram',
+    'ssd',
+    'hd',
+    'cabo',
+    'flat',
+    'dobradica',
+    'carcaca',
+    'tampa',
+    'palmrest',
+    'touchpad',
+    'desktop',
+    'gabinete',
+    'servidor',
+    'notebook',
+  ])
+
+  const matchedTokens: string[] = []
+  const missingTokens: string[] = []
+  const reasons: string[] = []
+
+  let hasMissingCriticalModel = false
+  let hasMissingComponentType = false
+
+  for (const token of queryTokens) {
+    const isModelCode = /^[0-9]{3,5}$/.test(token) || /^[a-z]{1,2}[0-9]{2,5}[a-z]?$/i.test(token)
+    const isComponentType = KEY_COMPONENT_TYPES.has(token)
+
+    let tokenMatches = matchesCatalogToken(fullTextToTest, fullCompactToTest, token)
+
+    // Se o token contiver hífen (ex: "d255as-00" ou "optiplex-3020")
+    if (!tokenMatches && token.includes('-')) {
+      const parts = token.split('-').filter((p) => p.length >= 2)
+      if (
+        parts.length > 0 &&
+        parts.every((p) => matchesCatalogToken(fullTextToTest, fullCompactToTest, p))
+      ) {
+        tokenMatches = true
+      }
+    }
+
+    if (tokenMatches) {
+      matchedTokens.push(token)
+    } else {
+      missingTokens.push(token)
+      if (isModelCode) {
+        hasMissingCriticalModel = true
+        reasons.push(`Modelo exato "${token}" ausente`)
+      } else if (isComponentType) {
+        hasMissingComponentType = true
+        reasons.push(`Tipo de componente "${token}" ausente`)
+      } else {
+        reasons.push(`Token "${token}" ausente`)
+      }
+    }
+  }
+
+  // Se o usuário procurou um tipo de componente específico (ex: "fonte"), garantir que não é um produto que NÃO é fonte
+  // Exemplo: se procurou "fonte dell 3020", o título não deve ser apenas o computador inteiro sem mencionar fonte
+  const requestedComponentTypes = queryTokens.filter((t) => KEY_COMPONENT_TYPES.has(t))
+  if (requestedComponentTypes.length > 0) {
+    const hasAnyRequestedComponent = requestedComponentTypes.some((ct) =>
+      matchesCatalogToken(fullTextToTest, fullCompactToTest, ct),
+    )
+    if (!hasAnyRequestedComponent) {
+      hasMissingComponentType = true
+    }
+  }
+
+  // Pontuação de Similaridade (0 a 100)
+  const matchRatio = matchedTokens.length / queryTokens.length
+  let similarityScore = Math.round(matchRatio * 100)
+
+  // Penalidades severas para faltas críticas
+  if (hasMissingCriticalModel) {
+    similarityScore = Math.min(similarityScore, 30)
+  }
+  if (hasMissingComponentType) {
+    similarityScore = Math.min(similarityScore, 20)
+  }
+
+  // Casamento exato exige que todos os tokens críticos e no mínimo 80% dos tokens estejam presentes
+  // E nenhuma falta de modelo ou componente
+  const isExactMatch =
+    !hasMissingCriticalModel && !hasMissingComponentType && missingTokens.length === 0
+
+  if (isExactMatch) {
+    reasons.push('Casamento exato de especificações e modelo')
+  }
+
+  return {
+    isExactMatch,
+    similarityScore,
+    matchedTokens,
+    missingTokens,
+    reasons,
+  }
+}
+
+/**
  * Normaliza uma string de texto/título substituindo separadores (hífens, barras, múltiplos espaços)
  * por espaços simples e removendo acentos.
  */
