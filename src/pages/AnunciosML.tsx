@@ -33,6 +33,7 @@ import {
 } from '@/components/ui/select'
 import { useToast } from '@/hooks/use-toast'
 import { mlService, type MLSellerItem, type MLSellerItemsResult } from '@/services/mlService'
+import { formatMLSoldQuantity } from '@/services/mlCatalogService'
 import { AnunciosCatalogoTab } from '@/components/AnunciosCatalogoTab'
 
 export default function AnunciosML() {
@@ -283,6 +284,39 @@ export default function AnunciosML() {
           </Badge>
         )
     }
+  }
+
+  const renderSoldBadge = (sold?: number | null) => {
+    if (sold === null || sold === undefined || isNaN(sold)) {
+      return (
+        <Badge
+          variant="outline"
+          className="bg-slate-50 text-slate-400 border-slate-200 text-[10px] font-normal"
+          title="Quantidade de vendas não informada pelo Mercado Livre"
+        >
+          Vendas não informadas
+        </Badge>
+      )
+    }
+    const label = formatMLSoldQuantity(sold)
+    const n = Math.max(0, Math.floor(sold))
+    const isHot = n >= 100
+    return (
+      <Badge
+        variant="outline"
+        className={`text-[10px] font-semibold gap-1 ${
+          isHot
+            ? 'bg-amber-50 text-amber-900 border-amber-300'
+            : n > 0
+              ? 'bg-blue-50 text-blue-800 border-blue-200'
+              : 'bg-slate-50 text-slate-500 border-slate-200'
+        }`}
+        title={`Histórico de vendas no Mercado Livre: ${label}`}
+      >
+        <span>🛒</span>
+        <span>{label}</span>
+      </Badge>
+    )
   }
 
   const renderConditionBadge = (item: MLSellerItem) => {
@@ -915,6 +949,7 @@ export default function AnunciosML() {
                             <div className="flex items-center gap-1.5 flex-wrap mb-1">
                               {renderStatusBadge(item.status)}
                               {renderConditionBadge(item)}
+                              {renderSoldBadge(item.sold_quantity)}
                               {isCatalog && (
                                 <Badge className="bg-blue-600 text-white border-none gap-1 font-bold text-[10px] px-1.5 py-0 shadow-2xs font-mono">
                                   <Layers className="w-3 h-3" /> Catálogo
