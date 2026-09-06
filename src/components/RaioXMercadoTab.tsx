@@ -41,7 +41,9 @@ import {
   recordAdSnapshots,
   type ExactProductSummary,
   type SellerPerformanceAggregate,
+  type RaioXScopeMode,
 } from '@/services/mlExactProductService'
+import { type ExactProductSearchMode } from '@/lib/catalogFilter'
 
 export function RaioXMercadoTab() {
   const { toast } = useToast()
@@ -64,14 +66,18 @@ export function RaioXMercadoTab() {
   const [showAllAdsDrawer, setShowAllAdsDrawer] = useState(false)
   const [adsListingFilter, setAdsListingFilter] = useState<'all' | 'premium' | 'classic'>('all')
 
+  // Controle de Escopo do Raio-X
+  const [scopeMode, setScopeMode] = useState<RaioXScopeMode>('exact')
+  const [manualBrain, setManualBrain] = useState<ExactProductSearchMode | null>(null)
+
   // Sugestões de produtos exatos para pesquisa rápida
   const suggestedExactProducts = [
     'fonte desktop dell 3020',
+    'iphone 17',
     'dell latitude 5420 i5',
     'thinkpad t480',
     'carregador dell 65w 4.5mm',
     'bateria dell inspiron 15',
-    'placa mae dell optiplex 3020',
   ]
 
   // Carregar snapshots existentes do banco ao montar
@@ -181,22 +187,49 @@ export function RaioXMercadoTab() {
     }
   }
 
-  // Agregação dos dados por PRODUTO EXATO e por SELLER
+  // Reset do cérebro manual quando a query de busca muda
+  useEffect(() => {
+    setManualBrain(null)
+  }, [activeQuery])
+
+  // Agregação dos dados por PRODUTO EXATO e por SELLER respeitando o modo de escopo e cérebro
   const summary: ExactProductSummary | null = useMemo(() => {
     if (!rawProducts || rawProducts.length === 0 || !activeQuery) return null
-    return aggregateSellersByExactProduct(rawProducts, activeQuery, historicalSnapshots)
-  }, [rawProducts, activeQuery, historicalSnapshots])
+    return aggregateSellersByExactProduct(
+      rawProducts,
+      activeQuery,
+      historicalSnapshots,
+      scopeMode,
+      manualBrain || undefined,
+    )
+  }, [rawProducts, activeQuery, historicalSnapshots, scopeMode, manualBrain])
 
-  // Salvar snapshot periódico no banco
+  // Salvar snapshot periódico no banco (sempre usando os dados agregados do modo Produto Exato)
   async function handleSaveSnapshot() {
-    if (!summary || savingSnapshot) return
+    if (!rawProducts || rawProducts.length === 0 || !activeQuery || savingSnapshot) return
     setSavingSnapshot(true)
     try {
-      const res = await recordAdSnapshots(summary)
+      // Requisito 3: "os snapshots devem continuar gravando os dados agregados do modo Produto exato"
+      const exactSummary =
+        scopeMode === 'exact'
+          ? summary
+          : aggregateSellersByExactProduct(
+              rawProducts,
+              activeQuery,
+              historicalSnapshots,
+              'exact',
+              manualBrain || undefined,
+            )
+
+      if (!exactSummary) {
+        throw new Error('Nenhum dado do produto exato para gravar.')
+      }
+
+      const res = await recordAdSnapshots(exactSummary)
       setSnapshotSaved(true)
       toast({
         title: 'Snapshot de histórico registrado!',
-        description: `${res.savedCount} anúncio(s) e preços salvos para acumular histórico real de vendas e deltas nos próximos 60 dias.`,
+        description: `${res.savedCount} anúncio(s) e preços do produto exato salvos para histórico de 60 dias.`,
       })
     } catch (err: any) {
       toast({
@@ -424,6 +457,165 @@ export function RaioXMercadoTab() {
       {/* CONTEÚDO PRINCIPAL: SÍNTESE GLOBAL DO PRODUTO + GAVETA DE ANÚNCIOS + GAVETA DE SELLERS */}
       {summary && (
         <div className="space-y-6">
+          {/* SELETOR DE ESCOPO DO RAIO-X: 3 MODOS + CÉREBRO DE DETECÇÃO */}
+          <Card className="border-indigo-100 bg-white shadow-xs">
+            <CardContent className="p-4 space-y-3">
+              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                      <Filter className="w-3.5 h-3.5 text-indigo-600" /> Escopo do Raio-X:
+                    </span>
+                    <span className="text-xs text-slate-500">
+                      Escolha como as {summary.totalRawPositions} posições mineradas devem ser
+                      avaliadas
+                    </span>
+                  </div>
+                </div>
+
+                {/* Seletor com 3 modos (chips/tabs) */}
+                <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-lg border border-slate-200 shrink-0 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => setScopeMode('exact')}
+                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                      scopeMode === 'exact'
+                        ? 'bg-white text-indigo-700 shadow-2xs border border-indigo-200'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                    }`}
+                  >
+                    <span>🎯</span>
+                    <span>Produto exato</span>
+                    {scopeMode === 'exact' && (
+                      <Badge className="bg-indigo-600 text-white text-[9px] px-1 py-0 h-4">
+                        Padrão
+                      </Badge>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setScopeMode('all_mentions')}
+                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                      scopeMode === 'all_mentions'
+                        ? 'bg-white text-indigo-700 shadow-2xs border border-indigo-200'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                    }`}
+                  >
+                    <span>📦</span>
+                    <span>Tudo que cita o termo</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setScopeMode('own_only')}
+                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                      scopeMode === 'own_only'
+                        ? 'bg-white text-indigo-700 shadow-2xs border border-indigo-200'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                    }`}
+                  >
+                    <span>👤</span>
+                    <span>Só meus anúncios</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* BARRA DE INTELIGÊNCIA DO CÉREBRO NO MODO "PRODUTO EXATO" */}
+              {scopeMode === 'exact' && (
+                <div className="pt-2 border-t border-slate-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 text-xs">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-slate-500 font-medium">Cérebro ativo:</span>
+                    <Badge
+                      className={`text-[11px] font-bold px-2 py-0.5 gap-1.5 ${
+                        summary.activeBrain === 'part'
+                          ? 'bg-amber-100 text-amber-900 border-amber-300'
+                          : 'bg-blue-100 text-blue-900 border-blue-300'
+                      }`}
+                    >
+                      {summary.activeBrain === 'part'
+                        ? '⚙️ Busca de Peça'
+                        : '📱 Busca de Produto Inteiro'}
+                    </Badge>
+
+                    <span className="text-[11px] text-slate-500">
+                      {summary.activeBrain === 'part'
+                        ? '(Exige componente + modelo + marca; contexto não desclassifica)'
+                        : '(Exige modelo/marca e descarta capinhas, películas, cabos e compatíveis)'}
+                    </span>
+                  </div>
+
+                  {/* Alternador manual de cérebro */}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-[10px] text-slate-400 font-medium">Alternar:</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setManualBrain(summary.activeBrain === 'part' ? 'whole_product' : 'part')
+                      }
+                      className="px-2 py-0.5 text-[11px] font-semibold rounded bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200"
+                    >
+                      Mudar p/ {summary.activeBrain === 'part' ? 'Produto Inteiro' : 'Peça'}
+                    </button>
+                    {manualBrain && (
+                      <button
+                        type="button"
+                        onClick={() => setManualBrain(null)}
+                        className="px-1.5 py-0.5 text-[10px] text-slate-400 hover:text-slate-600 underline"
+                      >
+                        Resetar auto
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* INSIGHT ESTRATÉGICO NO MODO "TUDO QUE CITA O TERMO" */}
+              {scopeMode === 'all_mentions' && (
+                <div className="pt-2 border-t border-slate-100 p-2.5 bg-amber-50/80 rounded-md border border-amber-200 text-xs text-amber-900 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Info className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>
+                      <strong>Insight de margem:</strong> cerca de{' '}
+                      <strong>
+                        {summary.accessoriesPercent}% ({summary.accessoriesCount} de{' '}
+                        {summary.totalRawPositions} posições)
+                      </strong>{' '}
+                      do que cita &quot;{summary.searchTerm}&quot; são acessórios (capas, películas,
+                      cabos ou compatíveis). Isso mapeia onde o ecossistema distribui volume e
+                      margem.
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* NOTA DO MODO "SÓ MEUS ANÚNCIOS" */}
+              {scopeMode === 'own_only' && (
+                <div className="pt-2 border-t border-slate-100 p-2.5 bg-indigo-50/80 rounded-md border border-indigo-200 text-xs text-indigo-900 flex items-center gap-2">
+                  <Trophy className="w-4 h-4 text-indigo-600 shrink-0" />
+                  <span>
+                    Exibindo exclusivamente as posições da própria conta (badge 🏅 &quot;Sua
+                    posição&quot;) mineradas nesta varredura para acompanhar ranking interno e Buy
+                    Box.
+                  </span>
+                </div>
+              )}
+
+              {/* AVISO DE KITS/LOTES FORA DAS COMPARAÇÕES */}
+              {summary.kitsExcludedCount > 0 && (
+                <div className="text-[11px] text-slate-500 flex items-center gap-1.5 pt-0.5">
+                  <Badge variant="outline" className="bg-slate-50 text-slate-600 text-[10px] h-4">
+                    Kits/Lotes Isolados ({summary.kitsExcludedCount})
+                  </Badge>
+                  <span>
+                    Anúncios de kits/atacado foram separados para manter as comparações de preço e o
+                    termômetro fiéis aos anúncios avulsos.
+                  </span>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {/* 1. PAINEL PRINCIPAL: SÍNTESE GLOBAL DO PRODUTO */}
           <Card className="border-indigo-100 bg-gradient-to-br from-indigo-50/70 via-white to-slate-50 shadow-sm">
             <CardHeader className="pb-4 border-b border-indigo-100/60">
@@ -431,7 +623,11 @@ export function RaioXMercadoTab() {
                 <div className="space-y-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <Badge className="bg-indigo-600 text-white text-[10px] uppercase font-bold tracking-wider">
-                      Síntese Global do Produto
+                      {scopeMode === 'exact'
+                        ? 'Síntese Global do Produto Exato'
+                        : scopeMode === 'all_mentions'
+                          ? 'Síntese Bruta do Mercado'
+                          : 'Síntese dos Meus Anúncios'}
                     </Badge>
                     <span className="text-xs font-bold text-slate-900">
                       &quot;{summary.searchTerm}&quot;
@@ -444,13 +640,48 @@ export function RaioXMercadoTab() {
                     </Badge>
                   </div>
                   <h3 className="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
-                    {summary.exactMatchedPositionsCount} de {summary.totalRawPositions} posições são
-                    deste produto exato
+                    {scopeMode === 'exact' && (
+                      <>
+                        {summary.exactMatchedPositionsCount} de {summary.totalRawPositions} posições
+                        são deste produto exato
+                      </>
+                    )}
+                    {scopeMode === 'all_mentions' && (
+                      <>
+                        {summary.exactMatchedPositionsCount} de {summary.totalRawPositions} posições
+                        citam o termo
+                      </>
+                    )}
+                    {scopeMode === 'own_only' && (
+                      <>
+                        {summary.exactMatchedPositionsCount} de {summary.totalRawPositions} posições
+                        pertencem à sua conta
+                      </>
+                    )}
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Filtro taxonômico preservou {summary.exactMatchedPositionsCount} anúncio(s)
-                    legítimos e descartou {summary.filteredOutCount} produto(s) de modelos ou
-                    categorias incompatíveis.
+                    {scopeMode === 'exact' && (
+                      <>
+                        Filtro taxonômico (
+                        {summary.activeBrain === 'part'
+                          ? 'Cérebro de Peça'
+                          : 'Cérebro de Produto Inteiro'}
+                        ) preservou {summary.exactMatchedPositionsCount} anúncio(s) legítimos e
+                        descartou {summary.filteredOutCount} produto(s) incompatíveis ou acessórios.
+                      </>
+                    )}
+                    {scopeMode === 'all_mentions' && (
+                      <>
+                        Resultados brutos sem filtro de barreira. {summary.accessoriesCount}{' '}
+                        anúncio(s) identificados como acessórios ({summary.accessoriesPercent}%).
+                      </>
+                    )}
+                    {scopeMode === 'own_only' && (
+                      <>
+                        Filtro restrito às posições mineradas da conta INFOPRECOBAIXO no Mercado
+                        Livre.
+                      </>
+                    )}
                   </p>
                 </div>
 
@@ -792,6 +1023,14 @@ export function RaioXMercadoTab() {
                                   Sua Conta
                                 </Badge>
                               )}
+                              {ad.isKitOrBundle && (
+                                <Badge
+                                  variant="outline"
+                                  className="bg-amber-50 text-amber-800 border-amber-300 text-[9px] font-bold px-1.5 py-0 h-4"
+                                >
+                                  📦 Kit / Lote
+                                </Badge>
+                              )}
                             </div>
                             <div className="flex items-center gap-2.5 text-[11px] text-slate-500 font-mono flex-wrap pt-0.5">
                               <span>
@@ -1101,12 +1340,22 @@ export function RaioXMercadoTab() {
                                       <Package className="w-10 h-10 text-slate-300 shrink-0" />
                                     )}
                                     <div className="min-w-0 flex-1">
-                                      <h5
-                                        className="font-bold text-slate-900 truncate"
-                                        title={ad.title}
-                                      >
-                                        {ad.title}
-                                      </h5>
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <h5
+                                          className="font-bold text-slate-900 truncate"
+                                          title={ad.title}
+                                        >
+                                          {ad.title}
+                                        </h5>
+                                        {ad.isKitOrBundle && (
+                                          <Badge
+                                            variant="outline"
+                                            className="bg-amber-50 text-amber-800 border-amber-300 text-[9px] font-bold px-1.5 py-0 h-4"
+                                          >
+                                            📦 Kit / Lote
+                                          </Badge>
+                                        )}
+                                      </div>
                                       <div className="flex items-center gap-2 text-[11px] text-slate-500 font-mono flex-wrap">
                                         <span>ID: {ad.id}</span>
                                         <span>·</span>

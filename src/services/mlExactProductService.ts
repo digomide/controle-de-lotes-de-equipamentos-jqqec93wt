@@ -1,6 +1,15 @@
 import pb from '@/lib/pocketbase/client'
 import { type MLCatalogProduct, type MLCatalogCompetitor } from '@/services/mlCatalogService'
-import { evaluateExactProductMatch, type ExactProductScoreResult } from '@/lib/catalogFilter'
+import {
+  evaluateExactProductMatch,
+  detectSearchMode,
+  isKitOrBundleTitle,
+  isAccessoryTitle,
+  type ExactProductScoreResult,
+  type ExactProductSearchMode,
+} from '@/lib/catalogFilter'
+
+export type RaioXScopeMode = 'exact' | 'all_mentions' | 'own_only'
 
 export interface SellerPerformanceAggregate {
   sellerId: string
@@ -48,11 +57,18 @@ export interface SellerPerformanceAggregate {
     permalink: string
     thumbnail: string
     catalogProductId?: string
+    isKitOrBundle?: boolean
   }>
 }
 
 export interface ExactProductSummary {
   searchTerm: string
+  scopeMode: RaioXScopeMode
+  detectedBrain: ExactProductSearchMode
+  activeBrain: ExactProductSearchMode
+  accessoriesCount: number
+  accessoriesPercent: number
+  kitsExcludedCount: number
   totalRawPositions: number
   exactMatchedPositionsCount: number
   filteredOutCount: number
@@ -102,6 +118,7 @@ export interface ExactProductSummary {
     catalogProductId?: string
     sellerNickname: string
     isOwnAccount: boolean
+    isKitOrBundle?: boolean
   }>
 }
 
@@ -117,10 +134,24 @@ export function aggregateSellersByExactProduct(
     sold_quantity?: number
     snapshot_date: string
   }>,
+  scopeMode: RaioXScopeMode = 'exact',
+  manualBrain?: ExactProductSearchMode,
 ): ExactProductSummary {
   const cleanQuery = searchQuery.trim()
+  const detectedBrain = detectSearchMode(cleanQuery)
+  const activeBrain = manualBrain || detectedBrain
 
-  // 1. FILTRAR POR PRODUTO EXATO
+  // Contagem de acessórios no universo total de resultados para o insight
+  let rawAccessoriesCount = 0
+  for (const prod of rawProducts) {
+    if (isAccessoryTitle(prod.title || '', cleanQuery)) {
+      rawAccessoriesCount++
+    }
+  }
+  const accessoriesPercent =
+    rawProducts.length > 0 ? Math.round((rawAccessoriesCount / rawProducts.length) * 100) : 0
+
+  // 1. FILTRAR ITENS CONFORME O ESCOPO SELECIONADO
   const exactProducts: Array<{
     product: MLCatalogProduct
     scoreResult: ExactProductScoreResult
@@ -129,9 +160,30 @@ export function aggregateSellersByExactProduct(
   let filteredOutCount = 0
 
   for (const prod of rawProducts) {
-    const scoreResult = evaluateExactProductMatch(prod.title || '', cleanQuery, prod.attributes)
+    const scoreResult = evaluateExactProductMatch(
+      prod.title || '',
+      cleanQuery,
+      prod.attributes,
+      activeBrain,
+    )
 
-    if (scoreResult.isExactMatch) {
+    let include = false
+
+    if (scopeMode === 'exact') {
+      include = scoreResult.isExactMatch
+    } else if (scopeMode === 'all_mentions') {
+      // "Tudo que cita o termo" — sem filtro rígido de acessórios/componentes
+      include = true
+    } else if (scopeMode === 'own_only') {
+      // "Só meus anúncios" — apenas posições mineradas da própria conta
+      const isOwn = Boolean(
+        prod.is_own_account ||
+        (Array.isArray(prod.competitors) && prod.competitors.some((c) => c.is_own)),
+      )
+      include = isOwn
+    }
+
+    if (include) {
       exactProducts.push({ product: prod, scoreResult })
     } else {
       filteredOutCount++
@@ -214,16 +266,29 @@ export function aggregateSellersByExactProduct(
     }
   }
 
-  // Processar cada produto exato
-  exactProducts.forEach(({ product }, productIndex) => {
+  // Processar cada produto (separando kits/lotes das métricas de comparação)
+  let kitsExcludedCount = 0
+
+  exactProducts.forEach(({ product }) => {
+    const isKit = isKitOrBundleTitle(product.title || '')
+    if (isKit) {
+      kitsExcludedCount++
+    }
+
     const winnerPrice = product.buy_box_winner_price || product.min_price || null
-    if (winnerPrice && winnerPrice > 0) {
+    // Só entra no cálculo de faixa de preço se NÃO for kit/lote
+    if (!isKit && winnerPrice && winnerPrice > 0) {
       allPrices.push(winnerPrice)
     }
 
     // Se tiver concorrentes explícitos no produto (enriquecidos via /products/{id}/items)
     if (Array.isArray(product.competitors) && product.competitors.length > 0) {
       product.competitors.forEach((comp) => {
+        // Se escopo for own_only e o comp não for own, pula
+        if (scopeMode === 'own_only' && !comp.is_own && !product.is_own_account) {
+          return
+        }
+
         const isOwn = Boolean(comp.is_own || product.is_own_account)
         const sNick = comp.seller_nickname || (isOwn ? 'INFOPRECOBAIXO' : '')
         const seller = getOrCreateSeller(comp.seller_id || '', sNick, isOwn)
@@ -234,12 +299,14 @@ export function aggregateSellersByExactProduct(
 
         seller.totalAdsCount++
         seller.totalAvailableStock += adStock
-        if (adPrice > 0) {
+
+        // Kits/lotes NÃO afetam a faixa de preço nem o termômetro competitivo do seller
+        if (!isKit && adPrice > 0) {
           if (seller.minPrice === 0 || adPrice < seller.minPrice) seller.minPrice = adPrice
           if (adPrice > seller.maxPrice) seller.maxPrice = adPrice
         }
 
-        if (comp.is_buy_box_winner) {
+        if (comp.is_buy_box_winner && !isKit) {
           seller.buyBoxWinnersCount++
           seller.hasBuyBox = true
         }
@@ -266,11 +333,17 @@ export function aggregateSellersByExactProduct(
           permalink: product.permalink,
           thumbnail: product.thumbnail,
           catalogProductId: product.catalog_product_id,
+          isKitOrBundle: isKit,
         })
       })
     } else {
       // Fallback para quando só há o líder de Buy Box ou o próprio produto
       const isOwn = Boolean(product.is_own_account)
+      // Se escopo for own_only e o produto não for own, pula
+      if (scopeMode === 'own_only' && !isOwn) {
+        return
+      }
+
       const sId = product.buy_box_winner_seller_id || (isOwn ? '626774396' : '')
       const sNick =
         product.buy_box_winner_seller_nickname || (isOwn ? 'INFOPRECOBAIXO' : 'Vendedor Líder')
@@ -282,13 +355,17 @@ export function aggregateSellersByExactProduct(
 
       seller.totalAdsCount++
       seller.totalAvailableStock += adStock
-      if (adPrice > 0) {
+
+      // Kits/lotes NÃO afetam a faixa de preço nem o termômetro competitivo do seller
+      if (!isKit && adPrice > 0) {
         if (seller.minPrice === 0 || adPrice < seller.minPrice) seller.minPrice = adPrice
         if (adPrice > seller.maxPrice) seller.maxPrice = adPrice
       }
 
-      seller.buyBoxWinnersCount++
-      seller.hasBuyBox = true
+      if (!isKit) {
+        seller.buyBoxWinnersCount++
+        seller.hasBuyBox = true
+      }
 
       const isPremium =
         product.buy_box_winner_listing_type_label === 'Premium' ||
@@ -315,6 +392,7 @@ export function aggregateSellersByExactProduct(
         permalink: product.permalink,
         thumbnail: product.thumbnail,
         catalogProductId: product.catalog_product_id,
+        isKitOrBundle: isKit,
       })
     }
   })
@@ -323,7 +401,12 @@ export function aggregateSellersByExactProduct(
   const sellersList = Array.from(sellersMap.values())
 
   sellersList.forEach((seller) => {
-    if (seller.totalAdsCount > 0) {
+    // Calcula média de preços ignorando kits/lotes
+    const standaloneAds = seller.ads.filter((a) => !a.isKitOrBundle)
+    if (standaloneAds.length > 0) {
+      const sumPrices = standaloneAds.reduce((acc, a) => acc + (a.price || 0), 0)
+      seller.avgPrice = Math.round(sumPrices / standaloneAds.length)
+    } else if (seller.totalAdsCount > 0) {
       const sumPrices = seller.ads.reduce((acc, a) => acc + (a.price || 0), 0)
       seller.avgPrice = Math.round(sumPrices / seller.totalAdsCount)
     }
@@ -450,7 +533,9 @@ export function aggregateSellersByExactProduct(
   })
 
   // 4. CONSOLIDAÇÃO GLOBAL DE TODOS OS ANÚNCIOS DO PRODUTO EXATO
-  const allAds: ExactProductSummary['allAds'] = []
+  // Anúncios avulsos primeiro, e anúncios de kits/lotes separados no fim
+  const standaloneAdsList: ExactProductSummary['allAds'] = []
+  const kitAdsList: ExactProductSummary['allAds'] = []
   let globalPremiumCount = 0
   let globalClassicCount = 0
 
@@ -461,33 +546,44 @@ export function aggregateSellersByExactProduct(
       } else {
         globalClassicCount++
       }
-      allAds.push({
+
+      const fullAdItem = {
         ...a,
         sellerNickname: s.sellerNickname,
         isOwnAccount: s.isOwnAccount,
-      })
+      }
+
+      if (a.isKitOrBundle) {
+        kitAdsList.push(fullAdItem)
+      } else {
+        standaloneAdsList.push(fullAdItem)
+      }
     })
   })
 
-  // Se não foi coletado preço individual em allPrices, popula a partir de allAds
-  if (allPrices.length === 0) {
-    allAds.forEach((a) => {
-      if (a.price > 0) allPrices.push(a.price)
-    })
-  }
+  // allAds reúne avulsos primeiro, seguidos pelos kits/lotes
+  const allAds: ExactProductSummary['allAds'] = [...standaloneAdsList, ...kitAdsList]
 
-  allPrices.sort((a, b) => a - b)
-  const priceMin = allPrices.length > 0 ? allPrices[0] : 0
-  const priceMax = allPrices.length > 0 ? allPrices[allPrices.length - 1] : 0
+  // Se allPrices estiver vazio (por exemplo, todos eram kits), faz fallback seguro
+  const pricesToAnalyze =
+    allPrices.length > 0 ? allPrices : allAds.filter((a) => a.price > 0).map((a) => a.price)
+
+  pricesToAnalyze.sort((a, b) => a - b)
+  const priceMin = pricesToAnalyze.length > 0 ? pricesToAnalyze[0] : 0
+  const priceMax = pricesToAnalyze.length > 0 ? pricesToAnalyze[pricesToAnalyze.length - 1] : 0
   const priceAvg =
-    allPrices.length > 0
-      ? Math.round(allPrices.reduce((acc, v) => acc + v, 0) / allPrices.length)
+    pricesToAnalyze.length > 0
+      ? Math.round(pricesToAnalyze.reduce((acc, v) => acc + v, 0) / pricesToAnalyze.length)
       : 0
   const priceMedian =
-    allPrices.length > 0
-      ? allPrices.length % 2 === 0
-        ? Math.round((allPrices[allPrices.length / 2 - 1] + allPrices[allPrices.length / 2]) / 2)
-        : Math.round(allPrices[Math.floor(allPrices.length / 2)])
+    pricesToAnalyze.length > 0
+      ? pricesToAnalyze.length % 2 === 0
+        ? Math.round(
+            (pricesToAnalyze[pricesToAnalyze.length / 2 - 1] +
+              pricesToAnalyze[pricesToAnalyze.length / 2]) /
+              2,
+          )
+        : Math.round(pricesToAnalyze[Math.floor(pricesToAnalyze.length / 2)])
       : 0
 
   const totalActiveAds = allAds.length > 0 ? allAds.length : exactProducts.length
@@ -579,6 +675,12 @@ export function aggregateSellersByExactProduct(
 
   return {
     searchTerm: cleanQuery,
+    scopeMode,
+    detectedBrain,
+    activeBrain,
+    accessoriesCount: rawAccessoriesCount,
+    accessoriesPercent,
+    kitsExcludedCount,
     totalRawPositions: rawProducts.length,
     exactMatchedPositionsCount: exactProducts.length,
     filteredOutCount,

@@ -148,40 +148,235 @@ export function extractExactProductTokens(query: string): string[] {
   return Array.from(new Set(finalTokens))
 }
 
+export type ExactProductSearchMode = 'part' | 'whole_product'
+
 export interface ExactProductScoreResult {
   isExactMatch: boolean
   similarityScore: number // 0 a 100
   matchedTokens: string[]
   missingTokens: string[]
   reasons: string[]
+  detectedMode?: ExactProductSearchMode
+  isAccessory?: boolean
+  isKitOrBundle?: boolean
 }
 
 // Conjuntos de palavras-chave para classificação taxonômica de produto
-const HARDWARE_COMPONENTS = new Set([
+export const HARDWARE_COMPONENTS = new Set([
   'fonte',
+  'fontes',
   'carregador',
+  'carregadores',
   'bateria',
+  'baterias',
   'teclado',
+  'teclados',
   'tela',
+  'telas',
   'display',
   'cooler',
+  'coolers',
   'ventoinha',
+  'ventoinhas',
+  'fan',
+  'fans',
   'placa',
+  'placas',
   'motherboard',
+  'mainboard',
   'memoria',
+  'memorias',
   'ram',
   'ssd',
   'hd',
+  'disco',
   'cabo',
+  'cabos',
   'flat',
   'dobradica',
+  'dobradicas',
   'carcaca',
+  'carcacas',
   'tampa',
+  'tampas',
   'palmrest',
   'touchpad',
   'gabinete',
-  'ventoinha',
+  'gabinetes',
+  'processador',
+  'processadores',
+  'cpu',
+  'gpu',
+  'inverter',
+  'conector',
+  'conectores',
+  'jack',
+  'dcjack',
+  'alto-falante',
+  'altofalante',
+  'falante',
+  'speaker',
+  'webcam',
+  'camera',
 ])
+
+// Palavras de barreira que identificam acessórios (usadas para buscas de PRODUTO INTEIRO e para insight)
+export const ACCESSORY_BARRIER_WORDS = new Set([
+  'capa',
+  'capas',
+  'capinha',
+  'capinhas',
+  'case',
+  'cases',
+  'pelicula',
+  'peliculas',
+  'vidro',
+  'silicone',
+  'cabo',
+  'cabos',
+  'fone',
+  'fones',
+  'headset',
+  'headphone',
+  'auricular',
+  'earbuds',
+  'earphone',
+  'carregador',
+  'carregadores',
+  'suporte',
+  'suportes',
+  'brinde',
+  'brindes',
+  'chaveiro',
+  'chaveiros',
+  'strap',
+  'straps',
+  'cordao',
+  'lente',
+  'lentes',
+  'protetor',
+  'protetores',
+  'adesivo',
+  'adesivos',
+  'skin',
+  'skins',
+  'magsafe',
+  'bumper',
+  'bolsa',
+  'maleta',
+  'luva',
+  'sleeve',
+  'mousepad',
+  'dock',
+  'hub',
+  'adaptador',
+  'adaptadores',
+  'caneta',
+  'stylus',
+  'pulseira',
+  'pulseiras',
+  'flanela',
+  'pano',
+  'limpador',
+])
+
+// Padrões para detecção de KITS ou LOTES
+const KIT_BUNDLE_PATTERNS = [
+  /\blote\b/i,
+  /\blotes\b/i,
+  /\bkit\b/i,
+  /\bkits\b/i,
+  /\batacado\b/i,
+  /\batacadista\b/i,
+  /\brevenda\b/i,
+  /\bcombo\b/i,
+  /\bcombos\b/i,
+  /\bpack\b/i,
+  /\bconjunto\b/i,
+  /\bcaixa fechada\b/i,
+  /\b[2-9]x\b/i,
+  /\b[1-9][0-9]+x\b/i,
+  /\b[2-9]\s*un\b/i,
+  /\b[1-9][0-9]+\s*un\b/i,
+  /\b[2-9]\s*unid/i,
+  /\b[1-9][0-9]+\s*unid/i,
+  /\b[2-9]\s*pecas?\b/i,
+  /\b[1-9][0-9]+\s*pecas?\b/i,
+  /\b[2-9]\s*unidades?\b/i,
+  /\b[1-9][0-9]+\s*unidades?\b/i,
+]
+
+/**
+ * Detecta se um título representa um KIT ou LOTE de produtos.
+ */
+export function isKitOrBundleTitle(title: string): boolean {
+  if (!title) return false
+  const normalized = normalizeCatalogText(title)
+  for (const pattern of KIT_BUNDLE_PATTERNS) {
+    if (pattern.test(normalized)) {
+      return true
+    }
+  }
+  return false
+}
+
+/**
+ * Detecta se a busca é de PEÇA (componente de reposição/hardware) ou de PRODUTO INTEIRO (ecossistema/aparelho).
+ */
+export function detectSearchMode(searchQuery: string): ExactProductSearchMode {
+  const tokens = extractExactProductTokens(searchQuery)
+  for (const token of tokens) {
+    if (HARDWARE_COMPONENTS.has(token)) {
+      return 'part'
+    }
+  }
+  return 'whole_product'
+}
+
+/**
+ * Detecta se o título é de um ACESSÓRIO para o produto buscado.
+ * Se a busca foi por um acessório específico (ex.: "carregador" ou "cabo"), esse token
+ * não é considerado barreira de exclusão.
+ */
+export function isAccessoryTitle(title: string, searchQuery: string): boolean {
+  if (!title) return false
+  const normTitle = normalizeCatalogText(title)
+  const compactTitle = removeAccents(title)
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+  const queryTokens = extractExactProductTokens(searchQuery)
+
+  // Tokens da query que seriam palavras de acessório
+  const queryAccessoryTokens = new Set(
+    queryTokens.filter((t) => ACCESSORY_BARRIER_WORDS.has(t) || HARDWARE_COMPONENTS.has(t)),
+  )
+
+  // 1. Padrões de compatibilidade: "capa para iphone 17", "pelicula compativel com...", "para iphone..."
+  // Se o título diz "capa...", "pelicula...", "case...", "vidro..."
+  for (const barrier of ACCESSORY_BARRIER_WORDS) {
+    // Se o usuário buscou explicitamente essa barreira (ex.: buscou "carregador dell"), não exclui por ela
+    if (queryAccessoryTokens.has(barrier)) {
+      continue
+    }
+
+    if (matchesCatalogToken(normTitle, compactTitle, barrier)) {
+      return true
+    }
+  }
+
+  // 2. Padrões expressivos de compatibilidade indicando que o anúncio vende algo PARA o aparelho
+  // Ex.: "compativel com iphone 17", "p/ iphone 17", "para iphone 17" vendendo capa/película
+  if (
+    /\b(para|p\/|compativel com|aplicavel a|serve para|serve em)\b/i.test(normTitle) &&
+    /\b(capa|capinha|case|pelicula|protecao|anti impacto|antishock|antirisco|vidro 3d|vidro 9d)\b/i.test(
+      normTitle,
+    )
+  ) {
+    return true
+  }
+
+  return false
+}
 
 const POPULAR_BRANDS = new Set([
   'dell',
@@ -257,8 +452,12 @@ export function evaluateExactProductMatch(
   title: string,
   searchQuery: string,
   attributes?: Array<{ id: string; name?: string; value_name?: string | null }>,
+  forcedMode?: ExactProductSearchMode,
 ): ExactProductScoreResult {
   const queryTokens = extractExactProductTokens(searchQuery)
+  const effectiveMode = forcedMode || detectSearchMode(searchQuery)
+  const isKit = isKitOrBundleTitle(title)
+
   if (queryTokens.length === 0) {
     return {
       isExactMatch: true,
@@ -266,6 +465,9 @@ export function evaluateExactProductMatch(
       matchedTokens: [],
       missingTokens: [],
       reasons: ['Nenhum token específico exigido'],
+      detectedMode: effectiveMode,
+      isAccessory: false,
+      isKitOrBundle: isKit,
     }
   }
 
@@ -273,6 +475,9 @@ export function evaluateExactProductMatch(
   const compactTitle = removeAccents(title)
     .toLowerCase()
     .replace(/[^a-z0-9]/g, '')
+
+  // Verificação de acessório
+  const accessory = isAccessoryTitle(title, searchQuery)
 
   // Atributos adicionais
   let extraAttrsText = ''
@@ -338,59 +543,48 @@ export function evaluateExactProductMatch(
   const missingTokens: string[] = []
   const reasons: string[] = []
 
-  // 1. Validar COMPONENTES
+  // 1. Validar COMPONENTES (Apenas se busca for de PEÇA ou houver componente na consulta)
   let missingComponentCount = 0
-  for (const cToken of componentTokens) {
-    const matches = matchesCatalogToken(fullTextToTest, fullCompactToTest, cToken)
-    if (matches) {
-      matchedTokens.push(cToken)
-    } else {
-      missingTokens.push(cToken)
-      missingComponentCount++
-      reasons.push(`Componente "${cToken}" ausente no anúncio`)
-    }
-  }
-
-  // Se buscou componente (ex: "fonte"), conferir se o anúncio é de OUTRO componente
-  // concorrente sem conter a palavra-chave de componente.
-  // Ex: buscou "fonte dell 3020" e o anúncio é "Placa Mae Dell Optiplex 3020" ou "Cooler Dell 3020"
-  if (componentTokens.length > 0 && missingComponentCount === 0) {
-    const conflictingComponents = [
-      'placa',
-      'motherboard',
-      'teclado',
-      'bateria',
-      'tela',
-      'display',
-      'cooler',
-      'ventoinha',
-      'cabo',
-      'dobradica',
-      'carcaca',
-      'palmrest',
-      'gabinete',
-      'memoria',
-      'ssd',
-      'hd',
-    ]
-
-    // Se o usuário buscou "fonte", qualquer um dos acima presentes sem ser o componente buscado
-    // pode indicar peça diferente, a menos que o título deixe claro que é a peça buscada
-    // Ex: "Cabo de Fonte Dell 3020" -> é cabo, não fonte direta. Mas "Fonte Dell 3020 com cabo" -> é fonte.
-    const requestedHasFonte =
-      componentTokens.includes('fonte') || componentTokens.includes('carregador')
-    if (requestedHasFonte) {
-      // Se não contém fonte nem carregador no título do ML, não pode ser fonte
-      const hasFonteInTitle =
-        matchesCatalogToken(fullTextToTest, fullCompactToTest, 'fonte') ||
-        matchesCatalogToken(fullTextToTest, fullCompactToTest, 'fontes') ||
-        matchesCatalogToken(fullTextToTest, fullCompactToTest, 'carregador') ||
-        matchesCatalogToken(fullTextToTest, fullCompactToTest, 'power') ||
-        matchesCatalogToken(fullTextToTest, fullCompactToTest, 'psu')
-      if (!hasFonteInTitle) {
+  if (effectiveMode === 'part') {
+    for (const cToken of componentTokens) {
+      const matches = matchesCatalogToken(fullTextToTest, fullCompactToTest, cToken)
+      if (matches) {
+        matchedTokens.push(cToken)
+      } else {
+        missingTokens.push(cToken)
         missingComponentCount++
-        reasons.push('Anúncio não é do componente fonte/carregador')
+        reasons.push(`Componente "${cToken}" ausente no anúncio`)
       }
+    }
+
+    // Se buscou componente (ex: "fonte"), conferir se o anúncio é de OUTRO componente
+    // concorrente sem conter a palavra-chave de componente.
+    // Ex: buscou "fonte dell 3020" e o anúncio é "Placa Mae Dell Optiplex 3020" ou "Cooler Dell 3020"
+    if (componentTokens.length > 0 && missingComponentCount === 0) {
+      const requestedHasFonte =
+        componentTokens.includes('fonte') || componentTokens.includes('carregador')
+      if (requestedHasFonte) {
+        // Se não contém fonte nem carregador no título do ML, não pode ser fonte
+        const hasFonteInTitle =
+          matchesCatalogToken(fullTextToTest, fullCompactToTest, 'fonte') ||
+          matchesCatalogToken(fullTextToTest, fullCompactToTest, 'fontes') ||
+          matchesCatalogToken(fullTextToTest, fullCompactToTest, 'carregador') ||
+          matchesCatalogToken(fullTextToTest, fullCompactToTest, 'power') ||
+          matchesCatalogToken(fullTextToTest, fullCompactToTest, 'psu')
+        if (!hasFonteInTitle) {
+          missingComponentCount++
+          reasons.push('Anúncio não é do componente fonte/carregador')
+        }
+      }
+    }
+  } else {
+    // CÉREBRO: PRODUTO INTEIRO (ex: "iphone 17", "dell latitude 5420")
+    // Se o anúncio for de ACESSÓRIO (capa, case, película, vidro, cabo etc.), é rejeitado imediatamente
+    if (accessory) {
+      missingComponentCount++
+      reasons.push(
+        'Anúncio é acessório (capa, cabo, película ou compatível) e não o produto inteiro',
+      )
     }
   }
 
@@ -437,7 +631,14 @@ export function evaluateExactProductMatch(
     if (matches) {
       matchedTokens.push(oToken)
     } else {
-      missingTokens.push(oToken)
+      // Em busca de produto inteiro, se o outro token for relevante (ex.: "iphone" se não entrou em brandTokens), exige
+      if (effectiveMode === 'whole_product' && oToken.length >= 3) {
+        missingTokens.push(oToken)
+        missingModelCount++
+        reasons.push(`Token "${oToken}" ausente no anúncio`)
+      } else {
+        missingTokens.push(oToken)
+      }
     }
   }
 
@@ -445,6 +646,7 @@ export function evaluateExactProductMatch(
   // - TODOS os modelos obrigatórios devem estar presentes (missingModelCount === 0)
   // - TODOS os componentes obrigatórios devem bater (missingComponentCount === 0)
   // - MARCA se pesquisada deve bater (missingBrandCount === 0)
+  // - Em busca de PRODUTO INTEIRO, acessórios são excluídos (isAccessory === false)
   // Contexto (como "desktop", "optiplex") e potência ("240w") NÃO desclassificam o anúncio!
   const hasCriticalMismatch =
     missingModelCount > 0 || missingComponentCount > 0 || missingBrandCount > 0
@@ -478,6 +680,9 @@ export function evaluateExactProductMatch(
     matchedTokens,
     missingTokens,
     reasons,
+    detectedMode: effectiveMode,
+    isAccessory: accessory,
+    isKitOrBundle: isKit,
   }
 }
 
