@@ -853,6 +853,8 @@ onRecordAfterCreateSuccess((e) => {
       return
     }
 
+    
+
     // -------------------------------------------------------------------------
     // 2. RESOLVE COMPETITOR (Busca textual legada - com aviso claro de 403)
     // -------------------------------------------------------------------------
@@ -1196,6 +1198,107 @@ onRecordAfterCreateSuccess((e) => {
           totalAdsProcessed +
           ' anúncios atualizados.',
       )
+      e.next()
+      return
+    }
+
+    // -------------------------------------------------------------------------
+    // 3b. INVESTIGATE COMPETITION (Diagnóstico direto de concorrência ML)
+    // -------------------------------------------------------------------------
+    if (action === 'resolve_competitor' && query.startsWith('PROBE_COMPETITION:')) {
+      const parts = query.replace('PROBE_COMPETITION:', '').trim().split('|')
+      const probeTarget = parts[0] || 'MLB5193740831'
+      const probeCatalog = (parts[1] || job.getString('seller_id') || 'MLB18732668').trim()
+      const diagResults = {}
+
+      const authHeaders = { Accept: 'application/json' }
+      if (accessToken) authHeaders['Authorization'] = 'Bearer ' + accessToken
+
+      // 1. GET /items/{probeTarget}
+      try {
+        const r1 = $http.send({
+          url: 'https://api.mercadolibre.com/items/' + probeTarget,
+          method: 'GET',
+          headers: authHeaders,
+          timeout: 10,
+        })
+        diagResults.items_probe = { status: r1.statusCode, json: r1.json }
+      } catch (e1) {
+        diagResults.items_probe = { error: String(e1) }
+      }
+
+      // 2. GET /items/{probeTarget}/price_to_win?siteId=MLB&version=v2
+      try {
+        const r2 = $http.send({
+          url:
+            'https://api.mercadolibre.com/items/' +
+            probeTarget +
+            '/price_to_win?siteId=MLB&version=v2',
+          method: 'GET',
+          headers: authHeaders,
+          timeout: 10,
+        })
+        diagResults.price_to_win = { status: r2.statusCode, json: r2.json }
+      } catch (e2) {
+        diagResults.price_to_win = { error: String(e2) }
+      }
+
+      // 3. GET /products/{probeCatalog}
+      try {
+        const r3 = $http.send({
+          url: 'https://api.mercadolibre.com/products/' + probeCatalog,
+          method: 'GET',
+          headers: authHeaders,
+          timeout: 10,
+        })
+        diagResults.product_catalog = { status: r3.statusCode, json: r3.json }
+      } catch (e3) {
+        diagResults.product_catalog = { error: String(e3) }
+      }
+
+      // 4. GET /products/{probeCatalog}/items
+      try {
+        const r4 = $http.send({
+          url: 'https://api.mercadolibre.com/products/' + probeCatalog + '/items',
+          method: 'GET',
+          headers: authHeaders,
+          timeout: 10,
+        })
+        diagResults.product_items = { status: r4.statusCode, json: r4.json }
+      } catch (e4) {
+        diagResults.product_items = { error: String(e4) }
+      }
+
+      // 5. GET /products/{probeCatalog}/competition ou /price_to_win
+      try {
+        const r5 = $http.send({
+          url: 'https://api.mercadolibre.com/products/' + probeCatalog + '/price_to_win',
+          method: 'GET',
+          headers: authHeaders,
+          timeout: 10,
+        })
+        diagResults.product_price_to_win = { status: r5.statusCode, json: r5.json }
+      } catch (e5) {
+        diagResults.product_price_to_win = { error: String(e5) }
+      }
+
+      // 6. GET /sites/MLB/search?catalog_product_id={probeCatalog}
+      try {
+        const r6 = $http.send({
+          url: 'https://api.mercadolibre.com/sites/MLB/search?catalog_product_id=' + probeCatalog,
+          method: 'GET',
+          headers: authHeaders,
+          timeout: 10,
+        })
+        diagResults.search_catalog_product_id = { status: r6.statusCode, json: r6.json }
+      } catch (e6) {
+        diagResults.search_catalog_product_id = { error: String(e6) }
+      }
+
+      job.set('status', 'done')
+      job.set('status_code', 200)
+      job.set('result_data', diagResults)
+      $app.save(job)
       e.next()
       return
     }
