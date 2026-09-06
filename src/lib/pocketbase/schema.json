@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-06T09:50:08.204Z",
+  "generatedAt": "2026-09-06T10:11:59.490Z",
   "collections": [
     {
       "name": "users",
@@ -2558,6 +2558,30 @@
         {
           "name": "condition",
           "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "is_cached",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cached_at",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "force_refresh",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "stop_requested",
+          "type": "bool",
           "required": false,
           "system": false
         }

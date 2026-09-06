@@ -29,8 +29,9 @@ import {
   ArrowDownRight,
   ShieldCheck,
   Users,
+  X,
 } from 'lucide-react'
-import type { MLCatalogCompetitor } from '@/services/mlCatalogService'
+import type { MLCatalogCompetitor, MLCatalogProduct } from '@/services/mlCatalogService'
 import {
   Select,
   SelectContent,
@@ -80,6 +81,12 @@ export function AnunciosCatalogoTab() {
   const [searchJobDebug, setSearchJobDebug] = useState<string[]>([])
   const [showDebug, setShowDebug] = useState(false)
   const [showPartialResults, setShowPartialResults] = useState(false)
+  const [cachedJobInfo, setCachedJobInfo] = useState<{
+    isCached: boolean
+    cachedAt?: string
+  } | null>(null)
+  const [currentJobId, setCurrentJobId] = useState<string | null>(null)
+  const [stoppingJob, setStoppingJob] = useState(false)
 
   // Controle de expansão da lista de concorrentes por item (chave: catalog_product_id ou id)
   const [expandedCompetitors, setExpandedCompetitors] = useState<Record<string, boolean>>({})
@@ -198,9 +205,82 @@ export function AnunciosCatalogoTab() {
   }, [])
 
   // Disparar busca no catálogo do Mercado Livre
+  // Interrompe amigavelmente a busca e mantém o acumulado
+  async function handleStopSearch() {
+    if (!currentJobId || stoppingJob) return
+    setStoppingJob(true)
+    try {
+      await mlCatalogService.stopSearchJob(currentJobId)
+      toast({
+        title: 'Parando busca...',
+        description: 'Finalizando varredura atual e mantendo todas as posições já encontradas.',
+      })
+    } catch (err) {
+      console.warn('Erro ao solicitar parada:', err)
+    } finally {
+      setTimeout(() => setStoppingJob(false), 2000)
+    }
+  }
+
+  // Helper para formatar os resultados do catálogo para exibição na grade
+  function processCatalogResults(
+    results: MLCatalogProduct[],
+    q: string,
+    condToUse: 'all' | 'new' | 'used' | 'refurbished' | 'open_box',
+  ) {
+    const isDirectCode = isDirectCatalogCodeQuery(q)
+    const tokens = isDirectCode ? [] : extractCatalogSearchTokens(q)
+
+    return results.map((catProd) => {
+      const matchInfo = mlCatalogService.matchCatalogWithInventory(catProd, inventoryProducts)
+      const primaryProduct = matchInfo.matchedProducts[0]
+      const fallbackPrice =
+        catProd.buy_box_winner_price || catProd.min_price || matchInfo.suggestedPrice || 1200
+
+      const isStrict =
+        isDirectCode ||
+        evaluateCatalogItemStrictMatch(
+          catProd.title,
+          tokens,
+          catProd.attributes,
+          condToUse,
+          catProd.condition,
+        ).isMatch
+
+      let initialCondition: PublishConditionOption = 'catalog_auto'
+      const cLower = String(catProd.condition || '').toLowerCase()
+      if (cLower === 'refurbished' || condToUse === 'refurbished') {
+        initialCondition = 'refurbished'
+      } else if (cLower === 'open_box' || condToUse === 'open_box') {
+        initialCondition = 'open_box'
+      } else if (cLower === 'used' || condToUse === 'used') {
+        initialCondition = 'used'
+      } else if (cLower === 'new' && condToUse === 'new') {
+        initialCondition = 'new'
+      }
+
+      const detectedGrade = normalizeRefurbishedGrade(catProd.condition_grade) || 'Excelente'
+
+      return {
+        catalogProduct: catProd,
+        matchedProducts: matchInfo.matchedProducts,
+        totalAvailableStock: matchInfo.totalAvailableStock,
+        suggestedPrice: fallbackPrice,
+        selected: isStrict,
+        formQuantity: 1,
+        formPrice: fallbackPrice,
+        formCondition: initialCondition,
+        formConditionGrade: detectedGrade,
+        selectedProductId: primaryProduct?.id || undefined,
+      }
+    })
+  }
+
+  // Disparar busca no catálogo do Mercado Livre
   async function handleSearch(
     overrideQuery?: string,
     overrideCondition?: 'all' | 'new' | 'used' | 'refurbished' | 'open_box',
+    forceRefresh: boolean = false,
   ) {
     const q = (overrideQuery ?? query).trim()
     if (!q) {
@@ -217,11 +297,16 @@ export function AnunciosCatalogoTab() {
     try {
       setSearching(true)
       setActiveSearchTerm(q)
-      // Sincroniza os chips de resultado com a condição da busca
       setConditionFilter(condToUse)
       setCatalogItems([])
       setSearchJobDebug([])
-      setSearchProgressText('Iniciando busca profunda no Mercado Livre...')
+      setCachedJobInfo(null)
+      setCurrentJobId(null)
+      setSearchProgressText(
+        forceRefresh
+          ? 'Atualizando busca completa no Mercado Livre...'
+          : 'Iniciando busca inteligente no Mercado Livre...',
+      )
       setSearchPagingInfo(null)
 
       const condLabelMap: Record<string, string> = {
@@ -234,17 +319,35 @@ export function AnunciosCatalogoTab() {
       const condFeedback = condToUse !== 'all' ? ` (${condLabelMap[condToUse]})` : ''
 
       toast({
-        title: `Iniciando busca profunda no ML${condFeedback}...`,
-        description: 'Vasculhando todas as páginas de anúncios de catálogo.',
+        title: forceRefresh
+          ? `Atualizando busca profunda no ML${condFeedback}...`
+          : `Iniciando busca no ML${condFeedback}...`,
+        description: forceRefresh
+          ? 'Ignorando cache e buscando dados mais recentes diretamente na API do ML.'
+          : 'Vasculhando posições com resultados progressivos em tempo real.',
       })
 
       const isDirectCodeQuery = isDirectCatalogCodeQuery(q)
       const condParamForApi = isDirectCodeQuery ? 'all' : condToUse
-      const jobInit = await mlCatalogService.searchCatalog(q, '', condParamForApi)
+      const jobInit = await mlCatalogService.searchCatalog(q, '', condParamForApi, forceRefresh)
+      setCurrentJobId(jobInit.id)
+
       const jobDone = await mlCatalogService.pollSearchJob(jobInit.id, (j) => {
         if (j.raw_debug) setSearchJobDebug(j.raw_debug)
         if (j.progress_text) setSearchProgressText(j.progress_text)
         if (j.paging) setSearchPagingInfo(j.paging)
+
+        // STREAMING / RESULTADOS PROGRESSIVOS:
+        // Conforme as varreduras avançam, preenche a grade com os resultados que já foram acumulados!
+        if (Array.isArray(j.results) && j.results.length > 0) {
+          setCatalogItems((prev) => {
+            // Só substitui se o novo lote tiver mais posições ou se a grade estiver vazia
+            if (prev.length === 0 || (j.results && j.results.length > prev.length)) {
+              return processCatalogResults(j.results, q, condToUse)
+            }
+            return prev
+          })
+        }
       })
 
       if (jobDone.status === 'error') {
@@ -257,6 +360,16 @@ export function AnunciosCatalogoTab() {
       if (jobDone.progress_text) setSearchProgressText(jobDone.progress_text)
       if (jobDone.paging) setSearchPagingInfo(jobDone.paging)
 
+      // Identifica se veio do cache
+      if (jobDone.is_cached || jobDone.strategy_used?.includes('cached')) {
+        setCachedJobInfo({
+          isCached: true,
+          cachedAt: jobDone.cached_at || jobDone.created,
+        })
+      } else {
+        setCachedJobInfo(null)
+      }
+
       if (results.length === 0) {
         toast({
           title: 'Nenhum produto de catálogo encontrado',
@@ -266,65 +379,11 @@ export function AnunciosCatalogoTab() {
         return
       }
 
-      // Todas as posições são selecionáveis e publicáveis de forma autônoma
-      // Match com estoque local é puramente informativo / dica opcional
-      const isDirectCode = isDirectCodeQuery
-      const tokens = isDirectCode ? [] : extractCatalogSearchTokens(q)
-
-      // Se o usuário selecionou uma condição específica no seletor de busca (ex: 'refurbished', 'new', 'used'),
-      // usamos ela para avaliar strict match e condição de publicação
-      const formatted: CatalogMatchResult[] = results.map((catProd) => {
-        const matchInfo = mlCatalogService.matchCatalogWithInventory(catProd, inventoryProducts)
-        const primaryProduct = matchInfo.matchedProducts[0]
-        const fallbackPrice =
-          catProd.buy_box_winner_price || catProd.min_price || matchInfo.suggestedPrice || 1200
-
-        // Se houver tokens e não for busca direta, seleciona por padrão apenas se atender ao filtro rígido
-        const isStrict =
-          isDirectCode ||
-          evaluateCatalogItemStrictMatch(
-            catProd.title,
-            tokens,
-            catProd.attributes,
-            condToUse,
-            catProd.condition,
-          ).isMatch
-
-        // Default da condição de publicação:
-        // Se a busca direcionada ou a posição for Recondicionado, default é 'refurbished'.
-        // Se 'open_box', default é 'open_box'.
-        // Se 'used', default é 'used'.
-        // Se 'new', default é 'new'. Caso contrário, 'catalog_auto'.
-        let initialCondition: PublishConditionOption = 'catalog_auto'
-        const cLower = String(catProd.condition || '').toLowerCase()
-        if (cLower === 'refurbished' || condToUse === 'refurbished') {
-          initialCondition = 'refurbished'
-        } else if (cLower === 'open_box' || condToUse === 'open_box') {
-          initialCondition = 'open_box'
-        } else if (cLower === 'used' || condToUse === 'used') {
-          initialCondition = 'used'
-        } else if (cLower === 'new' && condToUse === 'new') {
-          initialCondition = 'new'
-        }
-
-        const detectedGrade = normalizeRefurbishedGrade(catProd.condition_grade) || 'Excelente'
-
-        return {
-          catalogProduct: catProd,
-          matchedProducts: matchInfo.matchedProducts,
-          totalAvailableStock: matchInfo.totalAvailableStock,
-          suggestedPrice: fallbackPrice,
-          selected: isStrict, // Resultados rigorosos já vêm selecionados; descartados vêm desmarcados
-          formQuantity: 1, // Quantidade default = 1
-          formPrice: fallbackPrice, // Preço default = preço de referência do catálogo
-          formCondition: initialCondition,
-          formConditionGrade: detectedGrade,
-          selectedProductId: primaryProduct?.id || undefined,
-        }
-      })
-
+      const formatted = processCatalogResults(results, q, condToUse)
       setCatalogItems(formatted)
 
+      const isDirectCode = isDirectCodeQuery
+      const tokens = isDirectCode ? [] : extractCatalogSearchTokens(q)
       const strictCount = isDirectCode
         ? formatted.length
         : formatted.filter(
@@ -374,6 +433,7 @@ export function AnunciosCatalogoTab() {
       })
     } finally {
       setSearching(false)
+      setCurrentJobId(null)
     }
   }
 
@@ -1156,30 +1216,84 @@ export function AnunciosCatalogoTab() {
             </Button>
           </div>
 
-          {/* Feedback de Progresso da Busca Profunda em Tempo Real com Leque */}
+          {/* Aviso de Resultados Obtidos em Cache com Botão de Forçar Atualização */}
+          {cachedJobInfo?.isCached && !searching && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between gap-3 text-xs text-amber-900 shadow-xs">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>
+                  Resultados carregados instantaneamente do cache recente (
+                  {cachedJobInfo.cachedAt
+                    ? new Date(cachedJobInfo.cachedAt).toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })
+                    : '15 min'}
+                  ).
+                </span>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleSearch(undefined, undefined, true)}
+                className="h-7 text-xs bg-white border-amber-300 hover:bg-amber-100 text-amber-900 font-semibold shrink-0"
+              >
+                <RefreshCw className="w-3 h-3 mr-1" />
+                Forçar busca nova
+              </Button>
+            </div>
+          )}
+
+          {/* Feedback de Progresso da Busca Profunda em Tempo Real com Streaming e Botão Parar */}
           {searching && (
-            <div className="p-3.5 bg-gradient-to-r from-blue-50 via-indigo-50 to-blue-50 border border-blue-200 rounded-lg flex items-start gap-3 shadow-xs animate-pulse-subtle">
-              <RefreshCw className="w-4 h-4 text-blue-600 animate-spin shrink-0 mt-0.5" />
-              <div className="flex-1 min-w-0 space-y-1">
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <p className="text-xs font-bold text-blue-950">
-                    {searchProgressText ||
-                      'Executando varredura em leque (fan-out) no catálogo do Mercado Livre...'}
-                  </p>
-                  {searchPagingInfo && (searchPagingInfo.items_count || 0) > 0 && (
-                    <Badge
-                      variant="outline"
-                      className="bg-white text-blue-800 font-mono text-[10px] border-blue-300"
-                    >
-                      {searchPagingInfo.items_count} únicos acumulados
-                    </Badge>
-                  )}
+            <div className="p-3.5 bg-gradient-to-r from-blue-50 via-indigo-50 to-blue-50 border border-blue-200 rounded-lg space-y-2 shadow-xs">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-2.5 min-w-0">
+                  <RefreshCw className="w-4 h-4 text-blue-600 animate-spin shrink-0 mt-0.5" />
+                  <div className="space-y-0.5">
+                    <p className="text-xs font-bold text-blue-950">
+                      {searchProgressText ||
+                        'Executando varreduras paralelas no catálogo do Mercado Livre...'}
+                    </p>
+                    <p className="text-[11px] text-blue-800 leading-relaxed">
+                      Resultados parciais aparecem na grade em tempo real. Você já pode trabalhar
+                      enquanto o restante é vasculhado.
+                    </p>
+                  </div>
                 </div>
-                <p className="text-[11px] text-blue-800 leading-relaxed">
-                  Disparando sub-consultas automáticas (variações de termos, marca, modelo e
-                  ordenações de preço) para superar o limite de 1.000 da API e cobrir o universo
-                  total anunciado.
-                </p>
+
+                {/* Botão Parar e Usar o que Já Tenho */}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleStopSearch}
+                  disabled={stoppingJob}
+                  className="h-8 px-3 text-xs bg-white hover:bg-rose-50 border-rose-300 text-rose-700 font-semibold shrink-0 shadow-2xs hover:border-rose-400"
+                >
+                  <X className="w-3.5 h-3.5 mr-1 text-rose-600" />
+                  {stoppingJob ? 'Parando...' : 'Parar e usar o que já tenho'}
+                </Button>
+              </div>
+
+              {/* Métricas honestas de progresso */}
+              <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-blue-200/60 text-[11px] text-blue-900 font-medium">
+                <Badge
+                  variant="outline"
+                  className="bg-white text-blue-800 font-mono text-[10px] border-blue-300"
+                >
+                  {catalogItems.length} posições na grade agora
+                </Badge>
+                {searchPagingInfo?.sub_searches_total ? (
+                  <span className="text-blue-700">
+                    Varredura {searchPagingInfo.sub_searches_completed || 1} de{' '}
+                    {searchPagingInfo.sub_searches_total}
+                  </span>
+                ) : null}
+                {searchPagingInfo?.pages_fetched ? (
+                  <span className="text-blue-600">
+                    • {searchPagingInfo.pages_fetched} páginas consultadas
+                  </span>
+                ) : null}
               </div>
             </div>
           )}

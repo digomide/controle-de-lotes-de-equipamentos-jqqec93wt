@@ -277,6 +277,10 @@ export interface MLCatalogSearchJob {
   strategy_used?: string
   results?: MLCatalogProduct[]
   progress_text?: string
+  is_cached?: boolean
+  cached_at?: string
+  force_refresh?: boolean
+  stop_requested?: boolean
   paging?: {
     total?: number
     pages_fetched?: number
@@ -318,6 +322,7 @@ export const mlCatalogService = {
     query: string,
     domainId: string = '',
     condition: string = 'all',
+    forceRefresh: boolean = false,
   ): Promise<MLCatalogSearchJob> {
     const userId = pb.authStore.model?.id || null
     try {
@@ -326,6 +331,7 @@ export const mlCatalogService = {
         domain_id: (domainId || '').trim(),
         condition: condition || 'all',
         status: 'pending',
+        force_refresh: forceRefresh,
         requested_by: userId,
       })
       return job as unknown as MLCatalogSearchJob
@@ -351,10 +357,26 @@ export const mlCatalogService = {
   /**
    * Aguarda término do job de busca com polling
    */
+  /**
+   * Solicita parada amigável de uma busca em andamento mantendo o que já foi acumulado
+   */
+  async stopSearchJob(jobId: string): Promise<void> {
+    try {
+      await pb.collection('ml_catalog_search_jobs').update(jobId, {
+        stop_requested: true,
+      })
+    } catch (err) {
+      console.warn('[mlCatalogService] Falha ao solicitar parada do job:', err)
+    }
+  },
+
+  /**
+   * Aguarda término do job de busca com polling e streaming progressivo de resultados
+   */
   async pollSearchJob(
     jobId: string,
     onProgress?: (job: MLCatalogSearchJob) => void,
-    maxWaitSecs: number = 60,
+    maxWaitSecs: number = 90,
   ): Promise<MLCatalogSearchJob> {
     const start = Date.now()
     while (Date.now() - start < maxWaitSecs * 1000) {
@@ -363,7 +385,7 @@ export const mlCatalogService = {
       if (job.status === 'done' || job.status === 'error') {
         return job
       }
-      await new Promise((r) => setTimeout(r, 800))
+      await new Promise((r) => setTimeout(r, 600))
     }
     // Ao estourar tempo limite, verificar se há resultados parciais salvos
     try {
