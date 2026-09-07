@@ -97,6 +97,8 @@ onRecordAfterCreateSuccess((e) => {
     }
   }
 
+  // Limpeza de diagnósticos temporários
+
   rec.set('status', 'processing')
   rec.set('progress_text', 'Iniciando busca inteligente no catálogo do Mercado Livre...')
   appId.save(rec)

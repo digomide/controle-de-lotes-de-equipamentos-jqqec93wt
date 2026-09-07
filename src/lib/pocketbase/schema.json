@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-07T12:08:58.216Z",
+  "generatedAt": "2026-09-07T12:32:41.140Z",
   "collections": [
     {
       "name": "users",
@@ -2798,6 +2798,60 @@
         "CREATE INDEX idx_ml_ad_snapshots_item ON ml_ad_snapshots (item_id)",
         "CREATE INDEX idx_ml_ad_snapshots_seller ON ml_ad_snapshots (seller_id)",
         "CREATE INDEX idx_ml_ad_snapshots_date ON ml_ad_snapshots (snapshot_date)"
+      ]
+    },
+    {
+      "name": "ml_position_overrides",
+      "type": "base",
+      "apiRules": {
+        "list": "",
+        "view": "",
+        "create": "",
+        "update": "",
+        "delete": ""
+      },
+      "fields": [
+        {
+          "name": "search_term",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "ml_item_id",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "action",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["include", "exclude"]
+        },
+        {
+          "name": "title",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "permalink",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "required": false,
+          "system": false
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_ml_pos_overrides_term_item ON ml_position_overrides (search_term, ml_item_id)",
+        "CREATE INDEX idx_ml_pos_overrides_item ON ml_position_overrides (ml_item_id)"
       ]
     }
   ]

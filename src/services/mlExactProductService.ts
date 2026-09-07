@@ -202,6 +202,7 @@ export function aggregateSellersByExactProduct(
   }>,
   scopeMode: RaioXScopeMode = 'exact',
   manualBrain?: ExactProductSearchMode,
+  overrides?: Record<string, 'include' | 'exclude'>,
 ): ExactProductSummary {
   const cleanQuery = searchQuery.trim()
   const detectedBrain = detectSearchMode(cleanQuery)
@@ -235,9 +236,18 @@ export function aggregateSellersByExactProduct(
       prod.model_value,
     )
 
+    const prodId = prod.id || prod.catalog_product_id || ''
+    const override = overrides ? overrides[prodId] : undefined
+
     let include = false
 
-    if (scopeMode === 'exact') {
+    if (override === 'include') {
+      // Forçado manualmente pelo usuário a vincular
+      include = true
+    } else if (override === 'exclude') {
+      // Forçado manualmente pelo usuário a rejeitar/descartar
+      include = false
+    } else if (scopeMode === 'exact') {
       include = scoreResult.isExactMatch
     } else if (scopeMode === 'all_mentions') {
       // "Tudo que cita o termo" — sem filtro rígido de acessórios/componentes

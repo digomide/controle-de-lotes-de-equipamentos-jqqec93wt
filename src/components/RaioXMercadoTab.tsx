@@ -30,6 +30,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { CatalogPositionMonitor } from '@/components/CatalogPositionMonitor'
+import { RawPositionsDrawer } from '@/components/RawPositionsDrawer'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -49,10 +50,14 @@ import {
   type RaioXScopeMode,
 } from '@/services/mlExactProductService'
 import { type ExactProductSearchMode } from '@/lib/catalogFilter'
+import {
+  positionOverridesService,
+  type PositionOverrideAction,
+} from '@/services/positionOverridesService'
 
 export function RaioXMercadoTab() {
   const { toast } = useToast()
-  const [searchTerm, setSearchTerm] = useState('fonte desktop dell 3020')
+  const [searchTerm, setSearchTerm] = useState('cooler lenovo m900')
   const [activeQuery, setActiveQuery] = useState('')
   const [loading, setLoading] = useState(false)
   const [progressText, setSearchProgressText] = useState('')
@@ -69,8 +74,12 @@ export function RaioXMercadoTab() {
     useState<SellerPerformanceAggregate | null>(null)
   const [showSellersDrawer, setShowSellersDrawer] = useState(false)
   const [showAllAdsDrawer, setShowAllAdsDrawer] = useState(false)
+  const [showRawPositionsDrawer, setShowRawPositionsDrawer] = useState(false)
   const [showCatalogMonitor, setShowCatalogMonitor] = useState(false)
   const [adsListingFilter, setAdsListingFilter] = useState<'all' | 'premium' | 'classic'>('all')
+
+  // Overrides manuais do usuário (MISSÃO 1)
+  const [overrides, setOverrides] = useState<Record<string, PositionOverrideAction>>({})
 
   // Controle de Escopo do Raio-X
   const [scopeMode, setScopeMode] = useState<RaioXScopeMode>('exact')
@@ -78,12 +87,12 @@ export function RaioXMercadoTab() {
 
   // Sugestões de produtos exatos para pesquisa rápida
   const suggestedExactProducts = [
+    'cooler lenovo m900',
     'fonte desktop dell 3020',
-    'iphone 17',
     'dell latitude 5420 i5',
     'thinkpad t480',
+    'iphone 17',
     'carregador dell 65w 4.5mm',
-    'bateria dell inspiron 15',
   ]
 
   // Carregar snapshots existentes do banco ao montar
@@ -102,6 +111,23 @@ export function RaioXMercadoTab() {
     }
     loadSnapshots()
   }, [])
+
+  // Carregar overrides quando a query ativa mudar
+  useEffect(() => {
+    if (!activeQuery) {
+      setOverrides({})
+      return
+    }
+    async function loadOverrides() {
+      try {
+        const map = await positionOverridesService.getOverridesForTerm(activeQuery)
+        setOverrides(map)
+      } catch (err) {
+        console.warn('Erro ao carregar overrides:', err)
+      }
+    }
+    loadOverrides()
+  }, [activeQuery])
 
   // Interromper busca
   async function handleStop() {
@@ -198,7 +224,7 @@ export function RaioXMercadoTab() {
     setManualBrain(null)
   }, [activeQuery])
 
-  // Agregação dos dados por PRODUTO EXATO e por SELLER respeitando o modo de escopo e cérebro
+  // Agregação dos dados por PRODUTO EXATO e por SELLER respeitando o modo de escopo, cérebro e overrides do usuário
   const summary: ExactProductSummary | null = useMemo(() => {
     if (!rawProducts || rawProducts.length === 0 || !activeQuery) return null
     return aggregateSellersByExactProduct(
@@ -207,8 +233,9 @@ export function RaioXMercadoTab() {
       historicalSnapshots,
       scopeMode,
       manualBrain || undefined,
+      overrides,
     )
-  }, [rawProducts, activeQuery, historicalSnapshots, scopeMode, manualBrain])
+  }, [rawProducts, activeQuery, historicalSnapshots, scopeMode, manualBrain, overrides])
 
   // Salvar snapshot periódico no banco (sempre usando os dados agregados do modo Produto Exato)
   async function handleSaveSnapshot() {
@@ -691,8 +718,29 @@ export function RaioXMercadoTab() {
                   </p>
                 </div>
 
-                {/* Ações Globais: Gravar Snapshot e Abrir Anúncios */}
+                {/* Ações Globais: Posições Brutas (1.043), Anúncios Filtrados e Gravar Snapshot */}
                 <div className="flex items-center gap-2 flex-wrap">
+                  <Button
+                    size="sm"
+                    onClick={() => setShowRawPositionsDrawer(!showRawPositionsDrawer)}
+                    className={`text-xs h-9 font-bold gap-1.5 shadow-xs ${
+                      showRawPositionsDrawer
+                        ? 'bg-amber-500 hover:bg-amber-600 text-slate-950 ring-2 ring-amber-300'
+                        : 'bg-slate-900 hover:bg-slate-800 text-amber-300 border border-amber-400/40'
+                    }`}
+                    title="Abrir gaveta com TODAS as posições brutas mineradas da busca para julgar e vincular manualmente"
+                  >
+                    <Layers className="w-3.5 h-3.5 text-amber-400" />
+                    {showRawPositionsDrawer
+                      ? `Recolher Posições Brutas (${summary.totalRawPositions})`
+                      : `Posições Brutas (${summary.totalRawPositions})`}
+                    {showRawPositionsDrawer ? (
+                      <ChevronUp className="w-3.5 h-3.5" />
+                    ) : (
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    )}
+                  </Button>
+
                   <Button
                     size="sm"
                     variant="outline"
@@ -702,7 +750,7 @@ export function RaioXMercadoTab() {
                     <Package className="w-3.5 h-3.5 text-blue-600" />
                     {showAllAdsDrawer
                       ? 'Ocultar Anúncios'
-                      : `Ver Todos os Anúncios (${summary.allAds.length})`}
+                      : `Ver Anúncios Vinculados (${summary.allAds.length})`}
                     {showAllAdsDrawer ? (
                       <ChevronUp className="w-3.5 h-3.5" />
                     ) : (
@@ -1142,6 +1190,17 @@ export function RaioXMercadoTab() {
               </div>
             </CardContent>
           </Card>
+
+          {/* MISSÃO 1: PAINEL DE POSIÇÕES BRUTAS ("GAVETA DAS 1.043") */}
+          {showRawPositionsDrawer && (
+            <RawPositionsDrawer
+              searchTerm={summary.searchTerm}
+              rawProducts={rawProducts}
+              activeBrain={summary.activeBrain}
+              overrides={overrides}
+              onOverrideChange={(updated) => setOverrides(updated)}
+            />
+          )}
 
           {/* GAVETA GLOBAL 1: TODOS OS ANÚNCIOS DO PRODUTO EXATO */}
           {showAllAdsDrawer && (
