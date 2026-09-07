@@ -2639,20 +2639,20 @@ export function AnunciosCatalogoTab() {
                                 }
                                 disabled={!item.selected || isPublishing}
                                 className="w-full h-7 text-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300 font-semibold flex items-center justify-center gap-1.5 shadow-2xs"
-                                title="Preço exato sugerido pelo Mercado Livre para superar a concorrência e assumir a Buy Box"
+                                title="Preço competitivo logo abaixo da âncora/líder para assumir a Buy Box com margem preservada"
                               >
                                 <ArrowDownRight className="w-3.5 h-3.5 text-emerald-600" />
                                 <span>
-                                  Baixar para{' '}
+                                  Ajustar para{' '}
                                   <strong className="font-mono">
                                     {Number(cat.suggested_price_to_win).toLocaleString('pt-BR', {
                                       style: 'currency',
                                       currency: 'BRL',
                                     })}
                                   </strong>{' '}
-                                  (Vencer Buy Box)
+                                  (Entrada Saudável)
                                 </span>
-                              </Button>
+                              </Button>{' '}
                             </div>
                           )}
 
@@ -3134,11 +3134,11 @@ export function AnunciosCatalogoTab() {
                                     }
                                     disabled={!item.selected || isPublishing}
                                     className="w-full h-6 text-[11px] bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300 font-semibold flex items-center justify-center gap-1"
-                                    title="Preço exato sugerido pelo Mercado Livre para superar a concorrência"
+                                    title="Preço competitivo logo abaixo da âncora/líder com margem preservada"
                                   >
                                     <ArrowDownRight className="w-3 h-3 text-emerald-600" />
                                     <span>
-                                      Baixar para{' '}
+                                      Ajustar para{' '}
                                       <strong className="font-mono">
                                         {Number(cat.suggested_price_to_win).toLocaleString(
                                           'pt-BR',
@@ -3147,7 +3147,8 @@ export function AnunciosCatalogoTab() {
                                             currency: 'BRL',
                                           },
                                         )}
-                                      </strong>
+                                      </strong>{' '}
+                                      (Saudável)
                                     </span>
                                   </Button>
                                 </div>

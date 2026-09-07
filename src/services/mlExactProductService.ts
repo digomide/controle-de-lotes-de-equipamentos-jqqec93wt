@@ -132,11 +132,30 @@ export interface ExactProductSummary {
   marketForceExplanation: string
 
   bestOpportunityMargin: {
+    // Nova lógica de âncora e oportunidade de margem
+    anchorPrice: number
+    anchorSource: 'buy_box_leader' | 'confirmed_sales_median' | 'none'
+    anchorSellerNickname: string
+    suggestedEntryMin: number
+    suggestedEntryMax: number
+    suggestedPriceToWin: number
+    marginAmountMin: number
+    marginAmountMax: number
+    marginPercentMin: number
+    marginPercentMax: number
+    opportunityScore: number // 0 - 100
+    opportunityTier: 'high' | 'intense' | 'cold' // Oportunidade Alta | Disputa Intensa | Mercado Frio
+    scoreComponents: {
+      competitionScore: number // Poucos vendedores ativos no produto exato
+      stockPressureScore: number // Estoque total visível baixo frente à demanda aparente
+      marginSpaceScore: number // Âncora de preço com espaço de margem
+    }
+    explanation: string
+    // Compatibilidade reversa opcional
     sellerNickname: string
     price: number
     leaderPrice: number
     marginDiffPercent: number
-    explanation: string
   } | null
   hasAnyConfirmedSales: boolean
   totalConfirmedSalesAcrossSellers: number
@@ -857,40 +876,238 @@ export function aggregateSellersByExactProduct(
     marketForceExplanation = 'Nicho pontual ou produto com pouca oferta concorrente'
   }
 
-  // Melhor entrada para margem:
-  // Se tiver líder com preço alto ou se houver dispersão de preços, calcula gap entre o menor preço do líder e a média
+  // =========================================================================
+  // NOVA LÓGICA DE OPORTUNIDADE DE MARGEM & ÂNCORA DE PREÇO (REVERSÃO DE REGRA)
+  // Regra de Ouro do Usuário:
+  // "Oportunidade = produto com pouca concorrência que abre espaço para vender
+  // com a melhor margem — e o que vende é o que tem relevância."
+  //
+  // 1. Âncora de Preço = preço de quem VENDE (não o menor preço/piso):
+  //    - Prioridade 1: Preço do líder da Buy Box
+  //    - Prioridade 2 (fallback): Mediana dos anúncios com vendas confirmadas (sold_quantity > 0)
+  //    - Anúncios sem venda confirmada NUNCA servem de referência
+  //    - Kits/lotes continuam 100% fora dos cálculos
+  //
+  // 2. Margem medida contra a âncora:
+  //    - Faixa de entrada sugerida logo ABAIXO da âncora (ex.: âncora R$ 325 → R$ 300 - R$ 315)
+  //    - NUNCA no piso (menor preço do mercado).
+  //    - Preço to win: logo abaixo do líder/âncora (ex.: 2% a 5% abaixo, ou R$ 10 a menos).
+  //
+  // 3. Baixa concorrência = multiplicador de margem, não de desconto:
+  //    - Poucos sellers/estoque ralo = espaço de preço livre (você não precisa cortar preço)
+  //    - Score de oportunidade (0 - 100):
+  //       (a) Concorrência: poucos sellers ativos no produto exato (até 35 pts)
+  //       (b) Estoque: estoque ralo/baixo visível (até 35 pts)
+  //       (c) Âncora/Margem: preço da âncora sólido e saudável (até 30 pts)
+  //    - Classificação: "Oportunidade Alta" | "Disputa Intensa" | "Mercado Frio"
+  // =========================================================================
   let bestOpportunityMargin: ExactProductSummary['bestOpportunityMargin'] = null
-  if (sellersList.length > 0 && priceMedian > 0) {
-    const leader = sellersList[0]
-    const leaderPrice = leader.minPrice || leader.avgPrice || priceMedian
 
-    // Se temos nossa conta ou concorrente com espaço para margem
-    if (leaderPrice > priceMin && priceMin > 0) {
-      const diff = leaderPrice - priceMin
-      const pct = Math.round((diff / leaderPrice) * 100)
-      bestOpportunityMargin = {
-        sellerNickname: leader.sellerNickname,
-        price: priceMin,
-        leaderPrice: leaderPrice,
-        marginDiffPercent: pct,
-        explanation: `O líder da Buy Box pratica ${leaderPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}. Entrando a ${priceMin.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}, há ${pct}% de margem competitiva.`,
-      }
-    } else if (sellersList.length === 1) {
-      bestOpportunityMargin = {
-        sellerNickname: leader.sellerNickname,
-        price: leaderPrice,
-        leaderPrice: leaderPrice,
-        marginDiffPercent: 0,
-        explanation: `Apenas 1 vendedor detém as posições deste produto exato. Baixa disputa e excelente oportunidade de entrada.`,
-      }
+  // Identificar Prioridade 1: Preço do líder da Buy Box no produto exato (sem kits)
+  let anchorPrice = 0
+  let anchorSource: 'buy_box_leader' | 'confirmed_sales_median' | 'none' = 'none'
+  let anchorSellerNickname = ''
+
+  // Buscar anúncio com Buy Box winner confirmado
+  const buyBoxAd = standaloneAdsList.find((a) => a.isBuyBoxWinner && a.price > 0)
+  if (buyBoxAd) {
+    anchorPrice = buyBoxAd.price
+    anchorSource = 'buy_box_leader'
+    anchorSellerNickname = buyBoxAd.sellerNickname || 'Líder da Buy Box'
+  } else if (
+    catalogPosition &&
+    catalogPosition.buyBoxWinner &&
+    catalogPosition.buyBoxWinner.price > 0
+  ) {
+    anchorPrice = catalogPosition.buyBoxWinner.price
+    anchorSource = 'buy_box_leader'
+    anchorSellerNickname = catalogPosition.buyBoxWinner.sellerNickname || 'Líder do Catálogo'
+  }
+
+  // Se não achou Buy Box Leader válido, Prioridade 2 (fallback):
+  // Mediana dos preços dos anúncios do produto exato com vendas confirmadas (sold_quantity > 0)
+  if (anchorPrice <= 0) {
+    const soldAdsPrices = standaloneAdsList
+      .filter((a) => a.soldQuantity != null && a.soldQuantity > 0 && a.price > 0)
+      .map((a) => a.price)
+      .sort((a, b) => a - b)
+
+    if (soldAdsPrices.length > 0) {
+      const mid = Math.floor(soldAdsPrices.length / 2)
+      anchorPrice =
+        soldAdsPrices.length % 2 === 0
+          ? Math.round((soldAdsPrices[mid - 1] + soldAdsPrices[mid]) / 2)
+          : soldAdsPrices[mid]
+      anchorSource = 'confirmed_sales_median'
+      anchorSellerNickname = `${soldAdsPrices.length} anúncio(s) com vendas confirmadas`
+    }
+  }
+
+  // Fallback de emergência seguro se não houver Buy Box nem vendas confirmadas expostas
+  if (anchorPrice <= 0) {
+    // Se o primeiro seller do ranking tem minPrice > 0
+    if (sellersList.length > 0 && sellersList[0].avgPrice > 0) {
+      anchorPrice = sellersList[0].avgPrice
+      anchorSource = 'buy_box_leader'
+      anchorSellerNickname = sellersList[0].sellerNickname
+    } else if (priceMedian > 0) {
+      anchorPrice = priceMedian
+      anchorSource = 'confirmed_sales_median'
+      anchorSellerNickname = 'Mediana do mercado'
+    }
+  }
+
+  if (anchorPrice > 0) {
+    // 2. FAIXA DE ENTRADA SUGERIDA LOGO ABAIXO DA ÂNCORA (NUNCA NO PISO)
+    // Se a concorrência for baixa (1 a 2 sellers), margem de entrada pode ser ainda mais colada (3% a 7% abaixo).
+    // Se a concorrência for média/alta (3+ sellers), entrada entre 5% e 12% abaixo da âncora.
+    const sellerCount = sellersList.length
+    let discountMinPct = 0.04 // 4% abaixo do líder (teto da faixa)
+    let discountMaxPct = 0.09 // 9% abaixo do líder (piso da faixa)
+
+    if (sellerCount <= 2) {
+      // Pouca concorrência = "espaço de preço livre", não precisa dar desconto grande
+      discountMinPct = 0.02 // ~2% a 3% abaixo
+      discountMaxPct = 0.06 // até 6%
+    } else if (sellerCount >= 6) {
+      // Disputa intensa
+      discountMinPct = 0.05
+      discountMaxPct = 0.12
+    }
+
+    // Calcular valores monetários
+    // suggestedEntryMax = mais perto da âncora (ex: âncora R$ 325 -> R$ 315)
+    // suggestedEntryMin = piso saudável de entrada (ex: âncora R$ 325 -> R$ 300)
+    let suggestedEntryMax = Math.round(anchorPrice * (1 - discountMinPct))
+    let suggestedEntryMin = Math.round(anchorPrice * (1 - discountMaxPct))
+
+    // Se a faixa colapsar por arredondamento em preços baixos, garantir degrau mínimo de R$ 1 a R$ 5
+    if (suggestedEntryMax >= anchorPrice) {
+      suggestedEntryMax = Math.max(1, anchorPrice - (anchorPrice > 50 ? 5 : 1))
+    }
+    if (suggestedEntryMin >= suggestedEntryMax) {
+      suggestedEntryMin = Math.max(1, suggestedEntryMax - (anchorPrice > 50 ? 10 : 2))
+    }
+
+    // Preço sugerido para vencer Buy Box (price_to_win inteligente):
+    // Entra logo abaixo do líder, ex: R$ 1 ou ~2% a 3% abaixo da âncora
+    const suggestedPriceToWin = suggestedEntryMax
+
+    // Margem calculada contra a âncora:
+    const marginAmountMin = anchorPrice - suggestedEntryMax // Margem na entrada mais alta
+    const marginAmountMax = anchorPrice - suggestedEntryMin // Margem na entrada mais competitiva
+    const marginPercentMin = Math.round((marginAmountMin / anchorPrice) * 100)
+    const marginPercentMax = Math.round((marginAmountMax / anchorPrice) * 100)
+
+    // 3. SCORE DE OPORTUNIDADE (0 a 100) E COMPONENTES
+    // "Oportunidade = produto com pouca concorrência que abre espaço para vender com a melhor margem"
+    //
+    // Componente A: Concorrência fraca / poucos vendedores no produto exato (máx 35 pts)
+    let competitionScore = 0
+    if (sellerCount <= 1)
+      competitionScore = 35 // Monopólio / oportunidade máxima
+    else if (sellerCount === 2) competitionScore = 30
+    else if (sellerCount === 3) competitionScore = 24
+    else if (sellerCount <= 5) competitionScore = 16
+    else if (sellerCount <= 8) competitionScore = 10
+    else competitionScore = 4 // Muitos sellers disputando
+
+    // Componente B: Estoque total visível baixo frente à demanda aparente (máx 35 pts)
+    let stockPressureScore = 0
+    if (totalVisibleStock <= 3)
+      stockPressureScore = 35 // Estoque ralo = teto livre
+    else if (totalVisibleStock <= 7) stockPressureScore = 30
+    else if (totalVisibleStock <= 15) stockPressureScore = 23
+    else if (totalVisibleStock <= 30) stockPressureScore = 15
+    else if (totalVisibleStock <= 60) stockPressureScore = 8
+    else stockPressureScore = 3 // Estoque massivo de terceiros
+
+    // Componente C: Âncora de preço com espaço de margem e liquidez (máx 30 pts)
+    let marginSpaceScore = 0
+    // Se o preço da âncora for saudável (peça/notebook com ticket > R$ 100 e sem guerra suicida no piso)
+    if (anchorPrice >= 200) marginSpaceScore += 18
+    else if (anchorPrice >= 100) marginSpaceScore += 14
+    else if (anchorPrice >= 50) marginSpaceScore += 10
+    else marginSpaceScore += 5
+
+    // Se temos vendas confirmadas auditadas ou Buy Box real, âncora é sólida (+12 pts)
+    if (anchorSource === 'buy_box_leader') {
+      marginSpaceScore += 12
+    } else if (hasAnyConfirmedSales) {
+      marginSpaceScore += 10
     } else {
-      bestOpportunityMargin = {
-        sellerNickname: leader.sellerNickname,
-        price: priceMin,
-        leaderPrice: leaderPrice,
-        marginDiffPercent: 0,
-        explanation: `Preços altamente alinhados no piso de ${priceMin.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}. Disputa focada na Buy Box por frete ou tipo de anúncio.`,
-      }
+      marginSpaceScore += 4
+    }
+    marginSpaceScore = Math.min(30, marginSpaceScore)
+
+    const opportunityScore = Math.min(
+      100,
+      Math.max(5, competitionScore + stockPressureScore + marginSpaceScore),
+    )
+
+    // Classificação
+    let opportunityTier: 'high' | 'intense' | 'cold' = 'high'
+    if (opportunityScore >= 70 && (sellerCount <= 3 || totalVisibleStock <= 15)) {
+      opportunityTier = 'high' // "Oportunidade Alta" (concorrência fraca + âncora firme)
+    } else if (sellerCount >= 6 || totalVisibleStock >= 50) {
+      opportunityTier = 'intense' // "Disputa Intensa" (muitos sellers/estoque alto)
+    } else if (!hasAnyConfirmedSales && totalVisibleStock > 30) {
+      opportunityTier = 'cold' // "Mercado Frio" (poucos sinais de venda)
+    } else if (opportunityScore < 45) {
+      opportunityTier = 'cold'
+    } else {
+      opportunityTier = 'high'
+    }
+
+    // Explicação executiva transparente
+    let explanation = ''
+    const anchorFormatted = anchorPrice.toLocaleString('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+    })
+    const entryMinFormatted = suggestedEntryMin.toLocaleString('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+    })
+    const entryMaxFormatted = suggestedEntryMax.toLocaleString('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+    })
+
+    if (sellerCount <= 2) {
+      explanation = `Baixa concorrência (${sellerCount} ${sellerCount === 1 ? 'seller' : 'sellers'}) e estoque ralo (${totalVisibleStock} un.). Não é necessário queimar preço: o teto prático é logo abaixo do líder. Entrando em ${entryMinFormatted}–${entryMaxFormatted}, você captura a Buy Box com margem preservada.`
+    } else if (opportunityTier === 'intense') {
+      explanation = `Disputa acirrada (${sellerCount} sellers com ${totalVisibleStock} un. em estoque). A âncora de mercado é ${anchorFormatted}. Entre na faixa de ${entryMinFormatted}–${entryMaxFormatted} sem descer ao piso para não matar a margem.`
+    } else if (opportunityTier === 'cold') {
+      explanation = `Mercado com poucos sinais de liquidez recente. A âncora identificada de quem vende é ${anchorFormatted}. Sugestão de entrada em ${entryMinFormatted}–${entryMaxFormatted} com atenção ao giro.`
+    } else {
+      explanation = `O mercado paga ${anchorFormatted} no anúncio de referência (${anchorSellerNickname}). Entrada saudável recomendada em ${entryMinFormatted}–${entryMaxFormatted}, garantindo margem de ${marginPercentMin}% a ${marginPercentMax}% sem cair em preços de anúncios sem relevância.`
+    }
+
+    bestOpportunityMargin = {
+      anchorPrice,
+      anchorSource,
+      anchorSellerNickname,
+      suggestedEntryMin,
+      suggestedEntryMax,
+      suggestedPriceToWin,
+      marginAmountMin,
+      marginAmountMax,
+      marginPercentMin,
+      marginPercentMax,
+      opportunityScore,
+      opportunityTier,
+      scoreComponents: {
+        competitionScore,
+        stockPressureScore,
+        marginSpaceScore,
+      },
+      explanation,
+      // Retrocompatibilidade
+      sellerNickname: anchorSellerNickname,
+      price: suggestedEntryMin,
+      leaderPrice: anchorPrice,
+      marginDiffPercent: marginPercentMax,
     }
   }
 

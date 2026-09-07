@@ -587,18 +587,24 @@ export const mlCatalogService = {
     })
 
     const totalAvailableStock = matches.length
-    // Preço sugerido: suggested_price_to_win (oficial do price_to_win para vencer Buy Box), ou buy_box_winner_price, ou min_price, ou menor dos preços do estoque
+    // Preço sugerido inteligente:
+    // Regra de ouro: basear-se na âncora de quem vende (líder da Buy Box), logo abaixo, NUNCA no piso de anúncios sem relevância.
     let suggestedPrice = 0
     if (catalogProd.suggested_price_to_win && catalogProd.suggested_price_to_win > 0) {
       suggestedPrice = catalogProd.suggested_price_to_win
     } else if (catalogProd.buy_box_winner_price && catalogProd.buy_box_winner_price > 0) {
-      suggestedPrice = catalogProd.buy_box_winner_price
+      // Entrada estratégica logo abaixo do líder da Buy Box (~2% a 4% abaixo, ou R$ 5 a menos)
+      const leaderP = catalogProd.buy_box_winner_price
+      const discount = leaderP > 200 ? Math.round(leaderP * 0.03) : leaderP > 50 ? 5 : 2
+      suggestedPrice = Math.max(1, leaderP - discount)
     } else if (catalogProd.min_price && catalogProd.min_price > 0) {
       suggestedPrice = catalogProd.min_price
     } else if (matches.length > 0) {
       const validPrices = matches.map((m) => m.unit_price).filter((pr) => pr && pr > 0)
       if (validPrices.length > 0) {
-        suggestedPrice = Math.min(...validPrices)
+        // Usa a mediana dos preços de estoque para não empurrar pro piso suicida
+        const sorted = [...validPrices].sort((a, b) => a - b)
+        suggestedPrice = sorted[Math.floor(sorted.length / 2)]
       }
     }
 

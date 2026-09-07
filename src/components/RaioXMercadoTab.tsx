@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   Flame,
   ArrowUpRight,
+  ArrowRight,
   ExternalLink,
   ChevronDown,
   ChevronUp,
@@ -25,6 +26,8 @@ import {
   Database,
   Users,
   Monitor,
+  Target,
+  Zap,
 } from 'lucide-react'
 import { CatalogPositionMonitor } from '@/components/CatalogPositionMonitor'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -950,45 +953,162 @@ export function RaioXMercadoTab() {
                   </div>
                 </div>
 
-                {/* Leitura Estratégica de Oportunidade de Margem contra o Líder da Buy Box */}
-                <div className="lg:col-span-7 p-4 bg-amber-50/70 rounded-lg border border-amber-200 shadow-2xs flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-[11px] font-bold uppercase text-amber-900 tracking-wider flex items-center gap-1.5">
-                        <Trophy className="w-3.5 h-3.5 text-amber-600" /> Oportunidade de Margem vs
-                        Líder da Buy Box
+                {/* REFORMULAÇÃO COMPLETA: OPORTUNIDADE DE MARGEM MEDIDA CONTRA A ÂNCORA DE QUEM VENDE */}
+                <div className="lg:col-span-7 p-4 bg-gradient-to-br from-emerald-50/80 via-amber-50/40 to-white rounded-lg border border-emerald-200 shadow-2xs flex flex-col justify-between">
+                  <div className="space-y-3">
+                    {/* Header do Card */}
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <span className="text-[11px] font-bold uppercase text-emerald-950 tracking-wider flex items-center gap-1.5">
+                        <Target className="w-3.5 h-3.5 text-emerald-600" /> Oportunidade de Margem &
+                        Âncora de Preço
                       </span>
                       {summary.bestOpportunityMargin && (
-                        <Badge className="bg-amber-400 text-slate-950 font-bold text-[10px]">
-                          Piso Concorrencial:{' '}
-                          {summary.bestOpportunityMargin.price.toLocaleString('pt-BR', {
-                            style: 'currency',
-                            currency: 'BRL',
-                          })}
-                        </Badge>
+                        <div className="flex items-center gap-1.5">
+                          <Badge
+                            className={`text-[10px] font-bold px-2 py-0.5 ${
+                              summary.bestOpportunityMargin.opportunityTier === 'high'
+                                ? 'bg-emerald-600 text-white'
+                                : summary.bestOpportunityMargin.opportunityTier === 'intense'
+                                  ? 'bg-amber-600 text-white'
+                                  : 'bg-blue-600 text-white'
+                            }`}
+                          >
+                            {summary.bestOpportunityMargin.opportunityTier === 'high'
+                              ? '🎯 Oportunidade Alta'
+                              : summary.bestOpportunityMargin.opportunityTier === 'intense'
+                                ? '⚡ Disputa Intensa'
+                                : '❄️ Mercado Frio'}
+                          </Badge>
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] font-mono font-bold bg-white text-slate-700 border-slate-300"
+                          >
+                            Score: {summary.bestOpportunityMargin.opportunityScore}/100
+                          </Badge>
+                        </div>
                       )}
                     </div>
 
                     {summary.bestOpportunityMargin ? (
-                      <div className="mt-2 space-y-1.5">
-                        <div className="flex items-baseline gap-3 flex-wrap">
-                          <span className="text-2xl font-black text-amber-950 font-mono">
-                            {summary.bestOpportunityMargin.price.toLocaleString('pt-BR', {
-                              style: 'currency',
-                              currency: 'BRL',
-                            })}
+                      <div className="space-y-3">
+                        {/* Grade Principal: Âncora de Preço vs Faixa de Entrada Sugerida */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                          {/* Coluna 1: Âncora de Preço ("O mercado paga R$ X") */}
+                          <div className="p-3 bg-white/90 rounded-lg border border-emerald-100 shadow-2xs space-y-1">
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="text-[10px] font-bold uppercase text-slate-500 flex items-center gap-1">
+                                <DollarSign className="w-3 h-3 text-emerald-600" /> O mercado paga
+                                (Âncora)
+                              </span>
+                              <Badge
+                                variant="outline"
+                                className="text-[9px] px-1 py-0 h-4 bg-emerald-50 text-emerald-800 border-emerald-200"
+                              >
+                                {summary.bestOpportunityMargin.anchorSource === 'buy_box_leader'
+                                  ? 'Líder Buy Box'
+                                  : summary.bestOpportunityMargin.anchorSource ===
+                                      'confirmed_sales_median'
+                                    ? 'Mediana Vendas'
+                                    : 'Referência'}
+                              </Badge>
+                            </div>
+
+                            <div className="flex items-baseline gap-1.5">
+                              <span className="text-2xl font-black font-mono text-emerald-900">
+                                {summary.bestOpportunityMargin.anchorPrice.toLocaleString('pt-BR', {
+                                  style: 'currency',
+                                  currency: 'BRL',
+                                })}
+                              </span>
+                            </div>
+
+                            <p className="text-[11px] text-slate-600 leading-tight">
+                              Origem:{' '}
+                              <strong>{summary.bestOpportunityMargin.anchorSellerNickname}</strong>{' '}
+                              (quem realmente tem relevância e vende).
+                            </p>
+                          </div>
+
+                          {/* Coluna 2: Faixa de Entrada Sugerida ("Entre com R$ Y-Z") */}
+                          <div className="p-3 bg-white/90 rounded-lg border border-amber-200/80 shadow-2xs space-y-1">
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="text-[10px] font-bold uppercase text-amber-900 flex items-center gap-1">
+                                <Zap className="w-3 h-3 text-amber-600" /> Entre com (Preço
+                                Saudável)
+                              </span>
+                              <Badge className="bg-amber-100 text-amber-900 text-[9px] px-1 py-0 h-4 border-amber-300 font-bold">
+                                Margem: {summary.bestOpportunityMargin.marginPercentMin}% a{' '}
+                                {summary.bestOpportunityMargin.marginPercentMax}%
+                              </Badge>
+                            </div>
+
+                            <div className="flex items-baseline gap-1.5">
+                              <span className="text-2xl font-black font-mono text-amber-950">
+                                {summary.bestOpportunityMargin.suggestedEntryMin.toLocaleString(
+                                  'pt-BR',
+                                  { style: 'currency', currency: 'BRL' },
+                                )}
+                              </span>
+                              <span className="text-xs text-amber-700 font-bold">a</span>
+                              <span className="text-lg font-black font-mono text-amber-900">
+                                {summary.bestOpportunityMargin.suggestedEntryMax.toLocaleString(
+                                  'pt-BR',
+                                  { style: 'currency', currency: 'BRL' },
+                                )}
+                              </span>
+                            </div>
+
+                            <p className="text-[11px] text-amber-900 leading-tight">
+                              Logo abaixo da âncora (R${' '}
+                              {summary.bestOpportunityMargin.marginAmountMin} a R${' '}
+                              {summary.bestOpportunityMargin.marginAmountMax} de margem),{' '}
+                              <strong>sem cair no piso</strong>.
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Chips de Transparência dos Componentes da Nota (como faz o Termômetro) */}
+                        <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">
+                            Pilares do Score:
                           </span>
-                          <span className="text-xs text-amber-800 font-semibold">
-                            Líder da Buy Box ({summary.bestOpportunityMargin.sellerNickname}):{' '}
-                            <span className="font-mono font-bold">
-                              {summary.bestOpportunityMargin.leaderPrice.toLocaleString('pt-BR', {
-                                style: 'currency',
-                                currency: 'BRL',
-                              })}
-                            </span>
+                          <span
+                            className="text-[10px] bg-white px-2 py-0.5 rounded-md border border-slate-200 text-slate-700 flex items-center gap-1 shadow-2xs"
+                            title="Poucos vendedores no produto exato abrem espaço de preço livre"
+                          >
+                            <Users className="w-3 h-3 text-purple-600" />
+                            Concorrência:{' '}
+                            <strong>
+                              {summary.bestOpportunityMargin.scoreComponents.competitionScore}/35
+                              pts
+                            </strong>
+                          </span>
+                          <span
+                            className="text-[10px] bg-white px-2 py-0.5 rounded-md border border-slate-200 text-slate-700 flex items-center gap-1 shadow-2xs"
+                            title="Estoque total ralo frente à demanda aparente"
+                          >
+                            <Package className="w-3 h-3 text-blue-600" />
+                            Estoque Ralo:{' '}
+                            <strong>
+                              {summary.bestOpportunityMargin.scoreComponents.stockPressureScore}/35
+                              pts
+                            </strong>
+                          </span>
+                          <span
+                            className="text-[10px] bg-white px-2 py-0.5 rounded-md border border-slate-200 text-slate-700 flex items-center gap-1 shadow-2xs"
+                            title="Âncora de preço com espaço de margem comprovada"
+                          >
+                            <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                            Espaço de Margem:{' '}
+                            <strong>
+                              {summary.bestOpportunityMargin.scoreComponents.marginSpaceScore}/30
+                              pts
+                            </strong>
                           </span>
                         </div>
-                        <p className="text-xs text-amber-900 leading-relaxed">
+
+                        {/* Explicação da Regra de Ouro */}
+                        <p className="text-xs text-slate-700 leading-relaxed bg-white/70 p-2.5 rounded-md border border-slate-200">
                           {summary.bestOpportunityMargin.explanation}
                         </p>
                       </div>
@@ -999,12 +1119,24 @@ export function RaioXMercadoTab() {
                     )}
                   </div>
 
-                  <div className="pt-2 text-[11px] text-amber-800/80 flex items-center gap-1.5">
-                    <ShieldCheck className="w-3.5 h-3.5 text-amber-700 shrink-0" />
-                    <span>
-                      Dica de publicação: anuncie no tipo Premium se a concorrência estiver
-                      majoritariamente no Clássico para capturar cliques de parcelamento sem juros.
-                    </span>
+                  {/* Rodapé do Card com Regra de Ouro / Filosofia */}
+                  <div className="pt-2.5 mt-2 border-t border-slate-200/80 text-[11px] text-slate-600 flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-1.5">
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>
+                        <strong>Regra de Ouro:</strong> Baixa concorrência é multiplicador de
+                        margem. Não corte preço para acompanhar anúncios sem relevância.
+                      </span>
+                    </div>
+
+                    {summary.priceMin > 0 &&
+                      summary.bestOpportunityMargin &&
+                      summary.priceMin < summary.bestOpportunityMargin.suggestedEntryMin && (
+                        <span className="text-[10px] text-slate-400 font-mono">
+                          Piso informativo descartado: R${' '}
+                          {summary.priceMin.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        </span>
+                      )}
                   </div>
                 </div>
               </div>
