@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-07T12:32:41.140Z",
+  "generatedAt": "2026-09-07T16:20:36.386Z",
   "collections": [
     {
       "name": "users",
@@ -2852,6 +2852,65 @@
       "indexes": [
         "CREATE INDEX idx_ml_pos_overrides_term_item ON ml_position_overrides (search_term, ml_item_id)",
         "CREATE INDEX idx_ml_pos_overrides_item ON ml_position_overrides (ml_item_id)"
+      ]
+    },
+    {
+      "name": "ml_collector_imports",
+      "type": "base",
+      "apiRules": {
+        "list": "",
+        "view": "",
+        "create": "",
+        "update": "",
+        "delete": ""
+      },
+      "fields": [
+        {
+          "name": "search_term",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "source_url",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "imported_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "payload",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "results_count",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "with_sales_count",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "required": false,
+          "system": false
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_ml_collector_term ON ml_collector_imports (search_term)",
+        "CREATE INDEX idx_ml_collector_imported_at ON ml_collector_imports (imported_at)"
       ]
     }
   ]

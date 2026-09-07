@@ -54,8 +54,13 @@ import {
   positionOverridesService,
   type PositionOverrideAction,
 } from '@/services/positionOverridesService'
+import { mlCollectorService } from '@/services/mlCollectorService'
 
-export function RaioXMercadoTab() {
+interface RaioXMercadoTabProps {
+  onOpenCollector?: (term?: string) => void
+}
+
+export function RaioXMercadoTab({ onOpenCollector }: RaioXMercadoTabProps = {}) {
   const { toast } = useToast()
   const [searchTerm, setSearchTerm] = useState('cooler lenovo m900')
   const [activeQuery, setActiveQuery] = useState('')
@@ -80,6 +85,15 @@ export function RaioXMercadoTab() {
 
   // Overrides manuais do usuário (MISSÃO 1)
   const [overrides, setOverrides] = useState<Record<string, PositionOverrideAction>>({})
+
+  // Coleta do Navegador (Bypass WAF)
+  const [collectorSalesMap, setCollectorSalesMap] = useState<Map<string, number>>(new Map())
+  const [collectorMeta, setCollectorMeta] = useState<{
+    importId: string
+    importedAt: string
+    itemsCount: number
+    withSalesCount: number
+  } | null>(null)
 
   // Controle de Escopo do Raio-X
   const [scopeMode, setScopeMode] = useState<RaioXScopeMode>('exact')
@@ -112,21 +126,48 @@ export function RaioXMercadoTab() {
     loadSnapshots()
   }, [])
 
-  // Carregar overrides quando a query ativa mudar
+  // Carregar overrides e coletas do navegador quando a query ativa mudar
   useEffect(() => {
     if (!activeQuery) {
       setOverrides({})
+      setCollectorSalesMap(new Map())
+      setCollectorMeta(null)
       return
     }
-    async function loadOverrides() {
+    async function loadOverridesAndCollector() {
       try {
         const map = await positionOverridesService.getOverridesForTerm(activeQuery)
         setOverrides(map)
       } catch (err) {
         console.warn('Erro ao carregar overrides:', err)
       }
+
+      try {
+        const latestImport = await mlCollectorService.getLatestImportForTerm(activeQuery)
+        if (latestImport && latestImport.payload?.results) {
+          const sMap = new Map<string, number>()
+          latestImport.payload.results.forEach((item) => {
+            if (item.sold_quantity != null && item.sold_quantity > 0) {
+              if (item.id) sMap.set(item.id, item.sold_quantity)
+              if (item.mlb_id) sMap.set(item.mlb_id, item.sold_quantity)
+            }
+          })
+          setCollectorSalesMap(sMap)
+          setCollectorMeta({
+            importId: latestImport.id,
+            importedAt: latestImport.imported_at || latestImport.created || '',
+            itemsCount: latestImport.results_count || latestImport.payload.results.length,
+            withSalesCount: latestImport.with_sales_count || sMap.size,
+          })
+        } else {
+          setCollectorSalesMap(new Map())
+          setCollectorMeta(null)
+        }
+      } catch (err) {
+        console.warn('Erro ao carregar coletas do navegador:', err)
+      }
     }
-    loadOverrides()
+    loadOverridesAndCollector()
   }, [activeQuery])
 
   // Interromper busca
@@ -234,8 +275,19 @@ export function RaioXMercadoTab() {
       scopeMode,
       manualBrain || undefined,
       overrides,
+      collectorSalesMap.size > 0 ? collectorSalesMap : undefined,
+      collectorMeta,
     )
-  }, [rawProducts, activeQuery, historicalSnapshots, scopeMode, manualBrain, overrides])
+  }, [
+    rawProducts,
+    activeQuery,
+    historicalSnapshots,
+    scopeMode,
+    manualBrain,
+    overrides,
+    collectorSalesMap,
+    collectorMeta,
+  ])
 
   // Salvar snapshot periódico no banco (sempre usando os dados agregados do modo Produto Exato)
   async function handleSaveSnapshot() {
@@ -720,6 +772,24 @@ export function RaioXMercadoTab() {
 
                 {/* Ações Globais: Posições Brutas (1.043), Anúncios Filtrados e Gravar Snapshot */}
                 <div className="flex items-center gap-2 flex-wrap">
+                  {onOpenCollector && (
+                    <Button
+                      size="sm"
+                      onClick={() => onOpenCollector(activeQuery)}
+                      className={`text-xs h-9 font-bold gap-1.5 shadow-xs ${
+                        summary.collectorSource
+                          ? 'bg-emerald-700 hover:bg-emerald-800 text-white'
+                          : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                      }`}
+                      title="Abrir o Coletor do Navegador para alimentar contadores públicos de vendas"
+                    >
+                      <Activity className="w-3.5 h-3.5 text-white" />
+                      {summary.collectorSource
+                        ? `Coletor Ativo (${summary.collectorSource.withSalesCount} vendas)`
+                        : 'Coletor do Navegador'}
+                    </Button>
+                  )}
+
                   <Button
                     size="sm"
                     onClick={() => setShowRawPositionsDrawer(!showRawPositionsDrawer)}
@@ -835,15 +905,36 @@ export function RaioXMercadoTab() {
                     <Activity className="w-3 h-3 text-amber-500" /> Vendas Expostas
                   </span>
                   <span className="text-xl font-black text-slate-900 font-mono mt-1 block">
-                    {summary.hasAnyConfirmedSales
-                      ? `${summary.totalConfirmedSalesAcrossSellers} un.`
-                      : 'Não exposto'}
+                    {summary.hasAnyConfirmedSales ? (
+                      <span className="text-emerald-700">
+                        {summary.totalConfirmedSalesAcrossSellers} un.
+                      </span>
+                    ) : (
+                      'Não exposto'
+                    )}
                   </span>
-                  <span className="text-[10px] text-slate-500 block leading-tight">
-                    {summary.hasAnyConfirmedSales
-                      ? 'Auditadas via ML/Delta'
-                      : 'ML restringe 403 p/ terceiros'}
-                  </span>
+                  {summary.hasAnyConfirmedSales ? (
+                    <span className="text-[10px] text-emerald-700 font-medium block leading-tight">
+                      {summary.collectorSource
+                        ? '🔥 Coletor do Navegador (reais)'
+                        : 'Auditadas via ML/Delta'}
+                    </span>
+                  ) : (
+                    <div className="pt-0.5">
+                      <span className="text-[10px] text-slate-500 block leading-tight">
+                        ML bloqueia WAF 403
+                      </span>
+                      {onOpenCollector && (
+                        <button
+                          type="button"
+                          onClick={() => onOpenCollector(activeQuery)}
+                          className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold underline mt-0.5 block"
+                        >
+                          Usar Coletor do Navegador →
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Vendedores Distintos */}
@@ -1153,6 +1244,19 @@ export function RaioXMercadoTab() {
                               pts
                             </strong>
                           </span>
+                          {summary.bestOpportunityMargin.scoreComponents.demandScore !==
+                            undefined && (
+                            <span
+                              className="text-[10px] bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-300 text-emerald-900 flex items-center gap-1 shadow-2xs font-bold"
+                              title="Bônus por vendas reais confirmadas via Coletor do Navegador"
+                            >
+                              <Activity className="w-3 h-3 text-emerald-600" />
+                              Demanda Real (Coletor):{' '}
+                              <strong>
+                                +{summary.bestOpportunityMargin.scoreComponents.demandScore} pts
+                              </strong>
+                            </span>
+                          )}
                         </div>
 
                         {/* Explicação da Regra de Ouro */}

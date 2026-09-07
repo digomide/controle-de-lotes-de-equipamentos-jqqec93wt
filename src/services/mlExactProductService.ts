@@ -153,6 +153,7 @@ export interface ExactProductSummary {
       competitionScore: number // Poucos vendedores ativos no produto exato
       stockPressureScore: number // Estoque total visível baixo frente à demanda aparente
       marginSpaceScore: number // Âncora de preço com espaço de margem
+      demandScore?: number // Pilar de demanda real quando há vendas coletadas (até 15 pts bônus)
     }
     explanation: string
     // Compatibilidade reversa opcional
@@ -160,6 +161,12 @@ export interface ExactProductSummary {
     price: number
     leaderPrice: number
     marginDiffPercent: number
+  } | null
+  collectorSource?: {
+    importId: string
+    importedAt: string
+    itemsCount: number
+    withSalesCount: number
   } | null
   hasAnyConfirmedSales: boolean
   totalConfirmedSalesAcrossSellers: number
@@ -203,6 +210,13 @@ export function aggregateSellersByExactProduct(
   scopeMode: RaioXScopeMode = 'exact',
   manualBrain?: ExactProductSearchMode,
   overrides?: Record<string, 'include' | 'exclude'>,
+  collectorSalesMap?: Map<string, number>,
+  collectorMeta?: {
+    importId: string
+    importedAt: string
+    itemsCount: number
+    withSalesCount: number
+  } | null,
 ): ExactProductSummary {
   const cleanQuery = searchQuery.trim()
   const detectedBrain = detectSearchMode(cleanQuery)
@@ -376,7 +390,16 @@ export function aggregateSellersByExactProduct(
 
         const adPrice = comp.price || winnerPrice || 0
         const adStock = comp.available_quantity != null ? comp.available_quantity : 1
-        const adSold = comp.sold_quantity != null ? comp.sold_quantity : null
+
+        // Priorizar contador real coletado do navegador se disponível para este MLB
+        const compItemId = comp.item_id || ''
+        const collectedSold = collectorSalesMap ? collectorSalesMap.get(compItemId) : undefined
+        const adSold =
+          collectedSold !== undefined
+            ? collectedSold
+            : comp.sold_quantity != null
+              ? comp.sold_quantity
+              : null
 
         seller.totalAdsCount++
         seller.totalAvailableStock += adStock
@@ -434,7 +457,16 @@ export function aggregateSellersByExactProduct(
 
       const adPrice = winnerPrice || 0
       const adStock = product.buy_box_winner_stock != null ? product.buy_box_winner_stock : 1
-      const adSold = product.sold_quantity != null ? product.sold_quantity : null
+
+      // Priorizar contador real coletado do navegador se disponível para este MLB
+      const prodItemId = product.buy_box_winner_item_id || product.id || ''
+      const collectedSold = collectorSalesMap ? collectorSalesMap.get(prodItemId) : undefined
+      const adSold =
+        collectedSold !== undefined
+          ? collectedSold
+          : product.sold_quantity != null
+            ? product.sold_quantity
+            : null
 
       seller.totalAdsCount++
       seller.totalAvailableStock += adStock
@@ -1067,9 +1099,18 @@ export function aggregateSellersByExactProduct(
     }
     marginSpaceScore = Math.min(30, marginSpaceScore)
 
+    // Componente D (Bônus de Demanda Real do Coletor):
+    // Quando temos vendas reais coletadas pelo Coletor do Navegador
+    let demandScore = 0
+    if (collectorMeta && totalConfirmedSalesAcrossSellers > 0) {
+      if (totalConfirmedSalesAcrossSellers >= 100) demandScore = 15
+      else if (totalConfirmedSalesAcrossSellers >= 25) demandScore = 10
+      else demandScore = 6
+    }
+
     const opportunityScore = Math.min(
       100,
-      Math.max(5, competitionScore + stockPressureScore + marginSpaceScore),
+      Math.max(5, competitionScore + stockPressureScore + marginSpaceScore + demandScore),
     )
 
     // Classificação
@@ -1128,6 +1169,7 @@ export function aggregateSellersByExactProduct(
         competitionScore,
         stockPressureScore,
         marginSpaceScore,
+        ...(collectorMeta ? { demandScore } : {}),
       },
       explanation,
       // Retrocompatibilidade
@@ -1166,6 +1208,7 @@ export function aggregateSellersByExactProduct(
     marketForceScore: forceScore,
     marketForceExplanation,
     bestOpportunityMargin,
+    collectorSource: collectorMeta || null,
     hasAnyConfirmedSales,
     totalConfirmedSalesAcrossSellers,
     sellersRanked: sellersList,
