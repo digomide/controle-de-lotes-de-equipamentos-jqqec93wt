@@ -233,6 +233,106 @@ routerAdd('GET', '/api/ml/catalog-competition/{catalog_product_id}', (e) => {
     } catch (_) {}
   }
 
+  // 3. TENTATIVA HONESTA DE LEITURA DA PÁGINA PÚBLICA (/p/MLB... ou anúncio vencedor)
+  // Caso a API retorne null para sold_quantity (muito comum em produtos de catálogo para terceiros),
+  // fazemos uma tentativa server-side de captura do contador público ("X vendidos") sem nunca inventar números.
+  let publicPageSold = null
+  let publicPageStatus = 'not_attempted'
+
+  const publicUrlsToAttempt = []
+  if (catId.toUpperCase().startsWith('MLB')) {
+    publicUrlsToAttempt.push('https://www.mercadolivre.com.br/p/' + encodeURIComponent(catId))
+  }
+  if (winner && winner.item_id) {
+    publicUrlsToAttempt.push(
+      'https://produto.mercadolivre.com.br/' + encodeURIComponent(winner.item_id),
+    )
+  } else if (sortedCompetitors.length > 0 && sortedCompetitors[0].item_id) {
+    publicUrlsToAttempt.push(
+      'https://produto.mercadolivre.com.br/' + encodeURIComponent(sortedCompetitors[0].item_id),
+    )
+  }
+
+  for (let u = 0; u < publicUrlsToAttempt.length && publicPageSold == null; u++) {
+    const pUrl = publicUrlsToAttempt[u]
+    try {
+      const pageRes = $http.send({
+        url: pUrl,
+        method: 'GET',
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          Accept:
+            'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+          'Accept-Language': 'pt-BR,pt;q=0.9',
+        },
+        timeout: 8,
+      })
+
+      if (pageRes.statusCode === 200 && pageRes.raw) {
+        const body = pageRes.raw
+        if (
+          body.includes('suspicious-traffic') ||
+          body.includes('account-verification') ||
+          body.includes('captcha')
+        ) {
+          publicPageStatus = 'blocked_waf'
+          console.log(
+            '[ml_catalog_competition] Página pública ' + pUrl + ' bloqueada por WAF/desafio bot.',
+          )
+          continue
+        }
+
+        // Tentar extrair contadores como: "+50 vendidos", "2 vendidos", "5 vendas", "mil vendidos"
+        const soldRegex = /\+?\s*([0-9.]+)\s*(?:mil\s*)?(?:vendidos|vendidas|vendas)/i
+        const m = body.match(soldRegex)
+        if (m && m[1]) {
+          let count = parseFloat(m[1].replace(/\./g, ''))
+          if (m[0].toLowerCase().includes('mil')) {
+            count = count * 1000
+          }
+          if (!isNaN(count) && count > 0) {
+            publicPageSold = Math.round(count)
+            publicPageStatus = 'extracted_from_html'
+            console.log(
+              '[ml_catalog_competition] Sucesso: ' + publicPageSold + ' vendas lidas de ' + pUrl,
+            )
+            break
+          }
+        } else {
+          // Checar se há JSON preloaded ou ld+json com sold_quantity
+          const stateMatch = body.match(/"sold_quantity":\s*([0-9]+)/i)
+          if (stateMatch && stateMatch[1]) {
+            const count = parseInt(stateMatch[1], 10)
+            if (!isNaN(count) && count > 0) {
+              publicPageSold = count
+              publicPageStatus = 'extracted_from_json_state'
+              break
+            }
+          }
+        }
+        publicPageStatus = 'no_counter_in_page'
+      } else {
+        publicPageStatus = 'http_' + pageRes.statusCode
+      }
+    } catch (ePage) {
+      publicPageStatus = 'error: ' + String(ePage)
+      console.log('[ml_catalog_competition] Erro scrape ' + pUrl + ': ' + ePage)
+    }
+  }
+
+  const finalSoldQuantity =
+    productSoldQuantity != null
+      ? productSoldQuantity
+      : publicPageSold != null
+        ? publicPageSold
+        : null
+
+  // Se o vencedor da posição não tinha sold_quantity, e conseguimos pela página pública, atribui honestamente
+  if (winner && winner.sold_quantity == null && publicPageSold != null) {
+    winner.sold_quantity = publicPageSold
+  }
+
   return e.json(200, {
     catalog_product_id: catId,
     competitors_count: sortedCompetitors.length,
@@ -241,6 +341,10 @@ routerAdd('GET', '/api/ml/catalog-competition/{catalog_product_id}', (e) => {
     suggested_price_to_win: suggestedPrice,
     competition_raw_status: competitionRawStatus,
     best_competitor: bestCompetitor,
-    sold_quantity: productSoldQuantity != null ? Number(productSoldQuantity) : null,
+    sold_quantity: finalSoldQuantity != null ? Number(finalSoldQuantity) : null,
+    public_page_scrape: {
+      status: publicPageStatus,
+      sold_quantity: publicPageSold,
+    },
   })
 })

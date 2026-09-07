@@ -61,6 +61,46 @@ export interface SellerPerformanceAggregate {
   }>
 }
 
+export interface CatalogPositionAggregate {
+  catalogProductId: string
+  title: string
+  permalink: string
+  thumbnail: string
+  totalAdsCount: number
+  totalAvailableStock: number
+  minPrice: number
+  maxPrice: number
+  avgPrice: number
+  premiumListingsCount: number
+  classicListingsCount: number
+  distinctSellersCount: number
+  distinctSellersList: string[]
+  buyBoxWinner: {
+    sellerNickname: string
+    sellerId: string
+    price: number
+    stock: number | null
+    listingTypeLabel: string
+    isOwn: boolean
+  } | null
+  totalConfirmedSales: number
+  hasExposedSales: boolean
+  ads: Array<{
+    id: string
+    title: string
+    price: number
+    stock: number
+    soldQuantity: number | null
+    isBuyBoxWinner: boolean
+    listingTypeLabel: string
+    permalink: string
+    thumbnail: string
+    sellerNickname: string
+    sellerId: string
+    isOwnAccount: boolean
+  }>
+}
+
 export interface ExactProductSummary {
   searchTerm: string
   scopeMode: RaioXScopeMode
@@ -101,6 +141,7 @@ export interface ExactProductSummary {
   hasAnyConfirmedSales: boolean
   totalConfirmedSalesAcrossSellers: number
   sellersRanked: SellerPerformanceAggregate[]
+  catalogPosition: CatalogPositionAggregate | null
   exactProducts: Array<{
     product: MLCatalogProduct
     scoreResult: ExactProductScoreResult
@@ -397,7 +438,187 @@ export function aggregateSellersByExactProduct(
     }
   })
 
-  // 3. CALCULAR MÉTRICAS DE VENDAS E TERMÔMETRO DE FORÇA/GIRO (0 a 100)
+  // 3. SEPARAÇÃO E IDENTIFICAÇÃO DA POSIÇÃO DE CATÁLOGO (PSEUDO-SELLER)
+  // Quando produtos vêm da busca por catálogo ou /products/{id}/items sem que o seller individual
+  // tenha sido enriquecido, ou agregam centenas de ofertas do produto em "Vendedor Líder" ou ID de catálogo,
+  // esse pseudo-seller vencia indevidamente o ranking e inflava os números de seller real.
+  let catalogPosition: CatalogPositionAggregate | null = null
+
+  // Identificar se há um pseudo-seller de catálogo no mapa
+  const allSellerKeys = Array.from(sellersMap.keys())
+  let catalogPseudoSellerKey: string | null = null
+
+  for (const sKey of allSellerKeys) {
+    const s = sellersMap.get(sKey)!
+    const nickLower = (s.sellerNickname || '').toLowerCase().trim()
+    const idLower = (s.sellerId || '').toLowerCase().trim()
+
+    const isCatalogPattern =
+      nickLower === 'vendedor líder' ||
+      nickLower === 'vendedor lider' ||
+      nickLower === 'catálogo ml' ||
+      nickLower === 'catalogo ml' ||
+      nickLower === 'mercado livre catálogo' ||
+      idLower.startsWith('mlb') ||
+      idLower.startsWith('p/mlb') ||
+      idLower === 'unknown_seller'
+
+    // Critério 2: volume anômalo concentrado (>15 anúncios e mais de 40% do total de anúncios da pesquisa)
+    const isAnomalousVolume =
+      s.totalAdsCount >= 15 && s.totalAdsCount > exactProducts.length * 0.4 && !s.isOwnAccount
+
+    if ((isCatalogPattern || isAnomalousVolume) && !s.isOwnAccount) {
+      catalogPseudoSellerKey = sKey
+      break
+    }
+  }
+
+  // Se detectamos o pseudo-seller, extraímos para a estrutura dedicada de Posição de Catálogo
+  // E também montamos uma visão agregada da posição de catálogo mesmo se não houver pseudo-seller individual,
+  // caso tenhamos catalogProductId definido nos produtos exatos
+  const representativeCatProd = exactProducts.find((p) => p.product.catalog_product_id)
+  const catalogProductId =
+    representativeCatProd?.product.catalog_product_id ||
+    (catalogPseudoSellerKey?.startsWith('mlb') ? catalogPseudoSellerKey.toUpperCase() : '')
+
+  if (catalogPseudoSellerKey) {
+    const pseudoSeller = sellersMap.get(catalogPseudoSellerKey)!
+    sellersMap.delete(catalogPseudoSellerKey) // REMOVER do ranking de sellers reais
+
+    // Identificar vendedor Buy Box atual do catálogo
+    const bbAd = pseudoSeller.ads.find((a) => a.isBuyBoxWinner) || pseudoSeller.ads[0]
+    const otherSellersNicks = Array.from(
+      new Set(
+        Array.from(sellersMap.values())
+          .map((s) => s.sellerNickname)
+          .filter(Boolean),
+      ),
+    )
+
+    catalogPosition = {
+      catalogProductId: catalogProductId || pseudoSeller.ads[0]?.catalogProductId || 'CATALOGO_ML',
+      title: representativeCatProd?.product.title || pseudoSeller.ads[0]?.title || cleanQuery,
+      permalink:
+        representativeCatProd?.product.permalink ||
+        (catalogProductId ? `https://www.mercadolivre.com.br/p/${catalogProductId}` : ''),
+      thumbnail: representativeCatProd?.product.thumbnail || pseudoSeller.ads[0]?.thumbnail || '',
+      totalAdsCount: pseudoSeller.totalAdsCount,
+      totalAvailableStock: pseudoSeller.totalAvailableStock,
+      minPrice: pseudoSeller.minPrice,
+      maxPrice: pseudoSeller.maxPrice,
+      avgPrice: pseudoSeller.avgPrice || pseudoSeller.minPrice,
+      premiumListingsCount: pseudoSeller.premiumListingsCount,
+      classicListingsCount: pseudoSeller.classicListingsCount,
+      distinctSellersCount: Math.max(1, otherSellersNicks.length),
+      distinctSellersList: otherSellersNicks,
+      buyBoxWinner: bbAd
+        ? {
+            sellerNickname:
+              representativeCatProd?.product.buy_box_winner_seller_nickname || 'Vencedor Atual',
+            sellerId: representativeCatProd?.product.buy_box_winner_seller_id || '',
+            price: bbAd.price,
+            stock: bbAd.stock,
+            listingTypeLabel: bbAd.listingTypeLabel,
+            isOwn: false,
+          }
+        : null,
+      totalConfirmedSales: pseudoSeller.totalConfirmedSales,
+      hasExposedSales: pseudoSeller.hasRealSalesData,
+      ads: pseudoSeller.ads.map((a) => ({
+        id: a.id,
+        title: a.title,
+        price: a.price,
+        stock: a.stock,
+        soldQuantity: a.soldQuantity,
+        isBuyBoxWinner: a.isBuyBoxWinner,
+        listingTypeLabel: a.listingTypeLabel,
+        permalink: a.permalink,
+        thumbnail: a.thumbnail,
+        sellerNickname:
+          representativeCatProd?.product.buy_box_winner_seller_nickname || 'Oferta de Catálogo',
+        sellerId: representativeCatProd?.product.buy_box_winner_seller_id || '',
+        isOwnAccount: false,
+      })),
+    }
+  } else if (representativeCatProd && exactProducts.length >= 2) {
+    // Mesmo sem o pseudo-seller, se o produto tem catalog_product_id no ML, sintetizamos a posição
+    const catAds = exactProducts.map((ep) => ep.product)
+    const distinctSellers = Array.from(
+      new Set(Array.from(sellersMap.values()).map((s) => s.sellerNickname)),
+    )
+    const winnerProd =
+      catAds.find(
+        (p) =>
+          p.buy_box_winner_seller_nickname ||
+          (p.buy_box_winner_price && p.buy_box_winner_price > 0),
+      ) || catAds[0]
+
+    const totalStock = catAds.reduce((acc, p) => acc + (p.buy_box_winner_stock || 1), 0)
+    const prices = catAds
+      .map((p) =>
+        p.buy_box_winner_price && p.buy_box_winner_price > 0
+          ? p.buy_box_winner_price
+          : p.min_price && p.min_price > 0
+            ? p.min_price
+            : 0,
+      )
+      .filter((p) => p > 0)
+    const minP = prices.length > 0 ? Math.min(...prices) : 0
+    const maxP = prices.length > 0 ? Math.max(...prices) : 0
+    const avgP =
+      prices.length > 0 ? Math.round(prices.reduce((a, b) => a + b, 0) / prices.length) : 0
+    const confirmedSalesSum = catAds.reduce((acc, p) => acc + (p.sold_quantity || 0), 0)
+
+    catalogPosition = {
+      catalogProductId: representativeCatProd.product.catalog_product_id || '',
+      title: representativeCatProd.product.title || cleanQuery,
+      permalink:
+        representativeCatProd.product.permalink ||
+        `https://www.mercadolivre.com.br/p/${representativeCatProd.product.catalog_product_id}`,
+      thumbnail: representativeCatProd.product.thumbnail || '',
+      totalAdsCount: catAds.length,
+      totalAvailableStock: totalStock,
+      minPrice: minP,
+      maxPrice: maxP,
+      avgPrice: avgP,
+      premiumListingsCount: catAds.filter((p) => p.buy_box_winner_listing_type_label === 'Premium')
+        .length,
+      classicListingsCount: catAds.filter((p) => p.buy_box_winner_listing_type_label !== 'Premium')
+        .length,
+      distinctSellersCount: Math.max(1, distinctSellers.length),
+      distinctSellersList: distinctSellers,
+      buyBoxWinner: winnerProd
+        ? {
+            sellerNickname: winnerProd.buy_box_winner_seller_nickname || 'Líder da Buy Box',
+            sellerId: winnerProd.buy_box_winner_seller_id || '',
+            price:
+              winnerProd.buy_box_winner_price ||
+              (winnerProd.min_price && winnerProd.min_price > 0 ? winnerProd.min_price : 0),
+            stock: winnerProd.buy_box_winner_stock != null ? winnerProd.buy_box_winner_stock : null,
+            listingTypeLabel: winnerProd.buy_box_winner_listing_type_label || 'Clássico',
+            isOwn: Boolean(winnerProd.is_own_account),
+          }
+        : null,
+      totalConfirmedSales: confirmedSalesSum,
+      hasExposedSales: confirmedSalesSum > 0,
+      ads: catAds.map((p) => ({
+        id: p.id || p.catalog_product_id,
+        title: p.title,
+        price: p.buy_box_winner_price || (p.min_price && p.min_price > 0 ? p.min_price : 0),
+        stock: p.buy_box_winner_stock != null ? p.buy_box_winner_stock : 1,
+        soldQuantity: p.sold_quantity != null ? p.sold_quantity : null,
+        isBuyBoxWinner: Boolean(p.buy_box_winner_seller_nickname),
+        listingTypeLabel: p.buy_box_winner_listing_type_label || 'Clássico',
+        permalink: p.permalink,
+        thumbnail: p.thumbnail,
+        sellerNickname: p.buy_box_winner_seller_nickname || 'Vendedor ML',
+        sellerId: p.buy_box_winner_seller_id || '',
+        isOwnAccount: Boolean(p.is_own_account),
+      })),
+    }
+  }
+
+  // 3b. CALCULAR MÉTRICAS DE VENDAS E TERMÔMETRO DE FORÇA/GIRO (0 a 100) NOS SELLERS REAIS
   const sellersList = Array.from(sellersMap.values())
 
   sellersList.forEach((seller) => {
@@ -704,6 +925,7 @@ export function aggregateSellersByExactProduct(
     hasAnyConfirmedSales,
     totalConfirmedSalesAcrossSellers,
     sellersRanked: sellersList,
+    catalogPosition,
     exactProducts,
     allAds,
   }
@@ -728,6 +950,31 @@ export async function recordAdSnapshots(
           catalog_product_id: ad.catalogProductId || null,
           seller_id: seller.sellerId || null,
           seller_nickname: seller.sellerNickname || null,
+          title: ad.title || '',
+          price: ad.price || null,
+          available_quantity: ad.stock != null ? ad.stock : null,
+          sold_quantity: ad.soldQuantity != null ? ad.soldQuantity : null,
+          listing_type: ad.listingTypeLabel || null,
+          is_buy_box_winner: ad.isBuyBoxWinner,
+          snapshot_date: todayIso,
+        })
+        savedCount++
+      } catch (err) {
+        errorsCount++
+      }
+    }
+  }
+
+  // Também grava anúncios da posição de catálogo se houver
+  if (summary.catalogPosition && Array.isArray(summary.catalogPosition.ads)) {
+    for (const ad of summary.catalogPosition.ads) {
+      if (!ad.id) continue
+      try {
+        await pb.collection('ml_ad_snapshots').create({
+          item_id: ad.id,
+          catalog_product_id: summary.catalogPosition.catalogProductId || null,
+          seller_id: ad.sellerId || null,
+          seller_nickname: ad.sellerNickname || null,
           title: ad.title || '',
           price: ad.price || null,
           available_quantity: ad.stock != null ? ad.stock : null,

@@ -24,7 +24,9 @@ import {
   Clock,
   Database,
   Users,
+  Monitor,
 } from 'lucide-react'
+import { CatalogPositionMonitor } from '@/components/CatalogPositionMonitor'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -64,6 +66,7 @@ export function RaioXMercadoTab() {
     useState<SellerPerformanceAggregate | null>(null)
   const [showSellersDrawer, setShowSellersDrawer] = useState(false)
   const [showAllAdsDrawer, setShowAllAdsDrawer] = useState(false)
+  const [showCatalogMonitor, setShowCatalogMonitor] = useState(false)
   const [adsListingFilter, setAdsListingFilter] = useState<'all' | 'premium' | 'classic'>('all')
 
   // Controle de Escopo do Raio-X
@@ -823,6 +826,72 @@ export function RaioXMercadoTab() {
                   </span>
                 </div>
               </div>
+
+              {/* Card Destaque: Posição de Catálogo do ML (Substitui o antigo pseudo-seller de catálogo) */}
+              {summary.catalogPosition && (
+                <div className="p-4 bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent rounded-lg border border-amber-300 dark:border-amber-800 shadow-2xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Badge className="bg-amber-600 hover:bg-amber-700 text-white gap-1 px-2 py-0.5 text-xs font-semibold">
+                        <Store className="h-3.5 w-3.5" />🏪 Posição de Catálogo do ML
+                      </Badge>
+                      {summary.catalogPosition.catalogProductId && (
+                        <Badge variant="outline" className="font-mono text-[10px]">
+                          {summary.catalogPosition.catalogProductId}
+                        </Badge>
+                      )}
+                      <Badge variant="secondary" className="text-[10px]">
+                        {summary.catalogPosition.totalAdsCount} anúncio(s) concorrendo
+                      </Badge>
+                    </div>
+                    <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                      {summary.catalogPosition.title}
+                    </h4>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      Página unificada do Mercado Livre agregando{' '}
+                      {summary.catalogPosition.distinctSellersCount} sellers.
+                      {summary.catalogPosition.buyBoxWinner
+                        ? ` Vencedor atual da Buy Box: ${summary.catalogPosition.buyBoxWinner.sellerNickname} a R$ ${summary.catalogPosition.buyBoxWinner.price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.`
+                        : ''}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Button
+                      size="sm"
+                      onClick={() => setShowCatalogMonitor(!showCatalogMonitor)}
+                      className="h-8 text-xs bg-amber-600 hover:bg-amber-700 text-white font-medium gap-1.5 shadow-xs"
+                    >
+                      <Monitor className="h-3.5 w-3.5" />
+                      {showCatalogMonitor ? 'Recolher Monitor' : 'Abrir Monitor do Catálogo'}
+                    </Button>
+                    {summary.catalogPosition.permalink && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-xs gap-1 border-amber-300"
+                        asChild
+                      >
+                        <a
+                          href={summary.catalogPosition.permalink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          Ver no ML
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* SEÇÃO EXPANDIDA DO MONITOR DA POSIÇÃO DE CATÁLOGO */}
+              {summary.catalogPosition && showCatalogMonitor && (
+                <div className="pt-2">
+                  <CatalogPositionMonitor catalogPosition={summary.catalogPosition} />
+                </div>
+              )}
 
               {/* Linha 2 de Cards Globais: Força de Mercado no ML + Oportunidade de Margem na Buy Box */}
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 pt-1">
