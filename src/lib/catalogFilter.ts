@@ -161,8 +161,119 @@ export interface ExactProductScoreResult {
   isKitOrBundle?: boolean
 }
 
-// Conjuntos de palavras-chave para classificação taxonômica de produto
-export const HARDWARE_COMPONENTS = new Set([
+// Grupos canônicos de sinônimos de componentes de reposição e hardware.
+// Em buscas de peças (ex: "cooler lenovo m900" ou "fonte dell 3020"),
+// qualquer termo do grupo satisfaz a exigência daquele componente.
+export const COMPONENT_SYNONYM_GROUPS: Record<string, string[]> = {
+  cooler: [
+    'cooler',
+    'coolers',
+    'dissipador',
+    'dissipadores',
+    'heatsink',
+    'heatsinks',
+    'fan',
+    'fans',
+    'ventoinha',
+    'ventoinhas',
+    'ventilador',
+    'ventiladores',
+    'aerocooler',
+    'heatpipe',
+    'heatpipes',
+  ],
+  fonte: [
+    'fonte',
+    'fontes',
+    'carregador',
+    'carregadores',
+    'adapter',
+    'adaptador',
+    'adaptadores',
+    'power',
+    'psu',
+    'alimentacao',
+  ],
+  bateria: ['bateria', 'baterias', 'battery', 'batteries', 'pilha', 'pilhas', 'acumulador'],
+  tela: [
+    'tela',
+    'telas',
+    'display',
+    'displays',
+    'painel',
+    'paineis',
+    'panel',
+    'lcd',
+    'led',
+    'oled',
+    'ips',
+  ],
+  teclado: ['teclado', 'teclados', 'keyboard', 'keyboards'],
+  placa_mae: [
+    'placa',
+    'placas',
+    'motherboard',
+    'motherboards',
+    'mainboard',
+    'mainboards',
+    'placa-mae',
+    'placamae',
+    'mobo',
+  ],
+  memoria: ['memoria', 'memorias', 'ram', 'sodimm', 'dimm', 'ddr3', 'ddr4', 'ddr5'],
+  disco: ['ssd', 'hd', 'disco', 'discos', 'nvme', 'm2', 'storage'],
+  cabo_flat: ['flat', 'flats', 'edp', 'lvds', 'flex'],
+  dobradica: ['dobradica', 'dobradicas', 'hinge', 'hinges', 'haste', 'hastes'],
+  carcaca: [
+    'carcaca',
+    'carcacas',
+    'chassi',
+    'chassis',
+    'palmrest',
+    'touchpad',
+    'case',
+    'bezel',
+    'moldura',
+  ],
+  tampa: ['tampa', 'tampas', 'cover', 'covers'],
+  gabinete: ['gabinete', 'gabinetes', 'case', 'cases'],
+  processador: ['processador', 'processadores', 'cpu', 'cpus', 'processor', 'processors'],
+  alto_falante: [
+    'alto-falante',
+    'altofalante',
+    'altofalantes',
+    'falante',
+    'falantes',
+    'speaker',
+    'speakers',
+  ],
+  webcam: ['webcam', 'webcams', 'camera', 'cameras'],
+  conector: ['conector', 'conectores', 'jack', 'jacks', 'dcjack', 'dc-jack', 'connector'],
+  inverter: ['inverter', 'inversores'],
+}
+
+// Mapa reverso para consulta rápida: token normalizado -> lista de sinônimos válidos
+export const COMPONENT_SYNONYM_LOOKUP = new Map<string, string[]>()
+for (const [, synonyms] of Object.entries(COMPONENT_SYNONYM_GROUPS)) {
+  for (const syn of synonyms) {
+    const norm = removeAccents(syn).toLowerCase()
+    COMPONENT_SYNONYM_LOOKUP.set(norm, synonyms)
+  }
+}
+
+// Conjunto de todos os termos que identificam hardware/peça
+export const HARDWARE_COMPONENTS = new Set<string>([
+  ...Array.from(COMPONENT_SYNONYM_LOOKUP.keys()),
+  'dissipador',
+  'dissipadores',
+  'heatsink',
+  'heatsinks',
+  'cooler',
+  'coolers',
+  'ventoinha',
+  'ventoinhas',
+  'fan',
+  'fans',
   'fonte',
   'fontes',
   'carregador',
@@ -174,12 +285,6 @@ export const HARDWARE_COMPONENTS = new Set([
   'tela',
   'telas',
   'display',
-  'cooler',
-  'coolers',
-  'ventoinha',
-  'ventoinhas',
-  'fan',
-  'fans',
   'placa',
   'placas',
   'motherboard',
@@ -219,6 +324,36 @@ export const HARDWARE_COMPONENTS = new Set([
   'webcam',
   'camera',
 ])
+
+/**
+ * Retorna todos os sinônimos aceitos para um dado componente, ou [componentToken] se não houver grupo.
+ */
+export function getComponentSynonyms(componentToken: string): string[] {
+  const norm = removeAccents(componentToken).toLowerCase()
+  const group = COMPONENT_SYNONYM_LOOKUP.get(norm)
+  if (group && group.length > 0) {
+    return group
+  }
+  return [norm]
+}
+
+/**
+ * Verifica se um componente procurado está presente no texto do anúncio,
+ * aceitando qualquer um dos seus sinônimos válidos.
+ */
+export function matchesAnyComponentSynonym(
+  fullText: string,
+  fullCompact: string,
+  componentToken: string,
+): { matched: boolean; matchedTerm?: string } {
+  const synonyms = getComponentSynonyms(componentToken)
+  for (const syn of synonyms) {
+    if (matchesCatalogToken(fullText, fullCompact, syn)) {
+      return { matched: true, matchedTerm: syn }
+    }
+  }
+  return { matched: false }
+}
 
 // Palavras de barreira que identificam acessórios (usadas para buscas de PRODUTO INTEIRO e para insight)
 export const ACCESSORY_BARRIER_WORDS = new Set([
@@ -544,36 +679,35 @@ export function evaluateExactProductMatch(
   const reasons: string[] = []
 
   // 1. Validar COMPONENTES (Apenas se busca for de PEÇA ou houver componente na consulta)
+  // Cada componente buscado é tratado como GRUPO DE SINÔNIMOS, não palavra literal.
+  // Ex.: "cooler" aceita cooler, dissipador, heatsink, fan, ventoinha.
+  // Ex.: "fonte" aceita fonte, carregador, adapter, adaptador, power, psu.
   let missingComponentCount = 0
   if (effectiveMode === 'part') {
     for (const cToken of componentTokens) {
-      const matches = matchesCatalogToken(fullTextToTest, fullCompactToTest, cToken)
-      if (matches) {
-        matchedTokens.push(cToken)
+      const synMatch = matchesAnyComponentSynonym(fullTextToTest, fullCompactToTest, cToken)
+      if (synMatch.matched) {
+        matchedTokens.push(synMatch.matchedTerm || cToken)
       } else {
         missingTokens.push(cToken)
         missingComponentCount++
-        reasons.push(`Componente "${cToken}" ausente no anúncio`)
+        reasons.push(
+          `Componente "${cToken}" (ou sinônimo dissipador/heatsink/fan...) ausente no anúncio`,
+        )
       }
     }
 
-    // Se buscou componente (ex: "fonte"), conferir se o anúncio é de OUTRO componente
-    // concorrente sem conter a palavra-chave de componente.
-    // Ex: buscou "fonte dell 3020" e o anúncio é "Placa Mae Dell Optiplex 3020" ou "Cooler Dell 3020"
+    // Se o componente foi encontrado via sinônimo, conferir se o anúncio NÃO é
+    // puramente de um componente concorrente sem qualquer relação com a peça buscada.
+    // Ex: buscou "fonte dell 3020" e o anúncio é apenas "Placa Mae Dell 3020"
     if (componentTokens.length > 0 && missingComponentCount === 0) {
-      const requestedHasFonte =
-        componentTokens.includes('fonte') || componentTokens.includes('carregador')
-      if (requestedHasFonte) {
-        // Se não contém fonte nem carregador no título do ML, não pode ser fonte
-        const hasFonteInTitle =
-          matchesCatalogToken(fullTextToTest, fullCompactToTest, 'fonte') ||
-          matchesCatalogToken(fullTextToTest, fullCompactToTest, 'fontes') ||
-          matchesCatalogToken(fullTextToTest, fullCompactToTest, 'carregador') ||
-          matchesCatalogToken(fullTextToTest, fullCompactToTest, 'power') ||
-          matchesCatalogToken(fullTextToTest, fullCompactToTest, 'psu')
-        if (!hasFonteInTitle) {
+      // Confere se todos os componentes pedidos têm ao menos um sinônimo no título/atributos
+      for (const cToken of componentTokens) {
+        const check = matchesAnyComponentSynonym(fullTextToTest, fullCompactToTest, cToken)
+        if (!check.matched) {
           missingComponentCount++
-          reasons.push('Anúncio não é do componente fonte/carregador')
+          reasons.push(`Anúncio não possui o componente "${cToken}" nem seus sinônimos válidos`)
+          break
         }
       }
     }
