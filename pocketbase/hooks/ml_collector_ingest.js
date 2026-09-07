@@ -1,13 +1,201 @@
-// Hook de ingestão para o Coletor do Mercado Livre (Userscript Tampermonkey e Coletor Turbo)
-// Endpoint: POST /api/ml-collector/ingest
-// Suporta CORS completo (OPTIONS preflight + POST com headers CORS)
-// Valida chave de coleta em ml_collector_keys ou Authorization Bearer
-// Salva os dados em ml_collector_imports com notes indicando a origem (auto / turbo / manual)
-// Todas as funções são mantidas INLINE dentro de cada callback para respeitar a VM pool do Goja/PocketBase v0.36
+// Hook de ingestão e segurança para o Coletor do Mercado Livre (Userscript Tampermonkey, Coletor Turbo e Coletor Manual)
+//
+// 1. MECANISMO PRINCIPAL (API padrão de coleções - 100% suportada no Skip Cloud / PocketBase v0.36):
+//    Intercepta requisições de criação para a coleção ml_collector_imports:
+//    POST /api/collections/ml_collector_imports/records
+//    Valida a chave informada via header X-Collector-Key (ou Authorization Bearer / body.key) contra ml_collector_keys.
+//    Se válida, autoriza e calcula estatísticas complementares.
+//    Se inválida e sem sessão auth válida, bloqueia imediatamente com UnauthorizedError (HTTP 401).
+//
+// 2. MECANISMO SECUNDÁRIO (routerAdd atualizado para v0.23+/v0.36):
+//    Registra também routerAdd('POST', '/api/ml-collector/ingest', (e) => ...) caso o router passe a responder.
 
+// Helper compartilhado para extrair e validar a chave em ml_collector_keys
+function validateCollectorAccess(reqInfo, authRecord) {
+  var headers = (reqInfo && reqInfo.headers) || {}
+  var query = (reqInfo && reqInfo.query) || {}
+  var body = (reqInfo && reqInfo.body) || {}
+
+  var collectorKey = (
+    headers['x-collector-key'] ||
+    headers['X-Collector-Key'] ||
+    headers['x_collector_key'] ||
+    query.key ||
+    body.collector_key ||
+    body.key ||
+    ''
+  )
+    .toString()
+    .trim()
+
+  var authHeader = (headers.authorization || headers.Authorization || '').toString().trim()
+  if (!collectorKey && authHeader.toLowerCase().indexOf('bearer ') === 0) {
+    collectorKey = authHeader.substring(7).trim()
+  }
+
+  var isAuthorized = false
+  var keyRecord = null
+
+  if (collectorKey) {
+    try {
+      var records = $app.findRecordsByFilter(
+        'ml_collector_keys',
+        "key = '" + collectorKey.replace(/'/g, "\\'") + "' && active = true",
+        '',
+        1,
+        0,
+      )
+      if (records && records.length > 0) {
+        isAuthorized = true
+        keyRecord = records[0]
+      }
+    } catch (kErr) {
+      console.log('[ml_collector_ingest] Erro ao consultar ml_collector_keys: ' + kErr)
+    }
+  }
+
+  // Se não foi informada chave de coletor, mas há usuário autenticado no PocketBase (ex: admin ou operador no painel)
+  if (!isAuthorized && authRecord) {
+    isAuthorized = true
+  }
+
+  return {
+    isAuthorized: isAuthorized,
+    keyRecord: keyRecord,
+    collectorKey: collectorKey,
+  }
+}
+
+// ------------------------------------------------------------------------------------------------
+// 1. Interceptor de criação na coleção ml_collector_imports (API Padrão)
+//    Rota nativa do PocketBase: POST /api/collections/ml_collector_imports/records
+// ------------------------------------------------------------------------------------------------
+try {
+  if (typeof onRecordCreateRequest === 'function') {
+    onRecordCreateRequest((e) => {
+      // Ignora para superusers
+      if (e.hasSuperuserAuth && e.hasSuperuserAuth()) {
+        return e.next()
+      }
+
+      var reqInfo = e.requestInfo ? e.requestInfo() : null
+      var auth = e.auth || (reqInfo && reqInfo.auth)
+      var authValidation = validateCollectorAccess(reqInfo, auth)
+
+      if (!authValidation.isAuthorized) {
+        throw new UnauthorizedError(
+          'Chave de coleta inválida ou ausente. Forneça o header X-Collector-Key ativo.',
+        )
+      }
+
+      // Normalizar campos e estatísticas do registro sendo inserido
+      var record = e.record
+      if (record) {
+        var searchTerm = (record.getString('search_term') || '')
+          .toLowerCase()
+          .replace(/\s+/g, ' ')
+          .trim()
+        var sourceUrl = (record.getString('source_url') || '').trim()
+
+        if (!searchTerm && sourceUrl) {
+          var urlMatch = sourceUrl.match(/lista\.mercadolivre\.com\.br\/([^?#]+)/)
+          if (urlMatch) {
+            try {
+              searchTerm = decodeURIComponent(urlMatch[1]).replace(/-/g, ' ').toLowerCase().trim()
+            } catch (_) {}
+          }
+        }
+
+        if (searchTerm) {
+          record.set('search_term', searchTerm)
+        }
+
+        if (!record.getString('imported_at')) {
+          record.set('imported_at', new Date().toISOString())
+        }
+
+        // Se payload fornecido, calcular results_count e with_sales_count se não vierem preenchidos
+        try {
+          var rawPayload = record.get('payload')
+          if (typeof rawPayload === 'string') {
+            try {
+              rawPayload = JSON.parse(rawPayload)
+            } catch (_) {}
+          }
+          if (rawPayload && typeof rawPayload === 'object') {
+            var results = Array.isArray(rawPayload.results)
+              ? rawPayload.results
+              : Array.isArray(rawPayload)
+                ? rawPayload
+                : []
+
+            if (record.getInt('results_count') === 0 && results.length > 0) {
+              record.set('results_count', results.length)
+            }
+
+            if (record.getInt('with_sales_count') === 0 && results.length > 0) {
+              var salesCount = 0
+              for (var i = 0; i < results.length; i++) {
+                var it = results[i]
+                if (it && it.sold_quantity != null && Number(it.sold_quantity) > 0) {
+                  salesCount++
+                }
+              }
+              record.set('with_sales_count', salesCount)
+            }
+          }
+        } catch (_) {}
+      }
+
+      // Atualizar timestamp da chave utilizada
+      if (authValidation.keyRecord) {
+        try {
+          authValidation.keyRecord.set('last_used_at', new Date().toISOString())
+          $app.save(authValidation.keyRecord)
+        } catch (_) {}
+      }
+
+      console.log(
+        '[ml_collector_ingest] Ingestão via API padrão autorizada para o termo: "' +
+          (record ? record.getString('search_term') : '') +
+          '"',
+      )
+
+      return e.next()
+    }, 'ml_collector_imports')
+  }
+} catch (hookErr) {
+  console.log('[ml_collector_ingest] Falha ao registrar onRecordCreateRequest: ' + hookErr)
+}
+
+// Fallback no hook onRecordCreate para garantir normalização e integridade
+onRecordCreate((e) => {
+  var record = e.record
+  if (!record) {
+    return e.next()
+  }
+
+  var rawTerm = record.getString('search_term')
+  if (rawTerm) {
+    var cleanTerm = rawTerm.toLowerCase().replace(/\s+/g, ' ').trim()
+    if (cleanTerm !== rawTerm) {
+      record.set('search_term', cleanTerm)
+    }
+  }
+
+  if (!record.getString('imported_at')) {
+    record.set('imported_at', new Date().toISOString())
+  }
+
+  return e.next()
+}, 'ml_collector_imports')
+
+// ------------------------------------------------------------------------------------------------
+// 2. Rota personalizada routerAdd mantida com sintaxe moderna v0.23+/v0.36
+// ------------------------------------------------------------------------------------------------
 routerAdd('OPTIONS', '/api/ml-collector/ingest', (e) => {
   try {
-    const res = e.response
+    var res = e.response
     if (res && res.header) {
       res.header().set('Access-Control-Allow-Origin', '*')
       res.header().set('Access-Control-Allow-Methods', 'POST, OPTIONS, GET')
@@ -21,7 +209,7 @@ routerAdd('OPTIONS', '/api/ml-collector/ingest', (e) => {
 
 routerAdd('GET', '/api/ml-collector/ingest', (e) => {
   try {
-    const res = e.response
+    var res = e.response
     if (res && res.header) {
       res.header().set('Access-Control-Allow-Origin', '*')
       res.header().set('Access-Control-Allow-Methods', 'POST, OPTIONS, GET')
@@ -38,7 +226,7 @@ routerAdd('GET', '/api/ml-collector/ingest', (e) => {
 
 routerAdd('POST', '/api/ml-collector/ingest', (e) => {
   try {
-    const res = e.response
+    var res = e.response
     if (res && res.header) {
       res.header().set('Access-Control-Allow-Origin', '*')
       res.header().set('Access-Control-Allow-Methods', 'POST, OPTIONS, GET')
@@ -48,10 +236,10 @@ routerAdd('POST', '/api/ml-collector/ingest', (e) => {
     }
   } catch (_) {}
 
-  let body = {}
+  var body = {}
   try {
-    const info = e.requestInfo()
-    body = info.body || {}
+    var info = e.requestInfo()
+    body = (info && info.body) || {}
   } catch (err) {
     return e.json(400, {
       ok: false,
@@ -59,56 +247,10 @@ routerAdd('POST', '/api/ml-collector/ingest', (e) => {
     })
   }
 
-  // 1. Obter e validar a chave de coleta
-  // Pode vir no header X-Collector-Key, no Authorization (Bearer <key>), ou na query string ?key=..., ou no body.key / body.collector_key
-  const reqInfo = e.requestInfo()
-  const headers = reqInfo.headers || {}
-  const query = reqInfo.query || {}
+  var reqInfo = e.requestInfo()
+  var authValidation = validateCollectorAccess(reqInfo, e.auth)
 
-  let collectorKey = (
-    headers['x-collector-key'] ||
-    headers['X-Collector-Key'] ||
-    query.key ||
-    body.collector_key ||
-    body.key ||
-    ''
-  )
-    .toString()
-    .trim()
-
-  const authHeader = (headers.authorization || headers.Authorization || '').toString().trim()
-  if (!collectorKey && authHeader.toLowerCase().startsWith('bearer ')) {
-    collectorKey = authHeader.substring(7).trim()
-  }
-
-  // Se não foi informada chave, verificar se há uma sessão de usuário autenticado no PocketBase
-  let isAuthorized = false
-  let keyRecord = null
-
-  if (collectorKey) {
-    try {
-      const records = $app.findRecordsByFilter(
-        'ml_collector_keys',
-        "key = '" + collectorKey.replace(/'/g, "\\'") + "' && active = true",
-        '',
-        1,
-        0,
-      )
-      if (records && records.length > 0) {
-        isAuthorized = true
-        keyRecord = records[0]
-      }
-    } catch (kErr) {
-      console.log('[ml_collector_ingest] Erro ao buscar chave: ' + kErr)
-    }
-  }
-
-  if (!isAuthorized && e.auth) {
-    // Usuário autenticado diretamente no app
-    isAuthorized = true
-  }
-
-  if (!isAuthorized) {
+  if (!authValidation.isAuthorized) {
     return e.json(401, {
       ok: false,
       error:
@@ -116,9 +258,9 @@ routerAdd('POST', '/api/ml-collector/ingest', (e) => {
     })
   }
 
-  // 2. Processar os dados recebidos
-  const payload = body.payload || body
-  let results = []
+  // Processar os dados recebidos
+  var payload = body.payload || body
+  var results = []
   if (Array.isArray(payload.results)) {
     results = payload.results
   } else if (Array.isArray(body.results)) {
@@ -135,14 +277,13 @@ routerAdd('POST', '/api/ml-collector/ingest', (e) => {
     })
   }
 
-  const rawSearchTerm = (body.search_term || payload.search_term || '').toString().trim()
-  const sourceUrl = (body.source_url || payload.source_url || '').toString().trim()
-  const sourceNotes = (body.notes || body.source || payload.notes || 'auto').toString().trim()
+  var rawSearchTerm = (body.search_term || payload.search_term || '').toString().trim()
+  var sourceUrl = (body.source_url || payload.source_url || '').toString().trim()
+  var sourceNotes = (body.notes || body.source || payload.notes || 'auto').toString().trim()
 
-  // Normalização do termo de busca
-  let searchTerm = rawSearchTerm.toLowerCase().replace(/\s+/g, ' ')
+  var searchTerm = rawSearchTerm.toLowerCase().replace(/\s+/g, ' ')
   if (!searchTerm && sourceUrl) {
-    const urlMatch = sourceUrl.match(/lista\.mercadolivre\.com\.br\/([^?#]+)/)
+    var urlMatch = sourceUrl.match(/lista\.mercadolivre\.com\.br\/([^?#]+)/)
     if (urlMatch) {
       try {
         searchTerm = decodeURIComponent(urlMatch[1]).replace(/-/g, ' ').toLowerCase().trim()
@@ -157,29 +298,28 @@ routerAdd('POST', '/api/ml-collector/ingest', (e) => {
     })
   }
 
-  // Contagem de itens com vendas
-  let withSalesCount = 0
-  for (let i = 0; i < results.length; i++) {
-    const item = results[i]
+  var withSalesCount = 0
+  for (var i = 0; i < results.length; i++) {
+    var item = results[i]
     if (item && item.sold_quantity != null && Number(item.sold_quantity) > 0) {
       withSalesCount++
     }
   }
 
-  const compiledPayload = {
+  var compiledPayload = {
     version: payload.version || '1.1.0',
     source_url: sourceUrl,
     collected_at: payload.collected_at || new Date().toISOString(),
     search_term: searchTerm,
     results_count: results.length,
     with_sales_count: withSalesCount,
-    source: sourceNotes, // 'auto' | 'turbo' | 'manual'
+    source: sourceNotes,
     results: results,
   }
 
   try {
-    const importsCol = $app.findCollectionByNameOrId('ml_collector_imports')
-    const importRecord = new Record(importsCol)
+    var importsCol = $app.findCollectionByNameOrId('ml_collector_imports')
+    var importRecord = new Record(importsCol)
     importRecord.set('search_term', searchTerm)
     importRecord.set('source_url', sourceUrl)
     importRecord.set('imported_at', new Date().toISOString())
@@ -190,16 +330,15 @@ routerAdd('POST', '/api/ml-collector/ingest', (e) => {
 
     $app.save(importRecord)
 
-    // Atualizar last_used_at na chave se houver
-    if (keyRecord) {
+    if (authValidation.keyRecord) {
       try {
-        keyRecord.set('last_used_at', new Date().toISOString())
-        $app.save(keyRecord)
+        authValidation.keyRecord.set('last_used_at', new Date().toISOString())
+        $app.save(authValidation.keyRecord)
       } catch (_) {}
     }
 
     console.log(
-      '[ml_collector_ingest] Coleta gravada com sucesso! Termo: "' +
+      '[ml_collector_ingest] Coleta gravada via routerAdd! Termo: "' +
         searchTerm +
         '", Anúncios: ' +
         results.length +

@@ -66,7 +66,7 @@ export function ColetorNavegadorPanel({
     'tampermonkey',
   )
 
-  // Scripts gerados dinamicamente apontando para o backend PocketBase (onde roda o hook /api/ml-collector/ingest)
+  // Scripts gerados dinamicamente apontando para o backend PocketBase (POST /api/collections/ml_collector_imports/records com fallback /api/ml-collector/ingest)
   const manualScript = getBookmarkletScript()
   const currentAppOrigin = typeof window !== 'undefined' ? window.location.origin : ''
   const turboScript = getTurboBookmarkletScript({
@@ -382,10 +382,13 @@ export function ColetorNavegadorPanel({
               <div className="text-[10px] text-slate-400 flex items-center gap-1">
                 <Globe className="w-3 h-3 text-indigo-400" />
                 <span>Endpoint Ingestão: </span>
-                <span className="font-mono text-slate-300">
+                <span
+                  className="font-mono text-slate-300"
+                  title="API nativa com validação por chave no hook"
+                >
                   {backendUrl
-                    ? `${backendUrl.replace(/\/+$/, '')}/api/ml-collector/ingest`
-                    : '/api/ml-collector/ingest'}
+                    ? `${backendUrl.replace(/\/+$/, '')}/api/collections/ml_collector_imports/records`
+                    : '/api/collections/ml_collector_imports/records'}
                 </span>
               </div>
             </div>
@@ -399,7 +402,8 @@ export function ColetorNavegadorPanel({
           <Globe className="w-4 h-4 text-indigo-600 shrink-0" />
           <span>
             <strong>URL do Backend PocketBase:</strong> Usada pelos scripts para enviar os dados via
-            POST direto ao hook de ingestão (evita HTTP 405 de servidor estático).
+            POST direto à API padrão da collection com validação de chave (evita 404 e HTTP 405 de
+            servidor estático).
           </span>
         </div>
         <div className="flex items-center gap-2 w-full sm:w-auto">

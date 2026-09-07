@@ -762,28 +762,53 @@ export function getTurboBookmarkletScript(options: {
         feedback.textContent = 'Enviando… ' + itemsArray.length + ' itens ao app...';
 
         try {
-          const endpoint = BACKEND_URL + '/api/ml-collector/ingest';
-          const resp = await fetch(endpoint, {
+          // Endpoint padrão da coleção PocketBase (garantido no runtime PocketBase v0.36)
+          const primaryEndpoint = BACKEND_URL + '/api/collections/ml_collector_imports/records';
+          const recordBody = {
+            search_term: searchTerm,
+            source_url: window.location.href,
+            imported_at: new Date().toISOString(),
+            payload: payload,
+            results_count: itemsArray.length,
+            with_sales_count: withSalesCount,
+            notes: 'turbo'
+          };
+
+          let resp = await fetch(primaryEndpoint, {
             method: 'POST',
             mode: 'cors',
             headers: {
               'Content-Type': 'application/json',
               'X-Collector-Key': COLLECTOR_KEY
             },
-            body: JSON.stringify({
-              search_term: searchTerm,
-              source_url: window.location.href,
-              notes: 'turbo',
-              payload: payload
-            })
+            body: JSON.stringify(recordBody)
           });
 
+          // Se a rota nativa falhar com 404, tenta rota custom /api/ml-collector/ingest como fallback
+          if (resp.status === 404) {
+            const fallbackEndpoint = BACKEND_URL + '/api/ml-collector/ingest';
+            resp = await fetch(fallbackEndpoint, {
+              method: 'POST',
+              mode: 'cors',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Collector-Key': COLLECTOR_KEY
+              },
+              body: JSON.stringify({
+                search_term: searchTerm,
+                source_url: window.location.href,
+                notes: 'turbo',
+                payload: payload
+              })
+            });
+          }
+
           if (resp.status === 401 || resp.status === 403) {
-            throw new Error('Chave recusada (HTTP ' + resp.status + ')');
+            throw new Error('Chave de coleta recusada (HTTP ' + resp.status + ') — verifique sua chave no app');
           }
 
           const data = await resp.json().catch(() => ({}));
-          if (resp.ok && data.ok) {
+          if (resp.ok && (data.id || data.ok)) {
             feedback.style.display = 'block';
             feedback.style.background = '#dcfce7';
             feedback.style.color = '#166534';
@@ -791,7 +816,7 @@ export function getTurboBookmarkletScript(options: {
             sendBtn.textContent = '✓ Enviado (' + itemsArray.length + ' itens)';
             sendBtn.style.background = '#16a34a';
           } else {
-            throw new Error(data.error || 'Erro no servidor (HTTP ' + resp.status + ')');
+            throw new Error(data.message || data.error || 'Erro no servidor (HTTP ' + resp.status + ')');
           }
         } catch (postErr) {
           feedback.style.display = 'block';
@@ -1237,13 +1262,21 @@ ${connectDirectives}
       results: itemsArray
     };
 
-    const endpoint = (CONFIG.backendUrl || CONFIG.appUrl) + '/api/ml-collector/ingest';
-    const bodyStr = JSON.stringify({
+    const baseUrl = (CONFIG.backendUrl || CONFIG.appUrl).replace(//+$/, '');
+    // Endpoint oficial: API de coleções padrão do PocketBase
+    const primaryEndpoint = baseUrl + '/api/collections/ml_collector_imports/records';
+    const fallbackEndpoint = baseUrl + '/api/ml-collector/ingest';
+
+    const recordBody = {
       search_term: currentSearchTerm,
       source_url: window.location.href,
-      notes: 'auto',
-      payload: payload
-    });
+      imported_at: new Date().toISOString(),
+      payload: payload,
+      results_count: itemsArray.length,
+      with_sales_count: salesCount,
+      notes: 'auto'
+    };
+    const bodyStr = JSON.stringify(recordBody);
 
     // Envio cross-origin com fallback (fetch e GM_xmlhttpRequest)
     let failureResetTimer = null;
@@ -1296,83 +1329,93 @@ ${connectDirectives}
       }, 7000);
     }
 
-    if (typeof GM_xmlhttpRequest === 'function') {
-      try {
-        GM_xmlhttpRequest({
+    function trySendRequest(targetUrl, isFallback) {
+      if (typeof GM_xmlhttpRequest === 'function') {
+        try {
+          GM_xmlhttpRequest({
+            method: 'POST',
+            url: targetUrl,
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Collector-Key': CONFIG.collectorKey
+            },
+            data: bodyStr,
+            timeout: 25000,
+            onload: function(response) {
+              if (response.status >= 200 && response.status < 300) {
+                handleSuccess();
+              } else if (response.status === 404 && !isFallback) {
+                // Tenta fallback para /api/ml-collector/ingest
+                trySendRequest(fallbackEndpoint, true);
+              } else if (response.status === 401 || response.status === 403) {
+                handleFailure('auth', response.status);
+              } else if (response.status === 405) {
+                handleFailure('method_not_allowed', response.status);
+              } else {
+                handleFailure('server', response.status);
+              }
+            },
+            onerror: function(err) {
+              const errStr = (err && (err.responseText || err.error || err.statusText || '')) + '';
+              if (errStr.toLowerCase().includes('not connected') || errStr.toLowerCase().includes('connect') || errStr.toLowerCase().includes('permission') || !errStr) {
+                handleFailure('blocked', errStr);
+              } else {
+                handleFailure('network', errStr);
+              }
+            },
+            ontimeout: function() {
+              handleFailure('timeout');
+            }
+          });
+        } catch (callErr) {
+          handleFailure('blocked', callErr && callErr.message);
+        }
+      } else {
+        fetch(targetUrl, {
           method: 'POST',
-          url: endpoint,
+          mode: 'cors',
           headers: {
             'Content-Type': 'application/json',
             'X-Collector-Key': CONFIG.collectorKey
           },
-          data: bodyStr,
-          timeout: 25000,
-          onload: function(response) {
-            if (response.status >= 200 && response.status < 300) {
-              handleSuccess();
-            } else if (response.status === 401 || response.status === 403) {
-              handleFailure('auth', response.status);
-            } else if (response.status === 405) {
-              handleFailure('method_not_allowed', response.status);
-            } else {
-              handleFailure('server', response.status);
-            }
-          },
-          onerror: function(err) {
-            // Em geral no Tampermonkey, bloqueio de @connect / recusa no popup dispara onerror com status 0 ou texto vazio/Permission Denied
-            const errStr = (err && (err.responseText || err.error || err.statusText || '')) + '';
-            if (errStr.toLowerCase().includes('not connected') || errStr.toLowerCase().includes('connect') || errStr.toLowerCase().includes('permission') || !errStr) {
-              handleFailure('blocked', errStr);
-            } else {
-              handleFailure('network', errStr);
-            }
-          },
-          ontimeout: function() {
-            handleFailure('timeout');
+          body: bodyStr
+        })
+        .then(r => {
+          if (r.status === 404 && !isFallback) {
+            trySendRequest(fallbackEndpoint, true);
+            return null;
+          }
+          if (r.status === 401 || r.status === 403) {
+            handleFailure('auth', r.status);
+            return null;
+          }
+          if (r.status === 405) {
+            handleFailure('method_not_allowed', r.status);
+            return null;
+          }
+          if (!r.ok) {
+            handleFailure('server', r.status);
+            return null;
+          }
+          return r.json();
+        })
+        .then(data => {
+          if (!data) return;
+          if (data.id || data.ok) handleSuccess();
+          else handleFailure('server', data.message || data.error || 'Erro na resposta');
+        })
+        .catch(err => {
+          const msg = (err && err.message) || '';
+          if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
+            handleFailure('network', 'falha de conexão CORS');
+          } else {
+            handleFailure('network', msg);
           }
         });
-      } catch (callErr) {
-        handleFailure('blocked', callErr && callErr.message);
       }
-    } else {
-      fetch(endpoint, {
-        method: 'POST',
-        mode: 'cors',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Collector-Key': CONFIG.collectorKey
-        },
-        body: bodyStr
-      })
-      .then(r => {
-        if (r.status === 401 || r.status === 403) {
-          handleFailure('auth', r.status);
-          return null;
-        }
-        if (r.status === 405) {
-          handleFailure('method_not_allowed', r.status);
-          return null;
-        }
-        if (!r.ok) {
-          handleFailure('server', r.status);
-          return null;
-        }
-        return r.json();
-      })
-      .then(data => {
-        if (!data) return;
-        if (data.ok) handleSuccess();
-        else handleFailure('server', data.error || 'Erro na resposta');
-      })
-      .catch(err => {
-        const msg = (err && err.message) || '';
-        if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
-          handleFailure('network', 'falha de conexão CORS');
-        } else {
-          handleFailure('network', msg);
-        }
-      });
     }
+
+    trySendRequest(primaryEndpoint, false);
   }
 
   // Ações manuais
