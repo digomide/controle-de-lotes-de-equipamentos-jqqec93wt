@@ -519,8 +519,9 @@ export function ColetorNavegadorPanel({
                     <strong className="text-xs text-slate-900">Pronto! Use o ML</strong>
                   </div>
                   <p className="text-[11px] text-slate-600 leading-relaxed">
-                    Abra qualquer busca no Mercado Livre. Um painel discreto no canto inferior
-                    indicará os itens lidos e o envio automático.
+                    Abra qualquer busca no Mercado Livre. As diretivas <code>@connect</code> já vêm
+                    embutidas para autorizar o envio automático sem timeout. O HUD no canto mostrará
+                    o status real.
                   </p>
                 </div>
               </div>

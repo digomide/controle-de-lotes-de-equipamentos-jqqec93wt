@@ -749,8 +749,12 @@ export function getTurboBookmarkletScript(options: {
 
       sendBtn.addEventListener('click', async () => {
         sendBtn.disabled = true;
-        sendBtn.textContent = 'Enviando...';
-        sendBtn.style.background = '#94a3b8';
+        sendBtn.textContent = 'Enviando… ' + itemsArray.length + ' itens';
+        sendBtn.style.background = '#f59e0b';
+        feedback.style.display = 'block';
+        feedback.style.background = '#fef3c7';
+        feedback.style.color = '#92400e';
+        feedback.textContent = 'Enviando… ' + itemsArray.length + ' itens ao app...';
 
         try {
           const endpoint = APP_URL + '/api/ml-collector/ingest';
@@ -769,22 +773,31 @@ export function getTurboBookmarkletScript(options: {
             })
           });
 
+          if (resp.status === 401 || resp.status === 403) {
+            throw new Error('Chave recusada pelo servidor (HTTP ' + resp.status + ')');
+          }
+
           const data = await resp.json().catch(() => ({}));
           if (resp.ok && data.ok) {
             feedback.style.display = 'block';
             feedback.style.background = '#dcfce7';
             feedback.style.color = '#166534';
-            feedback.innerHTML = '🚀 Coleta Turbo enviada com sucesso ao app! Atualize o Raio-X para ver as vendas reais.';
-            sendBtn.textContent = '✓ Enviado ao App';
+            feedback.innerHTML = '✓ Enviado (' + itemsArray.length + ' itens) — Coleta Turbo gravada com sucesso! Atualize o Raio-X para ver as vendas reais.';
+            sendBtn.textContent = '✓ Enviado (' + itemsArray.length + ' itens)';
             sendBtn.style.background = '#16a34a';
           } else {
-            throw new Error(data.error || 'Erro HTTP ' + resp.status);
+            throw new Error(data.error || 'Erro no servidor (HTTP ' + resp.status + ')');
           }
         } catch (postErr) {
           feedback.style.display = 'block';
           feedback.style.background = '#fee2e2';
           feedback.style.color = '#991b1b';
-          feedback.textContent = 'Falha ao enviar ao app: ' + postErr.message + '. Use "Copiar JSON" e cole no app.';
+
+          let failMsg = postErr.message || 'Erro de rede';
+          if (failMsg.includes('Failed to fetch') || failMsg.includes('NetworkError')) {
+            failMsg = 'Erro de rede — certifique-se de que a URL do app está acessível';
+          }
+          feedback.textContent = '✗ ' + failMsg + '. Você também pode usar "Copiar JSON" e colar diretamente no app.';
           sendBtn.disabled = false;
           sendBtn.textContent = 'Tentar Enviar Novamente';
           sendBtn.style.background = '#ef4444';
@@ -814,10 +827,31 @@ export function getTampermonkeyUserscript(options: {
   const cleanAppUrl = options.appUrl.replace(/\/+$/, '')
   const collectorKey = options.collectorKey || ''
 
+  // Extrai o hostname da URL do app para incluir no @connect se for válido
+  let parsedHost = ''
+  try {
+    parsedHost = new URL(cleanAppUrl).hostname
+  } catch {
+    /* intentionally ignored */
+  }
+
+  // Monta lista de domínios @connect: fixos do app (preview e produção) + host dinâmico se houver + wildcard de fallback
+  const connectDomains = new Set<string>([
+    'controle-de-lotes-de-equipamentos-25024--preview.goskip.app',
+    'controle-de-lotes-de-equipamentos-25024.goskip.app',
+  ])
+  if (parsedHost) {
+    connectDomains.add(parsedHost)
+  }
+
+  const connectDirectives = Array.from(connectDomains)
+    .map((domain) => `// @connect      ${domain}`)
+    .join('\n')
+
   return `// ==UserScript==
 // @name         Coletor Automático Mercado Livre · Lotes & Raio-X
 // @namespace    https://controle-de-lotes.app/
-// @version      1.1.0
+// @version      1.2.0
 // @description  Captura automaticamente contadores públicos de vendas e anúncios no Mercado Livre e envia ao app de Lotes
 // @author       Controle de Lotes de Equipamentos
 // @match        *://lista.mercadolivre.com.br/*
@@ -827,6 +861,7 @@ export function getTampermonkeyUserscript(options: {
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setValue
 // @grant        GM_getValue
+${connectDirectives}
 // @connect      *
 // ==/UserScript==
 
@@ -1036,17 +1071,17 @@ export function getTampermonkeyUserscript(options: {
     'bottom: 18px',
     'right: 18px',
     'z-index: 9999999',
-    'background: rgba(15, 23, 42, 0.94)',
+    'background: rgba(15, 23, 42, 0.96)',
     'color: #ffffff',
     'padding: 10px 14px',
     'border-radius: 10px',
-    'box-shadow: 0 10px 25px -5px rgba(0,0,0,0.4)',
+    'box-shadow: 0 10px 25px -5px rgba(0,0,0,0.45)',
     'font-family: system-ui, -apple-system, sans-serif',
     'font-size: 11px',
     'line-height: 1.4',
-    'border: 1px solid rgba(255,255,255,0.15)',
+    'border: 1px solid rgba(255,255,255,0.18)',
     'backdrop-filter: blur(8px)',
-    'max-width: 340px',
+    'max-width: 420px',
     'display: flex',
     'align-items: center',
     'gap: 10px',
@@ -1165,7 +1200,7 @@ export function getTampermonkeyUserscript(options: {
   function sendBatchToApp(isSync = false) {
     if (accumulatedItems.size === 0 || isSending) return;
     isSending = true;
-    setStatus('sending', 'Enviando ' + accumulatedItems.size + ' itens ao app...');
+    setStatus('sending', 'Enviando… ' + accumulatedItems.size + ' itens');
 
     const itemsArray = Array.from(accumulatedItems.values());
     let salesCount = 0;
@@ -1193,39 +1228,90 @@ export function getTampermonkeyUserscript(options: {
     });
 
     // Envio cross-origin com fallback (fetch e GM_xmlhttpRequest)
-    function handleSuccess() {
+    let failureResetTimer = null;
+
+    function handleSuccess(serverMsg) {
       isSending = false;
-      setStatus('success', 'Gravado: ' + itemsArray.length + ' itens (' + salesCount + ' vendas)');
+      if (failureResetTimer) clearTimeout(failureResetTimer);
+      setStatus('success', '✓ Enviado (' + itemsArray.length + ' itens)');
       sendBtn.textContent = '✓ Enviado';
-      setTimeout(() => { sendBtn.textContent = 'Enviar'; }, 4000);
+      sendBtn.style.background = '#10b981';
+      setTimeout(() => {
+        sendBtn.textContent = 'Enviar';
+        sendBtn.style.background = '#0284c7';
+        // Retorna status para coletando/pronto após alguns segundos
+        const latestSales = Array.from(accumulatedItems.values()).filter(i => i.sold_quantity != null && i.sold_quantity > 0).length;
+        setStatus('collecting', '"' + currentSearchTerm.substring(0, 18) + '" · ' + accumulatedItems.size + ' itens (' + latestSales + ' com vendas)');
+      }, 5000);
     }
 
-    function handleFailure(errText) {
+    function handleFailure(reasonType, detail) {
       isSending = false;
-      setStatus('error', 'Falha ao sincronizar: ' + errText);
-      console.warn('[Coletor Automático] Erro no envio:', errText);
+      if (failureResetTimer) clearTimeout(failureResetTimer);
+
+      let msg = '';
+      if (reasonType === 'blocked') {
+        msg = '✗ Envio bloqueado pelo Tampermonkey — autorize o domínio';
+      } else if (reasonType === 'auth') {
+        msg = '✗ Chave recusada pelo servidor (HTTP ' + (detail || '401/403') + ')';
+      } else if (reasonType === 'timeout') {
+        msg = '✗ Timeout no envio — Tampermonkey aguardando autorização';
+      } else if (reasonType === 'server') {
+        msg = '✗ Erro no servidor: HTTP ' + detail;
+      } else {
+        msg = '✗ Erro de rede: ' + (detail || 'falha na conexão');
+      }
+
+      setStatus('error', msg);
+      sendBtn.textContent = 'Reenviar';
+      sendBtn.style.background = '#ef4444';
+      console.warn('[Coletor Automático] Falha no envio:', reasonType, detail);
+
+      // Persiste a mensagem por 7 segundos antes de voltar ao estado normal
+      failureResetTimer = setTimeout(() => {
+        sendBtn.textContent = 'Enviar';
+        sendBtn.style.background = '#0284c7';
+        const latestSales = Array.from(accumulatedItems.values()).filter(i => i.sold_quantity != null && i.sold_quantity > 0).length;
+        setStatus('collecting', '"' + currentSearchTerm.substring(0, 18) + '" · ' + accumulatedItems.size + ' itens (' + latestSales + ' com vendas)');
+      }, 7000);
     }
 
     if (typeof GM_xmlhttpRequest === 'function') {
-      GM_xmlhttpRequest({
-        method: 'POST',
-        url: endpoint,
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Collector-Key': CONFIG.collectorKey
-        },
-        data: bodyStr,
-        onload: function(response) {
-          if (response.status >= 200 && response.status < 300) {
-            handleSuccess();
-          } else {
-            handleFailure('HTTP ' + response.status);
+      try {
+        GM_xmlhttpRequest({
+          method: 'POST',
+          url: endpoint,
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Collector-Key': CONFIG.collectorKey
+          },
+          data: bodyStr,
+          timeout: 25000,
+          onload: function(response) {
+            if (response.status >= 200 && response.status < 300) {
+              handleSuccess();
+            } else if (response.status === 401 || response.status === 403) {
+              handleFailure('auth', response.status);
+            } else {
+              handleFailure('server', response.status);
+            }
+          },
+          onerror: function(err) {
+            // Em geral no Tampermonkey, bloqueio de @connect / recusa no popup dispara onerror com status 0 ou texto vazio/Permission Denied
+            const errStr = (err && (err.responseText || err.error || err.statusText || '')) + '';
+            if (errStr.toLowerCase().includes('not connected') || errStr.toLowerCase().includes('connect') || errStr.toLowerCase().includes('permission') || !errStr) {
+              handleFailure('blocked', errStr);
+            } else {
+              handleFailure('network', errStr);
+            }
+          },
+          ontimeout: function() {
+            handleFailure('timeout');
           }
-        },
-        onerror: function(err) {
-          handleFailure(err.responseText || 'Erro de conexão');
-        }
-      });
+        });
+      } catch (callErr) {
+        handleFailure('blocked', callErr && callErr.message);
+      }
     } else {
       fetch(endpoint, {
         method: 'POST',
@@ -1236,12 +1322,30 @@ export function getTampermonkeyUserscript(options: {
         },
         body: bodyStr
       })
-      .then(r => r.json())
-      .then(data => {
-        if (data.ok) handleSuccess();
-        else handleFailure(data.error || 'Erro na resposta');
+      .then(r => {
+        if (r.status === 401 || r.status === 403) {
+          handleFailure('auth', r.status);
+          return null;
+        }
+        if (!r.ok) {
+          handleFailure('server', r.status);
+          return null;
+        }
+        return r.json();
       })
-      .catch(err => handleFailure(err.message || 'Erro de rede'));
+      .then(data => {
+        if (!data) return;
+        if (data.ok) handleSuccess();
+        else handleFailure('server', data.error || 'Erro na resposta');
+      })
+      .catch(err => {
+        const msg = (err && err.message) || '';
+        if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
+          handleFailure('network', 'falha de conexão CORS');
+        } else {
+          handleFailure('network', msg);
+        }
+      });
     }
   }
 
