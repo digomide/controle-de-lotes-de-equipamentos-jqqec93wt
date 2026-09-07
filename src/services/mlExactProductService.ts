@@ -167,6 +167,7 @@ export interface ExactProductSummary {
     importedAt: string
     itemsCount: number
     withSalesCount: number
+    collectorSource?: string
   } | null
   hasAnyConfirmedSales: boolean
   totalConfirmedSalesAcrossSellers: number
@@ -216,6 +217,7 @@ export function aggregateSellersByExactProduct(
     importedAt: string
     itemsCount: number
     withSalesCount: number
+    collectorSource?: string
   } | null,
 ): ExactProductSummary {
   const cleanQuery = searchQuery.trim()

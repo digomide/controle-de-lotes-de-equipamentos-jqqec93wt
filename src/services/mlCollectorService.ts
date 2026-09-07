@@ -15,6 +15,17 @@ export interface MLCollectorImportRecord {
   updated?: string
 }
 
+export interface MLCollectorKeyRecord {
+  id: string
+  key: string
+  name?: string
+  user_id?: string
+  active: boolean
+  last_used_at?: string
+  created?: string
+  updated?: string
+}
+
 export const mlCollectorService = {
   /**
    * Valida e normaliza o JSON antes de salvar
@@ -95,7 +106,7 @@ export const mlCollectorService = {
     ).length
 
     return {
-      version: parsed.version || '1.0.0',
+      version: parsed.version || '1.1.0',
       source_url: sourceUrl,
       collected_at: parsed.collected_at || new Date().toISOString(),
       search_term: searchTerm,
@@ -127,7 +138,7 @@ export const mlCollectorService = {
       payload,
       results_count: payload.results_count || payload.results.length,
       with_sales_count: payload.with_sales_count || 0,
-      notes: params.notes || '',
+      notes: params.notes || 'manual',
     })
 
     return record
@@ -161,7 +172,7 @@ export const mlCollectorService = {
   /**
    * Lista o histórico recente de coletas
    */
-  async listRecentImports(limit = 20): Promise<MLCollectorImportRecord[]> {
+  async listRecentImports(limit = 30): Promise<MLCollectorImportRecord[]> {
     try {
       const records = await pb
         .collection('ml_collector_imports')
@@ -185,6 +196,67 @@ export const mlCollectorService = {
     } catch (err) {
       console.warn('[mlCollectorService] Erro ao remover coleta:', err)
       return false
+    }
+  },
+
+  /**
+   * Obtém ou gera uma chave de coleta para o usuário autenticado ou para a aplicação
+   */
+  async getOrCreateCollectorKey(userId?: string): Promise<string> {
+    try {
+      const filter = userId ? `user_id = "${userId}" && active = true` : 'active = true'
+      const records = await pb.collection('ml_collector_keys').getList<MLCollectorKeyRecord>(1, 1, {
+        filter,
+        sort: '-created',
+      })
+
+      if (records.items && records.items.length > 0) {
+        return records.items[0].key
+      }
+
+      // Se não existir, gera uma chave aleatória segura
+      const randomKey =
+        'mlk_' +
+        Math.random().toString(36).substring(2, 10) +
+        Date.now().toString(36) +
+        Math.random().toString(36).substring(2, 6)
+
+      const created = await pb.collection('ml_collector_keys').create<MLCollectorKeyRecord>({
+        key: randomKey,
+        name: 'Chave Padrão do Coletor',
+        user_id: userId || pb.authStore.record?.id || '',
+        active: true,
+      })
+
+      return created.key
+    } catch (err) {
+      console.warn('[mlCollectorService] Erro ao obter chave de coleta:', err)
+      // Fallback para chave em memória/local caso o banco falhe
+      return 'mlk_default_' + Date.now().toString(36)
+    }
+  },
+
+  /**
+   * Regenera a chave de coleta
+   */
+  async regenerateCollectorKey(userId?: string): Promise<string> {
+    const randomKey =
+      'mlk_' +
+      Math.random().toString(36).substring(2, 10) +
+      Date.now().toString(36) +
+      Math.random().toString(36).substring(2, 6)
+
+    try {
+      const created = await pb.collection('ml_collector_keys').create<MLCollectorKeyRecord>({
+        key: randomKey,
+        name: 'Chave Regenerada ' + new Date().toLocaleDateString('pt-BR'),
+        user_id: userId || pb.authStore.record?.id || '',
+        active: true,
+      })
+      return created.key
+    } catch (err) {
+      console.warn('[mlCollectorService] Erro ao regenerar chave:', err)
+      return randomKey
     }
   },
 }

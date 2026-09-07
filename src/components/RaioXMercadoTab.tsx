@@ -93,6 +93,7 @@ export function RaioXMercadoTab({ onOpenCollector }: RaioXMercadoTabProps = {}) 
     importedAt: string
     itemsCount: number
     withSalesCount: number
+    collectorSource?: string
   } | null>(null)
 
   // Controle de Escopo do Raio-X
@@ -158,6 +159,7 @@ export function RaioXMercadoTab({ onOpenCollector }: RaioXMercadoTabProps = {}) 
             importedAt: latestImport.imported_at || latestImport.created || '',
             itemsCount: latestImport.results_count || latestImport.payload.results.length,
             withSalesCount: latestImport.with_sales_count || sMap.size,
+            collectorSource: latestImport.notes || latestImport.payload.source || 'manual',
           })
         } else {
           setCollectorSalesMap(new Map())
@@ -916,7 +918,15 @@ export function RaioXMercadoTab({ onOpenCollector }: RaioXMercadoTabProps = {}) 
                   {summary.hasAnyConfirmedSales ? (
                     <span className="text-[10px] text-emerald-700 font-medium block leading-tight">
                       {summary.collectorSource
-                        ? '🔥 Coletor do Navegador (reais)'
+                        ? (summary.collectorSource.collectorSource || '')
+                            .toLowerCase()
+                            .includes('auto')
+                          ? '⚡ Coletor Automático (Tampermonkey)'
+                          : (summary.collectorSource.collectorSource || '')
+                                .toLowerCase()
+                                .includes('turbo')
+                            ? '⚡ Coletor Turbo Multi-páginas'
+                            : '🔥 Coletor do Navegador (reais)'
                         : 'Auditadas via ML/Delta'}
                     </span>
                   ) : (

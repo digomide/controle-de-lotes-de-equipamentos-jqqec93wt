@@ -1,6 +1,8 @@
 /**
- * Bookmarklet gerador de código para coletar contadores públicos de vendas do Mercado Livre
- * diretamente do navegador renderizado do usuário (bypass do WAF / Cloudflare).
+ * Gerador de scripts para os Coletores do Mercado Livre:
+ * 1. Coletor Manual (Bookmarklet padrão)
+ * 2. Coletor Turbo (Bookmarklet com varredura autônoma multi-páginas)
+ * 3. Coletor Automático (Userscript Tampermonkey com monitoramento silencioso contínuo e auto-envio)
  */
 
 export interface MLCollectorResultItem {
@@ -18,6 +20,7 @@ export interface MLCollectorResultItem {
   seller_name?: string
   is_free_shipping?: boolean
   is_full?: boolean
+  page_number?: number
 }
 
 export interface MLCollectorPayload {
@@ -27,16 +30,14 @@ export interface MLCollectorPayload {
   search_term?: string
   results_count: number
   with_sales_count: number
+  source?: string
   results: MLCollectorResultItem[]
 }
 
 /**
- * Retorna o código javascript puro (compactado) para ser usado como bookmarklet.
- * Executa apenas leitura do DOM já renderizado pelo Chrome do usuário.
- * Cria um modal nativo overlay para copiar o JSON com 1 clique ou baixar o arquivo .json.
+ * Retorna o código javascript compactado para o Bookmarklet Padrão (Manual da página atual)
  */
 export function getBookmarkletScript(): string {
-  // Código executado no contexto da página do Mercado Livre
   const code = `
 (function() {
   try {
@@ -46,8 +47,6 @@ export function getBookmarkletScript(): string {
     function parseSoldQuantity(text) {
       if (!text) return { qty: null, raw: '' };
       const clean = text.toLowerCase().replace(/\\s+/g, ' ').trim();
-      // Casos comuns:
-      // "+500 vendidos", "+50 mil vendidos", "+5 mil vendidos", "12 vendidos", "+100 vendas", "+5mil vendidos"
       const milMatch = clean.match(/\\+?\\s*(\\d+(?:[.,]\\d+)?)\\s*(?:mil|k)\\s*(?:vendidos?|vendas?)/i);
       if (milMatch) {
         const num = parseFloat(milMatch[1].replace(',', '.'));
@@ -68,7 +67,6 @@ export function getBookmarkletScript(): string {
 
     function parsePrice(text) {
       if (!text) return undefined;
-      // remove R$, espaços, pontos de milhar, troca virgula por ponto
       const clean = text.replace(/[^0-9,\\.]/g, '').replace(/\\./g, '').replace(',', '.');
       const num = parseFloat(clean);
       return isNaN(num) ? undefined : num;
@@ -76,9 +74,7 @@ export function getBookmarkletScript(): string {
 
     const items = [];
     const sourceUrl = window.location.href;
-    const pageTitle = document.title || '';
 
-    // Heurística de termo de busca a partir da URL ou do input de busca do ML
     let searchTerm = '';
     const searchInput = document.querySelector('input.nav-search-input') || document.querySelector('input[name="as_word"]');
     if (searchInput && searchInput.value) {
@@ -90,7 +86,6 @@ export function getBookmarkletScript(): string {
       }
     }
 
-    // 1. É uma página de anúncio individual?
     const isSingleItemPage = sourceUrl.includes('/p/MLB') || /\\/MLB-?\\d+/i.test(sourceUrl);
     const singleTitleEl = document.querySelector('h1.ui-pdp-title');
     
@@ -102,7 +97,6 @@ export function getBookmarkletScript(): string {
         price = parsePrice(priceMetaEl.textContent);
       }
 
-      // Procurar subtítulo de vendas (ex.: "Novo  |  +1000 vendidos" ou "Usado  |  25 vendidos")
       let soldQty = null;
       let soldRaw = '';
       let condition = '';
@@ -117,7 +111,6 @@ export function getBookmarkletScript(): string {
         else if (/novo/i.test(subText)) condition = 'novo';
       }
 
-      // Procurar seller
       let sellerName = '';
       const sellerEl = document.querySelector('.ui-pdp-seller__link-trigger') || document.querySelector('.ui-seller-info a') || document.querySelector('.ui-pdp-action-modal__link');
       if (sellerEl) sellerName = sellerEl.textContent.trim();
@@ -135,8 +128,6 @@ export function getBookmarkletScript(): string {
         seller_name: sellerName
       });
     } else {
-      // 2. É página de lista de busca
-      // Seletores comuns de cards no ML
       const cardNodes = document.querySelectorAll(
         '.ui-search-layout__item, .ui-search-result__wrapper, li.ui-search-layout__item, div[class*="ui-search-result"], .poly-card'
       );
@@ -144,7 +135,6 @@ export function getBookmarkletScript(): string {
       const seenLinks = new Set();
 
       cardNodes.forEach((card) => {
-        // Título e link
         const linkEl = card.querySelector('a.ui-search-link') || card.querySelector('a[href*="MLB"]') || card.querySelector('a.poly-component__title') || card.querySelector('h2 a') || card.querySelector('a');
         if (!linkEl) return;
 
@@ -157,18 +147,15 @@ export function getBookmarkletScript(): string {
         const title = (titleEl ? titleEl.textContent : '').trim();
         if (!title) return;
 
-        // Preço
         let price = undefined;
         const fractionEl = card.querySelector('.andes-money-amount__fraction') || card.querySelector('.price-tag-fraction');
         if (fractionEl) {
           price = parsePrice(fractionEl.textContent);
         }
 
-        // Contador de vendas: varrer todos os elementos de texto do card buscando pistas de "+X vendidos"
         let soldQty = null;
         let soldRaw = '';
 
-        // Seletor específico de reviews / vendidos se houver
         const polyReviewsEl = card.querySelector('.poly-reviews__total') || card.querySelector('.ui-search-reviews__amount') || card.querySelector('.poly-component__sales');
         if (polyReviewsEl) {
           const parsed = parseSoldQuantity(polyReviewsEl.textContent);
@@ -179,10 +166,8 @@ export function getBookmarkletScript(): string {
         }
 
         if (soldQty == null) {
-          // Varredura por texto em spans / parágrafos do card
           const textNodes = card.querySelectorAll('span, p, div');
           for (const node of textNodes) {
-            // Ignora nós que têm muitos filhos
             if (node.children.length > 2) continue;
             const t = (node.textContent || '').trim();
             if (/vendidos?|vendas?/i.test(t)) {
@@ -196,25 +181,21 @@ export function getBookmarkletScript(): string {
           }
         }
 
-        // Condição
         let condition = undefined;
         const cardText = card.textContent || '';
         if (/\\busado\\b/i.test(cardText)) condition = 'usado';
         else if (/\\brecondicionado\\b/i.test(cardText)) condition = 'recondicionado';
         else if (/\\bnovo\\b/i.test(cardText)) condition = 'novo';
 
-        // Seller
         let sellerName = '';
         const sellerEl = card.querySelector('.ui-search-official-store-label') || card.querySelector('.ui-search-item__brand-discoverability') || card.querySelector('.poly-component__seller');
         if (sellerEl) {
           sellerName = sellerEl.textContent.replace(/por\\s+/i, '').trim();
         }
 
-        // Imagem
         const imgEl = card.querySelector('img');
         const thumbnail = imgEl ? (imgEl.src || imgEl.getAttribute('data-src') || '') : '';
 
-        // Frete / Full
         const isFull = Boolean(card.querySelector('.ui-search-item__fulfillment') || card.querySelector('.poly-component__shipped-from'));
         const isFreeShipping = /frete gr[áa]tis/i.test(cardText);
 
@@ -245,12 +226,12 @@ export function getBookmarkletScript(): string {
       search_term: searchTerm,
       results_count: items.length,
       with_sales_count: withSalesCount,
+      notes: 'manual',
       results: items
     };
 
     const jsonStr = JSON.stringify(payload, null, 2);
 
-    // Modal overlay nativo no DOM do ML
     const overlay = document.createElement('div');
     overlay.id = 'ml-collector-overlay';
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.8);backdrop-filter:blur(4px);z-index:9999999;display:flex;align-items:center;justify-content:center;padding:16px;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;';
@@ -350,6 +331,951 @@ export function getBookmarkletScript(): string {
 })();
   `.trim()
 
-  // Converte em URI bookmarklet seguro: javascript:(...)
   return 'javascript:' + encodeURIComponent(code)
+}
+
+/**
+ * Retorna o código do Bookmarklet Coletor Turbo:
+ * Varre páginas consecutivas (até maxPages ou até a última), acumula deduplicado,
+ * e exibe modal completo com Copiar JSON, Baixar .json e Enviar Diretamente ao App via endpoint.
+ */
+export function getTurboBookmarkletScript(options: {
+  appUrl: string
+  collectorKey: string
+}): string {
+  const code = `
+(function() {
+  try {
+    const existingModal = document.getElementById('ml-collector-turbo-overlay');
+    if (existingModal) existingModal.remove();
+
+    const APP_URL = ${JSON.stringify(options.appUrl.replace(/\/+$/, ''))};
+    const COLLECTOR_KEY = ${JSON.stringify(options.collectorKey || '')};
+    const MAX_PAGES = 20;
+    const PAGE_DELAY_MS = 1400;
+
+    function parseSoldQuantity(text) {
+      if (!text) return { qty: null, raw: '' };
+      const clean = text.toLowerCase().replace(/\\s+/g, ' ').trim();
+      const milMatch = clean.match(/\\+?\\s*(\\d+(?:[.,]\\d+)?)\\s*(?:mil|k)\\s*(?:vendidos?|vendas?)/i);
+      if (milMatch) {
+        const num = parseFloat(milMatch[1].replace(',', '.'));
+        return { qty: Math.round(num * 1000), raw: text.trim() };
+      }
+      const numMatch = clean.match(/\\+?\\s*(\\d+)\\s*(?:vendidos?|vendas?)/i);
+      if (numMatch) {
+        return { qty: parseInt(numMatch[1], 10), raw: text.trim() };
+      }
+      return { qty: null, raw: text.trim() };
+    }
+
+    function extractMlbId(url) {
+      if (!url) return '';
+      const m = url.match(/MLB-?(\\d+)/i);
+      return m ? 'MLB' + m[1] : '';
+    }
+
+    function parsePrice(text) {
+      if (!text) return undefined;
+      const clean = text.replace(/[^0-9,\\.]/g, '').replace(/\\./g, '').replace(',', '.');
+      const num = parseFloat(clean);
+      return isNaN(num) ? undefined : num;
+    }
+
+    function extractItemsFromDocument(doc, pageNum) {
+      const items = [];
+      const cardNodes = doc.querySelectorAll(
+        '.ui-search-layout__item, .ui-search-result__wrapper, li.ui-search-layout__item, div[class*="ui-search-result"], .poly-card'
+      );
+
+      cardNodes.forEach((card) => {
+        const linkEl = card.querySelector('a.ui-search-link') || card.querySelector('a[href*="MLB"]') || card.querySelector('a.poly-component__title') || card.querySelector('h2 a') || card.querySelector('a');
+        if (!linkEl) return;
+
+        const permalink = linkEl.href || '';
+        const mlbId = extractMlbId(permalink);
+        const titleEl = card.querySelector('h2') || card.querySelector('.ui-search-item__title') || card.querySelector('.poly-component__title') || linkEl;
+        const title = (titleEl ? titleEl.textContent : '').trim();
+        if (!title) return;
+
+        let price = undefined;
+        const fractionEl = card.querySelector('.andes-money-amount__fraction') || card.querySelector('.price-tag-fraction');
+        if (fractionEl) {
+          price = parsePrice(fractionEl.textContent);
+        }
+
+        let soldQty = null;
+        let soldRaw = '';
+
+        const polyReviewsEl = card.querySelector('.poly-reviews__total') || card.querySelector('.ui-search-reviews__amount') || card.querySelector('.poly-component__sales');
+        if (polyReviewsEl) {
+          const parsed = parseSoldQuantity(polyReviewsEl.textContent);
+          if (parsed.qty != null) {
+            soldQty = parsed.qty;
+            soldRaw = parsed.raw;
+          }
+        }
+
+        if (soldQty == null) {
+          const textNodes = card.querySelectorAll('span, p, div');
+          for (const node of textNodes) {
+            if (node.children.length > 2) continue;
+            const t = (node.textContent || '').trim();
+            if (/vendidos?|vendas?/i.test(t)) {
+              const parsed = parseSoldQuantity(t);
+              if (parsed.qty != null) {
+                soldQty = parsed.qty;
+                soldRaw = parsed.raw;
+                break;
+              }
+            }
+          }
+        }
+
+        let condition = undefined;
+        const cardText = card.textContent || '';
+        if (/\\busado\\b/i.test(cardText)) condition = 'usado';
+        else if (/\\brecondicionado\\b/i.test(cardText)) condition = 'recondicionado';
+        else if (/\\bnovo\\b/i.test(cardText)) condition = 'novo';
+
+        let sellerName = '';
+        const sellerEl = card.querySelector('.ui-search-official-store-label') || card.querySelector('.ui-search-item__brand-discoverability') || card.querySelector('.poly-component__seller');
+        if (sellerEl) {
+          sellerName = sellerEl.textContent.replace(/por\\s+/i, '').trim();
+        }
+
+        const imgEl = card.querySelector('img');
+        const thumbnail = imgEl ? (imgEl.src || imgEl.getAttribute('data-src') || '') : '';
+        const isFull = Boolean(card.querySelector('.ui-search-item__fulfillment') || card.querySelector('.poly-component__shipped-from'));
+        const isFreeShipping = /frete gr[áa]tis/i.test(cardText);
+
+        items.push({
+          id: mlbId || 'MLB_' + (items.length + 1),
+          mlb_id: mlbId,
+          title,
+          price,
+          currency: 'BRL',
+          condition,
+          sold_quantity: soldQty,
+          sold_quantity_text: soldRaw,
+          permalink,
+          thumbnail,
+          seller_name: sellerName,
+          is_free_shipping: isFreeShipping,
+          is_full: isFull,
+          page_number: pageNum
+        });
+      });
+
+      return items;
+    }
+
+    function findNextPageUrl(doc) {
+      const nextBtn = doc.querySelector('a.andes-pagination__link--next') ||
+                      doc.querySelector('li.andes-pagination__button--next a') ||
+                      doc.querySelector('a[title="Seguinte"]') ||
+                      doc.querySelector('a[title="Próxima"]') ||
+                      doc.querySelector('.ui-search-pagination a:last-child');
+      if (nextBtn && nextBtn.href && !nextBtn.hasAttribute('aria-disabled') && !nextBtn.classList.contains('andes-pagination__link--disabled')) {
+        return nextBtn.href;
+      }
+      return null;
+    }
+
+    // Modal HUD de progresso inicial
+    const overlay = document.createElement('div');
+    overlay.id = 'ml-collector-turbo-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.85);backdrop-filter:blur(6px);z-index:99999999;display:flex;align-items:center;justify-content:center;padding:16px;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;';
+
+    const box = document.createElement('div');
+    box.style.cssText = 'background:#ffffff;color:#0f172a;width:100%;max-width:680px;border-radius:14px;box-shadow:0 25px 50px -12px rgba(0,0,0,0.3);overflow:hidden;border:1px solid #cbd5e1;display:flex;flex-direction:column;max-height:92vh;';
+
+    // Termo de busca
+    let searchTerm = '';
+    const searchInput = document.querySelector('input.nav-search-input') || document.querySelector('input[name="as_word"]');
+    if (searchInput && searchInput.value) {
+      searchTerm = searchInput.value.trim();
+    } else {
+      const urlMatch = window.location.href.match(/lista\\.mercadolivre\\.com\\.br\\/([^?#]+)/);
+      if (urlMatch) {
+        searchTerm = decodeURIComponent(urlMatch[1]).replace(/-/g, ' ');
+      }
+    }
+
+    box.innerHTML = \`
+      <div style="padding:16px 20px;background:#0f172a;color:#ffffff;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #1e293b;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#f59e0b;animation:pulse 1.5s infinite;"></span>
+          <strong style="font-size:16px;font-weight:700;">⚡ Coletor Turbo Multi-páginas</strong>
+          <span style="font-size:10px;background:#f59e0b;color:#0f172a;font-weight:800;padding:2px 6px;border-radius:4px;">AUTO-SWEEP</span>
+        </div>
+        <button id="ml-turbo-close" style="background:transparent;border:none;color:#94a3b8;cursor:pointer;font-size:20px;line-height:1;padding:4px 8px;">&times;</button>
+      </div>
+
+      <div style="padding:20px;overflow-y:auto;flex:1;">
+        <div id="ml-turbo-status-card" style="background:#f8fafc;padding:14px;border-radius:8px;border:1px solid #e2e8f0;margin-bottom:16px;">
+          <div style="font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;">Status da Varredura</div>
+          <div id="ml-turbo-status-text" style="font-size:15px;font-weight:700;color:#0f172a;margin-top:4px;">
+            Lendo página 1 da busca...
+          </div>
+          <div style="display:flex;gap:12px;margin-top:12px;padding-top:12px;border-top:1px solid #e2e8f0;">
+            <div style="flex:1;">
+              <div style="font-size:11px;color:#64748b;">Termo:</div>
+              <div style="font-size:13px;font-weight:700;color:#0f172a;">\${searchTerm || 'Busca Mercado Livre'}</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:11px;color:#64748b;">Páginas Lidas:</div>
+              <div id="ml-turbo-pages-count" style="font-size:16px;font-weight:800;color:#0284c7;">1</div>
+            </div>
+            <div style="text-align:right;border-left:1px solid #cbd5e1;padding-left:12px;">
+              <div style="font-size:11px;color:#64748b;">Total Itens:</div>
+              <div id="ml-turbo-items-count" style="font-size:16px;font-weight:800;color:#4f46e5;">0</div>
+            </div>
+            <div style="text-align:right;border-left:1px solid #cbd5e1;padding-left:12px;">
+              <div style="font-size:11px;color:#64748b;">Com Vendas:</div>
+              <div id="ml-turbo-sales-count" style="font-size:16px;font-weight:800;color:#16a34a;">0</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="ml-turbo-progress-container" style="margin-bottom:16px;">
+          <div style="height:8px;background:#e2e8f0;border-radius:4px;overflow:hidden;">
+            <div id="ml-turbo-progress-bar" style="height:100%;background:#f59e0b;width:5%;transition:width 0.3s;"></div>
+          </div>
+        </div>
+
+        <div id="ml-turbo-result-area" style="display:none;">
+          <p style="font-size:12px;color:#475569;margin-bottom:8px;">
+            Varredura Turbo concluída! Os anúncios de todas as páginas foram deduplicados.
+          </p>
+          <textarea id="ml-turbo-json-textarea" readonly style="width:100%;height:160px;font-family:monospace;font-size:11px;padding:10px;border-radius:6px;border:1px solid #cbd5e1;background:#f1f5f9;color:#0f172a;resize:none;box-sizing:border-box;"></textarea>
+          
+          <div id="ml-turbo-feedback" style="display:none;margin-top:8px;padding:10px 12px;background:#dcfce7;color:#166534;border-radius:6px;font-size:12px;font-weight:600;text-align:center;">
+          </div>
+        </div>
+      </div>
+
+      <div style="padding:14px 20px;background:#f8fafc;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;gap:10px;">
+        <button id="ml-turbo-stop-btn" style="padding:8px 14px;border-radius:6px;background:#ef4444;border:none;color:#ffffff;font-size:12px;font-weight:700;cursor:pointer;">
+          Parar Varredura
+        </button>
+
+        <div style="display:flex;gap:8px;">
+          <button id="ml-turbo-download-btn" disabled style="padding:8px 14px;border-radius:6px;background:#ffffff;border:1px solid #cbd5e1;color:#64748b;font-size:12px;font-weight:600;cursor:not-allowed;">
+            Baixar .json
+          </button>
+          <button id="ml-turbo-copy-btn" disabled style="padding:8px 14px;border-radius:6px;background:#ffffff;border:1px solid #cbd5e1;color:#64748b;font-size:12px;font-weight:600;cursor:not-allowed;">
+            Copiar JSON
+          </button>
+          <button id="ml-turbo-send-btn" disabled style="padding:8px 18px;border-radius:6px;background:#cbd5e1;border:none;color:#ffffff;font-size:12px;font-weight:700;cursor:not-allowed;">
+            🚀 Enviar ao App
+          </button>
+        </div>
+      </div>
+    \`;
+
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+
+    const closeBtn = document.getElementById('ml-turbo-close');
+    closeBtn.addEventListener('click', () => overlay.remove());
+
+    const statusText = document.getElementById('ml-turbo-status-text');
+    const pagesCountEl = document.getElementById('ml-turbo-pages-count');
+    const itemsCountEl = document.getElementById('ml-turbo-items-count');
+    const salesCountEl = document.getElementById('ml-turbo-sales-count');
+    const progressBar = document.getElementById('ml-turbo-progress-bar');
+    const resultArea = document.getElementById('ml-turbo-result-area');
+    const jsonTextarea = document.getElementById('ml-turbo-json-textarea');
+    const feedback = document.getElementById('ml-turbo-feedback');
+
+    const stopBtn = document.getElementById('ml-turbo-stop-btn');
+    const downloadBtn = document.getElementById('ml-turbo-download-btn');
+    const copyBtn = document.getElementById('ml-turbo-copy-btn');
+    const sendBtn = document.getElementById('ml-turbo-send-btn');
+
+    let isStopped = false;
+    stopBtn.addEventListener('click', () => {
+      isStopped = true;
+      stopBtn.textContent = 'Parando...';
+      stopBtn.disabled = true;
+    });
+
+    // Iniciar varredura multi-páginas
+    const allItemsMap = new Map();
+    let currentPageNum = 1;
+    let nextUrl = window.location.href;
+
+    async function runTurboSweep() {
+      try {
+        // 1. Extrair página atual do DOM nativo
+        const initialItems = extractItemsFromDocument(document, 1);
+        initialItems.forEach(item => {
+          const key = item.mlb_id || item.permalink || item.id;
+          if (key && !allItemsMap.has(key)) {
+            allItemsMap.set(key, item);
+          }
+        });
+
+        updateStats(1);
+        nextUrl = findNextPageUrl(document);
+
+        // 2. Varrer próximas páginas via fetch sob a mesma sessão do usuário
+        while (nextUrl && currentPageNum < MAX_PAGES && !isStopped) {
+          currentPageNum++;
+          statusText.textContent = 'Carregando página ' + currentPageNum + '...';
+          progressBar.style.width = Math.min(100, Math.round((currentPageNum / MAX_PAGES) * 100)) + '%';
+
+          // Delay de gentileza entre páginas para não acionar bloqueios
+          await new Promise(r => setTimeout(r, PAGE_DELAY_MS));
+          if (isStopped) break;
+
+          try {
+            const resp = await fetch(nextUrl, { credentials: 'include' });
+            if (!resp.ok) {
+              console.warn('[Turbo] Erro HTTP ao carregar próxima página:', resp.status);
+              break;
+            }
+            const htmlText = await resp.text();
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(htmlText, 'text/html');
+
+            const pageItems = extractItemsFromDocument(doc, currentPageNum);
+            pageItems.forEach(item => {
+              const key = item.mlb_id || item.permalink || item.id;
+              if (key && !allItemsMap.has(key)) {
+                allItemsMap.set(key, item);
+              }
+            });
+
+            updateStats(currentPageNum);
+            nextUrl = findNextPageUrl(doc);
+          } catch (fetchErr) {
+            console.warn('[Turbo] Erro de rede:', fetchErr);
+            break;
+          }
+        }
+
+        finishSweep();
+      } catch (err) {
+        statusText.textContent = 'Erro durante a varredura: ' + (err.message || err);
+        finishSweep();
+      }
+    }
+
+    function updateStats(pageNum) {
+      pagesCountEl.textContent = String(pageNum);
+      itemsCountEl.textContent = String(allItemsMap.size);
+      let salesCount = 0;
+      allItemsMap.forEach(i => {
+        if (i.sold_quantity != null && i.sold_quantity > 0) salesCount++;
+      });
+      salesCountEl.textContent = String(salesCount);
+    }
+
+    function finishSweep() {
+      stopBtn.style.display = 'none';
+      progressBar.style.width = '100%';
+      progressBar.style.background = '#16a34a';
+
+      const itemsArray = Array.from(allItemsMap.values());
+      let salesCount = 0;
+      itemsArray.forEach(i => {
+        if (i.sold_quantity != null && i.sold_quantity > 0) salesCount++;
+      });
+
+      statusText.innerHTML = '✓ Varredura finalizada! <strong>' + itemsArray.length + ' anúncios</strong> coletados (' + salesCount + ' com vendas).';
+      resultArea.style.display = 'block';
+
+      const payload = {
+        version: '1.1.0',
+        source: 'turbo',
+        source_url: window.location.href,
+        collected_at: new Date().toISOString(),
+        search_term: searchTerm,
+        results_count: itemsArray.length,
+        with_sales_count: salesCount,
+        results: itemsArray
+      };
+
+      const jsonStr = JSON.stringify(payload, null, 2);
+      jsonTextarea.value = jsonStr;
+
+      // Habilitar botões
+      downloadBtn.disabled = false;
+      downloadBtn.style.cursor = 'pointer';
+      downloadBtn.style.color = '#0f172a';
+
+      copyBtn.disabled = false;
+      copyBtn.style.cursor = 'pointer';
+      copyBtn.style.color = '#0f172a';
+
+      sendBtn.disabled = false;
+      sendBtn.style.cursor = 'pointer';
+      sendBtn.style.background = '#4f46e5';
+
+      copyBtn.addEventListener('click', async () => {
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(jsonStr);
+          } else {
+            jsonTextarea.select();
+            document.execCommand('copy');
+          }
+          feedback.style.display = 'block';
+          feedback.textContent = '✓ JSON copiado para a área de transferência!';
+          copyBtn.textContent = '✓ Copiado';
+          setTimeout(() => { copyBtn.textContent = 'Copiar JSON'; }, 3000);
+        } catch (_) {
+          jsonTextarea.select();
+          document.execCommand('copy');
+          feedback.style.display = 'block';
+          feedback.textContent = '✓ JSON copiado!';
+        }
+      });
+
+      downloadBtn.addEventListener('click', () => {
+        const blob = new Blob([jsonStr], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const safeTerm = (searchTerm || 'mercadolivre').replace(/[^a-z0-9_-]/gi, '_').toLowerCase();
+        a.href = url;
+        a.download = 'ml_turbo_' + safeTerm + '_' + Date.now() + '.json';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      });
+
+      sendBtn.addEventListener('click', async () => {
+        sendBtn.disabled = true;
+        sendBtn.textContent = 'Enviando...';
+        sendBtn.style.background = '#94a3b8';
+
+        try {
+          const endpoint = APP_URL + '/api/ml-collector/ingest';
+          const resp = await fetch(endpoint, {
+            method: 'POST',
+            mode: 'cors',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Collector-Key': COLLECTOR_KEY
+            },
+            body: JSON.stringify({
+              search_term: searchTerm,
+              source_url: window.location.href,
+              notes: 'turbo',
+              payload: payload
+            })
+          });
+
+          const data = await resp.json().catch(() => ({}));
+          if (resp.ok && data.ok) {
+            feedback.style.display = 'block';
+            feedback.style.background = '#dcfce7';
+            feedback.style.color = '#166534';
+            feedback.innerHTML = '🚀 Coleta Turbo enviada com sucesso ao app! Atualize o Raio-X para ver as vendas reais.';
+            sendBtn.textContent = '✓ Enviado ao App';
+            sendBtn.style.background = '#16a34a';
+          } else {
+            throw new Error(data.error || 'Erro HTTP ' + resp.status);
+          }
+        } catch (postErr) {
+          feedback.style.display = 'block';
+          feedback.style.background = '#fee2e2';
+          feedback.style.color = '#991b1b';
+          feedback.textContent = 'Falha ao enviar ao app: ' + postErr.message + '. Use "Copiar JSON" e cole no app.';
+          sendBtn.disabled = false;
+          sendBtn.textContent = 'Tentar Enviar Novamente';
+          sendBtn.style.background = '#ef4444';
+        }
+      });
+    }
+
+    runTurboSweep();
+
+  } catch (err) {
+    alert('Erro ao iniciar Coletor Turbo: ' + (err && err.message ? err.message : err));
+  }
+})();
+  `.trim()
+
+  return 'javascript:' + encodeURIComponent(code)
+}
+
+/**
+ * Retorna o código COMPLETO do userscript Tampermonkey.
+ * O usuário instala uma única vez e o script monitora automaticamente qualquer busca do ML.
+ */
+export function getTampermonkeyUserscript(options: {
+  appUrl: string
+  collectorKey: string
+}): string {
+  const cleanAppUrl = options.appUrl.replace(/\/+$/, '')
+  const collectorKey = options.collectorKey || ''
+
+  return `// ==UserScript==
+// @name         Coletor Automático Mercado Livre · Lotes & Raio-X
+// @namespace    https://controle-de-lotes.app/
+// @version      1.1.0
+// @description  Captura automaticamente contadores públicos de vendas e anúncios no Mercado Livre e envia ao app de Lotes
+// @author       Controle de Lotes de Equipamentos
+// @match        *://lista.mercadolivre.com.br/*
+// @match        *://www.mercadolivre.com.br/*
+// @match        *://mercadolivre.com.br/*
+// @run-at       document-idle
+// @grant        GM_xmlhttpRequest
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @connect      *
+// ==/UserScript==
+
+(function() {
+  'use strict';
+
+  // Configuração do Coletor Automático
+  const CONFIG = {
+    appUrl: ${JSON.stringify(cleanAppUrl)},
+    collectorKey: ${JSON.stringify(collectorKey)},
+    debounceDelayMs: 12000, // Envio em lote 12s após última página/scroll
+    storageKeyPrefix: 'ml_auto_collector_'
+  };
+
+  // Se não estiver em página de busca ou item, ignorar
+  const isSearchPage = window.location.href.includes('lista.mercadolivre.com.br') ||
+                       window.location.href.includes('/jm/search') ||
+                       window.location.search.includes('as_word');
+  const isItemPage = window.location.href.includes('/p/MLB') || /\\/MLB-?\\d+/i.test(window.location.href);
+
+  if (!isSearchPage && !isItemPage) {
+    return;
+  }
+
+  // Funções de extração de dados
+  function parseSoldQuantity(text) {
+    if (!text) return { qty: null, raw: '' };
+    const clean = text.toLowerCase().replace(/\\s+/g, ' ').trim();
+    const milMatch = clean.match(/\\+?\\s*(\\d+(?:[.,]\\d+)?)\\s*(?:mil|k)\\s*(?:vendidos?|vendas?)/i);
+    if (milMatch) {
+      const num = parseFloat(milMatch[1].replace(',', '.'));
+      return { qty: Math.round(num * 1000), raw: text.trim() };
+    }
+    const numMatch = clean.match(/\\+?\\s*(\\d+)\\s*(?:vendidos?|vendas?)/i);
+    if (numMatch) {
+      return { qty: parseInt(numMatch[1], 10), raw: text.trim() };
+    }
+    return { qty: null, raw: text.trim() };
+  }
+
+  function extractMlbId(url) {
+    if (!url) return '';
+    const m = url.match(/MLB-?(\\d+)/i);
+    return m ? 'MLB' + m[1] : '';
+  }
+
+  function parsePrice(text) {
+    if (!text) return undefined;
+    const clean = text.replace(/[^0-9,\\.]/g, '').replace(/\\./g, '').replace(',', '.');
+    const num = parseFloat(clean);
+    return isNaN(num) ? undefined : num;
+  }
+
+  function extractSearchTerm() {
+    const searchInput = document.querySelector('input.nav-search-input') || document.querySelector('input[name="as_word"]');
+    if (searchInput && searchInput.value) {
+      return searchInput.value.trim();
+    }
+    const urlMatch = window.location.href.match(/lista\\.mercadolivre\\.com\\.br\\/([^?#]+)/);
+    if (urlMatch) {
+      try {
+        return decodeURIComponent(urlMatch[1]).replace(/-/g, ' ').trim();
+      } catch { /* intentionally ignored */ }
+    }
+    return '';
+  }
+
+  function extractItemsFromDOM() {
+    const items = [];
+    const sourceUrl = window.location.href;
+
+    if (isItemPage) {
+      const singleTitleEl = document.querySelector('h1.ui-pdp-title');
+      if (singleTitleEl) {
+        const title = singleTitleEl.textContent.trim();
+        let price = undefined;
+        const priceMetaEl = document.querySelector('.ui-pdp-price__second-line .andes-money-amount__fraction');
+        if (priceMetaEl) {
+          price = parsePrice(priceMetaEl.textContent);
+        }
+
+        let soldQty = null;
+        let soldRaw = '';
+        let condition = '';
+        const subtitleEl = document.querySelector('.ui-pdp-subtitle') || document.querySelector('.ui-pdp-header__subtitle');
+        if (subtitleEl) {
+          const subText = subtitleEl.textContent || '';
+          const parsed = parseSoldQuantity(subText);
+          soldQty = parsed.qty;
+          soldRaw = parsed.raw;
+          if (/usado/i.test(subText)) condition = 'usado';
+          else if (/recondicionado/i.test(subText)) condition = 'recondicionado';
+          else if (/novo/i.test(subText)) condition = 'novo';
+        }
+
+        let sellerName = '';
+        const sellerEl = document.querySelector('.ui-pdp-seller__link-trigger') || document.querySelector('.ui-seller-info a') || document.querySelector('.ui-pdp-action-modal__link');
+        if (sellerEl) sellerName = sellerEl.textContent.trim();
+
+        items.push({
+          id: extractMlbId(sourceUrl) || 'MLB_PAGE',
+          mlb_id: extractMlbId(sourceUrl),
+          title,
+          price,
+          currency: 'BRL',
+          condition: condition || 'usado',
+          sold_quantity: soldQty,
+          sold_quantity_text: soldRaw,
+          permalink: sourceUrl,
+          seller_name: sellerName
+        });
+      }
+      return items;
+    }
+
+    const cardNodes = document.querySelectorAll(
+      '.ui-search-layout__item, .ui-search-result__wrapper, li.ui-search-layout__item, div[class*="ui-search-result"], .poly-card'
+    );
+
+    cardNodes.forEach((card) => {
+      const linkEl = card.querySelector('a.ui-search-link') || card.querySelector('a[href*="MLB"]') || card.querySelector('a.poly-component__title') || card.querySelector('h2 a') || card.querySelector('a');
+      if (!linkEl) return;
+
+      const permalink = linkEl.href || '';
+      const mlbId = extractMlbId(permalink);
+
+      const titleEl = card.querySelector('h2') || card.querySelector('.ui-search-item__title') || card.querySelector('.poly-component__title') || linkEl;
+      const title = (titleEl ? titleEl.textContent : '').trim();
+      if (!title) return;
+
+      let price = undefined;
+      const fractionEl = card.querySelector('.andes-money-amount__fraction') || card.querySelector('.price-tag-fraction');
+      if (fractionEl) {
+        price = parsePrice(fractionEl.textContent);
+      }
+
+      let soldQty = null;
+      let soldRaw = '';
+
+      const polyReviewsEl = card.querySelector('.poly-reviews__total') || card.querySelector('.ui-search-reviews__amount') || card.querySelector('.poly-component__sales');
+      if (polyReviewsEl) {
+        const parsed = parseSoldQuantity(polyReviewsEl.textContent);
+        if (parsed.qty != null) {
+          soldQty = parsed.qty;
+          soldRaw = parsed.raw;
+        }
+      }
+
+      if (soldQty == null) {
+        const textNodes = card.querySelectorAll('span, p, div');
+        for (const node of textNodes) {
+          if (node.children.length > 2) continue;
+          const t = (node.textContent || '').trim();
+          if (/vendidos?|vendas?/i.test(t)) {
+            const parsed = parseSoldQuantity(t);
+            if (parsed.qty != null) {
+              soldQty = parsed.qty;
+              soldRaw = parsed.raw;
+              break;
+            }
+          }
+        }
+      }
+
+      let condition = undefined;
+      const cardText = card.textContent || '';
+      if (/\\busado\\b/i.test(cardText)) condition = 'usado';
+      else if (/\\brecondicionado\\b/i.test(cardText)) condition = 'recondicionado';
+      else if (/\\bnovo\\b/i.test(cardText)) condition = 'novo';
+
+      let sellerName = '';
+      const sellerEl = card.querySelector('.ui-search-official-store-label') || card.querySelector('.ui-search-item__brand-discoverability') || card.querySelector('.poly-component__seller');
+      if (sellerEl) {
+        sellerName = sellerEl.textContent.replace(/por\\s+/i, '').trim();
+      }
+
+      const imgEl = card.querySelector('img');
+      const thumbnail = imgEl ? (imgEl.src || imgEl.getAttribute('data-src') || '') : '';
+      const isFull = Boolean(card.querySelector('.ui-search-item__fulfillment') || card.querySelector('.poly-component__shipped-from'));
+      const isFreeShipping = /frete gr[áa]tis/i.test(cardText);
+
+      items.push({
+        id: mlbId || 'MLB_' + (items.length + 1),
+        mlb_id: mlbId,
+        title,
+        price,
+        currency: 'BRL',
+        condition,
+        sold_quantity: soldQty,
+        sold_quantity_text: soldRaw,
+        permalink,
+        thumbnail,
+        seller_name: sellerName,
+        is_free_shipping: isFreeShipping,
+        is_full: isFull
+      });
+    });
+
+    return items;
+  }
+
+  // Criação do HUD flutuante discreto no canto inferior direito
+  const hudContainer = document.createElement('div');
+  hudContainer.id = 'ml-auto-collector-hud';
+  hudContainer.style.cssText = [
+    'position: fixed',
+    'bottom: 18px',
+    'right: 18px',
+    'z-index: 9999999',
+    'background: rgba(15, 23, 42, 0.94)',
+    'color: #ffffff',
+    'padding: 10px 14px',
+    'border-radius: 10px',
+    'box-shadow: 0 10px 25px -5px rgba(0,0,0,0.4)',
+    'font-family: system-ui, -apple-system, sans-serif',
+    'font-size: 11px',
+    'line-height: 1.4',
+    'border: 1px solid rgba(255,255,255,0.15)',
+    'backdrop-filter: blur(8px)',
+    'max-width: 340px',
+    'display: flex',
+    'align-items: center',
+    'gap: 10px',
+    'transition: all 0.3s ease'
+  ].join(';');
+
+  hudContainer.innerHTML = \`
+    <div style="display:flex;align-items:center;gap:6px;">
+      <span id="ml-auto-indicator" style="width:8px;height:8px;border-radius:50%;background:#38bdf8;box-shadow:0 0 8px #38bdf8;display:inline-block;"></span>
+      <div>
+        <div style="font-weight:700;display:flex;align-items:center;gap:6px;">
+          <span>Coletor Lotes</span>
+          <span id="ml-auto-badge" style="background:#1e293b;color:#94a3b8;font-size:9px;padding:1px 4px;border-radius:3px;">Pronto</span>
+        </div>
+        <div id="ml-auto-text" style="color:#cbd5e1;font-size:10px;margin-top:1px;">Iniciando monitoramento...</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:4px;margin-left:auto;">
+      <button id="ml-auto-send-btn" title="Enviar agora para o app" style="background:#0284c7;color:#fff;border:none;border-radius:4px;padding:4px 8px;font-size:10px;font-weight:700;cursor:pointer;">
+        Enviar
+      </button>
+      <button id="ml-auto-min-btn" title="Minimizar" style="background:transparent;color:#94a3b8;border:none;cursor:pointer;padding:2px 4px;font-size:14px;line-height:1;">
+        &minus;
+      </button>
+    </div>
+  \`;
+
+  document.body.appendChild(hudContainer);
+
+  const indicator = document.getElementById('ml-auto-indicator');
+  const badge = document.getElementById('ml-auto-badge');
+  const hudText = document.getElementById('ml-auto-text');
+  const sendBtn = document.getElementById('ml-auto-send-btn');
+  const minBtn = document.getElementById('ml-auto-min-btn');
+
+  let isMinimized = false;
+  minBtn.addEventListener('click', () => {
+    isMinimized = !isMinimized;
+    if (isMinimized) {
+      hudText.style.display = 'none';
+      sendBtn.style.display = 'none';
+      minBtn.innerHTML = '&#43;';
+      hudContainer.style.padding = '6px 10px';
+    } else {
+      hudText.style.display = 'block';
+      sendBtn.style.display = 'inline-block';
+      minBtn.innerHTML = '&minus;';
+      hudContainer.style.padding = '10px 14px';
+    }
+  });
+
+  // Estado acumulado na memória da sessão
+  let accumulatedItems = new Map();
+  let currentSearchTerm = extractSearchTerm() || 'Busca Mercado Livre';
+  let debounceTimer = null;
+  let isSending = false;
+
+  function setStatus(state, msg) {
+    if (state === 'collecting') {
+      indicator.style.background = '#38bdf8';
+      indicator.style.boxShadow = '0 0 8px #38bdf8';
+      badge.textContent = 'Coletando';
+      badge.style.color = '#38bdf8';
+    } else if (state === 'sending') {
+      indicator.style.background = '#f59e0b';
+      indicator.style.boxShadow = '0 0 8px #f59e0b';
+      badge.textContent = 'Enviando...';
+      badge.style.color = '#f59e0b';
+    } else if (state === 'success') {
+      indicator.style.background = '#10b981';
+      indicator.style.boxShadow = '0 0 8px #10b981';
+      badge.textContent = 'Sincronizado';
+      badge.style.color = '#10b981';
+    } else if (state === 'error') {
+      indicator.style.background = '#ef4444';
+      indicator.style.boxShadow = '0 0 8px #ef4444';
+      badge.textContent = 'Aviso';
+      badge.style.color = '#ef4444';
+    }
+    if (msg) hudText.textContent = msg;
+  }
+
+  function collectCurrentPage() {
+    const term = extractSearchTerm() || currentSearchTerm;
+    if (term !== currentSearchTerm && accumulatedItems.size > 0) {
+      // O usuário mudou de busca na mesma aba: envia o lote anterior
+      sendBatchToApp(true);
+      accumulatedItems.clear();
+      currentSearchTerm = term;
+    }
+
+    const items = extractItemsFromDOM();
+    let newItemsCount = 0;
+    items.forEach(item => {
+      const key = item.mlb_id || item.permalink || item.id;
+      if (key && !accumulatedItems.has(key)) {
+        accumulatedItems.set(key, item);
+        newItemsCount++;
+      }
+    });
+
+    let salesCount = 0;
+    accumulatedItems.forEach(i => {
+      if (i.sold_quantity != null && i.sold_quantity > 0) salesCount++;
+    });
+
+    setStatus('collecting', '"' + currentSearchTerm.substring(0, 18) + '" · ' + accumulatedItems.size + ' itens (' + salesCount + ' com vendas)');
+
+    // Programar envio automático com debounce
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      sendBatchToApp();
+    }, CONFIG.debounceDelayMs);
+  }
+
+  function sendBatchToApp(isSync = false) {
+    if (accumulatedItems.size === 0 || isSending) return;
+    isSending = true;
+    setStatus('sending', 'Enviando ' + accumulatedItems.size + ' itens ao app...');
+
+    const itemsArray = Array.from(accumulatedItems.values());
+    let salesCount = 0;
+    itemsArray.forEach(i => {
+      if (i.sold_quantity != null && i.sold_quantity > 0) salesCount++;
+    });
+
+    const payload = {
+      version: '1.1.0',
+      source: 'auto',
+      source_url: window.location.href,
+      collected_at: new Date().toISOString(),
+      search_term: currentSearchTerm,
+      results_count: itemsArray.length,
+      with_sales_count: salesCount,
+      results: itemsArray
+    };
+
+    const endpoint = CONFIG.appUrl + '/api/ml-collector/ingest';
+    const bodyStr = JSON.stringify({
+      search_term: currentSearchTerm,
+      source_url: window.location.href,
+      notes: 'auto',
+      payload: payload
+    });
+
+    // Envio cross-origin com fallback (fetch e GM_xmlhttpRequest)
+    function handleSuccess() {
+      isSending = false;
+      setStatus('success', 'Gravado: ' + itemsArray.length + ' itens (' + salesCount + ' vendas)');
+      sendBtn.textContent = '✓ Enviado';
+      setTimeout(() => { sendBtn.textContent = 'Enviar'; }, 4000);
+    }
+
+    function handleFailure(errText) {
+      isSending = false;
+      setStatus('error', 'Falha ao sincronizar: ' + errText);
+      console.warn('[Coletor Automático] Erro no envio:', errText);
+    }
+
+    if (typeof GM_xmlhttpRequest === 'function') {
+      GM_xmlhttpRequest({
+        method: 'POST',
+        url: endpoint,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Collector-Key': CONFIG.collectorKey
+        },
+        data: bodyStr,
+        onload: function(response) {
+          if (response.status >= 200 && response.status < 300) {
+            handleSuccess();
+          } else {
+            handleFailure('HTTP ' + response.status);
+          }
+        },
+        onerror: function(err) {
+          handleFailure(err.responseText || 'Erro de conexão');
+        }
+      });
+    } else {
+      fetch(endpoint, {
+        method: 'POST',
+        mode: 'cors',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Collector-Key': CONFIG.collectorKey
+        },
+        body: bodyStr
+      })
+      .then(r => r.json())
+      .then(data => {
+        if (data.ok) handleSuccess();
+        else handleFailure(data.error || 'Erro na resposta');
+      })
+      .catch(err => handleFailure(err.message || 'Erro de rede'));
+    }
+  }
+
+  // Ações manuais
+  sendBtn.addEventListener('click', () => {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    sendBatchToApp();
+  });
+
+  // Enviar ao mudar de visibilidade ou descarregar a página
+  window.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      sendBatchToApp(true);
+    }
+  });
+
+  window.addEventListener('beforeunload', () => {
+    sendBatchToApp(true);
+  });
+
+  // Observador de mutação do DOM para acompanhar paginação SPA do Mercado Livre
+  let observerTimer = null;
+  const observer = new MutationObserver(() => {
+    if (observerTimer) clearTimeout(observerTimer);
+    observerTimer = setTimeout(() => {
+      collectCurrentPage();
+    }, 1500);
+  });
+
+  observer.observe(document.body, { childList: true, subtree: true });
+
+  // Primeira coleta após carga inicial
+  setTimeout(collectCurrentPage, 800);
+
+})();
+`
 }

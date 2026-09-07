@@ -6,26 +6,36 @@ import {
   Upload,
   FileJson,
   TrendingUp,
-  ExternalLink,
-  ShieldAlert,
   HelpCircle,
   Database,
   Trash2,
   RefreshCw,
   Sparkles,
-  Layers,
-  ArrowRight,
-  ShoppingBag,
-  Info,
+  Zap,
+  Cpu,
+  Key,
+  Globe,
+  Send,
+  CheckCircle2,
+  AlertCircle,
+  ShieldCheck,
+  Activity,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { useToast } from '@/hooks/use-toast'
-import { getBookmarkletScript, type MLCollectorPayload } from '@/lib/mlBookmarklet'
+import {
+  getBookmarkletScript,
+  getTurboBookmarkletScript,
+  getTampermonkeyUserscript,
+  type MLCollectorPayload,
+} from '@/lib/mlBookmarklet'
 import { mlCollectorService, type MLCollectorImportRecord } from '@/services/mlCollectorService'
+import pb from '@/lib/pocketbase/client'
 
 interface ColetorNavegadorPanelProps {
   initialSearchTerm?: string
@@ -37,20 +47,91 @@ export function ColetorNavegadorPanel({
   onImportApplied,
 }: ColetorNavegadorPanelProps) {
   const { toast } = useToast()
-  const bookmarkletCode = getBookmarkletScript()
 
-  const [copiedCode, setCopiedCode] = useState(false)
+  // Chave de coleta e URL do app para integração automática
+  const [collectorKey, setCollectorKey] = useState('')
+  const [appUrl, setAppUrl] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.location.origin
+    }
+    return 'https://controle-de-lotes.app'
+  })
+  const [loadingKey, setLoadingKey] = useState(false)
+  const [copiedKey, setCopiedKey] = useState(false)
+
+  // Tabs do coletor: "tampermonkey", "turbo", "manual", "history"
+  const [collectorMode, setCollectorMode] = useState<'tampermonkey' | 'turbo' | 'manual'>(
+    'tampermonkey',
+  )
+
+  // Scripts gerados dinamicamente
+  const manualScript = getBookmarkletScript()
+  const turboScript = getTurboBookmarkletScript({ appUrl, collectorKey })
+  const tampermonkeyScript = getTampermonkeyUserscript({ appUrl, collectorKey })
+
+  const [copiedManual, setCopiedManual] = useState(false)
+  const [copiedTurbo, setCopiedTurbo] = useState(false)
+  const [copiedTamper, setCopiedTamper] = useState(false)
+
+  // Estados de formulário manual/upload
   const [searchTermInput, setSearchTermInput] = useState(initialSearchTerm)
   const [jsonInput, setJsonInput] = useState('')
   const [importing, setImporting] = useState(false)
   const [previewPayload, setPreviewPayload] = useState<MLCollectorPayload | null>(null)
   const [previewError, setPreviewError] = useState<string | null>(null)
 
+  // Histórico
   const [history, setHistory] = useState<MLCollectorImportRecord[]>([])
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [activeImportId, setActiveImportId] = useState<string | null>(null)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Carregar ou gerar chave de coleta
+  async function loadCollectorKey() {
+    setLoadingKey(true)
+    try {
+      const key = await mlCollectorService.getOrCreateCollectorKey(pb.authStore.record?.id)
+      setCollectorKey(key)
+    } finally {
+      setLoadingKey(false)
+    }
+  }
+
+  // Regenerar chave de coleta
+  async function handleRegenerateKey() {
+    if (
+      !confirm(
+        'Deseja gerar uma nova chave de coleta? Se fizer isso, lembre-se de atualizar seus scripts no Tampermonkey.',
+      )
+    ) {
+      return
+    }
+    setLoadingKey(true)
+    try {
+      const newKey = await mlCollectorService.regenerateCollectorKey(pb.authStore.record?.id)
+      setCollectorKey(newKey)
+      toast({
+        title: 'Nova chave gerada com sucesso!',
+        description: 'Copie novamente o script do Tampermonkey ou o Bookmarklet Turbo atualizados.',
+      })
+    } finally {
+      setLoadingKey(false)
+    }
+  }
+
+  // Copiar chave
+  async function handleCopyKey() {
+    if (!collectorKey) return
+    try {
+      await navigator.clipboard.writeText(collectorKey)
+      setCopiedKey(true)
+      toast({ title: 'Chave copiada!' })
+      setTimeout(() => setCopiedKey(false), 2500)
+    } catch {
+      toast({ title: 'Erro ao copiar', variant: 'destructive' })
+    }
+  }
 
   // Atualizar termo se a prop mudar
   useEffect(() => {
@@ -59,38 +140,20 @@ export function ColetorNavegadorPanel({
     }
   }, [initialSearchTerm])
 
+  // Carregar histórico e chave ao montar
+  useEffect(() => {
+    loadHistory()
+    loadCollectorKey()
+  }, [])
+
   // Carregar histórico de coletas
   async function loadHistory() {
     setLoadingHistory(true)
     try {
-      const list = await mlCollectorService.listRecentImports(30)
+      const list = await mlCollectorService.listRecentImports(40)
       setHistory(list)
     } finally {
       setLoadingHistory(false)
-    }
-  }
-
-  useEffect(() => {
-    loadHistory()
-  }, [])
-
-  // Copiar código do bookmarklet
-  async function handleCopyBookmarklet() {
-    try {
-      await navigator.clipboard.writeText(bookmarkletCode)
-      setCopiedCode(true)
-      toast({
-        title: 'Código do Coletor copiado!',
-        description:
-          'Cole no campo URL de um novo favorito no seu Chrome ou arraste o botão para a barra.',
-      })
-      setTimeout(() => setCopiedCode(false), 3000)
-    } catch {
-      toast({
-        title: 'Erro ao copiar',
-        description: 'Selecione o código manualmente e copie.',
-        variant: 'destructive',
-      })
     }
   }
 
@@ -141,7 +204,7 @@ export function ColetorNavegadorPanel({
     reader.readAsText(file)
   }
 
-  // Salvar importação no PocketBase
+  // Salvar importação manual no PocketBase
   async function handleSaveImport() {
     const term = (searchTermInput || previewPayload?.search_term || '').trim()
     if (!term) {
@@ -156,7 +219,7 @@ export function ColetorNavegadorPanel({
     if (!previewPayload) {
       toast({
         title: 'Nenhum dado válido para importar',
-        description: previewError || 'Cole o JSON gerado pelo bookmarklet.',
+        description: previewError || 'Cole o JSON gerado pelo coletor.',
         variant: 'destructive',
       })
       return
@@ -168,6 +231,7 @@ export function ColetorNavegadorPanel({
         searchTerm: term,
         payload: previewPayload,
         sourceUrl: previewPayload.source_url,
+        notes: previewPayload.source || 'manual',
       })
 
       toast({
@@ -218,180 +282,465 @@ export function ColetorNavegadorPanel({
     }
   }
 
+  // Copiadores de scripts
+  async function copyScript(text: string, type: 'manual' | 'turbo' | 'tamper') {
+    try {
+      await navigator.clipboard.writeText(text)
+      if (type === 'manual') {
+        setCopiedManual(true)
+        setTimeout(() => setCopiedManual(false), 3000)
+        toast({ title: 'Código do Favorito Manual copiado!' })
+      } else if (type === 'turbo') {
+        setCopiedTurbo(true)
+        setTimeout(() => setCopiedTurbo(false), 3000)
+        toast({ title: 'Código do Coletor Turbo copiado!' })
+      } else {
+        setCopiedTamper(true)
+        setTimeout(() => setCopiedTamper(false), 3000)
+        toast({ title: 'Userscript do Tampermonkey copiado!' })
+      }
+    } catch {
+      toast({ title: 'Erro ao copiar código', variant: 'destructive' })
+    }
+  }
+
   return (
     <div className="space-y-6">
-      {/* Banner Principal com Diagnóstico da Ponte */}
+      {/* Banner Principal */}
       <Card className="border-indigo-900/60 bg-gradient-to-r from-slate-950 via-slate-900 to-indigo-950 text-white shadow-md">
         <CardContent className="p-6">
-          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
             <div className="space-y-2 max-w-2xl">
               <div className="flex items-center gap-2">
                 <div className="w-10 h-10 rounded-xl bg-blue-500/20 text-blue-300 border border-blue-400/30 flex items-center justify-center shrink-0">
-                  <Bookmark className="w-5 h-5 text-blue-400" />
+                  <Activity className="w-5 h-5 text-blue-400" />
                 </div>
                 <div>
                   <h2 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-                    Coletor do Navegador
+                    Coletores do Mercado Livre
                     <Badge className="bg-emerald-500 text-slate-950 text-[10px] font-bold">
                       Bypass WAF 100% Legal
                     </Badge>
                   </h2>
                   <p className="text-xs text-slate-300">
-                    O Mercado Livre bloqueia servidores que tentam raspar vendas públicas (erro 403
-                    / WAF). Com este Coletor, seu próprio navegador Chrome resolve o desafio da
-                    página e exporta os contadores reais (+500 vendidos, +5 mil vendidos) direto
-                    para o Raio-X.
+                    O Mercado Livre bloqueia servidores que tentam raspar contadores de vendas (+500
+                    vendidos, +5 mil vendidos). Com estes coletores, seu navegador contorna o WAF e
+                    sincroniza os dados reais com o Raio-X.
                   </p>
                 </div>
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 shrink-0">
-              <Button
-                onClick={handleCopyBookmarklet}
-                className="h-10 px-5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs gap-2 shadow-xs"
-              >
-                {copiedCode ? (
-                  <Check className="w-4 h-4 text-emerald-300" />
-                ) : (
-                  <Copy className="w-4 h-4" />
-                )}
-                {copiedCode ? 'Código Copiado!' : 'Copiar Código do Coletor'}
-              </Button>
-              <Button
-                variant="outline"
-                className="h-10 text-xs text-slate-200 border-slate-700 bg-slate-800/80 hover:bg-slate-700"
-                asChild
-              >
-                <a
-                  href={bookmarkletCode}
-                  onClick={(e) => {
-                    // Prevenir navegação se clicar direto na página
-                    e.preventDefault()
-                    toast({
-                      title: 'Arraste para os Favoritos',
-                      description:
-                        'Arraste este botão para a sua Barra de Favoritos (Ctrl+Shift+B) ou use o botão "Copiar Código".',
-                    })
-                  }}
-                  title="Arraste para a Barra de Favoritos do Chrome"
+            {/* Painel de Credencial / Chave de Coleta */}
+            <div className="p-3 bg-slate-900/90 border border-slate-700/80 rounded-lg text-xs space-y-2 shrink-0 w-full lg:w-auto">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[11px] font-bold uppercase tracking-wide text-slate-400 flex items-center gap-1.5">
+                  <Key className="w-3.5 h-3.5 text-amber-400" />
+                  Sua Chave de Coleta
+                </span>
+                <button
+                  type="button"
+                  onClick={handleRegenerateKey}
+                  disabled={loadingKey}
+                  className="text-[10px] text-slate-400 hover:text-amber-300 underline"
+                  title="Gerar nova chave de coleta"
                 >
-                  <Bookmark className="w-3.5 h-3.5 text-amber-400 mr-1.5" />
-                  Arraste p/ Favoritos
-                </a>
-              </Button>
+                  Regenerar
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <code className="px-2 py-1 bg-slate-950 text-emerald-400 rounded font-mono text-xs border border-slate-800 select-all max-w-[200px] truncate">
+                  {collectorKey || 'Carregando chave...'}
+                </code>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleCopyKey}
+                  className="h-7 px-2.5 text-xs text-slate-200 border-slate-700 bg-slate-800 hover:bg-slate-700"
+                >
+                  {copiedKey ? (
+                    <Check className="w-3 h-3 text-emerald-400" />
+                  ) : (
+                    <Copy className="w-3 h-3" />
+                  )}
+                  {copiedKey ? 'Copiada' : 'Copiar'}
+                </Button>
+              </div>
+
+              <div className="text-[10px] text-slate-400 flex items-center gap-1">
+                <Globe className="w-3 h-3 text-indigo-400" />
+                <span>Endpoint Ingestão: </span>
+                <span className="font-mono text-slate-300">/api/ml-collector/ingest</span>
+              </div>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Passo-a-passo Visual Numerado */}
-      <Card className="border-slate-200 shadow-xs bg-white">
-        <CardHeader className="pb-3 border-b border-slate-100">
-          <CardTitle className="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2">
-            <HelpCircle className="w-4 h-4 text-indigo-600" />
-            Como Usar o Coletor em 6 Passos Simples
-          </CardTitle>
-          <CardDescription className="text-xs text-slate-500">
-            Você só precisa configurar o favorito <strong>uma única vez</strong> no Chrome. Depois,
-            basta 1 clique em qualquer busca do ML.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="p-4 sm:p-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {/* Passo 1 */}
-            <div className="p-3.5 rounded-lg border border-slate-200 bg-slate-50/70 space-y-2">
-              <div className="flex items-center gap-2">
-                <span className="w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center shrink-0">
-                  1
-                </span>
-                <span className="text-xs font-bold text-slate-900">Copie o Coletor</span>
-              </div>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Clique no botão azul <strong>&quot;Copiar Código do Coletor&quot;</strong> acima
-                para copiar o script bookmarklet para sua área de transferência.
-              </p>
-            </div>
+      {/* Configuração de URL do App (se customizada) */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+        <div className="flex items-center gap-2 text-slate-600">
+          <Globe className="w-4 h-4 text-indigo-600 shrink-0" />
+          <span>
+            <strong>URL do App para os Scripts:</strong> Usada para os coletores enviarem os dados
+            diretamente ao backend deste app.
+          </span>
+        </div>
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <Input
+            value={appUrl}
+            onChange={(e) => setAppUrl(e.target.value.trim())}
+            placeholder="https://sua-url-do-app"
+            className="h-8 text-xs font-mono w-full sm:w-72 bg-white"
+          />
+        </div>
+      </div>
 
-            {/* Passo 2 */}
-            <div className="p-3.5 rounded-lg border border-slate-200 bg-slate-50/70 space-y-2">
-              <div className="flex items-center gap-2">
-                <span className="w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center shrink-0">
-                  2
-                </span>
-                <span className="text-xs font-bold text-slate-900">Crie o Favorito</span>
-              </div>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                No seu Chrome, pressione{' '}
-                <kbd className="px-1 py-0.5 bg-slate-200 text-slate-800 rounded text-[10px] font-mono">
-                  Ctrl+Shift+O
-                </kbd>{' '}
-                (ou clique com botão direito na barra de favoritos) e escolha{' '}
-                <strong>Adicionar página</strong>. Dê o nome de <em>&quot;Coletor ML&quot;</em> e
-                cole o código no campo <strong>URL</strong>.
-              </p>
-            </div>
+      {/* Tabs de Seleção do Coletor: Automático (Tampermonkey) vs Turbo Multi-páginas vs Manual */}
+      <Tabs
+        value={collectorMode}
+        onValueChange={(val) => setCollectorMode(val as any)}
+        className="w-full space-y-4"
+      >
+        <TabsList className="grid grid-cols-3 p-1 bg-slate-100 border border-slate-200 rounded-lg">
+          <TabsTrigger
+            value="tampermonkey"
+            className="text-xs font-bold flex items-center gap-2 data-[state=active]:bg-white data-[state=active]:text-indigo-700 data-[state=active]:shadow-xs"
+          >
+            <Cpu className="w-3.5 h-3.5 text-indigo-600" />
+            1. Coletor Automático (Tampermonkey)
+            <Badge className="bg-indigo-600 text-white text-[9px] px-1 py-0 h-4">Sem Clique</Badge>
+          </TabsTrigger>
 
-            {/* Passo 3 */}
-            <div className="p-3.5 rounded-lg border border-slate-200 bg-slate-50/70 space-y-2">
-              <div className="flex items-center gap-2">
-                <span className="w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center shrink-0">
-                  3
-                </span>
-                <span className="text-xs font-bold text-slate-900">Abra a Busca no ML</span>
-              </div>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                No seu navegador, acerte a busca do Mercado Livre (ex.: <em>cooler lenovo m900</em>,{' '}
-                <em>dell latitude 5420</em> ou a página do anúncio individual).
-              </p>
-            </div>
+          <TabsTrigger
+            value="turbo"
+            className="text-xs font-bold flex items-center gap-2 data-[state=active]:bg-white data-[state=active]:text-amber-700 data-[state=active]:shadow-xs"
+          >
+            <Zap className="w-3.5 h-3.5 text-amber-500" />
+            2. Coletor Turbo (Favorito Multi-páginas)
+            <Badge className="bg-amber-500 text-slate-950 text-[9px] px-1 py-0 h-4 font-bold">
+              1 Clique
+            </Badge>
+          </TabsTrigger>
 
-            {/* Passo 4 */}
-            <div className="p-3.5 rounded-lg border border-slate-200 bg-slate-50/70 space-y-2">
-              <div className="flex items-center gap-2">
-                <span className="w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center shrink-0">
-                  4
-                </span>
-                <span className="text-xs font-bold text-slate-900">Clique no Favorito</span>
-              </div>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Com a página do Mercado Livre aberta e carregada, clique no favorito{' '}
-                <strong>&quot;Coletor ML&quot;</strong>. Uma janelinha escura surgirá na tela
-                instantaneamente com os dados extraídos.
-              </p>
-            </div>
+          <TabsTrigger
+            value="manual"
+            className="text-xs font-bold flex items-center gap-2 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-xs"
+          >
+            <Bookmark className="w-3.5 h-3.5 text-blue-600" />
+            3. Coletor Manual (Página Atual)
+          </TabsTrigger>
+        </TabsList>
 
-            {/* Passo 5 */}
-            <div className="p-3.5 rounded-lg border border-slate-200 bg-slate-50/70 space-y-2">
-              <div className="flex items-center gap-2">
-                <span className="w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center shrink-0">
-                  5
-                </span>
-                <span className="text-xs font-bold text-slate-900">Copie o JSON</span>
-              </div>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Na janela do coletor, clique no botão azul <strong>&quot;Copiar JSON&quot;</strong>{' '}
-                (ou em &quot;Baixar .json&quot; caso prefira salvar o arquivo).
-              </p>
-            </div>
+        {/* TAB 1: COLETOR AUTOMÁTICO (TAMPERMONKEY) */}
+        <TabsContent value="tampermonkey" className="space-y-4 outline-hidden">
+          <Card className="border-indigo-200 bg-white shadow-xs">
+            <CardHeader className="pb-3 border-b border-indigo-100 bg-indigo-50/50">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <CardTitle className="text-base font-bold text-indigo-950 flex items-center gap-2">
+                      <Cpu className="w-5 h-5 text-indigo-600" />
+                      Coletor Automático com Tampermonkey (Zero Clique)
+                    </CardTitle>
+                    <Badge className="bg-emerald-600 text-white text-[10px] font-bold">
+                      Recomendado
+                    </Badge>
+                  </div>
+                  <CardDescription className="text-xs text-slate-600">
+                    Roda em segundo plano enquanto você navega normalmente no Mercado Livre. Detecta
+                    as buscas, lê vendas reais, acompanha paginação SPA e sincroniza tudo com o app
+                    de Lotes.
+                  </CardDescription>
+                </div>
 
-            {/* Passo 6 */}
-            <div className="p-3.5 rounded-lg border border-slate-200 bg-slate-50/70 space-y-2">
-              <div className="flex items-center gap-2">
-                <span className="w-6 h-6 rounded-full bg-emerald-600 text-white text-xs font-bold flex items-center justify-center shrink-0">
-                  6
-                </span>
-                <span className="text-xs font-bold text-slate-900">Cole Aqui e Salve</span>
+                <Button
+                  onClick={() => copyScript(tampermonkeyScript, 'tamper')}
+                  className="h-9 px-5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs gap-2 shrink-0 shadow-xs"
+                >
+                  {copiedTamper ? (
+                    <Check className="w-4 h-4 text-emerald-300" />
+                  ) : (
+                    <Copy className="w-4 h-4" />
+                  )}
+                  {copiedTamper ? 'Userscript Copiado!' : 'Copiar Userscript Tampermonkey'}
+                </Button>
               </div>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Volte nesta aba, cole o JSON na área abaixo e clique em{' '}
-                <strong>&quot;Importar Coleta&quot;</strong>. O Raio-X usará na hora as vendas reais
-                de cada anúncio!
+            </CardHeader>
+
+            <CardContent className="p-5 space-y-5">
+              {/* Instruções de instalação em 4 passos */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <div className="p-3 rounded-lg border border-slate-200 bg-slate-50/70 space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="w-5 h-5 rounded-full bg-indigo-600 text-white text-[11px] font-bold flex items-center justify-center shrink-0">
+                      1
+                    </span>
+                    <strong className="text-xs text-slate-900">Instale a Extensão</strong>
+                  </div>
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    Instale a extensão gratuita <strong>Tampermonkey</strong> na Chrome Web Store
+                    (ou Edge / Firefox).
+                  </p>
+                </div>
+
+                <div className="p-3 rounded-lg border border-slate-200 bg-slate-50/70 space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="w-5 h-5 rounded-full bg-indigo-600 text-white text-[11px] font-bold flex items-center justify-center shrink-0">
+                      2
+                    </span>
+                    <strong className="text-xs text-slate-900">Criar Novo Script</strong>
+                  </div>
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    Clique no ícone do Tampermonkey no navegador e selecione{' '}
+                    <strong>&quot;Criar novo script...&quot;</strong>.
+                  </p>
+                </div>
+
+                <div className="p-3 rounded-lg border border-slate-200 bg-slate-50/70 space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="w-5 h-5 rounded-full bg-indigo-600 text-white text-[11px] font-bold flex items-center justify-center shrink-0">
+                      3
+                    </span>
+                    <strong className="text-xs text-slate-900">Cole o Código e Salve</strong>
+                  </div>
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    Substitua o conteúdo pelo código copiado no botão acima e salve com{' '}
+                    <kbd className="font-mono text-[10px] px-1 bg-slate-200 rounded">Ctrl+S</kbd>.
+                  </p>
+                </div>
+
+                <div className="p-3 rounded-lg border border-slate-200 bg-slate-50/70 space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="w-5 h-5 rounded-full bg-emerald-600 text-white text-[11px] font-bold flex items-center justify-center shrink-0">
+                      4
+                    </span>
+                    <strong className="text-xs text-slate-900">Pronto! Use o ML</strong>
+                  </div>
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    Abra qualquer busca no Mercado Livre. Um painel discreto no canto inferior
+                    indicará os itens lidos e o envio automático.
+                  </p>
+                </div>
+              </div>
+
+              {/* Características e Preview do Script */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                    <FileJson className="w-3.5 h-3.5 text-indigo-600" />
+                    Código Completo do Userscript (com sua Chave e URL embutidas)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => copyScript(tampermonkeyScript, 'tamper')}
+                    className="text-xs text-indigo-600 hover:text-indigo-800 font-bold underline"
+                  >
+                    Copiar Script Completo
+                  </button>
+                </div>
+                <Textarea
+                  value={tampermonkeyScript}
+                  readOnly
+                  rows={8}
+                  className="font-mono text-[11px] bg-slate-900 text-emerald-400 border-slate-700"
+                />
+              </div>
+
+              {/* Recursos inclusos no Userscript */}
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-950 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div className="flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>Deduplicação por MLB ID</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>Envio automático com debounce (12s)</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>HUD flutuante discreto com status</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* TAB 2: COLETOR TURBO MULTI-PÁGINAS (BOOKMARKLET) */}
+        <TabsContent value="turbo" className="space-y-4 outline-hidden">
+          <Card className="border-amber-200 bg-white shadow-xs">
+            <CardHeader className="pb-3 border-b border-amber-100 bg-amber-50/50">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <CardTitle className="text-base font-bold text-amber-950 flex items-center gap-2">
+                      <Zap className="w-5 h-5 text-amber-500" />
+                      Coletor Turbo Multi-páginas (Bookmarklet de 1 Clique)
+                    </CardTitle>
+                    <Badge className="bg-amber-500 text-slate-950 text-[10px] font-bold">
+                      Até 20 Páginas
+                    </Badge>
+                  </div>
+                  <CardDescription className="text-xs text-slate-600">
+                    Instalado como favorito no navegador. Ao clicar nele numa busca do Mercado
+                    Livre, ele segue sozinho o botão de próxima página, acumula centenas de anúncios
+                    deduplicados e envia ao app com 1 clique.
+                  </CardDescription>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button
+                    onClick={() => copyScript(turboScript, 'turbo')}
+                    className="h-9 px-5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs gap-2 shadow-xs"
+                  >
+                    {copiedTurbo ? (
+                      <Check className="w-4 h-4 text-slate-950" />
+                    ) : (
+                      <Copy className="w-4 h-4" />
+                    )}
+                    {copiedTurbo ? 'Código Copiado!' : 'Copiar Código Turbo'}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="h-9 text-xs border-amber-300 text-amber-950 bg-amber-50 hover:bg-amber-100"
+                    asChild
+                  >
+                    <a
+                      href={turboScript}
+                      onClick={(e) => {
+                        e.preventDefault()
+                        toast({
+                          title: 'Arraste para os Favoritos',
+                          description:
+                            'Arraste este botão para a sua Barra de Favoritos (Ctrl+Shift+B) ou use o botão "Copiar Código Turbo".',
+                        })
+                      }}
+                      title="Arraste para a Barra de Favoritos do Chrome"
+                    >
+                      <Zap className="w-3.5 h-3.5 text-amber-500 mr-1.5" />
+                      Arraste p/ Favoritos
+                    </a>
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+
+            <CardContent className="p-5 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="p-3 rounded-lg border border-slate-200 bg-slate-50/70 space-y-1">
+                  <strong className="text-xs text-slate-900 flex items-center gap-1.5">
+                    <span className="w-4 h-4 rounded-full bg-amber-500 text-slate-950 text-[10px] font-bold flex items-center justify-center">
+                      1
+                    </span>
+                    Crie o Favorito no Chrome
+                  </strong>
+                  <p className="text-[11px] text-slate-600">
+                    Crie um novo favorito no Chrome com o nome de{' '}
+                    <strong>&quot;⚡ Turbo ML&quot;</strong> e cole o código copiado no campo{' '}
+                    <strong>URL</strong>.
+                  </p>
+                </div>
+
+                <div className="p-3 rounded-lg border border-slate-200 bg-slate-50/70 space-y-1">
+                  <strong className="text-xs text-slate-900 flex items-center gap-1.5">
+                    <span className="w-4 h-4 rounded-full bg-amber-500 text-slate-950 text-[10px] font-bold flex items-center justify-center">
+                      2
+                    </span>
+                    Clique na Busca do ML
+                  </strong>
+                  <p className="text-[11px] text-slate-600">
+                    Abra uma busca no Mercado Livre (ex.: <em>cooler lenovo m900</em>) e clique no
+                    favorito &quot;⚡ Turbo ML&quot;.
+                  </p>
+                </div>
+
+                <div className="p-3 rounded-lg border border-slate-200 bg-slate-50/70 space-y-1">
+                  <strong className="text-xs text-slate-900 flex items-center gap-1.5">
+                    <span className="w-4 h-4 rounded-full bg-emerald-600 text-white text-[10px] font-bold flex items-center justify-center">
+                      3
+                    </span>
+                    Varredura & Envio Direto
+                  </strong>
+                  <p className="text-[11px] text-slate-600">
+                    O painel varrerá as páginas 1, 2, 3... e no final basta clicar no botão{' '}
+                    <strong>&quot;🚀 Enviar ao App&quot;</strong>.
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-1">
+                <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                  Segurança e Gentileza com o Mercado Livre:
+                </div>
+                <p className="text-[11px] text-slate-600 leading-relaxed">
+                  O Coletor Turbo inclui um delay seguro (~1,4 segundos) entre cada página para
+                  navegar de maneira natural sob a sessão ativa do usuário, respeitando limites e
+                  coletando até 20 páginas por clique sem disparar captchas.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* TAB 3: COLETOR MANUAL ORIGINAL (PÁGINA ATUAL) */}
+        <TabsContent value="manual" className="space-y-4 outline-hidden">
+          <Card className="border-slate-200 bg-white shadow-xs">
+            <CardHeader className="pb-3 border-b border-slate-100 flex flex-row items-center justify-between">
+              <div>
+                <CardTitle className="text-base font-bold text-slate-900 flex items-center gap-2">
+                  <Bookmark className="w-4 h-4 text-blue-600" />
+                  Coletor Manual (Página Atual)
+                </CardTitle>
+                <CardDescription className="text-xs text-slate-500">
+                  Bookmarklet clássico que extrai os dados apenas da página onde você estiver no
+                  momento.
+                </CardDescription>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  onClick={() => copyScript(manualScript, 'manual')}
+                  className="h-8 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs gap-1.5 shadow-xs"
+                >
+                  {copiedManual ? (
+                    <Check className="w-3.5 h-3.5 text-emerald-300" />
+                  ) : (
+                    <Copy className="w-3.5 h-3.5" />
+                  )}
+                  {copiedManual ? 'Copiado!' : 'Copiar Código'}
+                </Button>
+                <Button
+                  variant="outline"
+                  className="h-8 text-xs text-slate-700 border-slate-300 bg-white hover:bg-slate-50"
+                  asChild
+                >
+                  <a
+                    href={manualScript}
+                    onClick={(e) => {
+                      e.preventDefault()
+                      toast({
+                        title: 'Arraste para os Favoritos',
+                        description:
+                          'Arraste este botão para a sua Barra de Favoritos (Ctrl+Shift+B).',
+                      })
+                    }}
+                  >
+                    Arraste p/ Favoritos
+                  </a>
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="p-4">
+              <p className="text-xs text-slate-600">
+                Gera um modal overlay nativo no DOM do Mercado Livre com opções de copiar JSON ou
+                baixar o arquivo .json para importação manual no formulário abaixo.
               </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
       {/* Formulário de Importação: Colar JSON ou Upload de Arquivo */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -401,7 +750,7 @@ export function ColetorNavegadorPanel({
               <div>
                 <CardTitle className="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2">
                   <FileJson className="w-4 h-4 text-blue-600" />
-                  Importar Coleta do Mercado Livre
+                  Importar ou Visualizar JSON de Coleta
                 </CardTitle>
                 <CardDescription className="text-xs text-slate-500">
                   Cole o JSON copiado do navegador ou faça upload do arquivo .json
@@ -463,7 +812,7 @@ export function ColetorNavegadorPanel({
                 <Textarea
                   value={jsonInput}
                   onChange={(e) => setJsonInput(e.target.value)}
-                  placeholder='Cole aqui o JSON gerado pelo coletor (começa com {"version": "1.0.0", "results": [...]})'
+                  placeholder='Cole aqui o JSON gerado pelo coletor (começa com {"version": "1.1.0", "results": [...]})'
                   rows={8}
                   className="font-mono text-xs bg-slate-50 border-slate-200 focus:bg-white resize-y"
                 />
@@ -471,7 +820,7 @@ export function ColetorNavegadorPanel({
 
               {previewError && (
                 <div className="p-3 bg-rose-50 border border-rose-200 rounded-md text-xs text-rose-800 flex items-start gap-2">
-                  <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
                   <div>
                     <strong>Formato Inválido:</strong> {previewError}
                   </div>
@@ -636,13 +985,17 @@ export function ColetorNavegadorPanel({
         <CardContent className="p-4 sm:p-5">
           {history.length === 0 ? (
             <div className="text-center py-8 text-slate-400 text-xs">
-              Nenhuma coleta realizada ainda. Execute o bookmarklet na busca do Mercado Livre para
-              iniciar!
+              Nenhuma coleta realizada ainda. Execute o Tampermonkey, Coletor Turbo ou Bookmarklet
+              na busca do Mercado Livre para iniciar!
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
               {history.map((item) => {
                 const isSelected = activeImportId === item.id
+                const originNote = (item.notes || '').toLowerCase()
+                const isAuto = originNote.includes('auto')
+                const isTurbo = originNote.includes('turbo')
+
                 return (
                   <div
                     key={item.id}
@@ -655,9 +1008,24 @@ export function ColetorNavegadorPanel({
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
-                        <span className="text-[10px] font-bold text-indigo-700 uppercase tracking-wide block">
-                          Termo de Busca
-                        </span>
+                        <div className="flex items-center gap-1.5 mb-1">
+                          {isAuto ? (
+                            <Badge className="bg-indigo-100 text-indigo-900 border-indigo-200 text-[9px] px-1.5 py-0 h-4 font-bold">
+                              ⚡ Automático (Tampermonkey)
+                            </Badge>
+                          ) : isTurbo ? (
+                            <Badge className="bg-amber-100 text-amber-900 border-amber-300 text-[9px] px-1.5 py-0 h-4 font-bold">
+                              ⚡ Turbo Multi-páginas
+                            </Badge>
+                          ) : (
+                            <Badge
+                              variant="outline"
+                              className="text-slate-600 text-[9px] px-1.5 py-0 h-4"
+                            >
+                              Manual
+                            </Badge>
+                          )}
+                        </div>
                         <h4 className="text-sm font-bold text-slate-900 truncate">
                           {item.search_term}
                         </h4>
