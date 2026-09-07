@@ -159,6 +159,201 @@ export interface ExactProductScoreResult {
   detectedMode?: ExactProductSearchMode
   isAccessory?: boolean
   isKitOrBundle?: boolean
+  isFamilyMatch?: boolean
+  matchedFamilyName?: string
+}
+
+// Mapa canônico de submarca -> marca mãe (bidirecional)
+export const SUBBRAND_TO_PARENT_BRAND: Record<string, string> = {
+  // Lenovo
+  thinkcentre: 'lenovo',
+  thinkpad: 'lenovo',
+  ideapad: 'lenovo',
+  legion: 'lenovo',
+  thinkstation: 'lenovo',
+  thinkbook: 'lenovo',
+  yoga: 'lenovo',
+
+  // Dell
+  optiplex: 'dell',
+  latitude: 'dell',
+  inspiron: 'dell',
+  vostro: 'dell',
+  precision: 'dell',
+  alienware: 'dell',
+  xps: 'dell',
+
+  // HP
+  prodesk: 'hp',
+  elitedesk: 'hp',
+  elitebook: 'hp',
+  probook: 'hp',
+  pavilion: 'hp',
+  omen: 'hp',
+  victus: 'hp',
+  zbook: 'hp',
+
+  // Apple
+  macbook: 'apple',
+  imac: 'apple',
+  mac: 'apple',
+
+  // Acer
+  aspire: 'acer',
+  predator: 'acer',
+  nitro: 'acer',
+
+  // Asus
+  rog: 'asus',
+  tuf: 'asus',
+  zenbook: 'asus',
+  vivobook: 'asus',
+}
+
+// Mapa de marca mãe -> conjunto de submarcas filhas (derivado automaticamente para consulta bidirecional)
+export const PARENT_BRAND_TO_SUBBRANDS: Record<string, string[]> = {}
+for (const [sub, parent] of Object.entries(SUBBRAND_TO_PARENT_BRAND)) {
+  if (!PARENT_BRAND_TO_SUBBRANDS[parent]) {
+    PARENT_BRAND_TO_SUBBRANDS[parent] = []
+  }
+  PARENT_BRAND_TO_SUBBRANDS[parent].push(sub)
+}
+
+/**
+ * Retorna todas as formas equivalentes de uma marca (marca mãe + todas suas submarcas)
+ * Ex: getBrandEquivalents("lenovo") -> ["lenovo", "thinkcentre", "thinkpad", "ideapad", "legion", ...]
+ * Ex: getBrandEquivalents("thinkcentre") -> ["lenovo", "thinkcentre", "thinkpad", "ideapad", ...]
+ */
+export function getBrandEquivalents(brandOrSubbrand: string): string[] {
+  const norm = removeAccents(brandOrSubbrand).toLowerCase().trim()
+  const parent = SUBBRAND_TO_PARENT_BRAND[norm] || norm
+  const subs = PARENT_BRAND_TO_SUBBRANDS[parent] || []
+  const set = new Set<string>([parent, ...subs, norm])
+  return Array.from(set)
+}
+
+/**
+ * Verifica se um token de marca buscado pelo usuário é satisfeito no texto do anúncio (título e/ou atributos)
+ * considerando o mapa canônico bidirecional de marcas/submarcas.
+ */
+export function matchesBrandEquivalents(
+  fullText: string,
+  fullCompact: string,
+  brandToken: string,
+): { matched: boolean; matchedTerm?: string } {
+  const equivalents = getBrandEquivalents(brandToken)
+  for (const eq of equivalents) {
+    if (matchesCatalogToken(fullText, fullCompact, eq)) {
+      return { matched: true, matchedTerm: eq }
+    }
+  }
+  return { matched: false }
+}
+
+// Definição de famílias térmicas / compatibilidade de componentes por família de modelo
+export interface HardwareModelFamily {
+  id: string
+  name: string
+  // Tokens que identificam membros dessa família
+  members: string[]
+  // Componentes para os quais essa família compartilha compatibilidade de montagem/peça
+  applicableComponents?: string[]
+}
+
+export const HARDWARE_MODEL_FAMILIES: HardwareModelFamily[] = [
+  {
+    id: 'thinkcentre_tiny_cooler_m700_m920',
+    name: 'ThinkCentre Tiny (M700-M920/P330)',
+    members: [
+      'm700',
+      'm800',
+      'm900',
+      'm910',
+      'm910q',
+      'm910x',
+      'm920',
+      'm920q',
+      'm920x',
+      'm710',
+      'm710q',
+      'm720',
+      'm720q',
+      'p330',
+      'p320',
+      'tiny',
+    ],
+    applicableComponents: ['cooler', 'dissipador', 'heatsink', 'fan', 'ventoinha'],
+  },
+  {
+    id: 'dell_optiplex_sff_psu_3020_9020',
+    name: 'Dell OptiPlex SFF (3020/7020/9020/T1700)',
+    members: ['3020', '7020', '9020', 't1700'],
+    applicableComponents: ['fonte', 'carregador', 'cooler', 'dissipador'],
+  },
+  {
+    id: 'hp_prodesk_elitedesk_g1_g2_sff',
+    name: 'HP ProDesk/EliteDesk 400/600/800 G1-G2',
+    members: ['400', '600', '800', 'g1', 'g2'],
+    applicableComponents: ['fonte', 'cooler', 'dissipador', 'fan'],
+  },
+]
+
+/**
+ * Encontra a família térmica/hardware à qual um dado token de modelo pertence.
+ */
+export function findHardwareFamily(
+  modelToken: string,
+  componentToken?: string,
+): HardwareModelFamily | undefined {
+  const normModel = removeAccents(modelToken).toLowerCase().trim()
+  const normComp = componentToken ? removeAccents(componentToken).toLowerCase().trim() : undefined
+
+  return HARDWARE_MODEL_FAMILIES.find((family) => {
+    // Se foi informado componente, confere se a família se aplica a esse componente
+    if (normComp && family.applicableComponents && family.applicableComponents.length > 0) {
+      const syns = getComponentSynonyms(normComp)
+      const matchesComp = family.applicableComponents.some(
+        (c) => syns.includes(c) || c === normComp,
+      )
+      if (!matchesComp) return false
+    }
+    return family.members.includes(normModel)
+  })
+}
+
+/**
+ * Avalia se o modelo procurado está presente diretamente OU satisfeito via irmão da mesma família de hardware.
+ */
+export function matchesModelOrFamily(
+  fullText: string,
+  fullCompact: string,
+  modelToken: string,
+  componentTokens?: string[],
+): { matched: boolean; matchedTerm?: string; isFamilyMatch: boolean; familyName?: string } {
+  // 1. Casamento direto do modelo
+  if (matchesCatalogToken(fullText, fullCompact, modelToken)) {
+    return { matched: true, matchedTerm: modelToken, isFamilyMatch: false }
+  }
+
+  // 2. Busca família correspondente
+  const compToken = componentTokens && componentTokens.length > 0 ? componentTokens[0] : undefined
+  const family = findHardwareFamily(modelToken, compToken)
+  if (family) {
+    // Procura por qualquer irmão da família presente no anúncio
+    for (const member of family.members) {
+      if (member === modelToken) continue
+      if (matchesCatalogToken(fullText, fullCompact, member)) {
+        return {
+          matched: true,
+          matchedTerm: member,
+          isFamilyMatch: true,
+          familyName: family.name,
+        }
+      }
+    }
+  }
+
+  return { matched: false, isFamilyMatch: false }
 }
 
 // Grupos canônicos de sinônimos de componentes de reposição e hardware.
@@ -588,6 +783,8 @@ export function evaluateExactProductMatch(
   searchQuery: string,
   attributes?: Array<{ id: string; name?: string; value_name?: string | null }>,
   forcedMode?: ExactProductSearchMode,
+  flatBrand?: string,
+  flatModel?: string,
 ): ExactProductScoreResult {
   const queryTokens = extractExactProductTokens(searchQuery)
   const effectiveMode = forcedMode || detectSearchMode(searchQuery)
@@ -603,6 +800,7 @@ export function evaluateExactProductMatch(
       detectedMode: effectiveMode,
       isAccessory: false,
       isKitOrBundle: isKit,
+      isFamilyMatch: false,
     }
   }
 
@@ -614,13 +812,18 @@ export function evaluateExactProductMatch(
   // Verificação de acessório
   const accessory = isAccessoryTitle(title, searchQuery)
 
-  // Atributos adicionais
+  // Atributos adicionais (suporta array attributes e campos planos flatBrand / flatModel)
   let extraAttrsText = ''
+  if (flatBrand) extraAttrsText += ' ' + flatBrand
+  if (flatModel) extraAttrsText += ' ' + flatModel
+
   if (Array.isArray(attributes)) {
     for (const attr of attributes) {
       if (
         attr.id === 'BRAND' ||
+        attr.id === 'MARCA' ||
         attr.id === 'MODEL' ||
+        attr.id === 'MODELO' ||
         attr.id === 'LINE' ||
         attr.id === 'PART_NUMBER'
       ) {
@@ -722,12 +925,27 @@ export function evaluateExactProductMatch(
     }
   }
 
-  // 2. Validar MODELOS
+  // 2. Validar MODELOS (com suporte a família de hardware/térmica)
   let missingModelCount = 0
+  let matchedViaFamily = false
+  let detectedFamilyName: string | undefined = undefined
+
   for (const mToken of modelTokens) {
-    const matches = matchesCatalogToken(fullTextToTest, fullCompactToTest, mToken)
-    if (matches) {
-      matchedTokens.push(mToken)
+    const modelCheck = matchesModelOrFamily(
+      fullTextToTest,
+      fullCompactToTest,
+      mToken,
+      componentTokens,
+    )
+    if (modelCheck.matched) {
+      matchedTokens.push(modelCheck.matchedTerm || mToken)
+      if (modelCheck.isFamilyMatch) {
+        matchedViaFamily = true
+        detectedFamilyName = modelCheck.familyName
+        reasons.push(
+          `Casamento por família de hardware: "${mToken}" compatível com "${modelCheck.matchedTerm}" (${modelCheck.familyName})`,
+        )
+      }
     } else {
       missingTokens.push(mToken)
       missingModelCount++
@@ -735,12 +953,19 @@ export function evaluateExactProductMatch(
     }
   }
 
-  // 3. Validar MARCAS
+  // 3. Validar MARCAS (com mapa canônico bidirecional de marcas/submarcas)
+  // Ex: "lenovo" aceita thinkcentre, thinkpad, ideapad, legion etc.
+  // Ex: "thinkcentre" aceita lenovo
   let missingBrandCount = 0
   for (const bToken of brandTokens) {
-    const matches = matchesCatalogToken(fullTextToTest, fullCompactToTest, bToken)
-    if (matches) {
-      matchedTokens.push(bToken)
+    const brandCheck = matchesBrandEquivalents(fullTextToTest, fullCompactToTest, bToken)
+    if (brandCheck.matched) {
+      matchedTokens.push(brandCheck.matchedTerm || bToken)
+      if (brandCheck.matchedTerm && brandCheck.matchedTerm !== bToken) {
+        reasons.push(
+          `Marca "${bToken}" satisfeita via submarca/equivalente "${brandCheck.matchedTerm}"`,
+        )
+      }
     } else {
       missingTokens.push(bToken)
       missingBrandCount++
@@ -817,6 +1042,8 @@ export function evaluateExactProductMatch(
     detectedMode: effectiveMode,
     isAccessory: accessory,
     isKitOrBundle: isKit,
+    isFamilyMatch: matchedViaFamily,
+    matchedFamilyName: detectedFamilyName,
   }
 }
 
@@ -978,6 +1205,30 @@ export function evaluateCatalogItemStrictMatch(
   for (const token of searchTokens) {
     // Normalização extra de tokens compostos por hífen (ex: "15-3576" -> "3576")
     let tokenMatches = matchesCatalogToken(fullTextToTest, fullCompactToTest, token)
+
+    // Se não casou diretamente, tenta equivalência de submarca/marca
+    if (!tokenMatches) {
+      const brandCheck = matchesBrandEquivalents(fullTextToTest, fullCompactToTest, token)
+      if (brandCheck.matched) {
+        tokenMatches = true
+      }
+    }
+
+    // Se não casou, tenta sinônimo de componente
+    if (!tokenMatches && HARDWARE_COMPONENTS.has(token)) {
+      const compCheck = matchesAnyComponentSynonym(fullTextToTest, fullCompactToTest, token)
+      if (compCheck.matched) {
+        tokenMatches = true
+      }
+    }
+
+    // Se não casou, tenta família de modelo
+    if (!tokenMatches) {
+      const famCheck = matchesModelOrFamily(fullTextToTest, fullCompactToTest, token)
+      if (famCheck.matched) {
+        tokenMatches = true
+      }
+    }
 
     // Se o token for por exemplo "15-3576" ou contiver partes, testa também as subpartes significativas
     if (!tokenMatches && token.includes('-')) {

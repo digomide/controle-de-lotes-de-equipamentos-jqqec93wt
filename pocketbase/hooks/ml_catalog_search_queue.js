@@ -772,6 +772,26 @@ onRecordAfterCreateSuccess((e) => {
   // Sanitização resiliente para o banco de dados (respeitando o teto de 1MB do SQLite/PocketBase)
   function sanitizeForDatabase(items, level) {
     return items.map(function (item) {
+      // Extrair campos essenciais planos (BRAND_VALUE, MODEL_VALUE, sold_quantity)
+      let brandVal = item.brand_value || ''
+      let modelVal = item.model_value || ''
+      if (Array.isArray(item.attributes)) {
+        for (let aIdx = 0; aIdx < item.attributes.length; aIdx++) {
+          const at = item.attributes[aIdx]
+          if (!at || !at.id) continue
+          const atIdUpper = String(at.id).toUpperCase()
+          if (!brandVal && (atIdUpper === 'BRAND' || atIdUpper === 'MARCA')) {
+            brandVal = String(at.value_name || at.value_id || '').trim()
+          }
+          if (
+            !modelVal &&
+            (atIdUpper === 'MODEL' || atIdUpper === 'MODELO' || atIdUpper === 'LINE')
+          ) {
+            modelVal = String(at.value_name || at.value_id || '').trim()
+          }
+        }
+      }
+
       const base = {
         id: item.id,
         catalog_product_id: item.catalog_product_id,
@@ -806,6 +826,12 @@ onRecordAfterCreateSuccess((e) => {
           item.sold_quantity != null && !isNaN(Number(item.sold_quantity))
             ? Number(item.sold_quantity)
             : null,
+      }
+      if (brandVal) {
+        base.brand_value = brandVal
+      }
+      if (modelVal) {
+        base.model_value = modelVal
       }
       if (item.condition_grade) {
         base.condition_grade = item.condition_grade

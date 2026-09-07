@@ -58,6 +58,8 @@ export interface SellerPerformanceAggregate {
     thumbnail: string
     catalogProductId?: string
     isKitOrBundle?: boolean
+    isFamilyMatch?: boolean
+    matchedFamilyName?: string
   }>
 }
 
@@ -98,6 +100,8 @@ export interface CatalogPositionAggregate {
     sellerNickname: string
     sellerId: string
     isOwnAccount: boolean
+    isFamilyMatch?: boolean
+    matchedFamilyName?: string
   }>
 }
 
@@ -179,6 +183,8 @@ export interface ExactProductSummary {
     sellerNickname: string
     isOwnAccount: boolean
     isKitOrBundle?: boolean
+    isFamilyMatch?: boolean
+    matchedFamilyName?: string
   }>
 }
 
@@ -225,6 +231,8 @@ export function aggregateSellersByExactProduct(
       cleanQuery,
       prod.attributes,
       activeBrain,
+      prod.brand_value,
+      prod.model_value,
     )
 
     let include = false
@@ -329,8 +337,11 @@ export function aggregateSellersByExactProduct(
   // Processar cada produto (separando kits/lotes das métricas de comparação)
   let kitsExcludedCount = 0
 
-  exactProducts.forEach(({ product }) => {
+  exactProducts.forEach(({ product, scoreResult }) => {
     const isKit = isKitOrBundleTitle(product.title || '')
+    const isFam = Boolean(scoreResult.isFamilyMatch)
+    const famName = scoreResult.matchedFamilyName
+
     if (isKit) {
       kitsExcludedCount++
     }
@@ -394,6 +405,8 @@ export function aggregateSellersByExactProduct(
           thumbnail: product.thumbnail,
           catalogProductId: product.catalog_product_id,
           isKitOrBundle: isKit,
+          isFamilyMatch: isFam,
+          matchedFamilyName: famName,
         })
       })
     } else {
@@ -453,6 +466,8 @@ export function aggregateSellersByExactProduct(
         thumbnail: product.thumbnail,
         catalogProductId: product.catalog_product_id,
         isKitOrBundle: isKit,
+        isFamilyMatch: isFam,
+        matchedFamilyName: famName,
       })
     }
   })
@@ -557,6 +572,8 @@ export function aggregateSellersByExactProduct(
           representativeCatProd?.product.buy_box_winner_seller_nickname || 'Oferta de Catálogo',
         sellerId: representativeCatProd?.product.buy_box_winner_seller_id || '',
         isOwnAccount: false,
+        isFamilyMatch: a.isFamilyMatch,
+        matchedFamilyName: a.matchedFamilyName,
       })),
     }
   } else if (representativeCatProd && exactProducts.length >= 2) {

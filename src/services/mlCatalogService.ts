@@ -49,6 +49,8 @@ export interface MLCatalogProduct {
   is_own_account?: boolean
   own_ad_id?: string
   sold_quantity?: number | null
+  brand_value?: string
+  model_value?: string
   attributes?: Array<{
     id: string
     name: string

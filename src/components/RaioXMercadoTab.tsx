@@ -1232,6 +1232,19 @@ export function RaioXMercadoTab() {
                                   📦 Kit / Lote
                                 </Badge>
                               )}
+                              {ad.isFamilyMatch && (
+                                <Badge
+                                  variant="outline"
+                                  className="bg-cyan-50 text-cyan-800 border-cyan-300 text-[9px] font-bold px-1.5 py-0 h-4"
+                                  title={
+                                    ad.matchedFamilyName
+                                      ? `Compatível com a família ${ad.matchedFamilyName}`
+                                      : 'Casamento por família compatível'
+                                  }
+                                >
+                                  ⚡ Casamento por Família
+                                </Badge>
+                              )}
                             </div>
                             <div className="flex items-center gap-2.5 text-[11px] text-slate-500 font-mono flex-wrap pt-0.5">
                               <span>
@@ -1554,6 +1567,19 @@ export function RaioXMercadoTab() {
                                             className="bg-amber-50 text-amber-800 border-amber-300 text-[9px] font-bold px-1.5 py-0 h-4"
                                           >
                                             📦 Kit / Lote
+                                          </Badge>
+                                        )}
+                                        {ad.isFamilyMatch && (
+                                          <Badge
+                                            variant="outline"
+                                            className="bg-cyan-50 text-cyan-800 border-cyan-300 text-[9px] font-bold px-1.5 py-0 h-4"
+                                            title={
+                                              ad.matchedFamilyName
+                                                ? `Compatível com a família ${ad.matchedFamilyName}`
+                                                : 'Casamento por família compatível'
+                                            }
+                                          >
+                                            ⚡ Casamento por Família
                                           </Badge>
                                         )}
                                       </div>
