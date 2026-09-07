@@ -340,16 +340,21 @@ export function getBookmarkletScript(): string {
  * e exibe modal completo com Copiar JSON, Baixar .json e Enviar Diretamente ao App via endpoint.
  */
 export function getTurboBookmarkletScript(options: {
-  appUrl: string
+  appUrl?: string
+  backendUrl?: string
   collectorKey: string
 }): string {
+  // O endpoint de ingestão fica no backend PocketBase (VITE_POCKETBASE_URL / pb.baseUrl),
+  // e não no frontend estático (*.goskip.app), para evitar rejeição com HTTP 405 Method Not Allowed.
+  const targetBackendUrl = (options.backendUrl || options.appUrl || '').replace(/\/+$/, '')
+
   const code = `
 (function() {
   try {
     const existingModal = document.getElementById('ml-collector-turbo-overlay');
     if (existingModal) existingModal.remove();
 
-    const APP_URL = ${JSON.stringify(options.appUrl.replace(/\/+$/, ''))};
+    const BACKEND_URL = ${JSON.stringify(targetBackendUrl)};
     const COLLECTOR_KEY = ${JSON.stringify(options.collectorKey || '')};
     const MAX_PAGES = 20;
     const PAGE_DELAY_MS = 1400;
@@ -757,7 +762,7 @@ export function getTurboBookmarkletScript(options: {
         feedback.textContent = 'Enviando… ' + itemsArray.length + ' itens ao app...';
 
         try {
-          const endpoint = APP_URL + '/api/ml-collector/ingest';
+          const endpoint = BACKEND_URL + '/api/ml-collector/ingest';
           const resp = await fetch(endpoint, {
             method: 'POST',
             mode: 'cors',
@@ -774,7 +779,7 @@ export function getTurboBookmarkletScript(options: {
           });
 
           if (resp.status === 401 || resp.status === 403) {
-            throw new Error('Chave recusada pelo servidor (HTTP ' + resp.status + ')');
+            throw new Error('Chave recusada (HTTP ' + resp.status + ')');
           }
 
           const data = await resp.json().catch(() => ({}));
@@ -795,7 +800,7 @@ export function getTurboBookmarkletScript(options: {
 
           let failMsg = postErr.message || 'Erro de rede';
           if (failMsg.includes('Failed to fetch') || failMsg.includes('NetworkError')) {
-            failMsg = 'Erro de rede — certifique-se de que a URL do app está acessível';
+            failMsg = 'Erro de rede — certifique-se de que a URL do backend PocketBase está acessível';
           }
           feedback.textContent = '✗ ' + failMsg + '. Você também pode usar "Copiar JSON" e colar diretamente no app.';
           sendBtn.disabled = false;
@@ -821,28 +826,40 @@ export function getTurboBookmarkletScript(options: {
  * O usuário instala uma única vez e o script monitora automaticamente qualquer busca do ML.
  */
 export function getTampermonkeyUserscript(options: {
-  appUrl: string
+  appUrl?: string
+  backendUrl?: string
   collectorKey: string
 }): string {
-  const cleanAppUrl = options.appUrl.replace(/\/+$/, '')
+  // O endpoint de ingestão fica no backend PocketBase (VITE_POCKETBASE_URL),
+  // e não no frontend estático (*.goskip.app), para evitar rejeição com HTTP 405 Method Not Allowed.
+  const cleanBackendUrl = (options.backendUrl || options.appUrl || '').replace(/\/+$/, '')
+  const cleanAppUrl = (options.appUrl || '').replace(/\/+$/, '')
   const collectorKey = options.collectorKey || ''
 
-  // Extrai o hostname da URL do app para incluir no @connect se for válido
-  let parsedHost = ''
-  try {
-    parsedHost = new URL(cleanAppUrl).hostname
-  } catch {
-    /* intentionally ignored */
-  }
-
-  // Monta lista de domínios @connect: fixos do app (preview e produção) + host dinâmico se houver + wildcard de fallback
+  // Monta lista de domínios @connect:
+  // 1. Hosts fixos do app (preview e produção)
+  // 2. Host do backend PocketBase (se fornecido)
+  // 3. Host do app (se fornecido)
+  // 4. Wildcard de fallback para extensões e outros subdomínios PocketBase
   const connectDomains = new Set<string>([
     'controle-de-lotes-de-equipamentos-25024--preview.goskip.app',
     'controle-de-lotes-de-equipamentos-25024.goskip.app',
   ])
-  if (parsedHost) {
-    connectDomains.add(parsedHost)
+
+  function addHostFromUrl(rawUrl: string) {
+    if (!rawUrl) return
+    try {
+      const parsed = new URL(rawUrl)
+      if (parsed.hostname) {
+        connectDomains.add(parsed.hostname)
+      }
+    } catch {
+      /* intentionally ignored */
+    }
   }
+
+  addHostFromUrl(cleanBackendUrl)
+  addHostFromUrl(cleanAppUrl)
 
   const connectDirectives = Array.from(connectDomains)
     .map((domain) => `// @connect      ${domain}`)
@@ -851,7 +868,7 @@ export function getTampermonkeyUserscript(options: {
   return `// ==UserScript==
 // @name         Coletor Automático Mercado Livre · Lotes & Raio-X
 // @namespace    https://controle-de-lotes.app/
-// @version      1.2.0
+// @version      1.3.0
 // @description  Captura automaticamente contadores públicos de vendas e anúncios no Mercado Livre e envia ao app de Lotes
 // @author       Controle de Lotes de Equipamentos
 // @match        *://lista.mercadolivre.com.br/*
@@ -870,7 +887,8 @@ ${connectDirectives}
 
   // Configuração do Coletor Automático
   const CONFIG = {
-    appUrl: ${JSON.stringify(cleanAppUrl)},
+    backendUrl: ${JSON.stringify(cleanBackendUrl)},
+    appUrl: ${JSON.stringify(cleanAppUrl || cleanBackendUrl)},
     collectorKey: ${JSON.stringify(collectorKey)},
     debounceDelayMs: 12000, // Envio em lote 12s após última página/scroll
     storageKeyPrefix: 'ml_auto_collector_'
@@ -1219,7 +1237,7 @@ ${connectDirectives}
       results: itemsArray
     };
 
-    const endpoint = CONFIG.appUrl + '/api/ml-collector/ingest';
+    const endpoint = (CONFIG.backendUrl || CONFIG.appUrl) + '/api/ml-collector/ingest';
     const bodyStr = JSON.stringify({
       search_term: currentSearchTerm,
       source_url: window.location.href,
@@ -1253,7 +1271,9 @@ ${connectDirectives}
       if (reasonType === 'blocked') {
         msg = '✗ Envio bloqueado pelo Tampermonkey — autorize o domínio';
       } else if (reasonType === 'auth') {
-        msg = '✗ Chave recusada pelo servidor (HTTP ' + (detail || '401/403') + ')';
+        msg = '✗ Chave recusada (' + (detail || '401/403') + ')';
+      } else if (reasonType === 'method_not_allowed') {
+        msg = '✗ HTTP 405: URL aponta para frontend estático em vez do backend PocketBase';
       } else if (reasonType === 'timeout') {
         msg = '✗ Timeout no envio — Tampermonkey aguardando autorização';
       } else if (reasonType === 'server') {
@@ -1292,6 +1312,8 @@ ${connectDirectives}
               handleSuccess();
             } else if (response.status === 401 || response.status === 403) {
               handleFailure('auth', response.status);
+            } else if (response.status === 405) {
+              handleFailure('method_not_allowed', response.status);
             } else {
               handleFailure('server', response.status);
             }
@@ -1325,6 +1347,10 @@ ${connectDirectives}
       .then(r => {
         if (r.status === 401 || r.status === 403) {
           handleFailure('auth', r.status);
+          return null;
+        }
+        if (r.status === 405) {
+          handleFailure('method_not_allowed', r.status);
           return null;
         }
         if (!r.ok) {

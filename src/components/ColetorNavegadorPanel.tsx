@@ -35,7 +35,7 @@ import {
   type MLCollectorPayload,
 } from '@/lib/mlBookmarklet'
 import { mlCollectorService, type MLCollectorImportRecord } from '@/services/mlCollectorService'
-import pb from '@/lib/pocketbase/client'
+import pb, { getPocketBaseUrl } from '@/lib/pocketbase/client'
 
 interface ColetorNavegadorPanelProps {
   initialSearchTerm?: string
@@ -48,9 +48,11 @@ export function ColetorNavegadorPanel({
 }: ColetorNavegadorPanelProps) {
   const { toast } = useToast()
 
-  // Chave de coleta e URL do app para integração automática
+  // Chave de coleta e URL do backend PocketBase (para evitar erro HTTP 405 ao dar POST em frontend estático)
   const [collectorKey, setCollectorKey] = useState('')
-  const [appUrl, setAppUrl] = useState(() => {
+  const [backendUrl, setBackendUrl] = useState(() => {
+    const pbUrl = getPocketBaseUrl()
+    if (pbUrl) return pbUrl
     if (typeof window !== 'undefined') {
       return window.location.origin
     }
@@ -64,10 +66,19 @@ export function ColetorNavegadorPanel({
     'tampermonkey',
   )
 
-  // Scripts gerados dinamicamente
+  // Scripts gerados dinamicamente apontando para o backend PocketBase (onde roda o hook /api/ml-collector/ingest)
   const manualScript = getBookmarkletScript()
-  const turboScript = getTurboBookmarkletScript({ appUrl, collectorKey })
-  const tampermonkeyScript = getTampermonkeyUserscript({ appUrl, collectorKey })
+  const currentAppOrigin = typeof window !== 'undefined' ? window.location.origin : ''
+  const turboScript = getTurboBookmarkletScript({
+    backendUrl,
+    appUrl: currentAppOrigin,
+    collectorKey,
+  })
+  const tampermonkeyScript = getTampermonkeyUserscript({
+    backendUrl,
+    appUrl: currentAppOrigin,
+    collectorKey,
+  })
 
   const [copiedManual, setCopiedManual] = useState(false)
   const [copiedTurbo, setCopiedTurbo] = useState(false)
@@ -371,28 +382,32 @@ export function ColetorNavegadorPanel({
               <div className="text-[10px] text-slate-400 flex items-center gap-1">
                 <Globe className="w-3 h-3 text-indigo-400" />
                 <span>Endpoint Ingestão: </span>
-                <span className="font-mono text-slate-300">/api/ml-collector/ingest</span>
+                <span className="font-mono text-slate-300">
+                  {backendUrl
+                    ? `${backendUrl.replace(/\/+$/, '')}/api/ml-collector/ingest`
+                    : '/api/ml-collector/ingest'}
+                </span>
               </div>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Configuração de URL do App (se customizada) */}
+      {/* Configuração de URL do Backend PocketBase */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs">
         <div className="flex items-center gap-2 text-slate-600">
           <Globe className="w-4 h-4 text-indigo-600 shrink-0" />
           <span>
-            <strong>URL do App para os Scripts:</strong> Usada para os coletores enviarem os dados
-            diretamente ao backend deste app.
+            <strong>URL do Backend PocketBase:</strong> Usada pelos scripts para enviar os dados via
+            POST direto ao hook de ingestão (evita HTTP 405 de servidor estático).
           </span>
         </div>
         <div className="flex items-center gap-2 w-full sm:w-auto">
           <Input
-            value={appUrl}
-            onChange={(e) => setAppUrl(e.target.value.trim())}
-            placeholder="https://sua-url-do-app"
-            className="h-8 text-xs font-mono w-full sm:w-72 bg-white"
+            value={backendUrl}
+            onChange={(e) => setBackendUrl(e.target.value.trim())}
+            placeholder="https://sua-instancia-pocketbase"
+            className="h-8 text-xs font-mono w-full sm:w-80 bg-white"
           />
         </div>
       </div>
