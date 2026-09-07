@@ -102,7 +102,9 @@ export function RawPositionsDrawer({
 
       // Motivo exato da rejeição gerado por evaluateExactProductMatch
       const rejectionReason =
-        scoreResult.rejectionReason || 'Fora dos critérios taxonômicos do produto'
+        (scoreResult.reasons && scoreResult.reasons.length > 0
+          ? scoreResult.reasons.join(' · ')
+          : '') || 'Fora dos critérios taxonômicos do produto'
 
       return {
         product: prod,
