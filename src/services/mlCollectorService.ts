@@ -156,7 +156,7 @@ export const mlCollectorService = {
         .collection('ml_collector_imports')
         .getList<MLCollectorImportRecord>(1, 1, {
           filter: `search_term = "${term}"`,
-          sort: '-imported_at,-created',
+          sort: '-imported_at',
         })
 
       if (records && records.items && records.items.length > 0) {
@@ -177,7 +177,7 @@ export const mlCollectorService = {
       const records = await pb
         .collection('ml_collector_imports')
         .getList<MLCollectorImportRecord>(1, limit, {
-          sort: '-imported_at,-created',
+          sort: '-imported_at',
         })
       return records.items || []
     } catch (err) {
@@ -207,7 +207,6 @@ export const mlCollectorService = {
       const filter = userId ? `user_id = "${userId}" && active = true` : 'active = true'
       const records = await pb.collection('ml_collector_keys').getList<MLCollectorKeyRecord>(1, 1, {
         filter,
-        sort: '-created',
       })
 
       if (records.items && records.items.length > 0) {

@@ -90,7 +90,7 @@ routerAdd('POST', '/api/ml-collector/ingest', (e) => {
       const records = $app.findRecordsByFilter(
         'ml_collector_keys',
         "key = '" + collectorKey.replace(/'/g, "\\'") + "' && active = true",
-        '-created',
+        '',
         1,
         0,
       )
