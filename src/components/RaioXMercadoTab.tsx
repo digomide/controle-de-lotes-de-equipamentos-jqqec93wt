@@ -54,7 +54,8 @@ import {
   positionOverridesService,
   type PositionOverrideAction,
 } from '@/services/positionOverridesService'
-import { mlCollectorService } from '@/services/mlCollectorService'
+import { mlCollectorService, type CollectorSummaryReport } from '@/services/mlCollectorService'
+import { PodioVendasCollector } from '@/components/PodioVendasCollector'
 
 interface RaioXMercadoTabProps {
   onOpenCollector?: (term?: string) => void
@@ -95,6 +96,8 @@ export function RaioXMercadoTab({ onOpenCollector }: RaioXMercadoTabProps = {}) 
     withSalesCount: number
     collectorSource?: string
   } | null>(null)
+  const [collectorReport, setCollectorReport] = useState<CollectorSummaryReport | null>(null)
+  const [loadingCollectorReport, setLoadingCollectorReport] = useState(false)
 
   // Controle de Escopo do Raio-X
   const [scopeMode, setScopeMode] = useState<RaioXScopeMode>('exact')
@@ -127,24 +130,26 @@ export function RaioXMercadoTab({ onOpenCollector }: RaioXMercadoTabProps = {}) 
     loadSnapshots()
   }, [])
 
-  // Carregar overrides e coletas do navegador quando a query ativa mudar
+  // Carregar overrides e coletas do navegador quando a query ativa ou a busca inicial mudar
   useEffect(() => {
-    if (!activeQuery) {
+    const queryToUse = activeQuery || searchTerm.trim()
+    if (!queryToUse) {
       setOverrides({})
       setCollectorSalesMap(new Map())
       setCollectorMeta(null)
+      setCollectorReport(null)
       return
     }
     async function loadOverridesAndCollector() {
       try {
-        const map = await positionOverridesService.getOverridesForTerm(activeQuery)
+        const map = await positionOverridesService.getOverridesForTerm(queryToUse)
         setOverrides(map)
       } catch (err) {
         console.warn('Erro ao carregar overrides:', err)
       }
 
       try {
-        const latestImport = await mlCollectorService.getLatestImportForTerm(activeQuery)
+        const latestImport = await mlCollectorService.getLatestImportForTerm(queryToUse)
         if (latestImport && latestImport.payload?.results) {
           const sMap = new Map<string, number>()
           latestImport.payload.results.forEach((item) => {
@@ -168,9 +173,25 @@ export function RaioXMercadoTab({ onOpenCollector }: RaioXMercadoTabProps = {}) 
       } catch (err) {
         console.warn('Erro ao carregar coletas do navegador:', err)
       }
+
+      // Carregar relatório consolidado e deduplicado para o Pódio de Vendas
+      try {
+        setLoadingCollectorReport(true)
+        const report = await mlCollectorService.getCollectorSummaryReport(queryToUse)
+        if (report && report.ok && report.total_deduplicated_ads > 0) {
+          setCollectorReport(report)
+        } else {
+          setCollectorReport(null)
+        }
+      } catch (err) {
+        console.warn('Erro ao gerar relatório do Pódio de Vendas:', err)
+        setCollectorReport(null)
+      } finally {
+        setLoadingCollectorReport(false)
+      }
     }
     loadOverridesAndCollector()
-  }, [activeQuery])
+  }, [activeQuery, searchTerm])
 
   // Interromper busca
   async function handleStop() {
@@ -522,24 +543,55 @@ export function RaioXMercadoTab({ onOpenCollector }: RaioXMercadoTabProps = {}) 
         </CardContent>
       </Card>
 
-      {/* Estado Vazio */}
-      {!summary && !loading && (
-        <Card className="border-dashed border-slate-300 shadow-none bg-slate-50/60">
-          <CardContent className="p-16 text-center space-y-3">
-            <div className="w-12 h-12 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center mx-auto">
-              <Flame className="w-6 h-6 text-amber-500" />
+      {/* PÓDIO DE VENDAS REAIS (quando já temos coletas gravadas para o termo mesmo antes de rodar o Raio-X ou durante) */}
+      {!summary && !loading && collectorReport && collectorReport.total_deduplicated_ads > 0 && (
+        <div className="space-y-4">
+          <div className="p-3 bg-amber-500/10 border border-amber-300 rounded-lg text-xs text-amber-900 flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-2">
+              <Trophy className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>
+                Exibindo dados reais já coletados pelo <strong>Coletor do Navegador</strong> para
+                &quot;{activeQuery || searchTerm}&quot;. Clique em{' '}
+                <strong>&quot;Analisar Mercado Global&quot;</strong> acima para cruzar com a API ao
+                vivo do Mercado Livre.
+              </span>
             </div>
-            <h3 className="font-bold text-slate-900 text-base">
-              Nenhuma análise de produto exato carregada
-            </h3>
-            <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
-              Digite acima o produto desejado (ex.: &quot;fonte desktop dell 3020&quot;). O sistema
-              fará a busca no ML, aplicará o filtro de similaridade rigorosa e montará o{' '}
-              <strong>Termômetro de Vendas por Seller</strong>.
-            </p>
-          </CardContent>
-        </Card>
+            <Button
+              size="sm"
+              onClick={() => runAnalysis(activeQuery || searchTerm, false)}
+              className="h-7 text-xs bg-amber-600 hover:bg-amber-700 text-white shrink-0 font-bold"
+            >
+              Analisar Catálogo ML
+            </Button>
+          </div>
+          <PodioVendasCollector
+            report={collectorReport}
+            onOpenCollector={() => onOpenCollector && onOpenCollector(activeQuery || searchTerm)}
+          />
+        </div>
       )}
+
+      {/* Estado Vazio (sem resumo e sem coleta do navegador) */}
+      {!summary &&
+        !loading &&
+        (!collectorReport || collectorReport.total_deduplicated_ads === 0) && (
+          <Card className="border-dashed border-slate-300 shadow-none bg-slate-50/60">
+            <CardContent className="p-16 text-center space-y-3">
+              <div className="w-12 h-12 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center mx-auto">
+                <Flame className="w-6 h-6 text-amber-500" />
+              </div>
+              <h3 className="font-bold text-slate-900 text-base">
+                Nenhuma análise de produto exato carregada
+              </h3>
+              <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+                Digite acima o produto desejado (ex.: &quot;fonte desktop dell 3020&quot;). O
+                sistema fará a busca no ML, aplicará o filtro de similaridade rigorosa e montará o{' '}
+                <strong>Termômetro de Vendas por Seller</strong>. Se houver coletas salvas do
+                Coletor do Navegador, o <strong>Pódio de Vendas</strong> aparecerá em destaque.
+              </p>
+            </CardContent>
+          </Card>
+        )}
 
       {/* CONTEÚDO PRINCIPAL: SÍNTESE GLOBAL DO PRODUTO + GAVETA DE ANÚNCIOS + GAVETA DE SELLERS */}
       {summary && (
@@ -702,6 +754,16 @@ export function RaioXMercadoTab({ onOpenCollector }: RaioXMercadoTabProps = {}) 
               )}
             </CardContent>
           </Card>
+
+          {/* PÓDIO DE VENDAS REAIS (COLETOR DO NAVEGADOR) */}
+          {collectorReport && collectorReport.total_deduplicated_ads > 0 && (
+            <div className="space-y-2">
+              <PodioVendasCollector
+                report={collectorReport}
+                onOpenCollector={() => onOpenCollector && onOpenCollector(activeQuery)}
+              />
+            </div>
+          )}
 
           {/* 1. PAINEL PRINCIPAL: SÍNTESE GLOBAL DO PRODUTO */}
           <Card className="border-indigo-100 bg-gradient-to-br from-indigo-50/70 via-white to-slate-50 shadow-sm">

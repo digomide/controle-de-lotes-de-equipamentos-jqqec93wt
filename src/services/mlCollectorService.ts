@@ -227,6 +227,25 @@ export const mlCollectorService = {
         }
         return item
       }
+
+      // 3. Tentar pelo primeiro token significativo (ex: "memoria") caso termo tenha mais de uma palavra
+      const tokens = term.split(/\s+/).filter((t) => t.length >= 3)
+      if (tokens.length > 1) {
+        const tokenFilter = tokens.map((t) => `search_term ~ "${t}"`).join(' || ')
+        records = await pb
+          .collection('ml_collector_imports')
+          .getList<MLCollectorImportRecord>(1, 1, {
+            filter: tokenFilter,
+            sort: '-imported_at',
+          })
+        if (records && records.items && records.items.length > 0) {
+          const item = records.items[0]
+          if (item.payload) {
+            item.payload = this.decodePayload(item.payload) || item.payload
+          }
+          return item
+        }
+      }
     } catch (err) {
       console.warn('[mlCollectorService] Erro ao buscar coleta por termo:', err)
     }
@@ -368,13 +387,27 @@ export const mlCollectorService = {
 
     // 2. Fallback de agregação client-side
     try {
-      // Buscar até 30 registros que contenham o termo
-      const records = await pb
+      // Buscar até 50 registros que contenham o termo ou tokens significativos
+      let records = await pb
         .collection('ml_collector_imports')
-        .getList<MLCollectorImportRecord>(1, 30, {
+        .getList<MLCollectorImportRecord>(1, 50, {
           filter: `search_term ~ "${term}"`,
           sort: '-imported_at',
         })
+
+      if (!records || !records.items || records.items.length === 0) {
+        // Tentar por tokens caso o termo composto não tenha retorno direto
+        const tokens = term.split(/\s+/).filter((t) => t.length >= 3)
+        if (tokens.length > 0) {
+          const tokenFilter = tokens.map((t) => `search_term ~ "${t}"`).join(' || ')
+          records = await pb
+            .collection('ml_collector_imports')
+            .getList<MLCollectorImportRecord>(1, 50, {
+              filter: tokenFilter,
+              sort: '-imported_at',
+            })
+        }
+      }
 
       if (!records || !records.items || records.items.length === 0) {
         return null
@@ -404,8 +437,12 @@ export const mlCollectorService = {
         for (let i = 0; i < items.length; i++) {
           const it = items[i]
           const adId = (it.mlb_id || it.id || `ITEM_${i}`).trim()
-          const soldQty = it.sold_quantity != null ? Number(it.sold_quantity) : null
-          const price = it.price != null ? Number(it.price) : undefined
+          // Regra de Ouro da Tarefa: nunca inventar números; sem sold_quantity explícito (> 0 e número) não entra como vendido
+          const soldQty =
+            it.sold_quantity != null && !isNaN(Number(it.sold_quantity))
+              ? Number(it.sold_quantity)
+              : null
+          const price = it.price != null && !isNaN(Number(it.price)) ? Number(it.price) : undefined
           const title = (it.title || '').trim()
           const seller = (it.seller_name || '').trim()
           const permalink = (it.permalink || '').trim()
@@ -429,11 +466,14 @@ export const mlCollectorService = {
               condition,
             })
           } else {
+            // Deduplicação por mlb_id mantendo SEMPRE a MAIOR sold_quantity observada
             const exist = deduplicatedAds.get(adId)!
-            if (soldQty != null && (exist.sold_quantity == null || soldQty > exist.sold_quantity)) {
-              exist.sold_quantity = soldQty
+            if (soldQty != null) {
+              if (exist.sold_quantity == null || soldQty > exist.sold_quantity) {
+                exist.sold_quantity = soldQty
+              }
             }
-            if (!exist.price && price) exist.price = price
+            if ((!exist.price || exist.price <= 0) && price && price > 0) exist.price = price
             if (!exist.seller_name && seller) exist.seller_name = seller
             if (!exist.permalink && permalink) exist.permalink = permalink
             if (!exist.title && title) exist.title = title
@@ -485,10 +525,10 @@ export const mlCollectorService = {
       >()
 
       for (const itemA of adsWithSales) {
-        const ddrMatch = itemA.title.match(/\b(ddr\s*[2345]|pc\s*[2345])\b/i)
-        const capMatch = itemA.title.match(/\b(\d+)\s*(?:gb|gigas?)\b/i)
+        const ddrMatch = itemA.title.match(/\b(ddr\s*[2345]|pc\s*[2345]|sodimm|dimm)\b/i)
+        const capMatch = itemA.title.match(/\b(\d+)\s*(?:gb|gigas?|tb)\b/i)
         const mhzMatch = itemA.title.match(
-          /\b(1333|1600|2133|2400|2666|3200|4800|5600)\s*(?:mhz)?\b/i,
+          /\b(1066|1333|1600|1866|2133|2400|2666|2933|3200|3600|4800|5200|5600)\s*(?:mhz)?\b/i,
         )
 
         let specKey = 'Outras'
@@ -497,6 +537,12 @@ export const mlCollectorService = {
           const cap = capMatch ? capMatch[1] + 'GB' : ''
           const mhz = mhzMatch ? ' ' + mhzMatch[1] + 'MHz' : ''
           specKey = `${ddr} ${cap}${mhz}`.trim()
+        } else {
+          // Tentar capturar modelos ou termos (ex: SFF, Desktop, Notebook, Mini)
+          const formMatch = itemA.title.match(/\b(sff|tiny|mini|desktop|notebook|ultrabook)\b/i)
+          if (formMatch) {
+            specKey = formMatch[1].toUpperCase()
+          }
         }
 
         if (!specMap.has(specKey)) {

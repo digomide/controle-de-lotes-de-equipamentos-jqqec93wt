@@ -86,46 +86,45 @@ export function PodioVendasCollector({ report, onOpenCollector }: PodioVendasCol
         {/* BLOCO 1: CARDS SÍNTESE DE PREÇO & VENDAS (MÉDIA PONDERADA, SIMPLES, MEDIANA) */}
         <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-5 gap-3">
           {/* Preço Médio Ponderado por Vendas */}
-          <div className="p-3.5 bg-gradient-to-br from-emerald-500/10 to-white rounded-xl border border-emerald-300/80 shadow-2xs space-y-1 col-span-2 sm:col-span-1">
+          <div className="p-3.5 bg-gradient-to-br from-emerald-500/15 via-emerald-50/50 to-white rounded-xl border-2 border-emerald-400 shadow-2xs space-y-1 col-span-2 sm:col-span-1">
             <span className="text-[10px] font-bold uppercase text-emerald-800 flex items-center gap-1">
-              <DollarSign className="w-3 h-3 text-emerald-600" /> Preço Médio de Venda
+              <DollarSign className="w-3.5 h-3.5 text-emerald-600" /> Preço Médio de Venda
             </span>
             <div className="flex items-baseline gap-1 mt-0.5">
               <span className="text-2xl font-black font-mono text-emerald-950">
-                {report.weighted_avg_price.toLocaleString('pt-BR', {
+                {(report.weighted_avg_price || 0).toLocaleString('pt-BR', {
                   style: 'currency',
                   currency: 'BRL',
                 })}
               </span>
             </div>
             <div className="flex items-center gap-1">
-              <Badge className="bg-emerald-600 text-white text-[9px] px-1 py-0 h-4 font-bold">
+              <Badge className="bg-emerald-600 text-white text-[9px] px-1.5 py-0 h-4 font-bold">
                 Ponderado
               </Badge>
-              <span className="text-[10px] text-emerald-800 leading-tight">
+              <span className="text-[10px] text-emerald-800 font-semibold leading-tight">
                 (Total R$ / Unidades)
               </span>
             </div>
-            <p className="text-[10px] text-slate-500 leading-tight pt-1">
+            <p className="text-[10px] text-slate-600 leading-tight pt-1">
               Preço real que o cliente efetivamente paga pelas unidades vendidas.
             </p>
           </div>
-
           {/* Média Simples vs Mediana dos Anúncios com Vendas */}
           <div className="p-3.5 bg-white rounded-xl border border-slate-200 shadow-2xs space-y-1">
-            <span className="text-[10px] font-bold uppercase text-slate-400 flex items-center gap-1">
-              <TrendingUp className="w-3 h-3 text-indigo-500" /> Média Simples
+            <span className="text-[10px] font-bold uppercase text-slate-500 flex items-center gap-1">
+              <TrendingUp className="w-3.5 h-3.5 text-indigo-500" /> Média Simples
             </span>
             <span className="text-xl font-black font-mono text-slate-900 block mt-0.5">
-              {report.simple_avg_price.toLocaleString('pt-BR', {
+              {(report.simple_avg_price || 0).toLocaleString('pt-BR', {
                 style: 'currency',
                 currency: 'BRL',
               })}
             </span>
-            <span className="text-[10px] text-slate-500 font-mono block">
+            <span className="text-[11px] text-slate-600 font-mono block">
               Mediana:{' '}
-              <strong>
-                {report.median_price.toLocaleString('pt-BR', {
+              <strong className="text-slate-900">
+                {(report.median_price || 0).toLocaleString('pt-BR', {
                   style: 'currency',
                   currency: 'BRL',
                 })}
@@ -135,35 +134,39 @@ export function PodioVendasCollector({ report, onOpenCollector }: PodioVendasCol
               Calculada sobre {report.ads_with_sales_count} anúncios c/ venda
             </span>
           </div>
-
           {/* Total de Unidades Vendidas */}
-          <div className="p-3.5 bg-white rounded-xl border border-slate-200 shadow-2xs space-y-1">
-            <span className="text-[10px] font-bold uppercase text-slate-400 flex items-center gap-1">
-              <Flame className="w-3 h-3 text-amber-500" /> Volume Vendido
+          <div className="p-3.5 bg-white rounded-xl border border-amber-200 shadow-2xs space-y-1">
+            <span className="text-[10px] font-bold uppercase text-amber-800 flex items-center gap-1">
+              <Flame className="w-3.5 h-3.5 text-amber-500" /> Volume Vendido
             </span>
             <span className="text-2xl font-black font-mono text-amber-700 block mt-0.5">
-              {report.total_sold_units.toLocaleString('pt-BR')} un.
+              {(report.total_sold_units || 0).toLocaleString('pt-BR')} un.
             </span>
             <span className="text-[10px] text-slate-500 block">Soma auditada das vendas</span>
-            <span className="text-[10px] text-emerald-700 font-semibold block">
+            <span className="text-[10px] text-emerald-700 font-bold block">
               {report.ads_with_sales_count} anúncios c/ vendas
             </span>
           </div>
-
           {/* Faixa de Preço dos que Vendem */}
           <div className="p-3.5 bg-white rounded-xl border border-slate-200 shadow-2xs space-y-1">
-            <span className="text-[10px] font-bold uppercase text-slate-400 flex items-center gap-1">
-              <ShoppingBag className="w-3 h-3 text-purple-500" /> Faixa de Preço (Vendas)
+            <span className="text-[10px] font-bold uppercase text-purple-900 flex items-center gap-1">
+              <ShoppingBag className="w-3.5 h-3.5 text-purple-600" /> Faixa de Preço (Vendas)
             </span>
-            <span className="text-lg font-black font-mono text-purple-900 block mt-0.5">
-              {report.min_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+            <span className="text-lg font-black font-mono text-purple-950 block mt-0.5">
+              {(report.min_price || 0).toLocaleString('pt-BR', {
+                style: 'currency',
+                currency: 'BRL',
+              })}
             </span>
-            <span className="text-[10px] text-slate-500 font-mono block">
-              Até {report.max_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+            <span className="text-[10px] text-slate-600 font-mono block">
+              Até{' '}
+              {(report.max_price || 0).toLocaleString('pt-BR', {
+                style: 'currency',
+                currency: 'BRL',
+              })}
             </span>
             <span className="text-[10px] text-slate-400 block">Piso ao teto de quem vende</span>
           </div>
-
           {/* Anúncios Sem Vendas Expostas */}
           <div className="p-3.5 bg-white rounded-xl border border-slate-200 shadow-2xs space-y-1">
             <span className="text-[10px] font-bold uppercase text-slate-400 flex items-center gap-1">
