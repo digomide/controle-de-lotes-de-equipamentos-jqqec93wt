@@ -55,6 +55,9 @@ import {
   type PositionOverrideAction,
 } from '@/services/positionOverridesService'
 import { mlCollectorService, type CollectorSummaryReport } from '@/services/mlCollectorService'
+import { QualMaisVendeHero } from '@/components/QualMaisVendeHero'
+import { AnuncioCampeaoSection } from '@/components/AnuncioCampeaoSection'
+import { NumerosDoMercado } from '@/components/NumerosDoMercado'
 import { PodioVendasCollector } from '@/components/PodioVendasCollector'
 
 interface RaioXMercadoTabProps {
@@ -83,6 +86,8 @@ export function RaioXMercadoTab({ onOpenCollector }: RaioXMercadoTabProps = {}) 
   const [showRawPositionsDrawer, setShowRawPositionsDrawer] = useState(false)
   const [showCatalogMonitor, setShowCatalogMonitor] = useState(false)
   const [adsListingFilter, setAdsListingFilter] = useState<'all' | 'premium' | 'classic'>('all')
+  const [showMarketForceDetails, setShowMarketForceDetails] = useState(false)
+  const [showTaxonomyScopeCard, setShowTaxonomyScopeCard] = useState(false)
 
   // Overrides manuais do usuário (MISSÃO 1)
   const [overrides, setOverrides] = useState<Record<string, PositionOverrideAction>>({})
@@ -543,31 +548,45 @@ export function RaioXMercadoTab({ onOpenCollector }: RaioXMercadoTabProps = {}) 
         </CardContent>
       </Card>
 
-      {/* PÓDIO DE VENDAS REAIS (quando já temos coletas gravadas para o termo mesmo antes de rodar o Raio-X ou durante) */}
+      {/* NARRATIVA DE NEGÓCIO QUANDO HÁ COLETAS REAIS ANTES OU SEM O RESUMO DO CATÁLOGO ML */}
       {!summary && !loading && collectorReport && collectorReport.total_deduplicated_ads > 0 && (
-        <div className="space-y-4">
+        <div className="space-y-6">
           <div className="p-3 bg-amber-500/10 border border-amber-300 rounded-lg text-xs text-amber-900 flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-2">
               <Trophy className="w-4 h-4 text-amber-600 shrink-0" />
               <span>
-                Exibindo dados reais já coletados pelo <strong>Coletor do Navegador</strong> para
-                &quot;{activeQuery || searchTerm}&quot;. Clique em{' '}
-                <strong>&quot;Analisar Mercado Global&quot;</strong> acima para cruzar com a API ao
-                vivo do Mercado Livre.
+                Exibindo narrativa real com dados do <strong>Coletor de Vendas</strong> para &quot;
+                {activeQuery || searchTerm}&quot;. Para cruzar com os anúncios ao vivo da API do
+                Mercado Livre, clique ao lado:
               </span>
             </div>
             <Button
               size="sm"
               onClick={() => runAnalysis(activeQuery || searchTerm, false)}
-              className="h-7 text-xs bg-amber-600 hover:bg-amber-700 text-white shrink-0 font-bold"
+              className="h-8 text-xs bg-amber-600 hover:bg-amber-700 text-white shrink-0 font-bold gap-1.5 shadow-xs"
             >
+              <TrendingUp className="w-3.5 h-3.5" />
               Analisar Catálogo ML
             </Button>
           </div>
-          <PodioVendasCollector
+
+          {/* 1. QUAL MAIS VENDE? (Herói do Topo) */}
+          <QualMaisVendeHero
             report={collectorReport}
+            searchTerm={activeQuery || searchTerm}
             onOpenCollector={() => onOpenCollector && onOpenCollector(activeQuery || searchTerm)}
           />
+
+          {/* 2. ANÚNCIO CAMPEÃO (Card Destaque) */}
+          <AnuncioCampeaoSection
+            championAd={collectorReport.champion_ad}
+            topAds={collectorReport.top_ads}
+            searchTerm={activeQuery || searchTerm}
+            onOpenCollector={() => onOpenCollector && onOpenCollector(activeQuery || searchTerm)}
+          />
+
+          {/* 3. NÚMEROS DO MERCADO (Cards de Síntese) */}
+          <NumerosDoMercado collectorReport={collectorReport} catalogSummary={null} />
         </div>
       )}
 
@@ -593,778 +612,528 @@ export function RaioXMercadoTab({ onOpenCollector }: RaioXMercadoTabProps = {}) 
           </Card>
         )}
 
-      {/* CONTEÚDO PRINCIPAL: SÍNTESE GLOBAL DO PRODUTO + GAVETA DE ANÚNCIOS + GAVETA DE SELLERS */}
+      {/* CONTEÚDO PRINCIPAL: NARRATIVA DE NEGÓCIO REORGANIZADA + GAVETA DE ANÚNCIOS + DISPUTA POR SELLERS */}
       {summary && (
         <div className="space-y-6">
-          {/* SELETOR DE ESCOPO DO RAIO-X: 3 MODOS + CÉREBRO DE DETECÇÃO */}
-          <Card className="border-indigo-100 bg-white shadow-xs">
-            <CardContent className="p-4 space-y-3">
-              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-                      <Filter className="w-3.5 h-3.5 text-indigo-600" /> Escopo do Raio-X:
-                    </span>
-                    <span className="text-xs text-slate-500">
-                      Escolha como as {summary.totalRawPositions} posições mineradas devem ser
-                      avaliadas
-                    </span>
-                  </div>
-                </div>
-
-                {/* Seletor com 3 modos (chips/tabs) */}
-                <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-lg border border-slate-200 shrink-0 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={() => setScopeMode('exact')}
-                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                      scopeMode === 'exact'
-                        ? 'bg-white text-indigo-700 shadow-2xs border border-indigo-200'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-                    }`}
-                  >
-                    <span>🎯</span>
-                    <span>Produto exato</span>
-                    {scopeMode === 'exact' && (
-                      <Badge className="bg-indigo-600 text-white text-[9px] px-1 py-0 h-4">
-                        Padrão
-                      </Badge>
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setScopeMode('all_mentions')}
-                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                      scopeMode === 'all_mentions'
-                        ? 'bg-white text-indigo-700 shadow-2xs border border-indigo-200'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-                    }`}
-                  >
-                    <span>📦</span>
-                    <span>Tudo que cita o termo</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setScopeMode('own_only')}
-                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                      scopeMode === 'own_only'
-                        ? 'bg-white text-indigo-700 shadow-2xs border border-indigo-200'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-                    }`}
-                  >
-                    <span>👤</span>
-                    <span>Só meus anúncios</span>
-                  </button>
-                </div>
+          {/* BARRA SUPERIOR DE AÇÕES & ESCOPO DO RAIO-X */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 bg-white rounded-xl border border-slate-200 shadow-2xs">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                <Filter className="w-3.5 h-3.5 text-indigo-600" /> Escopo:
+              </span>
+              <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setScopeMode('exact')}
+                  className={`px-2.5 py-1 rounded text-xs font-semibold transition-all ${
+                    scopeMode === 'exact'
+                      ? 'bg-white text-indigo-700 shadow-2xs border border-indigo-200'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  🎯 Produto Exato
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScopeMode('all_mentions')}
+                  className={`px-2.5 py-1 rounded text-xs font-semibold transition-all ${
+                    scopeMode === 'all_mentions'
+                      ? 'bg-white text-indigo-700 shadow-2xs border border-indigo-200'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  📦 Tudo que Cita
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScopeMode('own_only')}
+                  className={`px-2.5 py-1 rounded text-xs font-semibold transition-all ${
+                    scopeMode === 'own_only'
+                      ? 'bg-white text-indigo-700 shadow-2xs border border-indigo-200'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  👤 Meus Anúncios
+                </button>
               </div>
 
-              {/* BARRA DE INTELIGÊNCIA DO CÉREBRO NO MODO "PRODUTO EXATO" */}
               {scopeMode === 'exact' && (
-                <div className="pt-2 border-t border-slate-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 text-xs">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-slate-500 font-medium">Cérebro ativo:</span>
+                <Badge
+                  variant="outline"
+                  className={`text-[10px] font-semibold gap-1 ${
+                    summary.activeBrain === 'part'
+                      ? 'bg-amber-50 text-amber-900 border-amber-300'
+                      : 'bg-blue-50 text-blue-900 border-blue-300'
+                  }`}
+                >
+                  {summary.activeBrain === 'part' ? '⚙️ Peça' : '📱 Produto Inteiro'}
+                </Badge>
+              )}
+            </div>
+
+            {/* BOTÕES DE ACESSO PERMANENTE: POSIÇÕES BRUTAS (N) E ANÚNCIOS */}
+            <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto justify-end">
+              <Button
+                size="sm"
+                onClick={() => setShowRawPositionsDrawer(!showRawPositionsDrawer)}
+                className={`text-xs h-8 font-bold gap-1.5 shadow-2xs ${
+                  showRawPositionsDrawer
+                    ? 'bg-amber-500 hover:bg-amber-600 text-slate-950 ring-2 ring-amber-300'
+                    : 'bg-slate-900 hover:bg-slate-800 text-amber-300 border border-amber-400/40'
+                }`}
+                title="Abrir gaveta com TODAS as posições brutas mineradas da busca para auditar e vincular"
+              >
+                <Layers className="w-3.5 h-3.5 text-amber-400" />
+                {showRawPositionsDrawer
+                  ? `Recolher Posições Brutas (${summary.totalRawPositions})`
+                  : `Posições Brutas (${summary.totalRawPositions})`}
+                {showRawPositionsDrawer ? (
+                  <ChevronUp className="w-3.5 h-3.5" />
+                ) : (
+                  <ChevronDown className="w-3.5 h-3.5" />
+                )}
+              </Button>
+
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setShowAllAdsDrawer(!showAllAdsDrawer)}
+                className="text-xs h-8 bg-white border-slate-300 text-slate-700 hover:bg-slate-50 gap-1.5"
+              >
+                <Package className="w-3.5 h-3.5 text-blue-600" />
+                {showAllAdsDrawer ? 'Ocultar Anúncios' : `Anúncios (${summary.allAds.length})`}
+                {showAllAdsDrawer ? (
+                  <ChevronUp className="w-3.5 h-3.5" />
+                ) : (
+                  <ChevronDown className="w-3.5 h-3.5" />
+                )}
+              </Button>
+
+              {onOpenCollector && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onOpenCollector(activeQuery || searchTerm)}
+                  className={`text-xs h-8 font-semibold gap-1.5 ${
+                    summary.collectorSource
+                      ? 'border-emerald-300 text-emerald-800 bg-emerald-50 hover:bg-emerald-100'
+                      : 'border-slate-300 text-slate-700 hover:bg-slate-50'
+                  }`}
+                  title="Abrir Coletor do Navegador"
+                >
+                  <Activity className="w-3.5 h-3.5 text-emerald-600" />
+                  {summary.collectorSource
+                    ? `Coletor (${summary.collectorSource.withSalesCount} vendas)`
+                    : 'Coletor'}
+                </Button>
+              )}
+
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={handleSaveSnapshot}
+                disabled={savingSnapshot || snapshotSaved}
+                className="text-xs h-8 text-indigo-700 hover:bg-indigo-50 gap-1"
+                title="Gravar foto atual para histórico"
+              >
+                <Database className="w-3 h-3 text-indigo-600" />
+                {snapshotSaved ? '✓ Salvo' : savingSnapshot ? '...' : 'Snapshot'}
+              </Button>
+            </div>
+          </div>
+
+          {/* =========================================================================
+              NARRATIVA DE NEGÓCIO DO RAIO-X (ORDEM E PRIORIDADE REQUISITADAS)
+             ========================================================================= */}
+
+          {/* 1. "QUAL MAIS VENDE?" (Herói do Topo) */}
+          <QualMaisVendeHero
+            report={collectorReport}
+            searchTerm={summary.searchTerm}
+            onOpenCollector={() => onOpenCollector && onOpenCollector(activeQuery || searchTerm)}
+          />
+
+          {/* 2. "ANÚNCIO CAMPEÃO" (Card Destaque Real) */}
+          <AnuncioCampeaoSection
+            championAd={
+              collectorReport?.champion_ad ||
+              (summary.allAds.length > 0 && summary.allAds[0].soldQuantity
+                ? {
+                    id: summary.allAds[0].id,
+                    mlb_id: summary.allAds[0].id,
+                    title: summary.allAds[0].title,
+                    price: summary.allAds[0].price,
+                    sold_quantity: summary.allAds[0].soldQuantity || 0,
+                    thumbnail: summary.allAds[0].thumbnail,
+                    seller_name: summary.allAds[0].sellerNickname,
+                    permalink: summary.allAds[0].permalink,
+                    condition: summary.allAds[0].listingTypeLabel,
+                    is_full: false,
+                    is_free_shipping: false,
+                  }
+                : null)
+            }
+            topAds={
+              collectorReport?.top_ads ||
+              summary.allAds.slice(0, 5).map((ad) => ({
+                id: ad.id,
+                mlb_id: ad.id,
+                title: ad.title,
+                price: ad.price,
+                sold_quantity: ad.soldQuantity || 0,
+                thumbnail: ad.thumbnail,
+                seller_name: ad.sellerNickname,
+                permalink: ad.permalink,
+                condition: ad.listingTypeLabel,
+                is_full: false,
+                is_free_shipping: false,
+              }))
+            }
+            searchTerm={summary.searchTerm}
+            onOpenCollector={() => onOpenCollector && onOpenCollector(activeQuery || searchTerm)}
+          />
+
+          {/* 3. "NÚMEROS DO MERCADO" (Cards de Síntese) */}
+          <NumerosDoMercado collectorReport={collectorReport} catalogSummary={summary} />
+
+          {/* 4. "OPORTUNIDADE DE MARGEM & ÂNCORA DE PREÇO" (Card Aprovado pelo Usuário - Mantido na Íntegra) */}
+          <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50/70 via-white to-amber-50/30 shadow-sm overflow-hidden">
+            <CardHeader className="pb-3 border-b border-emerald-100 bg-gradient-to-r from-emerald-500/10 via-amber-500/5 to-transparent">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <span className="text-xs sm:text-sm font-bold uppercase text-emerald-950 tracking-wider flex items-center gap-1.5">
+                  <Target className="w-4 h-4 text-emerald-600" />
+                  4. Oportunidade de Margem & Âncora de Preço
+                </span>
+                {summary.bestOpportunityMargin && (
+                  <div className="flex items-center gap-1.5">
                     <Badge
-                      className={`text-[11px] font-bold px-2 py-0.5 gap-1.5 ${
-                        summary.activeBrain === 'part'
-                          ? 'bg-amber-100 text-amber-900 border-amber-300'
-                          : 'bg-blue-100 text-blue-900 border-blue-300'
+                      className={`text-[10px] font-bold px-2 py-0.5 ${
+                        summary.bestOpportunityMargin.opportunityTier === 'high'
+                          ? 'bg-emerald-600 text-white'
+                          : summary.bestOpportunityMargin.opportunityTier === 'intense'
+                            ? 'bg-amber-600 text-white'
+                            : 'bg-blue-600 text-white'
                       }`}
                     >
-                      {summary.activeBrain === 'part'
-                        ? '⚙️ Busca de Peça'
-                        : '📱 Busca de Produto Inteiro'}
+                      {summary.bestOpportunityMargin.opportunityTier === 'high'
+                        ? '🎯 Oportunidade Alta'
+                        : summary.bestOpportunityMargin.opportunityTier === 'intense'
+                          ? '⚡ Disputa Intensa'
+                          : '❄️ Mercado Frio'}
                     </Badge>
-
-                    <span className="text-[11px] text-slate-500">
-                      {summary.activeBrain === 'part'
-                        ? '(Exige componente + modelo + marca; contexto não desclassifica)'
-                        : '(Exige modelo/marca e descarta capinhas, películas, cabos e compatíveis)'}
-                    </span>
-                  </div>
-
-                  {/* Alternador manual de cérebro */}
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="text-[10px] text-slate-400 font-medium">Alternar:</span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setManualBrain(summary.activeBrain === 'part' ? 'whole_product' : 'part')
-                      }
-                      className="px-2 py-0.5 text-[11px] font-semibold rounded bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200"
-                    >
-                      Mudar p/ {summary.activeBrain === 'part' ? 'Produto Inteiro' : 'Peça'}
-                    </button>
-                    {manualBrain && (
-                      <button
-                        type="button"
-                        onClick={() => setManualBrain(null)}
-                        className="px-1.5 py-0.5 text-[10px] text-slate-400 hover:text-slate-600 underline"
-                      >
-                        Resetar auto
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* INSIGHT ESTRATÉGICO NO MODO "TUDO QUE CITA O TERMO" */}
-              {scopeMode === 'all_mentions' && (
-                <div className="pt-2 border-t border-slate-100 p-2.5 bg-amber-50/80 rounded-md border border-amber-200 text-xs text-amber-900 flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <Info className="w-4 h-4 text-amber-600 shrink-0" />
-                    <span>
-                      <strong>Insight de margem:</strong> cerca de{' '}
-                      <strong>
-                        {summary.accessoriesPercent}% ({summary.accessoriesCount} de{' '}
-                        {summary.totalRawPositions} posições)
-                      </strong>{' '}
-                      do que cita &quot;{summary.searchTerm}&quot; são acessórios (capas, películas,
-                      cabos ou compatíveis). Isso mapeia onde o ecossistema distribui volume e
-                      margem.
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {/* NOTA DO MODO "SÓ MEUS ANÚNCIOS" */}
-              {scopeMode === 'own_only' && (
-                <div className="pt-2 border-t border-slate-100 p-2.5 bg-indigo-50/80 rounded-md border border-indigo-200 text-xs text-indigo-900 flex items-center gap-2">
-                  <Trophy className="w-4 h-4 text-indigo-600 shrink-0" />
-                  <span>
-                    Exibindo exclusivamente as posições da própria conta (badge 🏅 &quot;Sua
-                    posição&quot;) mineradas nesta varredura para acompanhar ranking interno e Buy
-                    Box.
-                  </span>
-                </div>
-              )}
-
-              {/* AVISO DE KITS/LOTES FORA DAS COMPARAÇÕES */}
-              {summary.kitsExcludedCount > 0 && (
-                <div className="text-[11px] text-slate-500 flex items-center gap-1.5 pt-0.5">
-                  <Badge variant="outline" className="bg-slate-50 text-slate-600 text-[10px] h-4">
-                    Kits/Lotes Isolados ({summary.kitsExcludedCount})
-                  </Badge>
-                  <span>
-                    Anúncios de kits/atacado foram separados para manter as comparações de preço e o
-                    termômetro fiéis aos anúncios avulsos.
-                  </span>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* PÓDIO DE VENDAS REAIS (COLETOR DO NAVEGADOR) */}
-          {collectorReport && collectorReport.total_deduplicated_ads > 0 && (
-            <div className="space-y-2">
-              <PodioVendasCollector
-                report={collectorReport}
-                onOpenCollector={() => onOpenCollector && onOpenCollector(activeQuery)}
-              />
-            </div>
-          )}
-
-          {/* 1. PAINEL PRINCIPAL: SÍNTESE GLOBAL DO PRODUTO */}
-          <Card className="border-indigo-100 bg-gradient-to-br from-indigo-50/70 via-white to-slate-50 shadow-sm">
-            <CardHeader className="pb-4 border-b border-indigo-100/60">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <Badge className="bg-indigo-600 text-white text-[10px] uppercase font-bold tracking-wider">
-                      {scopeMode === 'exact'
-                        ? 'Síntese Global do Produto Exato'
-                        : scopeMode === 'all_mentions'
-                          ? 'Síntese Bruta do Mercado'
-                          : 'Síntese dos Meus Anúncios'}
-                    </Badge>
-                    <span className="text-xs font-bold text-slate-900">
-                      &quot;{summary.searchTerm}&quot;
-                    </span>
                     <Badge
                       variant="outline"
-                      className="bg-emerald-50 text-emerald-800 border-emerald-200 text-[10px] font-semibold"
+                      className="text-[10px] font-mono font-bold bg-white text-slate-700 border-slate-300"
                     >
-                      {summary.marketForceExplanation}
+                      Score: {summary.bestOpportunityMargin.opportunityScore}/100
                     </Badge>
                   </div>
-                  <h3 className="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
-                    {scopeMode === 'exact' && (
-                      <>
-                        {summary.exactMatchedPositionsCount} de {summary.totalRawPositions} posições
-                        são deste produto exato
-                      </>
-                    )}
-                    {scopeMode === 'all_mentions' && (
-                      <>
-                        {summary.exactMatchedPositionsCount} de {summary.totalRawPositions} posições
-                        citam o termo
-                      </>
-                    )}
-                    {scopeMode === 'own_only' && (
-                      <>
-                        {summary.exactMatchedPositionsCount} de {summary.totalRawPositions} posições
-                        pertencem à sua conta
-                      </>
-                    )}
-                  </h3>
-                  <p className="text-xs text-slate-500">
-                    {scopeMode === 'exact' && (
-                      <>
-                        Filtro taxonômico (
-                        {summary.activeBrain === 'part'
-                          ? 'Cérebro de Peça'
-                          : 'Cérebro de Produto Inteiro'}
-                        ) preservou {summary.exactMatchedPositionsCount} anúncio(s) legítimos e
-                        descartou {summary.filteredOutCount} produto(s) incompatíveis ou acessórios.
-                      </>
-                    )}
-                    {scopeMode === 'all_mentions' && (
-                      <>
-                        Resultados brutos sem filtro de barreira. {summary.accessoriesCount}{' '}
-                        anúncio(s) identificados como acessórios ({summary.accessoriesPercent}%).
-                      </>
-                    )}
-                    {scopeMode === 'own_only' && (
-                      <>
-                        Filtro restrito às posições mineradas da conta INFOPRECOBAIXO no Mercado
-                        Livre.
-                      </>
-                    )}
-                  </p>
-                </div>
-
-                {/* Ações Globais: Posições Brutas (1.043), Anúncios Filtrados e Gravar Snapshot */}
-                <div className="flex items-center gap-2 flex-wrap">
-                  {onOpenCollector && (
-                    <Button
-                      size="sm"
-                      onClick={() => onOpenCollector(activeQuery)}
-                      className={`text-xs h-9 font-bold gap-1.5 shadow-xs ${
-                        summary.collectorSource
-                          ? 'bg-emerald-700 hover:bg-emerald-800 text-white'
-                          : 'bg-indigo-600 hover:bg-indigo-700 text-white'
-                      }`}
-                      title="Abrir o Coletor do Navegador para alimentar contadores públicos de vendas"
-                    >
-                      <Activity className="w-3.5 h-3.5 text-white" />
-                      {summary.collectorSource
-                        ? `Coletor Ativo (${summary.collectorSource.withSalesCount} vendas)`
-                        : 'Coletor do Navegador'}
-                    </Button>
-                  )}
-
-                  <Button
-                    size="sm"
-                    onClick={() => setShowRawPositionsDrawer(!showRawPositionsDrawer)}
-                    className={`text-xs h-9 font-bold gap-1.5 shadow-xs ${
-                      showRawPositionsDrawer
-                        ? 'bg-amber-500 hover:bg-amber-600 text-slate-950 ring-2 ring-amber-300'
-                        : 'bg-slate-900 hover:bg-slate-800 text-amber-300 border border-amber-400/40'
-                    }`}
-                    title="Abrir gaveta com TODAS as posições brutas mineradas da busca para julgar e vincular manualmente"
-                  >
-                    <Layers className="w-3.5 h-3.5 text-amber-400" />
-                    {showRawPositionsDrawer
-                      ? `Recolher Posições Brutas (${summary.totalRawPositions})`
-                      : `Posições Brutas (${summary.totalRawPositions})`}
-                    {showRawPositionsDrawer ? (
-                      <ChevronUp className="w-3.5 h-3.5" />
-                    ) : (
-                      <ChevronDown className="w-3.5 h-3.5" />
-                    )}
-                  </Button>
-
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setShowAllAdsDrawer(!showAllAdsDrawer)}
-                    className="text-xs h-9 bg-white border-slate-300 text-slate-700 hover:bg-slate-50 gap-1.5"
-                  >
-                    <Package className="w-3.5 h-3.5 text-blue-600" />
-                    {showAllAdsDrawer
-                      ? 'Ocultar Anúncios'
-                      : `Ver Anúncios Vinculados (${summary.allAds.length})`}
-                    {showAllAdsDrawer ? (
-                      <ChevronUp className="w-3.5 h-3.5" />
-                    ) : (
-                      <ChevronDown className="w-3.5 h-3.5" />
-                    )}
-                  </Button>
-
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleSaveSnapshot}
-                    disabled={savingSnapshot || snapshotSaved}
-                    className="text-xs h-9 bg-white border-indigo-200 text-indigo-700 hover:bg-indigo-50 gap-1.5"
-                    title="Gravar foto atual de estoque, preço e vendas para histórico global de 60 dias"
-                  >
-                    <Database className="w-3.5 h-3.5 text-indigo-600" />
-                    {snapshotSaved
-                      ? 'Snapshot Gravado ✓'
-                      : savingSnapshot
-                        ? 'Gravando...'
-                        : 'Gravar Snapshot Histórico'}
-                  </Button>
-                </div>
+                )}
               </div>
             </CardHeader>
 
-            <CardContent className="p-5 space-y-4">
-              {/* Linha 1 de Cards Globais: 6 Métricas Principais */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-                {/* Total de Anúncios Ativos */}
-                <div className="p-3.5 bg-white rounded-lg border border-slate-200 shadow-2xs">
-                  <span className="text-[10px] font-bold uppercase text-slate-400 block flex items-center gap-1">
-                    <Layers className="w-3 h-3 text-indigo-500" /> Anúncios Ativos
-                  </span>
-                  <span className="text-2xl font-black text-slate-900 font-mono mt-0.5 block">
-                    {summary.totalActiveAds}
-                  </span>
-                  <span className="text-[10px] text-slate-500">Posições do produto exato</span>
-                </div>
-
-                {/* Estoque Total Somado */}
-                <div className="p-3.5 bg-white rounded-lg border border-slate-200 shadow-2xs">
-                  <span className="text-[10px] font-bold uppercase text-slate-400 block flex items-center gap-1">
-                    <Package className="w-3 h-3 text-blue-500" /> Estoque Somado
-                  </span>
-                  <span className="text-2xl font-black text-blue-700 font-mono mt-0.5 block">
-                    {summary.totalVisibleStock} un.
-                  </span>
-                  <span className="text-[10px] text-slate-500">Volume total visível</span>
-                </div>
-
-                {/* Faixa de Preço Global */}
-                <div className="p-3.5 bg-white rounded-lg border border-slate-200 shadow-2xs col-span-2 sm:col-span-1">
-                  <span className="text-[10px] font-bold uppercase text-slate-400 block flex items-center gap-1">
-                    <DollarSign className="w-3 h-3 text-emerald-500" /> Faixa de Preço
-                  </span>
-                  <span className="text-lg font-black text-emerald-700 font-mono mt-1 block">
-                    {summary.priceMin.toLocaleString('pt-BR', {
-                      style: 'currency',
-                      currency: 'BRL',
-                    })}
-                  </span>
-                  <span className="text-[10px] text-slate-500 font-mono block truncate">
-                    Até{' '}
-                    {summary.priceMax.toLocaleString('pt-BR', {
-                      style: 'currency',
-                      currency: 'BRL',
-                    })}
-                  </span>
-                  <span className="text-[10px] text-slate-400 font-mono block">
-                    Méd.{' '}
-                    {summary.priceAvg.toLocaleString('pt-BR', {
-                      style: 'currency',
-                      currency: 'BRL',
-                    })}
-                  </span>
-                </div>
-
-                {/* Vendas Expostas Somadas */}
-                <div className="p-3.5 bg-white rounded-lg border border-slate-200 shadow-2xs">
-                  <span className="text-[10px] font-bold uppercase text-slate-400 block flex items-center gap-1">
-                    <Activity className="w-3 h-3 text-amber-500" /> Vendas Expostas
-                  </span>
-                  <span className="text-xl font-black text-slate-900 font-mono mt-1 block">
-                    {summary.hasAnyConfirmedSales ? (
-                      <span className="text-emerald-700">
-                        {summary.totalConfirmedSalesAcrossSellers} un.
-                      </span>
-                    ) : (
-                      'Não exposto'
-                    )}
-                  </span>
-                  {summary.hasAnyConfirmedSales ? (
-                    <span className="text-[10px] text-emerald-700 font-medium block leading-tight">
-                      {summary.collectorSource
-                        ? (summary.collectorSource.collectorSource || '')
-                            .toLowerCase()
-                            .includes('auto')
-                          ? '⚡ Coletor Automático (Tampermonkey)'
-                          : (summary.collectorSource.collectorSource || '')
-                                .toLowerCase()
-                                .includes('turbo')
-                            ? '⚡ Coletor Turbo Multi-páginas'
-                            : '🔥 Coletor do Navegador (reais)'
-                        : 'Auditadas via ML/Delta'}
-                    </span>
-                  ) : (
-                    <div className="pt-0.5">
-                      <span className="text-[10px] text-slate-500 block leading-tight">
-                        ML bloqueia WAF 403
-                      </span>
-                      {onOpenCollector && (
-                        <button
-                          type="button"
-                          onClick={() => onOpenCollector(activeQuery)}
-                          className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold underline mt-0.5 block"
-                        >
-                          Usar Coletor do Navegador →
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Vendedores Distintos */}
-                <div className="p-3.5 bg-white rounded-lg border border-slate-200 shadow-2xs">
-                  <span className="text-[10px] font-bold uppercase text-slate-400 block flex items-center gap-1">
-                    <Users className="w-3 h-3 text-purple-500" /> Vendedores
-                  </span>
-                  <span className="text-2xl font-black text-slate-900 font-mono mt-0.5 block">
-                    {summary.uniqueSellersCount}
-                  </span>
-                  <span className="text-[10px] text-slate-500">Lojas concorrentes</span>
-                </div>
-
-                {/* Distribuição Premium / Clássico */}
-                <div className="p-3.5 bg-white rounded-lg border border-slate-200 shadow-2xs">
-                  <span className="text-[10px] font-bold uppercase text-slate-400 block flex items-center gap-1">
-                    <Percent className="w-3 h-3 text-indigo-500" /> Premium / Clássico
-                  </span>
-                  <div className="mt-1 flex items-baseline gap-1.5">
-                    <span className="text-base font-black text-emerald-700 font-mono">
-                      {summary.distribution.premiumPercent}%
-                    </span>
-                    <span className="text-xs text-slate-400">/</span>
-                    <span className="text-base font-bold text-slate-700 font-mono">
-                      {summary.distribution.classicPercent}%
-                    </span>
-                  </div>
-                  <span className="text-[10px] text-slate-500 block leading-tight">
-                    {summary.distribution.premiumCount} Prem. · {summary.distribution.classicCount}{' '}
-                    Cláss.
-                  </span>
-                </div>
-              </div>
-
-              {/* Card Destaque: Posição de Catálogo do ML (Substitui o antigo pseudo-seller de catálogo) */}
-              {summary.catalogPosition && (
-                <div className="p-4 bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent rounded-lg border border-amber-300 dark:border-amber-800 shadow-2xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <Badge className="bg-amber-600 hover:bg-amber-700 text-white gap-1 px-2 py-0.5 text-xs font-semibold">
-                        <Store className="h-3.5 w-3.5" />🏪 Posição de Catálogo do ML
-                      </Badge>
-                      {summary.catalogPosition.catalogProductId && (
-                        <Badge variant="outline" className="font-mono text-[10px]">
-                          {summary.catalogPosition.catalogProductId}
-                        </Badge>
-                      )}
-                      <Badge variant="secondary" className="text-[10px]">
-                        {summary.catalogPosition.totalAdsCount} anúncio(s) concorrendo
-                      </Badge>
-                    </div>
-                    <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                      {summary.catalogPosition.title}
-                    </h4>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">
-                      Página unificada do Mercado Livre agregando{' '}
-                      {summary.catalogPosition.distinctSellersCount} sellers.
-                      {summary.catalogPosition.buyBoxWinner
-                        ? ` Vencedor atual da Buy Box: ${summary.catalogPosition.buyBoxWinner.sellerNickname} a R$ ${summary.catalogPosition.buyBoxWinner.price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.`
-                        : ''}
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Button
-                      size="sm"
-                      onClick={() => setShowCatalogMonitor(!showCatalogMonitor)}
-                      className="h-8 text-xs bg-amber-600 hover:bg-amber-700 text-white font-medium gap-1.5 shadow-xs"
-                    >
-                      <Monitor className="h-3.5 w-3.5" />
-                      {showCatalogMonitor ? 'Recolher Monitor' : 'Abrir Monitor do Catálogo'}
-                    </Button>
-                    {summary.catalogPosition.permalink && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-8 text-xs gap-1 border-amber-300"
-                        asChild
-                      >
-                        <a
-                          href={summary.catalogPosition.permalink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          Ver no ML
-                          <ExternalLink className="h-3 w-3" />
-                        </a>
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* SEÇÃO EXPANDIDA DO MONITOR DA POSIÇÃO DE CATÁLOGO */}
-              {summary.catalogPosition && showCatalogMonitor && (
-                <div className="pt-2">
-                  <CatalogPositionMonitor catalogPosition={summary.catalogPosition} />
-                </div>
-              )}
-
-              {/* Linha 2 de Cards Globais: Força de Mercado no ML + Oportunidade de Margem na Buy Box */}
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 pt-1">
-                {/* Indicador de Força de Mercado Global */}
-                <div className="lg:col-span-5 p-4 bg-white rounded-lg border border-slate-200 shadow-2xs flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-[11px] font-bold uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
-                        <Flame className="w-3.5 h-3.5 text-amber-500" /> Força do Produto no Mercado
-                        Livre
-                      </span>
-                      <Badge
-                        className={`text-[10px] font-bold px-2 py-0.5 ${
-                          summary.marketForceTier === 'strong'
-                            ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
-                            : summary.marketForceTier === 'moderate'
-                              ? 'bg-amber-100 text-amber-800 border-amber-200'
-                              : 'bg-blue-100 text-blue-800 border-blue-200'
-                        }`}
-                      >
-                        {summary.marketForceTier === 'strong'
-                          ? '🔥 Forte / Alta Demanda'
-                          : summary.marketForceTier === 'moderate'
-                            ? '🌡️ Demanda Moderada'
-                            : '❄️ Nicho / Disputa Baixa'}
-                      </Badge>
-                    </div>
-
-                    <div className="flex items-baseline gap-2 mt-2">
-                      <span className="text-3xl font-black font-mono text-slate-900">
-                        {summary.marketForceScore}
-                      </span>
-                      <span className="text-xs text-slate-400 font-mono">/ 100 pontos</span>
-                    </div>
-
-                    <p className="text-xs text-slate-600 mt-1 leading-relaxed">
-                      {summary.marketForceExplanation}. Avaliação baseada no volume de{' '}
-                      {summary.totalActiveAds} anúncios,
-                      {summary.uniqueSellersCount} sellers em disputa e estoque de{' '}
-                      {summary.totalVisibleStock} unidades.
-                    </p>
-                  </div>
-
-                  {/* Barra visual de força do produto */}
-                  <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden border border-slate-200 mt-3">
-                    <div
-                      className={`h-full rounded-full transition-all duration-500 ${
-                        summary.marketForceTier === 'strong'
-                          ? 'bg-emerald-600'
-                          : summary.marketForceTier === 'moderate'
-                            ? 'bg-amber-500'
-                            : 'bg-blue-500'
-                      }`}
-                      style={{ width: `${Math.max(10, summary.marketForceScore)}%` }}
-                    />
-                  </div>
-                </div>
-
-                {/* REFORMULAÇÃO COMPLETA: OPORTUNIDADE DE MARGEM MEDIDA CONTRA A ÂNCORA DE QUEM VENDE */}
-                <div className="lg:col-span-7 p-4 bg-gradient-to-br from-emerald-50/80 via-amber-50/40 to-white rounded-lg border border-emerald-200 shadow-2xs flex flex-col justify-between">
-                  <div className="space-y-3">
-                    {/* Header do Card */}
-                    <div className="flex items-center justify-between gap-2 flex-wrap">
-                      <span className="text-[11px] font-bold uppercase text-emerald-950 tracking-wider flex items-center gap-1.5">
-                        <Target className="w-3.5 h-3.5 text-emerald-600" /> Oportunidade de Margem &
-                        Âncora de Preço
-                      </span>
-                      {summary.bestOpportunityMargin && (
-                        <div className="flex items-center gap-1.5">
-                          <Badge
-                            className={`text-[10px] font-bold px-2 py-0.5 ${
-                              summary.bestOpportunityMargin.opportunityTier === 'high'
-                                ? 'bg-emerald-600 text-white'
-                                : summary.bestOpportunityMargin.opportunityTier === 'intense'
-                                  ? 'bg-amber-600 text-white'
-                                  : 'bg-blue-600 text-white'
-                            }`}
-                          >
-                            {summary.bestOpportunityMargin.opportunityTier === 'high'
-                              ? '🎯 Oportunidade Alta'
-                              : summary.bestOpportunityMargin.opportunityTier === 'intense'
-                                ? '⚡ Disputa Intensa'
-                                : '❄️ Mercado Frio'}
-                          </Badge>
-                          <Badge
-                            variant="outline"
-                            className="text-[10px] font-mono font-bold bg-white text-slate-700 border-slate-300"
-                          >
-                            Score: {summary.bestOpportunityMargin.opportunityScore}/100
-                          </Badge>
-                        </div>
-                      )}
-                    </div>
-
-                    {summary.bestOpportunityMargin ? (
-                      <div className="space-y-3">
-                        {/* Grade Principal: Âncora de Preço vs Faixa de Entrada Sugerida */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                          {/* Coluna 1: Âncora de Preço ("O mercado paga R$ X") */}
-                          <div className="p-3 bg-white/90 rounded-lg border border-emerald-100 shadow-2xs space-y-1">
-                            <div className="flex items-center justify-between gap-1">
-                              <span className="text-[10px] font-bold uppercase text-slate-500 flex items-center gap-1">
-                                <DollarSign className="w-3 h-3 text-emerald-600" /> O mercado paga
-                                (Âncora)
-                              </span>
-                              <Badge
-                                variant="outline"
-                                className="text-[9px] px-1 py-0 h-4 bg-emerald-50 text-emerald-800 border-emerald-200"
-                              >
-                                {summary.bestOpportunityMargin.anchorSource === 'buy_box_leader'
-                                  ? 'Líder Buy Box'
-                                  : summary.bestOpportunityMargin.anchorSource ===
-                                      'confirmed_sales_median'
-                                    ? 'Mediana Vendas'
-                                    : 'Referência'}
-                              </Badge>
-                            </div>
-
-                            <div className="flex items-baseline gap-1.5">
-                              <span className="text-2xl font-black font-mono text-emerald-900">
-                                {summary.bestOpportunityMargin.anchorPrice.toLocaleString('pt-BR', {
-                                  style: 'currency',
-                                  currency: 'BRL',
-                                })}
-                              </span>
-                            </div>
-
-                            <p className="text-[11px] text-slate-600 leading-tight">
-                              Origem:{' '}
-                              <strong>{summary.bestOpportunityMargin.anchorSellerNickname}</strong>{' '}
-                              (quem realmente tem relevância e vende).
-                            </p>
-                          </div>
-
-                          {/* Coluna 2: Faixa de Entrada Sugerida ("Entre com R$ Y-Z") */}
-                          <div className="p-3 bg-white/90 rounded-lg border border-amber-200/80 shadow-2xs space-y-1">
-                            <div className="flex items-center justify-between gap-1">
-                              <span className="text-[10px] font-bold uppercase text-amber-900 flex items-center gap-1">
-                                <Zap className="w-3 h-3 text-amber-600" /> Entre com (Preço
-                                Saudável)
-                              </span>
-                              <Badge className="bg-amber-100 text-amber-900 text-[9px] px-1 py-0 h-4 border-amber-300 font-bold">
-                                Margem: {summary.bestOpportunityMargin.marginPercentMin}% a{' '}
-                                {summary.bestOpportunityMargin.marginPercentMax}%
-                              </Badge>
-                            </div>
-
-                            <div className="flex items-baseline gap-1.5">
-                              <span className="text-2xl font-black font-mono text-amber-950">
-                                {summary.bestOpportunityMargin.suggestedEntryMin.toLocaleString(
-                                  'pt-BR',
-                                  { style: 'currency', currency: 'BRL' },
-                                )}
-                              </span>
-                              <span className="text-xs text-amber-700 font-bold">a</span>
-                              <span className="text-lg font-black font-mono text-amber-900">
-                                {summary.bestOpportunityMargin.suggestedEntryMax.toLocaleString(
-                                  'pt-BR',
-                                  { style: 'currency', currency: 'BRL' },
-                                )}
-                              </span>
-                            </div>
-
-                            <p className="text-[11px] text-amber-900 leading-tight">
-                              Logo abaixo da âncora (R${' '}
-                              {summary.bestOpportunityMargin.marginAmountMin} a R${' '}
-                              {summary.bestOpportunityMargin.marginAmountMax} de margem),{' '}
-                              <strong>sem cair no piso</strong>.
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Chips de Transparência dos Componentes da Nota (como faz o Termômetro) */}
-                        <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">
-                            Pilares do Score:
-                          </span>
-                          <span
-                            className="text-[10px] bg-white px-2 py-0.5 rounded-md border border-slate-200 text-slate-700 flex items-center gap-1 shadow-2xs"
-                            title="Poucos vendedores no produto exato abrem espaço de preço livre"
-                          >
-                            <Users className="w-3 h-3 text-purple-600" />
-                            Concorrência:{' '}
-                            <strong>
-                              {summary.bestOpportunityMargin.scoreComponents.competitionScore}/35
-                              pts
-                            </strong>
-                          </span>
-                          <span
-                            className="text-[10px] bg-white px-2 py-0.5 rounded-md border border-slate-200 text-slate-700 flex items-center gap-1 shadow-2xs"
-                            title="Estoque total ralo frente à demanda aparente"
-                          >
-                            <Package className="w-3 h-3 text-blue-600" />
-                            Estoque Ralo:{' '}
-                            <strong>
-                              {summary.bestOpportunityMargin.scoreComponents.stockPressureScore}/35
-                              pts
-                            </strong>
-                          </span>
-                          <span
-                            className="text-[10px] bg-white px-2 py-0.5 rounded-md border border-slate-200 text-slate-700 flex items-center gap-1 shadow-2xs"
-                            title="Âncora de preço com espaço de margem comprovada"
-                          >
-                            <ShieldCheck className="w-3 h-3 text-emerald-600" />
-                            Espaço de Margem:{' '}
-                            <strong>
-                              {summary.bestOpportunityMargin.scoreComponents.marginSpaceScore}/30
-                              pts
-                            </strong>
-                          </span>
-                          {summary.bestOpportunityMargin.scoreComponents.demandScore !==
-                            undefined && (
-                            <span
-                              className="text-[10px] bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-300 text-emerald-900 flex items-center gap-1 shadow-2xs font-bold"
-                              title="Bônus por vendas reais confirmadas via Coletor do Navegador"
-                            >
-                              <Activity className="w-3 h-3 text-emerald-600" />
-                              Demanda Real (Coletor):{' '}
-                              <strong>
-                                +{summary.bestOpportunityMargin.scoreComponents.demandScore} pts
-                              </strong>
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Explicação da Regra de Ouro */}
-                        <p className="text-xs text-slate-700 leading-relaxed bg-white/70 p-2.5 rounded-md border border-slate-200">
-                          {summary.bestOpportunityMargin.explanation}
-                        </p>
-                      </div>
-                    ) : (
-                      <p className="text-xs text-slate-500 mt-2">
-                        Dados de margem sob consulta ou pouca dispersão de preço observada.
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Rodapé do Card com Regra de Ouro / Filosofia */}
-                  <div className="pt-2.5 mt-2 border-t border-slate-200/80 text-[11px] text-slate-600 flex items-center justify-between gap-2 flex-wrap">
-                    <div className="flex items-center gap-1.5">
-                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                      <span>
-                        <strong>Regra de Ouro:</strong> Baixa concorrência é multiplicador de
-                        margem. Não corte preço para acompanhar anúncios sem relevância.
-                      </span>
-                    </div>
-
-                    {summary.priceMin > 0 &&
-                      summary.bestOpportunityMargin &&
-                      summary.priceMin < summary.bestOpportunityMargin.suggestedEntryMin && (
-                        <span className="text-[10px] text-slate-400 font-mono">
-                          Piso informativo descartado: R${' '}
-                          {summary.priceMin.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+            <CardContent className="p-4 sm:p-6 space-y-4">
+              {summary.bestOpportunityMargin ? (
+                <div className="space-y-4">
+                  {/* Grade Principal: Âncora de Preço vs Faixa de Entrada Sugerida */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {/* Coluna 1: Âncora de Preço ("O mercado paga R$ X") */}
+                    <div className="p-4 bg-white/95 rounded-xl border border-emerald-200 shadow-2xs space-y-2">
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-[10px] font-bold uppercase text-slate-500 flex items-center gap-1">
+                          <DollarSign className="w-3.5 h-3.5 text-emerald-600" /> O mercado paga
+                          (Âncora)
                         </span>
-                      )}
+                        <Badge
+                          variant="outline"
+                          className="text-[9px] px-1.5 py-0 h-4 bg-emerald-50 text-emerald-800 border-emerald-200 font-semibold"
+                        >
+                          {summary.bestOpportunityMargin.anchorSource === 'buy_box_leader'
+                            ? 'Líder Buy Box'
+                            : summary.bestOpportunityMargin.anchorSource ===
+                                'confirmed_sales_median'
+                              ? 'Mediana Vendas'
+                              : 'Referência'}
+                        </Badge>
+                      </div>
+
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="text-3xl font-black font-mono text-emerald-950">
+                          {summary.bestOpportunityMargin.anchorPrice.toLocaleString('pt-BR', {
+                            style: 'currency',
+                            currency: 'BRL',
+                          })}
+                        </span>
+                      </div>
+
+                      <p className="text-xs text-slate-600 leading-tight">
+                        Origem:{' '}
+                        <strong>{summary.bestOpportunityMargin.anchorSellerNickname}</strong> (quem
+                        realmente tem relevância e vende).
+                      </p>
+                    </div>
+
+                    {/* Coluna 2: Faixa de Entrada Sugerida ("Entre com R$ Y-Z") */}
+                    <div className="p-4 bg-white/95 rounded-xl border border-amber-300 shadow-2xs space-y-2">
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-[10px] font-bold uppercase text-amber-900 flex items-center gap-1">
+                          <Zap className="w-3.5 h-3.5 text-amber-600" /> Entre com (Preço Saudável)
+                        </span>
+                        <Badge className="bg-amber-100 text-amber-900 text-[9px] px-1.5 py-0 h-4 border-amber-300 font-bold">
+                          Margem: {summary.bestOpportunityMargin.marginPercentMin}% a{' '}
+                          {summary.bestOpportunityMargin.marginPercentMax}%
+                        </Badge>
+                      </div>
+
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="text-3xl font-black font-mono text-amber-950">
+                          {summary.bestOpportunityMargin.suggestedEntryMin.toLocaleString('pt-BR', {
+                            style: 'currency',
+                            currency: 'BRL',
+                          })}
+                        </span>
+                        <span className="text-sm text-amber-700 font-bold">a</span>
+                        <span className="text-2xl font-black font-mono text-amber-900">
+                          {summary.bestOpportunityMargin.suggestedEntryMax.toLocaleString('pt-BR', {
+                            style: 'currency',
+                            currency: 'BRL',
+                          })}
+                        </span>
+                      </div>
+
+                      <p className="text-xs text-amber-900 leading-tight">
+                        Logo abaixo da âncora (R$ {summary.bestOpportunityMargin.marginAmountMin} a
+                        R$ {summary.bestOpportunityMargin.marginAmountMax} de margem),{' '}
+                        <strong>sem cair no piso</strong>.
+                      </p>
+                    </div>
                   </div>
+
+                  {/* Chips de Transparência dos Componentes da Nota (como faz o Termômetro) */}
+                  <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">
+                      Pilares do Score:
+                    </span>
+                    <span
+                      className="text-[10px] bg-white px-2 py-0.5 rounded-md border border-slate-200 text-slate-700 flex items-center gap-1 shadow-2xs"
+                      title="Poucos vendedores no produto exato abrem espaço de preço livre"
+                    >
+                      <Users className="w-3 h-3 text-purple-600" />
+                      Concorrência:{' '}
+                      <strong>
+                        {summary.bestOpportunityMargin.scoreComponents.competitionScore}/35 pts
+                      </strong>
+                    </span>
+                    <span
+                      className="text-[10px] bg-white px-2 py-0.5 rounded-md border border-slate-200 text-slate-700 flex items-center gap-1 shadow-2xs"
+                      title="Estoque total ralo frente à demanda aparente"
+                    >
+                      <Package className="w-3 h-3 text-blue-600" />
+                      Estoque Ralo:{' '}
+                      <strong>
+                        {summary.bestOpportunityMargin.scoreComponents.stockPressureScore}/35 pts
+                      </strong>
+                    </span>
+                    <span
+                      className="text-[10px] bg-white px-2 py-0.5 rounded-md border border-slate-200 text-slate-700 flex items-center gap-1 shadow-2xs"
+                      title="Âncora de preço com espaço de margem comprovada"
+                    >
+                      <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                      Espaço de Margem:{' '}
+                      <strong>
+                        {summary.bestOpportunityMargin.scoreComponents.marginSpaceScore}/30 pts
+                      </strong>
+                    </span>
+                    {summary.bestOpportunityMargin.scoreComponents.demandScore !== undefined && (
+                      <span
+                        className="text-[10px] bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-300 text-emerald-900 flex items-center gap-1 shadow-2xs font-bold"
+                        title="Bônus por vendas reais confirmadas via Coletor do Navegador"
+                      >
+                        <Activity className="w-3 h-3 text-emerald-600" />
+                        Demanda Real (Coletor):{' '}
+                        <strong>
+                          +{summary.bestOpportunityMargin.scoreComponents.demandScore} pts
+                        </strong>
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Explicação da Regra de Ouro */}
+                  <p className="text-xs text-slate-700 leading-relaxed bg-white/80 p-3 rounded-lg border border-slate-200">
+                    {summary.bestOpportunityMargin.explanation}
+                  </p>
                 </div>
+              ) : (
+                <p className="text-xs text-slate-500">
+                  Dados de margem sob consulta ou pouca dispersão de preço observada.
+                </p>
+              )}
+
+              {/* Rodapé do Card com Regra de Ouro / Filosofia */}
+              <div className="pt-3 border-t border-slate-200/80 text-xs text-slate-600 flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>
+                    <strong>Regra de Ouro:</strong> Baixa concorrência é multiplicador de margem.
+                    Não corte preço para acompanhar anúncios sem relevância.
+                  </span>
+                </div>
+
+                {summary.priceMin > 0 &&
+                  summary.bestOpportunityMargin &&
+                  summary.priceMin < summary.bestOpportunityMargin.suggestedEntryMin && (
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      Piso informativo descartado: R${' '}
+                      {summary.priceMin.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    </span>
+                  )}
               </div>
             </CardContent>
+          </Card>
+
+          {/* =========================================================================
+              5. SEÇÕES SECUNDÁRIAS ORGANIZADAS (COLAPSÁVEIS / EXPANSÍVEIS)
+             ========================================================================= */}
+
+          {/* Card Destaque: Posição de Catálogo do ML (se existente) */}
+          {summary.catalogPosition && (
+            <div className="p-4 bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent rounded-lg border border-amber-300 dark:border-amber-800 shadow-2xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Badge className="bg-amber-600 hover:bg-amber-700 text-white gap-1 px-2 py-0.5 text-xs font-semibold">
+                    <Store className="h-3.5 w-3.5" />🏪 Posição de Catálogo do ML
+                  </Badge>
+                  {summary.catalogPosition.catalogProductId && (
+                    <Badge variant="outline" className="font-mono text-[10px]">
+                      {summary.catalogPosition.catalogProductId}
+                    </Badge>
+                  )}
+                  <Badge variant="secondary" className="text-[10px]">
+                    {summary.catalogPosition.totalAdsCount} anúncio(s) concorrendo
+                  </Badge>
+                </div>
+                <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  {summary.catalogPosition.title}
+                </h4>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Página unificada do Mercado Livre agregando{' '}
+                  {summary.catalogPosition.distinctSellersCount} sellers.
+                  {summary.catalogPosition.buyBoxWinner
+                    ? ` Vencedor atual da Buy Box: ${summary.catalogPosition.buyBoxWinner.sellerNickname} a R$ ${summary.catalogPosition.buyBoxWinner.price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.`
+                    : ''}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <Button
+                  size="sm"
+                  onClick={() => setShowCatalogMonitor(!showCatalogMonitor)}
+                  className="h-8 text-xs bg-amber-600 hover:bg-amber-700 text-white font-medium gap-1.5 shadow-xs"
+                >
+                  <Monitor className="h-3.5 w-3.5" />
+                  {showCatalogMonitor ? 'Recolher Monitor' : 'Abrir Monitor do Catálogo'}
+                </Button>
+                {summary.catalogPosition.permalink && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-xs gap-1 border-amber-300"
+                    asChild
+                  >
+                    <a
+                      href={summary.catalogPosition.permalink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Ver no ML
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* SEÇÃO EXPANDIDA DO MONITOR DA POSIÇÃO DE CATÁLOGO */}
+          {summary.catalogPosition && showCatalogMonitor && (
+            <div className="pt-1">
+              <CatalogPositionMonitor catalogPosition={summary.catalogPosition} />
+            </div>
+          )}
+
+          {/* SEÇÃO COLAPSÁVEL: DETALHES DE FORÇA DO MERCADO & TAXONOMIA */}
+          <Card className="border-slate-200 bg-white shadow-2xs">
+            <CardHeader
+              className="py-3 px-4 flex flex-row items-center justify-between cursor-pointer hover:bg-slate-50/60 transition-colors select-none"
+              onClick={() => setShowMarketForceDetails(!showMarketForceDetails)}
+            >
+              <div className="flex items-center gap-2.5">
+                <Flame className="w-4 h-4 text-amber-500" />
+                <span className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                  Indicadores Técnicos de Força & Taxonomia do Termo
+                </span>
+                <Badge variant="outline" className="text-[10px] text-slate-600">
+                  Score ML: {summary.marketForceScore}/100
+                </Badge>
+              </div>
+              <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-slate-400">
+                {showMarketForceDetails ? (
+                  <ChevronUp className="w-4 h-4" />
+                ) : (
+                  <ChevronDown className="w-4 h-4" />
+                )}
+              </Button>
+            </CardHeader>
+
+            {showMarketForceDetails && (
+              <CardContent className="p-4 pt-1 border-t border-slate-100 space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                    <span className="text-[10px] uppercase font-bold text-slate-500 block">
+                      Classificação de Força
+                    </span>
+                    <span className="text-base font-bold text-slate-900 block mt-0.5">
+                      {summary.marketForceTier === 'strong'
+                        ? '🔥 Forte / Alta Demanda'
+                        : summary.marketForceTier === 'moderate'
+                          ? '🌡️ Demanda Moderada'
+                          : '❄️ Nicho / Disputa Baixa'}
+                    </span>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      {summary.marketForceExplanation}
+                    </p>
+                  </div>
+
+                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                    <span className="text-[10px] uppercase font-bold text-slate-500 block">
+                      Filtro Taxonômico
+                    </span>
+                    <span className="text-base font-bold text-slate-900 block mt-0.5">
+                      {summary.exactMatchedPositionsCount} de {summary.totalRawPositions}{' '}
+                      compatíveis
+                    </span>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      {summary.filteredOutCount} produto(s) descartados por ruído ou
+                      incompatibilidade.
+                    </p>
+                  </div>
+
+                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                    <span className="text-[10px] uppercase font-bold text-slate-500 block">
+                      Mix Premium / Clássico
+                    </span>
+                    <span className="text-base font-bold text-slate-900 block mt-0.5 font-mono">
+                      {summary.distribution.premiumPercent}% Prem. /{' '}
+                      {summary.distribution.classicPercent}% Cláss.
+                    </span>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      {summary.distribution.premiumCount} anúncios Premium e{' '}
+                      {summary.distribution.classicCount} Clássicos.
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            )}
           </Card>
 
           {/* MISSÃO 1: PAINEL DE POSIÇÕES BRUTAS ("GAVETA DAS 1.043") */}
