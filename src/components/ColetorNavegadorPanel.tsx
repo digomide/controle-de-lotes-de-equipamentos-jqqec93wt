@@ -461,24 +461,24 @@ export function ColetorNavegadorPanel({
                   <div className="flex items-center gap-2">
                     <CardTitle className="text-base font-bold text-indigo-950 flex items-center gap-2">
                       <Cpu className="w-5 h-5 text-indigo-600" />
-                      Coletor Automático com Tampermonkey v1.3.1 (Zero Clique)
+                      Coletor Automático com Tampermonkey v1.3.2 (Zero Clique)
                     </CardTitle>
                     <Badge className="bg-emerald-600 text-white text-[10px] font-bold">
                       Recomendado
                     </Badge>
                     <Badge
                       variant="outline"
-                      className="text-indigo-700 border-indigo-300 text-[10px]"
+                      className="text-indigo-700 border-indigo-300 text-[10px] font-bold"
                     >
-                      v1.3.1 Atualizada
+                      v1.3.2 Atualizada
                     </Badge>
                   </div>
                   <CardDescription className="text-xs text-slate-600">
-                    Roda em segundo plano enquanto você navega normalmente no Mercado Livre. Detecta
-                    as buscas, lê vendas reais, acompanha paginação SPA e sincroniza tudo com o app
-                    de Lotes. Se você já instalou antes,{' '}
+                    Roda em segundo plano enquanto você navega no Mercado Livre. Detecta as buscas,
+                    lê vendas reais, exibe o HUD ativo imediatamente em qualquer página do ML e
+                    sincroniza tudo com o app de Lotes. Se você já instalou antes,{' '}
                     <strong>copie novamente e substitua no Tampermonkey</strong> para aplicar a
-                    v1.3.1 com correções de leitura e envio.
+                    v1.3.2 com o HUD sempre visível e suporte a todas as variações de busca.
                   </CardDescription>
                 </div>
 

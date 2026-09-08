@@ -933,17 +933,25 @@ export function getTampermonkeyUserscript(options: {
     .map((domain) => `// @connect      ${domain}`)
     .join('\n')
 
+  const SCRIPT_VERSION = '1.3.2'
+
   return `// ==UserScript==
 // @name         Coletor Automático Mercado Livre · Lotes & Raio-X
 // @namespace    https://controle-de-lotes.app/
-// @version      1.3.1
+// @version      ${SCRIPT_VERSION}
 // @description  Captura automaticamente contadores públicos de vendas e anúncios no Mercado Livre e envia ao app de Lotes
 // @author       Controle de Lotes de Equipamentos
 // @match        *://lista.mercadolivre.com.br/*
 // @match        *://www.mercadolivre.com.br/*
 // @match        *://mercadolivre.com.br/*
+// @match        *://*.mercadolivre.com.br/*
+// @include      *://lista.mercadolivre.com.br/*
+// @include      *://www.mercadolivre.com.br/*
+// @include      *://mercadolivre.com.br/*
+// @include      *://*.mercadolivre.com.br/*
 // @run-at       document-idle
 // @grant        GM_xmlhttpRequest
+// @grant        GM.xmlHttpRequest
 // @grant        GM_setValue
 // @grant        GM_getValue
 ${connectDirectives}
@@ -952,6 +960,13 @@ ${connectDirectives}
 
 (function() {
   'use strict';
+
+  const VERSION = '${SCRIPT_VERSION}';
+
+  // Log imediato para diagnóstico
+  try {
+    console.info('[Coletor Lotes] v' + VERSION + ' carregado em', location.href);
+  } catch { /* intentionally ignored */ }
 
   // Configuração do Coletor Automático
   const CONFIG = {
@@ -962,15 +977,14 @@ ${connectDirectives}
     storageKeyPrefix: 'ml_auto_collector_'
   };
 
-  // Se não estiver em página de busca ou item, ignorar
+  // Detecção flexível de tipo de página (informativa, NÃO bloqueia o HUD)
   const isSearchPage = window.location.href.includes('lista.mercadolivre.com.br') ||
                        window.location.href.includes('/jm/search') ||
-                       window.location.search.includes('as_word');
+                       window.location.search.includes('as_word') ||
+                       window.location.search.includes('q=') ||
+                       window.location.search.includes('query=') ||
+                       /#D\\[A:/i.test(window.location.href);
   const isItemPage = window.location.href.includes('/p/MLB') || /\\/MLB-?\\d+/i.test(window.location.href);
-
-  if (!isSearchPage && !isItemPage) {
-    return;
-  }
 
   // Funções de extração de dados
   function parseSoldQuantity(text) {
@@ -1206,109 +1220,167 @@ ${connectDirectives}
     return items;
   }
 
-  // Criação do HUD flutuante discreto no canto inferior direito
-  const hudContainer = document.createElement('div');
-  hudContainer.id = 'ml-auto-collector-hud';
-  hudContainer.style.cssText = [
-    'position: fixed',
-    'bottom: 18px',
-    'right: 18px',
-    'z-index: 9999999',
-    'background: rgba(15, 23, 42, 0.96)',
-    'color: #ffffff',
-    'padding: 10px 14px',
-    'border-radius: 10px',
-    'box-shadow: 0 10px 25px -5px rgba(0,0,0,0.45)',
-    'font-family: system-ui, -apple-system, sans-serif',
-    'font-size: 11px',
-    'line-height: 1.4',
-    'border: 1px solid rgba(255,255,255,0.18)',
-    'backdrop-filter: blur(8px)',
-    'max-width: 420px',
-    'display: flex',
-    'align-items: center',
-    'gap: 10px',
-    'transition: all 0.3s ease'
-  ].join(';');
-
-  hudContainer.innerHTML = \`
-    <div style="display:flex;align-items:center;gap:6px;">
-      <span id="ml-auto-indicator" style="width:8px;height:8px;border-radius:50%;background:#38bdf8;box-shadow:0 0 8px #38bdf8;display:inline-block;"></span>
-      <div>
-        <div style="font-weight:700;display:flex;align-items:center;gap:6px;">
-          <span>Coletor Lotes</span>
-          <span id="ml-auto-badge" style="background:#1e293b;color:#94a3b8;font-size:9px;padding:1px 4px;border-radius:3px;">Pronto</span>
-        </div>
-        <div id="ml-auto-text" style="color:#cbd5e1;font-size:10px;margin-top:1px;">Iniciando monitoramento...</div>
-      </div>
-    </div>
-    <div style="display:flex;gap:4px;margin-left:auto;">
-      <button id="ml-auto-send-btn" title="Enviar agora para o app" style="background:#0284c7;color:#fff;border:none;border-radius:4px;padding:4px 8px;font-size:10px;font-weight:700;cursor:pointer;">
-        Enviar
-      </button>
-      <button id="ml-auto-min-btn" title="Minimizar" style="background:transparent;color:#94a3b8;border:none;cursor:pointer;padding:2px 4px;font-size:14px;line-height:1;">
-        &minus;
-      </button>
-    </div>
-  \`;
-
-  document.body.appendChild(hudContainer);
-
-  const indicator = document.getElementById('ml-auto-indicator');
-  const badge = document.getElementById('ml-auto-badge');
-  const hudText = document.getElementById('ml-auto-text');
-  const sendBtn = document.getElementById('ml-auto-send-btn');
-  const minBtn = document.getElementById('ml-auto-min-btn');
-
-  let isMinimized = false;
-  minBtn.addEventListener('click', () => {
-    isMinimized = !isMinimized;
-    if (isMinimized) {
-      hudText.style.display = 'none';
-      sendBtn.style.display = 'none';
-      minBtn.innerHTML = '&#43;';
-      hudContainer.style.padding = '6px 10px';
-    } else {
-      hudText.style.display = 'block';
-      sendBtn.style.display = 'inline-block';
-      minBtn.innerHTML = '&minus;';
-      hudContainer.style.padding = '10px 14px';
+  // Criação segura e infalível do HUD flutuante no canto inferior direito
+  function mountHud() {
+    if (document.getElementById('ml-auto-collector-hud')) {
+      return document.getElementById('ml-auto-collector-hud');
     }
-  });
+
+    const targetParent = document.body || document.documentElement;
+    if (!targetParent) return null;
+
+    const hud = document.createElement('div');
+    hud.id = 'ml-auto-collector-hud';
+    hud.style.cssText = [
+      'position: fixed',
+      'bottom: 18px',
+      'right: 18px',
+      'z-index: 2147483647',
+      'background: rgba(15, 23, 42, 0.96)',
+      'color: #ffffff',
+      'padding: 10px 14px',
+      'border-radius: 10px',
+      'box-shadow: 0 10px 25px -5px rgba(0,0,0,0.45)',
+      'font-family: system-ui, -apple-system, sans-serif',
+      'font-size: 11px',
+      'line-height: 1.4',
+      'border: 1px solid rgba(255,255,255,0.18)',
+      'backdrop-filter: blur(8px)',
+      'max-width: 440px',
+      'display: flex',
+      'align-items: center',
+      'gap: 10px',
+      'transition: all 0.3s ease'
+    ].join(';');
+
+    hud.innerHTML = \`
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span id="ml-auto-indicator" style="width:8px;height:8px;border-radius:50%;background:#38bdf8;box-shadow:0 0 8px #38bdf8;display:inline-block;shrink:0;"></span>
+        <div>
+          <div style="font-weight:700;display:flex;align-items:center;gap:6px;">
+            <span>Coletor Lotes</span>
+            <span id="ml-auto-version" style="color:#94a3b8;font-size:9px;font-weight:normal;">v\${VERSION}</span>
+            <span id="ml-auto-badge" style="background:#1e293b;color:#38bdf8;font-size:9px;padding:1px 5px;border-radius:3px;font-weight:600;">Ativo</span>
+          </div>
+          <div id="ml-auto-text" style="color:#cbd5e1;font-size:10px;margin-top:1px;">Ativo nesta página · aguardando resultados...</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:4px;margin-left:auto;align-items:center;">
+        <button id="ml-auto-send-btn" title="Enviar agora para o app" style="background:#0284c7;color:#fff;border:none;border-radius:4px;padding:4px 8px;font-size:10px;font-weight:700;cursor:pointer;">
+          Enviar
+        </button>
+        <button id="ml-auto-min-btn" title="Minimizar" style="background:transparent;color:#94a3b8;border:none;cursor:pointer;padding:2px 4px;font-size:14px;line-height:1;">
+          &minus;
+        </button>
+      </div>
+    \`;
+
+    targetParent.appendChild(hud);
+    return hud;
+  }
+
+  // Inicializa o HUD imediatamente ou aguarda o body
+  let hudContainer = mountHud();
+  if (!hudContainer) {
+    document.addEventListener('DOMContentLoaded', () => {
+      hudContainer = mountHud();
+      bindHudEvents();
+    });
+  }
+
+  // Elementos do HUD
+  let indicator = null;
+  let badge = null;
+  let hudText = null;
+  let sendBtn = null;
+  let minBtn = null;
+  let isMinimized = false;
+
+  function bindHudEvents() {
+    indicator = document.getElementById('ml-auto-indicator');
+    badge = document.getElementById('ml-auto-badge');
+    hudText = document.getElementById('ml-auto-text');
+    sendBtn = document.getElementById('ml-auto-send-btn');
+    minBtn = document.getElementById('ml-auto-min-btn');
+
+    if (minBtn && !minBtn.dataset.bound) {
+      minBtn.dataset.bound = 'true';
+      minBtn.addEventListener('click', () => {
+        isMinimized = !isMinimized;
+        const hudEl = document.getElementById('ml-auto-collector-hud');
+        if (isMinimized) {
+          if (hudText) hudText.style.display = 'none';
+          if (sendBtn) sendBtn.style.display = 'none';
+          minBtn.innerHTML = '&#43;';
+          if (hudEl) hudEl.style.padding = '6px 10px';
+        } else {
+          if (hudText) hudText.style.display = 'block';
+          if (sendBtn) sendBtn.style.display = 'inline-block';
+          minBtn.innerHTML = '&minus;';
+          if (hudEl) hudEl.style.padding = '10px 14px';
+        }
+      });
+    }
+
+    if (sendBtn && !sendBtn.dataset.bound) {
+      sendBtn.dataset.bound = 'true';
+      sendBtn.addEventListener('click', () => {
+        if (debounceTimer) clearTimeout(debounceTimer);
+        sendBatchToApp();
+      });
+    }
+  }
+
+  bindHudEvents();
 
   // Estado acumulado na memória da sessão
   let accumulatedItems = new Map();
-  let currentSearchTerm = extractSearchTerm() || 'Busca Mercado Livre';
+  let currentSearchTerm = extractSearchTerm() || '';
   let debounceTimer = null;
   let isSending = false;
 
   function setStatus(state, msg) {
-    if (state === 'collecting') {
-      indicator.style.background = '#38bdf8';
-      indicator.style.boxShadow = '0 0 8px #38bdf8';
-      badge.textContent = 'Coletando';
-      badge.style.color = '#38bdf8';
-    } else if (state === 'sending') {
-      indicator.style.background = '#f59e0b';
-      indicator.style.boxShadow = '0 0 8px #f59e0b';
-      badge.textContent = 'Enviando...';
-      badge.style.color = '#f59e0b';
-    } else if (state === 'success') {
-      indicator.style.background = '#10b981';
-      indicator.style.boxShadow = '0 0 8px #10b981';
-      badge.textContent = 'Sincronizado';
-      badge.style.color = '#10b981';
-    } else if (state === 'error') {
-      indicator.style.background = '#ef4444';
-      indicator.style.boxShadow = '0 0 8px #ef4444';
-      badge.textContent = 'Aviso';
-      badge.style.color = '#ef4444';
+    if (!indicator || !badge || !hudText) {
+      bindHudEvents();
     }
-    if (msg) hudText.textContent = msg;
+    if (indicator && badge) {
+      if (state === 'idle') {
+        indicator.style.background = '#94a3b8';
+        indicator.style.boxShadow = '0 0 6px #94a3b8';
+        badge.textContent = 'Ativo';
+        badge.style.color = '#94a3b8';
+      } else if (state === 'collecting') {
+        indicator.style.background = '#38bdf8';
+        indicator.style.boxShadow = '0 0 8px #38bdf8';
+        badge.textContent = 'Coletando';
+        badge.style.color = '#38bdf8';
+      } else if (state === 'sending') {
+        indicator.style.background = '#f59e0b';
+        indicator.style.boxShadow = '0 0 8px #f59e0b';
+        badge.textContent = 'Enviando...';
+        badge.style.color = '#f59e0b';
+      } else if (state === 'success') {
+        indicator.style.background = '#10b981';
+        indicator.style.boxShadow = '0 0 8px #10b981';
+        badge.textContent = 'Sincronizado';
+        badge.style.color = '#10b981';
+      } else if (state === 'error') {
+        indicator.style.background = '#ef4444';
+        indicator.style.boxShadow = '0 0 8px #ef4444';
+        badge.textContent = 'Aviso';
+        badge.style.color = '#ef4444';
+      }
+    }
+    if (msg && hudText) hudText.textContent = msg;
   }
 
   function collectCurrentPage() {
     try {
+      if (!document.getElementById('ml-auto-collector-hud')) {
+        mountHud();
+        bindHudEvents();
+      }
+
       const term = extractSearchTerm() || currentSearchTerm;
       if (term && term !== currentSearchTerm && accumulatedItems.size > 0) {
         // O usuário mudou de busca na mesma aba: envia o lote anterior
@@ -1335,16 +1407,18 @@ ${connectDirectives}
       });
 
       if (accumulatedItems.size === 0) {
-        setStatus('collecting', 'Aguardando anúncios carregarem na página...');
+        const termLabel = currentSearchTerm ? ('"' + currentSearchTerm.substring(0, 16) + '" · ') : '';
+        setStatus('idle', termLabel + '0 itens detectados (aguardando resultados)');
       } else {
-        setStatus('collecting', '"' + currentSearchTerm.substring(0, 18) + '" · ' + accumulatedItems.size + ' itens (' + salesCount + ' com vendas)');
-      }
+        const termLabel = currentSearchTerm ? ('"' + currentSearchTerm.substring(0, 18) + '" · ') : '';
+        setStatus('collecting', termLabel + accumulatedItems.size + ' itens coletados (' + salesCount + ' com vendas)');
 
-      // Programar envio automático com debounce
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        sendBatchToApp();
-      }, CONFIG.debounceDelayMs);
+        // Programar envio automático com debounce
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          sendBatchToApp();
+        }, CONFIG.debounceDelayMs);
+      }
     } catch (collectErr) {
       console.error('[Coletor Automático] Erro durante collectCurrentPage:', collectErr);
       setStatus('error', 'Falha ao ler página: ' + (collectErr && collectErr.message ? collectErr.message : 'desconhecida'));
@@ -1367,19 +1441,19 @@ ${connectDirectives}
       source: 'auto',
       source_url: window.location.href,
       collected_at: new Date().toISOString(),
-      search_term: currentSearchTerm,
+      search_term: currentSearchTerm || 'Busca Mercado Livre',
       results_count: itemsArray.length,
       with_sales_count: salesCount,
       results: itemsArray
     };
 
-    const baseUrl = (CONFIG.backendUrl || CONFIG.appUrl).replace(//+$/, '');
+    const baseUrl = (CONFIG.backendUrl || CONFIG.appUrl || '').replace(/\\/+$/, '');
     // Endpoint oficial: API de coleções padrão do PocketBase
     const primaryEndpoint = baseUrl + '/api/collections/ml_collector_imports/records';
     const fallbackEndpoint = baseUrl + '/backend/v1/ml-collector/ingest';
 
     const recordBody = {
-      search_term: currentSearchTerm,
+      search_term: currentSearchTerm || 'Busca Mercado Livre',
       source_url: window.location.href,
       imported_at: new Date().toISOString(),
       payload: payload,
@@ -1389,21 +1463,26 @@ ${connectDirectives}
     };
     const bodyStr = JSON.stringify(recordBody);
 
-    // Envio cross-origin com fallback (fetch e GM_xmlhttpRequest)
+    // Envio cross-origin com fallback (GM_xmlhttpRequest, GM.xmlHttpRequest e fetch)
     let failureResetTimer = null;
 
     function handleSuccess(serverMsg) {
       isSending = false;
       if (failureResetTimer) clearTimeout(failureResetTimer);
       setStatus('success', '✓ Enviado (' + itemsArray.length + ' itens)');
-      sendBtn.textContent = '✓ Enviado';
-      sendBtn.style.background = '#10b981';
+      if (sendBtn) {
+        sendBtn.textContent = '✓ Enviado';
+        sendBtn.style.background = '#10b981';
+      }
       setTimeout(() => {
-        sendBtn.textContent = 'Enviar';
-        sendBtn.style.background = '#0284c7';
+        if (sendBtn) {
+          sendBtn.textContent = 'Enviar';
+          sendBtn.style.background = '#0284c7';
+        }
         // Retorna status para coletando/pronto após alguns segundos
         const latestSales = Array.from(accumulatedItems.values()).filter(i => i.sold_quantity != null && i.sold_quantity > 0).length;
-        setStatus('collecting', '"' + currentSearchTerm.substring(0, 18) + '" · ' + accumulatedItems.size + ' itens (' + latestSales + ' com vendas)');
+        const termLabel = currentSearchTerm ? ('"' + currentSearchTerm.substring(0, 18) + '" · ') : '';
+        setStatus('collecting', termLabel + accumulatedItems.size + ' itens (' + latestSales + ' com vendas)');
       }, 5000);
     }
 
@@ -1427,23 +1506,34 @@ ${connectDirectives}
       }
 
       setStatus('error', msg);
-      sendBtn.textContent = 'Reenviar';
-      sendBtn.style.background = '#ef4444';
+      if (sendBtn) {
+        sendBtn.textContent = 'Reenviar';
+        sendBtn.style.background = '#ef4444';
+      }
       console.warn('[Coletor Automático] Falha no envio:', reasonType, detail);
 
       // Persiste a mensagem por 7 segundos antes de voltar ao estado normal
       failureResetTimer = setTimeout(() => {
-        sendBtn.textContent = 'Enviar';
-        sendBtn.style.background = '#0284c7';
+        if (sendBtn) {
+          sendBtn.textContent = 'Enviar';
+          sendBtn.style.background = '#0284c7';
+        }
         const latestSales = Array.from(accumulatedItems.values()).filter(i => i.sold_quantity != null && i.sold_quantity > 0).length;
-        setStatus('collecting', '"' + currentSearchTerm.substring(0, 18) + '" · ' + accumulatedItems.size + ' itens (' + latestSales + ' com vendas)');
+        const termLabel = currentSearchTerm ? ('"' + currentSearchTerm.substring(0, 18) + '" · ') : '';
+        setStatus('collecting', termLabel + accumulatedItems.size + ' itens (' + latestSales + ' com vendas)');
       }, 7000);
     }
 
     function trySendRequest(targetUrl, isFallback) {
-      if (typeof GM_xmlhttpRequest === 'function') {
+      const gmXmlHttp = (typeof GM_xmlhttpRequest === 'function')
+        ? GM_xmlhttpRequest
+        : (typeof GM !== 'undefined' && typeof GM.xmlHttpRequest === 'function')
+          ? GM.xmlHttpRequest
+          : null;
+
+      if (gmXmlHttp) {
         try {
-          GM_xmlhttpRequest({
+          gmXmlHttp({
             method: 'POST',
             url: targetUrl,
             headers: {
@@ -1456,7 +1546,6 @@ ${connectDirectives}
               if (response.status >= 200 && response.status < 300) {
                 handleSuccess();
               } else if (response.status === 404 && !isFallback) {
-                // Tenta fallback para /api/ml-collector/ingest
                 trySendRequest(fallbackEndpoint, true);
               } else if (response.status === 401 || response.status === 403) {
                 handleFailure('auth', response.status);
@@ -1529,12 +1618,6 @@ ${connectDirectives}
     trySendRequest(primaryEndpoint, false);
   }
 
-  // Ações manuais
-  sendBtn.addEventListener('click', () => {
-    if (debounceTimer) clearTimeout(debounceTimer);
-    sendBatchToApp();
-  });
-
   // Enviar ao mudar de visibilidade ou descarregar a página
   window.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') {
@@ -1555,11 +1638,15 @@ ${connectDirectives}
     }, 1500);
   });
 
-  observer.observe(document.body, { childList: true, subtree: true });
+  try {
+    const observeTarget = document.body || document.documentElement;
+    if (observeTarget) {
+      observer.observe(observeTarget, { childList: true, subtree: true });
+    }
+  } catch { /* intentionally ignored */ }
 
   // Primeira coleta após carga inicial
   setTimeout(collectCurrentPage, 800);
-
 })();
 `
 }
