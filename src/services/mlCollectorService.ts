@@ -267,9 +267,49 @@ export const mlCollectorService = {
   },
 
   /**
-   * Lista o histórico recente de coletas
+   * Helper para verificar se o erro é de autenticação/sessão expirada
+   */
+  isAuthError(err: any): boolean {
+    if (!err) return false
+    const status = err.status || err.statusCode || (err.response && err.response.status)
+    if (status === 401 || status === 403) return true
+    const msg = (err.message || '').toLowerCase()
+    if (
+      msg.includes('token') ||
+      msg.includes('authenticate') ||
+      msg.includes('unauthorized') ||
+      msg.includes('forbidden') ||
+      msg.includes('failed to authenticate') ||
+      msg.includes('only authenticated users')
+    ) {
+      return true
+    }
+    // Erro 400 com mensagem de regra de acesso ou token
+    if (
+      status === 400 &&
+      (msg.includes('failed to create record') || msg.includes('something went wrong')) &&
+      !pb.authStore.isValid
+    ) {
+      return true
+    }
+    return false
+  },
+
+  /**
+   * Lista o histórico recente de coletas.
+   * Em caso de erro de autenticação (401/403/sessão expirada), relança o erro para que
+   * a interface exiba o estado honesto de autenticação em vez de uma lista vazia silenciosa.
    */
   async listRecentImports(limit = 30): Promise<MLCollectorImportRecord[]> {
+    // Se a sessão local já for inválida, falhar explicitamente
+    if (!pb.authStore.isValid || !pb.authStore.record?.id) {
+      const authErr = new Error(
+        'Sessão expirada. Faça login novamente para visualizar o histórico de coletas.',
+      )
+      ;(authErr as any).status = 401
+      throw authErr
+    }
+
     try {
       const records = await pb
         .collection('ml_collector_imports')
@@ -277,8 +317,11 @@ export const mlCollectorService = {
           sort: '-imported_at',
         })
       return records.items || []
-    } catch (err) {
+    } catch (err: any) {
       console.warn('[mlCollectorService] Erro ao listar coletas:', err)
+      if (this.isAuthError(err)) {
+        throw err
+      }
       return []
     }
   },
@@ -297,20 +340,43 @@ export const mlCollectorService = {
   },
 
   /**
-   * Obtém ou gera uma chave de coleta para o usuário autenticado ou para a aplicação
+   * Obtém ou gera uma chave de coleta para o usuário autenticado ou para a aplicação.
+   * Se o usuário não estiver autenticado ou a chamada falhar por auth, RELANÇA o erro
+   * em vez de retornar silenciosamente 'mlk_default_...'.
    */
   async getOrCreateCollectorKey(userId?: string): Promise<string> {
+    const effectiveUserId = userId || pb.authStore.record?.id
+
+    if (!pb.authStore.isValid || !effectiveUserId) {
+      const authErr = new Error('Sessão expirada. Faça login para carregar sua chave de coleta.')
+      ;(authErr as any).status = 401
+      throw authErr
+    }
+
     try {
-      const filter = userId ? `user_id = "${userId}" && active = true` : 'active = true'
+      // 1. Tenta buscar chave ativa do próprio usuário primeiro
+      const userFilter = `user_id = "${effectiveUserId}" && active = true`
       const records = await pb.collection('ml_collector_keys').getList<MLCollectorKeyRecord>(1, 1, {
-        filter,
+        filter: userFilter,
       })
 
       if (records.items && records.items.length > 0) {
         return records.items[0].key
       }
 
-      // Se não existir, gera uma chave aleatória segura
+      // 2. Se for admin e não achou chave específica do user, tenta qualquer chave ativa
+      if (pb.authStore.record?.role === 'admin') {
+        const generalRecords = await pb
+          .collection('ml_collector_keys')
+          .getList<MLCollectorKeyRecord>(1, 1, {
+            filter: 'active = true',
+          })
+        if (generalRecords.items && generalRecords.items.length > 0) {
+          return generalRecords.items[0].key
+        }
+      }
+
+      // 3. Se não existir, gera uma chave aleatória segura vinculada ao usuário
       const randomKey =
         'mlk_' +
         Math.random().toString(36).substring(2, 10) +
@@ -319,16 +385,20 @@ export const mlCollectorService = {
 
       const created = await pb.collection('ml_collector_keys').create<MLCollectorKeyRecord>({
         key: randomKey,
-        name: 'Chave Padrão do Coletor',
-        user_id: userId || pb.authStore.record?.id || '',
+        name:
+          'Chave do Coletor - ' +
+          (pb.authStore.record?.name || pb.authStore.record?.email || 'Usuário'),
+        user_id: effectiveUserId,
         active: true,
       })
 
       return created.key
-    } catch (err) {
+    } catch (err: any) {
       console.warn('[mlCollectorService] Erro ao obter chave de coleta:', err)
-      // Fallback para chave em memória/local caso o banco falhe
-      return 'mlk_default_' + Date.now().toString(36)
+      if (this.isAuthError(err)) {
+        throw err
+      }
+      throw new Error(err.message || 'Falha ao obter ou registrar chave de coleta.')
     }
   },
 
@@ -742,6 +812,14 @@ export const mlCollectorService = {
    * Regenera a chave de coleta
    */
   async regenerateCollectorKey(userId?: string): Promise<string> {
+    const effectiveUserId = userId || pb.authStore.record?.id
+
+    if (!pb.authStore.isValid || !effectiveUserId) {
+      const authErr = new Error('Sessão expirada. Faça login para regenerar sua chave.')
+      ;(authErr as any).status = 401
+      throw authErr
+    }
+
     const randomKey =
       'mlk_' +
       Math.random().toString(36).substring(2, 10) +
@@ -752,13 +830,16 @@ export const mlCollectorService = {
       const created = await pb.collection('ml_collector_keys').create<MLCollectorKeyRecord>({
         key: randomKey,
         name: 'Chave Regenerada ' + new Date().toLocaleDateString('pt-BR'),
-        user_id: userId || pb.authStore.record?.id || '',
+        user_id: effectiveUserId,
         active: true,
       })
       return created.key
-    } catch (err) {
+    } catch (err: any) {
       console.warn('[mlCollectorService] Erro ao regenerar chave:', err)
-      return randomKey
+      if (this.isAuthError(err)) {
+        throw err
+      }
+      throw new Error(err.message || 'Falha ao regenerar chave de coleta.')
     }
   },
 }

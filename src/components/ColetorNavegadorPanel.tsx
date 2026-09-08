@@ -27,7 +27,9 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { useNavigate } from 'react-router-dom'
 import { useToast } from '@/hooks/use-toast'
+import { useAuth } from '@/contexts/AuthContext'
 import {
   getBookmarkletScript,
   getTurboBookmarkletScript,
@@ -47,9 +49,13 @@ export function ColetorNavegadorPanel({
   onImportApplied,
 }: ColetorNavegadorPanelProps) {
   const { toast } = useToast()
+  const { logout } = useAuth()
+  const navigate = useNavigate()
 
   // Chave de coleta e URL do backend PocketBase (para evitar erro HTTP 405 ao dar POST em frontend estático)
   const [collectorKey, setCollectorKey] = useState('')
+  const [keyAuthError, setKeyAuthError] = useState(false)
+  const [keyErrorMessage, setKeyErrorMessage] = useState<string | null>(null)
   const [backendUrl, setBackendUrl] = useState(() => {
     const pbUrl = pb.baseUrl
     if (pbUrl) return pbUrl
@@ -94,16 +100,44 @@ export function ColetorNavegadorPanel({
   // Histórico
   const [history, setHistory] = useState<MLCollectorImportRecord[]>([])
   const [loadingHistory, setLoadingHistory] = useState(false)
+  const [historyAuthError, setHistoryAuthError] = useState(false)
   const [activeImportId, setActiveImportId] = useState<string | null>(null)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // A chave é considerada válida se foi carregada e não começa com fallback inválido
+  const hasValidKey = Boolean(
+    collectorKey && !collectorKey.startsWith('mlk_default_') && !keyAuthError,
+  )
+
+  // Handler para redirecionar ao login com limpeza consistente do authStore
+  function handleGoToLogin() {
+    logout()
+    navigate('/login')
+  }
+
   // Carregar ou gerar chave de coleta
   async function loadCollectorKey() {
     setLoadingKey(true)
+    setKeyAuthError(false)
+    setKeyErrorMessage(null)
     try {
       const key = await mlCollectorService.getOrCreateCollectorKey(pb.authStore.record?.id)
       setCollectorKey(key)
+    } catch (err: any) {
+      console.warn('[ColetorNavegadorPanel] Erro ao carregar chave de coleta:', err)
+      const isAuth = mlCollectorService.isAuthError(err)
+      if (isAuth) {
+        setKeyAuthError(true)
+        setKeyErrorMessage('Sessão expirada — faça login para carregar sua chave de coleta.')
+        setCollectorKey('')
+        // Se a sessão expirou no backend, limpar auth local
+        if (!pb.authStore.isValid) {
+          logout()
+        }
+      } else {
+        setKeyErrorMessage(err.message || 'Falha ao carregar chave de coleta.')
+      }
     } finally {
       setLoadingKey(false)
     }
@@ -111,6 +145,11 @@ export function ColetorNavegadorPanel({
 
   // Regenerar chave de coleta
   async function handleRegenerateKey() {
+    if (keyAuthError || !hasValidKey) {
+      handleGoToLogin()
+      return
+    }
+
     if (
       !confirm(
         'Deseja gerar uma nova chave de coleta? Se fizer isso, lembre-se de atualizar seus scripts no Tampermonkey.',
@@ -122,10 +161,24 @@ export function ColetorNavegadorPanel({
     try {
       const newKey = await mlCollectorService.regenerateCollectorKey(pb.authStore.record?.id)
       setCollectorKey(newKey)
+      setKeyAuthError(false)
+      setKeyErrorMessage(null)
       toast({
         title: 'Nova chave gerada com sucesso!',
         description: 'Copie novamente o script do Tampermonkey ou o Bookmarklet Turbo atualizados.',
       })
+    } catch (err: any) {
+      if (mlCollectorService.isAuthError(err)) {
+        setKeyAuthError(true)
+        setKeyErrorMessage('Sessão expirada. Faça login novamente.')
+        logout()
+      } else {
+        toast({
+          title: 'Erro ao regenerar chave',
+          description: err.message || 'Tente novamente.',
+          variant: 'destructive',
+        })
+      }
     } finally {
       setLoadingKey(false)
     }
@@ -133,7 +186,14 @@ export function ColetorNavegadorPanel({
 
   // Copiar chave
   async function handleCopyKey() {
-    if (!collectorKey) return
+    if (!hasValidKey) {
+      toast({
+        title: 'Chave não disponível',
+        description: 'Faça login para carregar uma chave de coleta válida.',
+        variant: 'destructive',
+      })
+      return
+    }
     try {
       await navigator.clipboard.writeText(collectorKey)
       setCopiedKey(true)
@@ -160,9 +220,26 @@ export function ColetorNavegadorPanel({
   // Carregar histórico de coletas
   async function loadHistory() {
     setLoadingHistory(true)
+    setHistoryAuthError(false)
     try {
       const list = await mlCollectorService.listRecentImports(40)
       setHistory(list)
+    } catch (err: any) {
+      console.warn('[ColetorNavegadorPanel] Falha ao carregar histórico:', err)
+      if (mlCollectorService.isAuthError(err)) {
+        setHistoryAuthError(true)
+        setHistory([])
+        // Desloga o cliente se a sessão estiver de fato morta
+        if (!pb.authStore.isValid) {
+          logout()
+        }
+      } else {
+        toast({
+          title: 'Falha ao carregar histórico',
+          description: err.message || 'Verifique sua conexão.',
+          variant: 'destructive',
+        })
+      }
     } finally {
       setLoadingHistory(false)
     }
@@ -259,6 +336,15 @@ export function ColetorNavegadorPanel({
         onImportApplied(record)
       }
     } catch (err: any) {
+      if (mlCollectorService.isAuthError(err)) {
+        toast({
+          title: 'Sessão expirada',
+          description: 'Sua sessão expirou. Faça login novamente.',
+          variant: 'destructive',
+        })
+        handleGoToLogin()
+        return
+      }
       toast({
         title: 'Falha ao salvar coleta',
         description: err.message || 'Erro ao registrar no banco de dados.',
@@ -273,11 +359,23 @@ export function ColetorNavegadorPanel({
   async function handleDeleteHistory(id: string, e: React.MouseEvent) {
     e.stopPropagation()
     if (!confirm('Deseja excluir esta coleta salva?')) return
-    const ok = await mlCollectorService.deleteImport(id)
-    if (ok) {
-      toast({ title: 'Coleta removida' })
-      loadHistory()
-      if (activeImportId === id) setActiveImportId(null)
+    try {
+      const ok = await mlCollectorService.deleteImport(id)
+      if (ok) {
+        toast({ title: 'Coleta removida' })
+        loadHistory()
+        if (activeImportId === id) setActiveImportId(null)
+      } else {
+        toast({
+          title: 'Não foi possível remover',
+          description: 'Verifique se sua sessão tem permissão para remover coletas.',
+          variant: 'destructive',
+        })
+      }
+    } catch (err: any) {
+      if (mlCollectorService.isAuthError(err)) {
+        handleGoToLogin()
+      }
     }
   }
 
@@ -293,8 +391,18 @@ export function ColetorNavegadorPanel({
     }
   }
 
-  // Copiadores de scripts
+  // Copiadores de scripts com validação obrigatória de chave para os scripts automatizados
   async function copyScript(text: string, type: 'manual' | 'turbo' | 'tamper') {
+    if (type !== 'manual' && !hasValidKey) {
+      toast({
+        title: 'Chave de coleta obrigatória',
+        description:
+          'Faça login para carregar sua chave antes de copiar o script. Enviar com chave inválida fará o servidor recusar a coleta.',
+        variant: 'destructive',
+      })
+      return
+    }
+
     try {
       await navigator.clipboard.writeText(text)
       if (type === 'manual') {
@@ -349,35 +457,61 @@ export function ColetorNavegadorPanel({
                   <Key className="w-3.5 h-3.5 text-amber-400" />
                   Sua Chave de Coleta
                 </span>
-                <button
-                  type="button"
-                  onClick={handleRegenerateKey}
-                  disabled={loadingKey}
-                  className="text-[10px] text-slate-400 hover:text-amber-300 underline"
-                  title="Gerar nova chave de coleta"
-                >
-                  Regenerar
-                </button>
+                {hasValidKey ? (
+                  <button
+                    type="button"
+                    onClick={handleRegenerateKey}
+                    disabled={loadingKey}
+                    className="text-[10px] text-slate-400 hover:text-amber-300 underline"
+                    title="Gerar nova chave de coleta"
+                  >
+                    Regenerar
+                  </button>
+                ) : null}
               </div>
 
-              <div className="flex items-center gap-2">
-                <code className="px-2 py-1 bg-slate-950 text-emerald-400 rounded font-mono text-xs border border-slate-800 select-all max-w-[200px] truncate">
-                  {collectorKey || 'Carregando chave...'}
-                </code>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={handleCopyKey}
-                  className="h-7 px-2.5 text-xs text-slate-200 border-slate-700 bg-slate-800 hover:bg-slate-700"
-                >
-                  {copiedKey ? (
-                    <Check className="w-3 h-3 text-emerald-400" />
-                  ) : (
-                    <Copy className="w-3 h-3" />
-                  )}
-                  {copiedKey ? 'Copiada' : 'Copiar'}
-                </Button>
-              </div>
+              {keyAuthError ? (
+                <div className="p-2 bg-rose-950/80 border border-rose-800/80 rounded text-[11px] text-rose-200 space-y-1.5 max-w-[280px]">
+                  <div className="flex items-center gap-1.5 font-bold text-rose-300">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-400" />
+                    <span>Sessão Expirada</span>
+                  </div>
+                  <p className="text-[10px] leading-tight text-rose-200/90">
+                    Faça login novamente para carregar sua chave de coleta de verdade.
+                  </p>
+                  <Button
+                    size="sm"
+                    onClick={handleGoToLogin}
+                    className="h-6 text-[10px] px-2.5 bg-rose-600 hover:bg-rose-500 text-white font-bold w-full"
+                  >
+                    Entrar novamente
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <code className="px-2 py-1 bg-slate-950 text-emerald-400 rounded font-mono text-xs border border-slate-800 select-all max-w-[200px] truncate">
+                    {loadingKey ? 'Carregando chave...' : collectorKey || 'Nenhuma chave ativa'}
+                  </code>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleCopyKey}
+                    disabled={!hasValidKey || loadingKey}
+                    className="h-7 px-2.5 text-xs text-slate-200 border-slate-700 bg-slate-800 hover:bg-slate-700 disabled:opacity-50"
+                  >
+                    {copiedKey ? (
+                      <Check className="w-3 h-3 text-emerald-400" />
+                    ) : (
+                      <Copy className="w-3 h-3" />
+                    )}
+                    {copiedKey ? 'Copiada' : 'Copiar'}
+                  </Button>
+                </div>
+              )}
+
+              {keyErrorMessage && !keyAuthError && (
+                <p className="text-[10px] text-amber-400">{keyErrorMessage}</p>
+              )}
 
               <div className="text-[10px] text-slate-400 flex items-center gap-1">
                 <Globe className="w-3 h-3 text-indigo-400" />
@@ -482,17 +616,30 @@ export function ColetorNavegadorPanel({
                   </CardDescription>
                 </div>
 
-                <Button
-                  onClick={() => copyScript(tampermonkeyScript, 'tamper')}
-                  className="h-9 px-5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs gap-2 shrink-0 shadow-xs"
-                >
-                  {copiedTamper ? (
-                    <Check className="w-4 h-4 text-emerald-300" />
-                  ) : (
-                    <Copy className="w-4 h-4" />
+                <div className="flex flex-col sm:flex-row items-end sm:items-center gap-2">
+                  {!hasValidKey && (
+                    <span className="text-[11px] text-amber-600 font-medium">
+                      {keyAuthError
+                        ? 'Login necessário para liberar script'
+                        : 'Carregando chave...'}
+                    </span>
                   )}
-                  {copiedTamper ? 'Userscript Copiado!' : 'Copiar Userscript Tampermonkey'}
-                </Button>
+                  <Button
+                    onClick={() => copyScript(tampermonkeyScript, 'tamper')}
+                    disabled={!hasValidKey}
+                    className="h-9 px-5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 disabled:text-slate-500 text-white font-bold text-xs gap-2 shrink-0 shadow-xs"
+                    title={
+                      !hasValidKey ? 'Faça login para carregar sua chave de coleta' : undefined
+                    }
+                  >
+                    {copiedTamper ? (
+                      <Check className="w-4 h-4 text-emerald-300" />
+                    ) : (
+                      <Copy className="w-4 h-4" />
+                    )}
+                    {copiedTamper ? 'Userscript Copiado!' : 'Copiar Userscript Tampermonkey'}
+                  </Button>
+                </div>
               </div>
             </CardHeader>
 
@@ -563,17 +710,37 @@ export function ColetorNavegadorPanel({
                   <button
                     type="button"
                     onClick={() => copyScript(tampermonkeyScript, 'tamper')}
-                    className="text-xs text-indigo-600 hover:text-indigo-800 font-bold underline"
+                    disabled={!hasValidKey}
+                    className="text-xs text-indigo-600 hover:text-indigo-800 disabled:text-slate-400 font-bold underline"
                   >
                     Copiar Script Completo
                   </button>
                 </div>
-                <Textarea
-                  value={tampermonkeyScript}
-                  readOnly
-                  rows={8}
-                  className="font-mono text-[11px] bg-slate-900 text-emerald-400 border-slate-700"
-                />
+                {!hasValidKey ? (
+                  <div className="p-4 rounded-lg bg-slate-900 border border-slate-800 text-center space-y-2">
+                    <p className="text-xs text-amber-400 font-medium">
+                      {keyAuthError
+                        ? 'Sessão expirada — faça login para visualizar e copiar o Userscript com sua chave real.'
+                        : 'Carregando chave de coleta...'}
+                    </p>
+                    {keyAuthError && (
+                      <Button
+                        size="sm"
+                        onClick={handleGoToLogin}
+                        className="h-7 text-xs bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold"
+                      >
+                        Entrar novamente
+                      </Button>
+                    )}
+                  </div>
+                ) : (
+                  <Textarea
+                    value={tampermonkeyScript}
+                    readOnly
+                    rows={8}
+                    className="font-mono text-[11px] bg-slate-900 text-emerald-400 border-slate-700"
+                  />
+                )}
               </div>
 
               {/* Recursos inclusos no Userscript */}
@@ -620,7 +787,11 @@ export function ColetorNavegadorPanel({
                 <div className="flex items-center gap-2 shrink-0">
                   <Button
                     onClick={() => copyScript(turboScript, 'turbo')}
-                    className="h-9 px-5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs gap-2 shadow-xs"
+                    disabled={!hasValidKey}
+                    className="h-9 px-5 bg-amber-500 hover:bg-amber-600 disabled:bg-slate-300 disabled:text-slate-500 text-slate-950 font-bold text-xs gap-2 shadow-xs"
+                    title={
+                      !hasValidKey ? 'Faça login para carregar sua chave de coleta' : undefined
+                    }
                   >
                     {copiedTurbo ? (
                       <Check className="w-4 h-4 text-slate-950" />
@@ -629,27 +800,29 @@ export function ColetorNavegadorPanel({
                     )}
                     {copiedTurbo ? 'Código Copiado!' : 'Copiar Código Turbo'}
                   </Button>
-                  <Button
-                    variant="outline"
-                    className="h-9 text-xs border-amber-300 text-amber-950 bg-amber-50 hover:bg-amber-100"
-                    asChild
-                  >
-                    <a
-                      href={turboScript}
-                      onClick={(e) => {
-                        e.preventDefault()
-                        toast({
-                          title: 'Arraste para os Favoritos',
-                          description:
-                            'Arraste este botão para a sua Barra de Favoritos (Ctrl+Shift+B) ou use o botão "Copiar Código Turbo".',
-                        })
-                      }}
-                      title="Arraste para a Barra de Favoritos do Chrome"
+                  {hasValidKey ? (
+                    <Button
+                      variant="outline"
+                      className="h-9 text-xs border-amber-300 text-amber-950 bg-amber-50 hover:bg-amber-100"
+                      asChild
                     >
-                      <Zap className="w-3.5 h-3.5 text-amber-500 mr-1.5" />
-                      Arraste p/ Favoritos
-                    </a>
-                  </Button>
+                      <a
+                        href={turboScript}
+                        onClick={(e) => {
+                          e.preventDefault()
+                          toast({
+                            title: 'Arraste para os Favoritos',
+                            description:
+                              'Arraste este botão para a sua Barra de Favoritos (Ctrl+Shift+B) ou use o botão "Copiar Código Turbo".',
+                          })
+                        }}
+                        title="Arraste para a Barra de Favoritos do Chrome"
+                      >
+                        <Zap className="w-3.5 h-3.5 text-amber-500 mr-1.5" />
+                        Arraste p/ Favoritos
+                      </a>
+                    </Button>
+                  ) : null}
                 </div>
               </div>
             </CardHeader>
@@ -1011,7 +1184,29 @@ export function ColetorNavegadorPanel({
           </Button>
         </CardHeader>
         <CardContent className="p-4 sm:p-5">
-          {history.length === 0 ? (
+          {historyAuthError ? (
+            <div className="text-center py-10 px-4 bg-amber-50/70 border border-amber-200 rounded-xl space-y-3 max-w-lg mx-auto my-4">
+              <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-700 mx-auto flex items-center justify-center">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <h4 className="text-sm font-bold text-amber-950">
+                  Sessão Expirada ou Não Autenticada
+                </h4>
+                <p className="text-xs text-amber-800 leading-relaxed">
+                  As coletas do Tampermonkey continuam sendo gravadas com sucesso no banco, mas sua
+                  sessão no navegador expirou ou foi invalidada (ex: alteração de senha). Faça login
+                  novamente para visualizar o histórico de coletas e carregar sua chave.
+                </p>
+              </div>
+              <Button
+                onClick={handleGoToLogin}
+                className="h-9 px-6 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs gap-2"
+              >
+                Entrar novamente
+              </Button>
+            </div>
+          ) : history.length === 0 ? (
             <div className="text-center py-8 text-slate-400 text-xs">
               Nenhuma coleta realizada ainda. Execute o Tampermonkey, Coletor Turbo ou Bookmarklet
               na busca do Mercado Livre para iniciar!
