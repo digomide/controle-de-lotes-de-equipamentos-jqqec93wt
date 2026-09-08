@@ -61,7 +61,7 @@ export default function Layout() {
     { title: 'Vendas', path: '/vendas', icon: ShoppingCart },
     { title: 'Estoque / Lotes', path: '/estoque', icon: Layers },
     { title: 'Ajustes', path: '/ajustes', icon: SlidersHorizontal },
-    { title: 'Configurações', path: '/configuracoes', icon: Settings },
+    { title: 'Configurações', path: '/configuracoes', icon: Settings, adminOnly: true },
   ]
 
   const getPageTitle = () => {
@@ -97,29 +97,31 @@ export default function Layout() {
 
   const renderNavLinks = (onItemClick?: () => void) => (
     <nav className="space-y-1.5 px-2">
-      {navItems.map((item) => {
-        const Icon = item.icon
-        const isActive =
-          item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path)
+      {navItems
+        .filter((item) => !item.adminOnly || isAdmin)
+        .map((item) => {
+          const Icon = item.icon
+          const isActive =
+            item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path)
 
-        return (
-          <NavLink
-            key={item.path}
-            to={item.path}
-            onClick={onItemClick}
-            className={cn(
-              'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
-              isActive
-                ? 'bg-slate-800 text-white shadow-sm'
-                : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/60',
-            )}
-            title={collapsed ? item.title : undefined}
-          >
-            <Icon className="w-5 h-5 flex-shrink-0" />
-            {(!collapsed || onItemClick) && <span>{item.title}</span>}
-          </NavLink>
-        )
-      })}
+          return (
+            <NavLink
+              key={item.path}
+              to={item.path}
+              onClick={onItemClick}
+              className={cn(
+                'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+                isActive
+                  ? 'bg-slate-800 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/60',
+              )}
+              title={collapsed ? item.title : undefined}
+            >
+              <Icon className="w-5 h-5 flex-shrink-0" />
+              {(!collapsed || onItemClick) && <span>{item.title}</span>}
+            </NavLink>
+          )
+        })}
     </nav>
   )
 
@@ -293,14 +295,18 @@ export default function Layout() {
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={() => navigate('/configuracoes')}
-                  className="cursor-pointer"
-                >
-                  <Settings className="w-4 h-4 mr-2 text-slate-500" />
-                  Configurações
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
+                {isAdmin && (
+                  <>
+                    <DropdownMenuItem
+                      onClick={() => navigate('/configuracoes')}
+                      className="cursor-pointer"
+                    >
+                      <Settings className="w-4 h-4 mr-2 text-slate-500" />
+                      Configurações
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                  </>
+                )}
                 <DropdownMenuItem
                   onClick={logout}
                   className="cursor-pointer text-rose-600 focus:text-rose-600 focus:bg-rose-50"

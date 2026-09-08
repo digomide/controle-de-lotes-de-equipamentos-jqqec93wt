@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import {
   Card,
@@ -119,18 +119,25 @@ export default function Login() {
                 </div>
               </div>
 
-              <div className="p-3 bg-slate-100 rounded-lg text-xs text-slate-600 space-y-1">
+              <div className="p-3 bg-slate-100 rounded-lg text-xs text-slate-600 space-y-2">
                 <div className="font-semibold text-slate-700 flex items-center gap-1">
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                  Acesso Administrador:
+                  Credenciais de Teste / Acesso Rápido:
                 </div>
-                <div className="flex flex-wrap gap-2 pt-1">
+                <div className="flex flex-col gap-1.5 pt-0.5">
                   <button
                     type="button"
                     onClick={() => handleQuickLogin('rodrigoifgx@gmail.com')}
                     className="text-blue-600 hover:underline font-medium text-left"
                   >
-                    • Entrar como Admin: rodrigoifgx@gmail.com
+                    • <strong>Admin:</strong> rodrigoifgx@gmail.com
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleQuickLogin('operador@loteequip.com')}
+                    className="text-slate-700 hover:underline font-medium text-left"
+                  >
+                    • <strong>Membro (Operação):</strong> operador@loteequip.com
                   </button>
                 </div>
                 <p className="text-slate-400 pt-0.5">Senha padrão: Skip@Pass</p>
@@ -156,9 +163,17 @@ export default function Login() {
           </form>
         </Card>
 
-        <p className="text-center text-xs text-slate-500 mt-6">
-          LoteEquip • Controle Interno de Lotes e Vendas © {new Date().getFullYear()}
-        </p>
+        <div className="mt-6 text-center space-y-2">
+          <Link
+            to="/loja"
+            className="text-xs text-emerald-700 hover:text-emerald-800 font-semibold inline-flex items-center gap-1 hover:underline"
+          >
+            &larr; Ver Catálogo / Loja Pública (sem login)
+          </Link>
+          <p className="text-xs text-slate-500">
+            LoteEquip • Controle Interno de Lotes e Vendas © {new Date().getFullYear()}
+          </p>
+        </div>
       </div>
     </div>
   )

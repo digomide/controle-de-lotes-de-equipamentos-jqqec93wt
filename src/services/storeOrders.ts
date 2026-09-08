@@ -118,26 +118,48 @@ export const mercadoPagoService = {
    * eliminando dependência frágil de routerAdd em tempo de execução.
    */
   async getPublicConfig(): Promise<MPPublicConfigResponse> {
+    // 1. Tenta endpoint público seguro de backend (pb_hooks) sem expor tokens
     try {
-      const list = await pb.collection('mercadopago_settings').getList<MercadoPagoSettings>(1, 1, {
-        sort: '-created',
+      const res = await fetch(`${pb.baseURL}/api/store/mp/public-config`, {
+        headers: { Accept: 'application/json' },
       })
-      if (list.items.length > 0) {
-        const s = list.items[0]
-        const token = (s.mp_access_token || '').trim()
-        const isEnabled = Boolean(s.mp_enabled)
-        const hasValidToken = token.length > 10
+      if (res.ok) {
+        const data = await res.json()
         return {
-          enabled: isEnabled && hasValidToken,
-          public_key: s.mp_public_key || '',
-          store_title: s.store_title || 'AMbicorpFlow',
+          enabled: Boolean(data.enabled),
+          public_key: data.public_key || '',
+          store_title: data.store_title || 'AMbicorpFlow',
         }
       }
-      return { enabled: false, public_key: '', store_title: 'AMbicorpFlow' }
-    } catch (err) {
-      console.warn('Falha ao consultar config do Mercado Pago via coleção:', err)
-      return { enabled: false, public_key: '', store_title: 'AMbicorpFlow' }
+    } catch (_) {
+      // continua para fallback se autenticado
     }
+
+    // 2. Se usuário estiver autenticado (ex: admin), tenta ler da coleção
+    if (pb.authStore.isValid) {
+      try {
+        const list = await pb
+          .collection('mercadopago_settings')
+          .getList<MercadoPagoSettings>(1, 1, {
+            sort: '-created',
+          })
+        if (list.items.length > 0) {
+          const s = list.items[0]
+          const token = (s.mp_access_token || '').trim()
+          const isEnabled = Boolean(s.mp_enabled)
+          const hasValidToken = token.length > 10
+          return {
+            enabled: isEnabled && hasValidToken,
+            public_key: s.mp_public_key || '',
+            store_title: s.store_title || 'AMbicorpFlow',
+          }
+        }
+      } catch {
+        /* intentionally ignored */
+      }
+    }
+
+    return { enabled: false, public_key: '', store_title: 'AMbicorpFlow' }
   },
 
   /**

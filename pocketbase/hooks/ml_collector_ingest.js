@@ -3,10 +3,8 @@
 // 1. MECANISMO PRINCIPAL:
 //    Intercepta requisições de criação para a coleção ml_collector_imports:
 //    POST /api/collections/ml_collector_imports/records
-//    Valida a chave informada via header X-Collector-Key (ou Authorization Bearer / query.key / body.key) contra ml_collector_keys.
-//    Se válida, autoriza e calcula estatísticas complementares.
-//    Se inválida e sem sessão auth válida, bloqueia imediatamente com erro 401.
-//
+//    IMPORTANTE: Apenas chave válida de coletor (X-Collector-Key / Authorization Bearer / query.key / body.key)
+//    ou superuser/admin logado autorizam a ingestão. Anônimo sem chave é rejeitado com 401.//
 // 2. MECANISMO SECUNDÁRIO:
 //    Registra também routerAdd para rotas personalizadas com CORS.
 
@@ -74,7 +72,7 @@ try {
 
       // Se não informou chave de coletor, aceita sessão autenticada de usuário (ex: admin no painel)
       var auth = e.auth || (reqInfo && reqInfo.auth)
-      if (!isAuthorized && auth) {
+      if (!isAuthorized && auth && auth.id) {
         isAuthorized = true
       }
 
@@ -307,7 +305,7 @@ routerAdd('POST', '/backend/v1/ml-collector/ingest', (e) => {
     }
   }
 
-  if (!isAuthorized && e.auth) {
+  if (!isAuthorized && e.auth && e.auth.id) {
     isAuthorized = true
   }
 

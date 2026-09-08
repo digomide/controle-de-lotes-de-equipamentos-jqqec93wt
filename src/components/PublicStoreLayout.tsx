@@ -45,6 +45,12 @@ export const PublicStoreHeader: React.FC = () => {
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
               Vendas Corporativas & Lotes
             </Link>
+            <Link
+              to="/login"
+              className="px-3 py-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+            >
+              Entrar
+            </Link>
           </nav>
 
           {/* Quick Info & WhatsApp CTA */}
@@ -59,6 +65,13 @@ export const PublicStoreHeader: React.FC = () => {
                 {STORE_CONFIG.businessHours}
               </span>
             </div>
+
+            <Link
+              to="/login"
+              className="md:hidden inline-flex items-center px-2.5 py-2 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors"
+            >
+              Entrar
+            </Link>
 
             <a
               href={whatsappUrl}

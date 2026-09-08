@@ -73,7 +73,14 @@ const App = () => (
             <Route path="/post-instagram" element={<PostInstagram />} />
             <Route path="/post-tiktok" element={<PostTikTok />} />
             <Route path="/cotacoes" element={<CotacoesCorporativas />} />
-            <Route path="/configuracoes" element={<Configuracoes />} />
+            <Route
+              path="/configuracoes"
+              element={
+                <ProtectedRoute requireAdmin>
+                  <Configuracoes />
+                </ProtectedRoute>
+              }
+            />
             <Route path="/explorador-catalogo" element={<ExploradorCatalogo />} />
             <Route path="/anuncios-ml" element={<AnunciosML />} />
             <Route path="/radar-ml" element={<RadarML />} />
