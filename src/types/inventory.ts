@@ -4,6 +4,7 @@ export interface User extends RecordModel {
   email: string
   name: string
   role?: 'admin' | 'member'
+  active?: boolean
   avatar?: string
 }
 

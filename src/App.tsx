@@ -17,6 +17,7 @@ import LucratividadeLotes from './pages/LucratividadeLotes'
 import Estoque from './pages/Estoque'
 import Ajustes from './pages/Ajustes'
 import Configuracoes from './pages/Configuracoes'
+import Usuarios from './pages/Usuarios'
 import AnunciosML from './pages/AnunciosML'
 import ExploradorCatalogo from './pages/ExploradorCatalogo'
 import RadarML from './pages/RadarML'
@@ -78,6 +79,14 @@ const App = () => (
               element={
                 <ProtectedRoute requireAdmin>
                   <Configuracoes />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/usuarios"
+              element={
+                <ProtectedRoute requireAdmin>
+                  <Usuarios />
                 </ProtectedRoute>
               }
             />

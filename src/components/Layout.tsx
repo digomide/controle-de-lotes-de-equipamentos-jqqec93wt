@@ -16,6 +16,7 @@ import {
   Boxes,
   ShieldAlert,
   UserCheck,
+  Users,
   ShoppingBag,
   Instagram,
   Building2,
@@ -61,6 +62,7 @@ export default function Layout() {
     { title: 'Vendas', path: '/vendas', icon: ShoppingCart },
     { title: 'Estoque / Lotes', path: '/estoque', icon: Layers },
     { title: 'Ajustes', path: '/ajustes', icon: SlidersHorizontal },
+    { title: 'Usuários', path: '/usuarios', icon: Users, adminOnly: true },
     { title: 'Configurações', path: '/configuracoes', icon: Settings, adminOnly: true },
   ]
 
@@ -83,6 +85,7 @@ export default function Layout() {
     if (p.startsWith('/produtos') || p.startsWith('/catalogo')) return 'Catálogo de Equipamentos'
     if (p.startsWith('/estoque')) return 'Controle de Lotes & Estoque'
     if (p.startsWith('/ajustes')) return 'Ajuste de Inventário & Divergências'
+    if (p.startsWith('/usuarios')) return 'Gestão de Usuários'
     if (p.startsWith('/configuracoes')) return 'Configurações do Sistema'
     return 'AmbicorpFlow'
   }
@@ -299,6 +302,13 @@ export default function Layout() {
                 <DropdownMenuSeparator />
                 {isAdmin && (
                   <>
+                    <DropdownMenuItem
+                      onClick={() => navigate('/usuarios')}
+                      className="cursor-pointer"
+                    >
+                      <Users className="w-4 h-4 mr-2 text-slate-500" />
+                      Gestão de Usuários
+                    </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => navigate('/configuracoes')}
                       className="cursor-pointer"
