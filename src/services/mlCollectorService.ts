@@ -15,6 +15,52 @@ export interface MLCollectorImportRecord {
   updated?: string
 }
 
+export interface CollectorDeduplicatedAd {
+  id: string
+  mlb_id?: string
+  title: string
+  price?: number
+  sold_quantity: number | null
+  seller_name?: string
+  permalink?: string
+  thumbnail?: string
+  is_free_shipping?: boolean
+  is_full?: boolean
+  condition?: string
+}
+
+export interface CollectorTopSpec {
+  spec: string
+  totalUnits: number
+  adCount: number
+  weightedAvgPrice: number
+}
+
+export interface CollectorSummaryReport {
+  ok: boolean
+  term: string
+  imports_count: number
+  imports: Array<{
+    id: string
+    created: string
+    source_url?: string
+    results_count: number
+    with_sales_count: number
+  }>
+  total_deduplicated_ads: number
+  ads_with_sales_count: number
+  total_sold_units: number
+  weighted_avg_price: number
+  simple_avg_price: number
+  median_price: number
+  min_price: number
+  max_price: number
+  champion_ad: CollectorDeduplicatedAd | null
+  top_ads: CollectorDeduplicatedAd[]
+  top_specs: CollectorTopSpec[]
+  all_deduplicated_ads: CollectorDeduplicatedAd[]
+}
+
 export interface MLCollectorKeyRecord {
   id: string
   key: string
@@ -152,7 +198,8 @@ export const mlCollectorService = {
     if (!term) return null
 
     try {
-      const records = await pb
+      // 1. Tentar correspondência exata
+      let records = await pb
         .collection('ml_collector_imports')
         .getList<MLCollectorImportRecord>(1, 1, {
           filter: `search_term = "${term}"`,
@@ -160,7 +207,25 @@ export const mlCollectorService = {
         })
 
       if (records && records.items && records.items.length > 0) {
-        return records.items[0]
+        const item = records.items[0]
+        if (item.payload) {
+          item.payload = this.decodePayload(item.payload) || item.payload
+        }
+        return item
+      }
+
+      // 2. Tentar busca ampla por contém (ex: "memoria smart" casa com "memoria smartt")
+      records = await pb.collection('ml_collector_imports').getList<MLCollectorImportRecord>(1, 1, {
+        filter: `search_term ~ "${term}"`,
+        sort: '-imported_at',
+      })
+
+      if (records && records.items && records.items.length > 0) {
+        const item = records.items[0]
+        if (item.payload) {
+          item.payload = this.decodePayload(item.payload) || item.payload
+        }
+        return item
       }
     } catch (err) {
       console.warn('[mlCollectorService] Erro ao buscar coleta por termo:', err)
@@ -232,6 +297,255 @@ export const mlCollectorService = {
       console.warn('[mlCollectorService] Erro ao obter chave de coleta:', err)
       // Fallback para chave em memória/local caso o banco falhe
       return 'mlk_default_' + Date.now().toString(36)
+    }
+  },
+
+  /**
+   * Helper para decodificar o payload caso o SDK venha como string, objeto ou array de bytes
+   */
+  decodePayload(rawPayload: any): MLCollectorPayload | null {
+    if (!rawPayload) return null
+    if (
+      typeof rawPayload === 'object' &&
+      !Array.isArray(rawPayload) &&
+      Array.isArray(rawPayload.results)
+    ) {
+      return rawPayload as MLCollectorPayload
+    }
+    if (typeof rawPayload === 'string') {
+      try {
+        return JSON.parse(rawPayload)
+      } catch (_) {
+        return null
+      }
+    }
+    if (Array.isArray(rawPayload)) {
+      try {
+        let res = ''
+        const chunk = 8192
+        for (let i = 0; i < rawPayload.length; i += chunk) {
+          const slice = rawPayload.slice(i, i + chunk)
+          res += String.fromCharCode.apply(null, slice)
+        }
+        return JSON.parse(decodeURIComponent(escape(res)))
+      } catch (_) {
+        try {
+          let str = ''
+          for (let b = 0; b < rawPayload.length; b++) str += String.fromCharCode(rawPayload[b])
+          return JSON.parse(str)
+        } catch (__) {
+          return null
+        }
+      }
+    }
+    return null
+  },
+
+  /**
+   * Obtém o resumo consolidado e deduplicado de coletas do termo informado
+   * Tenta primeiro a rota nativa /backend/v1/custom/ml-collector/summary
+   * e faz fallback de cálculo client-side completo caso a rota falhe.
+   */
+  async getCollectorSummaryReport(searchTerm: string): Promise<CollectorSummaryReport | null> {
+    const term = normalizeSearchTerm(searchTerm)
+    if (!term) return null
+
+    // 1. Tentar endpoint dedicado no backend
+    try {
+      const resp = await pb.send<CollectorSummaryReport>(
+        `/backend/v1/custom/ml-collector/summary?term=${encodeURIComponent(term)}`,
+        { method: 'GET' },
+      )
+      if (resp && resp.ok && resp.total_deduplicated_ads > 0) {
+        return resp
+      }
+    } catch (err) {
+      console.warn(
+        '[mlCollectorService] Falha ao consultar endpoint de resumo, rodando agregação local:',
+        err,
+      )
+    }
+
+    // 2. Fallback de agregação client-side
+    try {
+      // Buscar até 30 registros que contenham o termo
+      const records = await pb
+        .collection('ml_collector_imports')
+        .getList<MLCollectorImportRecord>(1, 30, {
+          filter: `search_term ~ "${term}"`,
+          sort: '-imported_at',
+        })
+
+      if (!records || !records.items || records.items.length === 0) {
+        return null
+      }
+
+      const deduplicatedAds = new Map<string, CollectorDeduplicatedAd>()
+      const importsList: Array<{
+        id: string
+        created: string
+        source_url?: string
+        results_count: number
+        with_sales_count: number
+      }> = []
+
+      for (const rec of records.items) {
+        const payload = this.decodePayload(rec.payload)
+        const items = payload && Array.isArray(payload.results) ? payload.results : []
+
+        importsList.push({
+          id: rec.id,
+          created: rec.created || rec.imported_at || '',
+          source_url: rec.source_url,
+          results_count: items.length,
+          with_sales_count: rec.with_sales_count || 0,
+        })
+
+        for (let i = 0; i < items.length; i++) {
+          const it = items[i]
+          const adId = (it.mlb_id || it.id || `ITEM_${i}`).trim()
+          const soldQty = it.sold_quantity != null ? Number(it.sold_quantity) : null
+          const price = it.price != null ? Number(it.price) : undefined
+          const title = (it.title || '').trim()
+          const seller = (it.seller_name || '').trim()
+          const permalink = (it.permalink || '').trim()
+          const thumbnail = (it.thumbnail || '').trim()
+          const isFreeShipping = Boolean(it.is_free_shipping)
+          const isFull = Boolean(it.is_full)
+          const condition = (it.condition || '').trim()
+
+          if (!deduplicatedAds.has(adId)) {
+            deduplicatedAds.set(adId, {
+              id: adId,
+              mlb_id: it.mlb_id || adId,
+              title,
+              price,
+              sold_quantity: soldQty,
+              seller_name: seller,
+              permalink,
+              thumbnail,
+              is_free_shipping: isFreeShipping,
+              is_full: isFull,
+              condition,
+            })
+          } else {
+            const exist = deduplicatedAds.get(adId)!
+            if (soldQty != null && (exist.sold_quantity == null || soldQty > exist.sold_quantity)) {
+              exist.sold_quantity = soldQty
+            }
+            if (!exist.price && price) exist.price = price
+            if (!exist.seller_name && seller) exist.seller_name = seller
+            if (!exist.permalink && permalink) exist.permalink = permalink
+            if (!exist.title && title) exist.title = title
+            if (!exist.thumbnail && thumbnail) exist.thumbnail = thumbnail
+          }
+        }
+      }
+
+      const allAds = Array.from(deduplicatedAds.values())
+      const adsWithSales = allAds.filter((a) => a.sold_quantity != null && a.sold_quantity > 0)
+      adsWithSales.sort((a, b) => (b.sold_quantity || 0) - (a.sold_quantity || 0))
+
+      let totalSoldUnits = 0
+      let totalSalesRevenue = 0
+      const pricesWithSales: number[] = []
+
+      for (const adItem of adsWithSales) {
+        const qty = adItem.sold_quantity || 0
+        totalSoldUnits += qty
+        if (adItem.price && adItem.price > 0) {
+          totalSalesRevenue += adItem.price * qty
+          pricesWithSales.push(adItem.price)
+        }
+      }
+
+      pricesWithSales.sort((a, b) => a - b)
+      const simpleAvgPrice =
+        pricesWithSales.length > 0
+          ? pricesWithSales.reduce((s, p) => s + p, 0) / pricesWithSales.length
+          : 0
+      const weightedAvgPrice = totalSoldUnits > 0 ? totalSalesRevenue / totalSoldUnits : 0
+      const medianPrice =
+        pricesWithSales.length > 0
+          ? pricesWithSales.length % 2 === 0
+            ? (pricesWithSales[pricesWithSales.length / 2 - 1] +
+                pricesWithSales[pricesWithSales.length / 2]) /
+              2
+            : pricesWithSales[Math.floor(pricesWithSales.length / 2)]
+          : 0
+
+      const minPriceWithSales = pricesWithSales.length > 0 ? pricesWithSales[0] : 0
+      const maxPriceWithSales =
+        pricesWithSales.length > 0 ? pricesWithSales[pricesWithSales.length - 1] : 0
+
+      // Agrupamento por especificação
+      const specMap = new Map<
+        string,
+        { spec: string; totalUnits: number; revenue: number; adCount: number }
+      >()
+
+      for (const itemA of adsWithSales) {
+        const ddrMatch = itemA.title.match(/\b(ddr\s*[2345]|pc\s*[2345])\b/i)
+        const capMatch = itemA.title.match(/\b(\d+)\s*(?:gb|gigas?)\b/i)
+        const mhzMatch = itemA.title.match(
+          /\b(1333|1600|2133|2400|2666|3200|4800|5600)\s*(?:mhz)?\b/i,
+        )
+
+        let specKey = 'Outras'
+        if (ddrMatch || capMatch) {
+          const ddr = ddrMatch ? ddrMatch[0].toUpperCase().replace(/\s+/g, '') : 'RAM'
+          const cap = capMatch ? capMatch[1] + 'GB' : ''
+          const mhz = mhzMatch ? ' ' + mhzMatch[1] + 'MHz' : ''
+          specKey = `${ddr} ${cap}${mhz}`.trim()
+        }
+
+        if (!specMap.has(specKey)) {
+          specMap.set(specKey, {
+            spec: specKey,
+            totalUnits: 0,
+            revenue: 0,
+            adCount: 0,
+          })
+        }
+        const sp = specMap.get(specKey)!
+        const qty = itemA.sold_quantity || 0
+        sp.totalUnits += qty
+        sp.adCount += 1
+        if (itemA.price && itemA.price > 0) {
+          sp.revenue += itemA.price * qty
+        }
+      }
+
+      const specsRanked: CollectorTopSpec[] = Array.from(specMap.values()).map((sp) => ({
+        spec: sp.spec,
+        totalUnits: sp.totalUnits,
+        adCount: sp.adCount,
+        weightedAvgPrice:
+          sp.totalUnits > 0 ? Math.round((sp.revenue / sp.totalUnits) * 100) / 100 : 0,
+      }))
+      specsRanked.sort((a, b) => b.totalUnits - a.totalUnits)
+
+      return {
+        ok: true,
+        term,
+        imports_count: records.items.length,
+        imports: importsList,
+        total_deduplicated_ads: allAds.length,
+        ads_with_sales_count: adsWithSales.length,
+        total_sold_units: totalSoldUnits,
+        weighted_avg_price: Math.round(weightedAvgPrice * 100) / 100,
+        simple_avg_price: Math.round(simpleAvgPrice * 100) / 100,
+        median_price: Math.round(medianPrice * 100) / 100,
+        min_price: minPriceWithSales,
+        max_price: maxPriceWithSales,
+        champion_ad: adsWithSales.length > 0 ? adsWithSales[0] : null,
+        top_ads: adsWithSales.slice(0, 10),
+        top_specs: specsRanked.slice(0, 8),
+        all_deduplicated_ads: allAds,
+      }
+    } catch (err) {
+      console.warn('[mlCollectorService] Erro na agregação local:', err)
+      return null
     }
   },
 

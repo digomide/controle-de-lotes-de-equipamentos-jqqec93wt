@@ -426,3 +426,233 @@ routerAdd('POST', '/backend/v1/ml-collector/ingest', (e) => {
     })
   }
 })
+
+// Rota auxiliar de leitura e agregação pública/autenticada para o Raio-X
+routerAdd('GET', '/backend/v1/custom/ml-collector/summary', function (e) {
+  try {
+    var reqInfo = e.requestInfo ? e.requestInfo() : null
+    var query = (reqInfo && reqInfo.query) || {}
+    var term = (query.term || query.search_term || '').toString().toLowerCase().trim()
+    if (!term) {
+      return e.json(400, { ok: false, error: 'Termo de busca (term) é obrigatório' })
+    }
+
+    function bytesToStr(bytes) {
+      if (typeof bytes === 'string') return bytes
+      if (!bytes) return ''
+      if (Array.isArray(bytes)) {
+        var res = ''
+        var chunk = 8192
+        for (var i = 0; i < bytes.length; i += chunk) {
+          var slice = bytes.slice(i, i + chunk)
+          res += String.fromCharCode.apply(null, slice)
+        }
+        try {
+          return decodeURIComponent(escape(res))
+        } catch (_) {
+          return res
+        }
+      }
+      return ''
+    }
+
+    var records = $app.findRecordsByFilter(
+      'ml_collector_imports',
+      "search_term ~ '" + term.replace(/'/g, "\\'") + "'",
+      '-imported_at',
+      50,
+      0,
+    )
+
+    var deduplicatedAds = {}
+    var importsList = []
+
+    for (var r = 0; r < records.length; r++) {
+      var rec = records[r]
+      var rawPayload = rec.get('payload')
+      var parsed = null
+      if (typeof rawPayload === 'string') {
+        try {
+          parsed = JSON.parse(rawPayload)
+        } catch (_) {}
+      } else if (Array.isArray(rawPayload)) {
+        var str = bytesToStr(rawPayload)
+        try {
+          parsed = JSON.parse(str)
+        } catch (_) {}
+      } else if (rawPayload && typeof rawPayload === 'object') {
+        parsed = rawPayload
+      }
+
+      var items = parsed && parsed.results ? parsed.results : Array.isArray(parsed) ? parsed : []
+      importsList.push({
+        id: rec.id,
+        created: rec.getString('created') || rec.get('created'),
+        source_url: rec.getString('source_url'),
+        results_count: items.length,
+        with_sales_count: rec.getInt('with_sales_count') || 0,
+      })
+
+      for (var i = 0; i < items.length; i++) {
+        var it = items[i]
+        var adId = (it.mlb_id || it.id || 'ITEM_' + i).toString().trim()
+        var soldQty = it.sold_quantity != null ? Number(it.sold_quantity) : null
+        var price = it.price != null ? Number(it.price) : null
+        var title = (it.title || '').toString().trim()
+        var seller = (it.seller_name || it.seller || '').toString().trim()
+        var permalink = (it.permalink || '').toString().trim()
+        var thumbnail = (it.thumbnail || '').toString().trim()
+        var isFreeShipping = Boolean(it.is_free_shipping)
+        var isFull = Boolean(it.is_full)
+        var condition = (it.condition || '').toString().trim()
+
+        if (!deduplicatedAds[adId]) {
+          deduplicatedAds[adId] = {
+            id: adId,
+            mlb_id: it.mlb_id || adId,
+            title: title,
+            price: price,
+            sold_quantity: soldQty,
+            seller_name: seller,
+            permalink: permalink,
+            thumbnail: thumbnail,
+            is_free_shipping: isFreeShipping,
+            is_full: isFull,
+            condition: condition,
+          }
+        } else {
+          var exist = deduplicatedAds[adId]
+          if (soldQty != null && (exist.sold_quantity == null || soldQty > exist.sold_quantity)) {
+            exist.sold_quantity = soldQty
+          }
+          if (!exist.price && price) exist.price = price
+          if (!exist.seller_name && seller) exist.seller_name = seller
+          if (!exist.permalink && permalink) exist.permalink = permalink
+          if (!exist.title && title) exist.title = title
+          if (!exist.thumbnail && thumbnail) exist.thumbnail = thumbnail
+        }
+      }
+    }
+
+    var allAdsKeys = Object.keys(deduplicatedAds)
+    var allAds = []
+    for (var k = 0; k < allAdsKeys.length; k++) {
+      allAds.push(deduplicatedAds[allAdsKeys[k]])
+    }
+
+    var adsWithSales = allAds.filter(function (a) {
+      return a.sold_quantity != null && a.sold_quantity > 0
+    })
+    adsWithSales.sort(function (a, b) {
+      return b.sold_quantity - a.sold_quantity
+    })
+
+    var totalSoldUnits = 0
+    var totalSalesRevenue = 0
+    var pricesWithSales = []
+
+    for (var m = 0; m < adsWithSales.length; m++) {
+      var adItem = adsWithSales[m]
+      totalSoldUnits += adItem.sold_quantity
+      if (adItem.price && adItem.price > 0) {
+        totalSalesRevenue += adItem.price * adItem.sold_quantity
+        pricesWithSales.push(adItem.price)
+      }
+    }
+
+    pricesWithSales.sort(function (a, b) {
+      return a - b
+    })
+    var simpleAvgPrice =
+      pricesWithSales.length > 0
+        ? pricesWithSales.reduce(function (s, p) {
+            return s + p
+          }, 0) / pricesWithSales.length
+        : 0
+    var weightedAvgPrice = totalSoldUnits > 0 ? totalSalesRevenue / totalSoldUnits : 0
+    var medianPrice =
+      pricesWithSales.length > 0
+        ? pricesWithSales.length % 2 === 0
+          ? (pricesWithSales[pricesWithSales.length / 2 - 1] +
+              pricesWithSales[pricesWithSales.length / 2]) /
+            2
+          : pricesWithSales[Math.floor(pricesWithSales.length / 2)]
+        : 0
+
+    var minPriceWithSales = pricesWithSales.length > 0 ? pricesWithSales[0] : 0
+    var maxPriceWithSales =
+      pricesWithSales.length > 0 ? pricesWithSales[pricesWithSales.length - 1] : 0
+
+    // Agrupamento por especificação (DDR, Capacidade, Frequência)
+    var specMap = {}
+    for (var n = 0; n < adsWithSales.length; n++) {
+      var itemA = adsWithSales[n]
+      var ddrMatch = itemA.title.match(/\\b(ddr\\s*[2345]|pc\\s*[2345])\\b/i)
+      var capMatch = itemA.title.match(/\\b(\\d+)\\s*(?:gb|gigas?)\\b/i)
+      var mhzMatch = itemA.title.match(
+        /\\b(1333|1600|2133|2400|2666|3200|4800|5600)\\s*(?:mhz)?\\b/i,
+      )
+
+      var specKey = 'Outras'
+      if (ddrMatch || capMatch) {
+        var ddr = ddrMatch ? ddrMatch[0].toUpperCase().replace(/\\s+/g, '') : 'RAM'
+        var cap = capMatch ? capMatch[1] + 'GB' : ''
+        var mhz = mhzMatch ? ' ' + mhzMatch[1] + 'MHz' : ''
+        specKey = (ddr + ' ' + cap + mhz).trim()
+      }
+
+      if (!specMap[specKey]) {
+        specMap[specKey] = {
+          spec: specKey,
+          totalUnits: 0,
+          revenue: 0,
+          adCount: 0,
+          prices: [],
+        }
+      }
+      specMap[specKey].totalUnits += itemA.sold_quantity
+      specMap[specKey].adCount += 1
+      if (itemA.price && itemA.price > 0) {
+        specMap[specKey].revenue += itemA.price * itemA.sold_quantity
+        specMap[specKey].prices.push(itemA.price)
+      }
+    }
+
+    var specKeys = Object.keys(specMap)
+    var specsRanked = []
+    for (var p = 0; p < specKeys.length; p++) {
+      var sp = specMap[specKeys[p]]
+      specsRanked.push({
+        spec: sp.spec,
+        totalUnits: sp.totalUnits,
+        adCount: sp.adCount,
+        weightedAvgPrice:
+          sp.totalUnits > 0 ? Math.round((sp.revenue / sp.totalUnits) * 100) / 100 : 0,
+      })
+    }
+    specsRanked.sort(function (a, b) {
+      return b.totalUnits - a.totalUnits
+    })
+
+    return e.json(200, {
+      ok: true,
+      term: term,
+      imports_count: records.length,
+      imports: importsList,
+      total_deduplicated_ads: allAds.length,
+      ads_with_sales_count: adsWithSales.length,
+      total_sold_units: totalSoldUnits,
+      weighted_avg_price: Math.round(weightedAvgPrice * 100) / 100,
+      simple_avg_price: Math.round(simpleAvgPrice * 100) / 100,
+      median_price: Math.round(medianPrice * 100) / 100,
+      min_price: minPriceWithSales,
+      max_price: maxPriceWithSales,
+      champion_ad: adsWithSales.length > 0 ? adsWithSales[0] : null,
+      top_ads: adsWithSales.slice(0, 10),
+      top_specs: specsRanked.slice(0, 8),
+      all_deduplicated_ads: allAds,
+    })
+  } catch (err) {
+    return e.json(500, { ok: false, error: 'Erro ao gerar resumo: ' + (err.message || err) })
+  }
+})
