@@ -1,8 +1,8 @@
 // Endpoint para criar preferência no Checkout Pro do Mercado Pago
-// Route: POST /api/store/mp/create-preference
+// Route: POST /backend/v1/store/mp/create-preference
 // Público (chamado pela loja pública ao iniciar compra)
 
-routerAdd('POST', '/api/store/mp/create-preference', (e) => {
+routerAdd('POST', '/backend/v1/store/mp/create-preference', (e) => {
   let body = {}
   try {
     body = e.requestInfo().body || {}
@@ -111,7 +111,7 @@ routerAdd('POST', '/api/store/mp/create-preference', (e) => {
       {
         id: productSku,
         title: productName.substring(0, 250),
-        description: ('Equipamento revisado AMbicorpFlow - SKU: ' + productSku).substring(0, 250),
+        description: ('Equipamento revisado AmbicorpFlow - SKU: ' + productSku).substring(0, 250),
         quantity: quantity,
         currency_id: 'BRL',
         unit_price: unitPrice,

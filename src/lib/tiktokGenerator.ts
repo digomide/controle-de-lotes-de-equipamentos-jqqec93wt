@@ -98,7 +98,7 @@ export function generateTikTokCaption(
 
   const finalStoreUrl = storeUrl || getProductStoreUrl(product)
   const phone = STORE_CONFIG.whatsappDisplay
-  const storeName = STORE_CONFIG.name || 'AMbicorpFlow'
+  const storeName = STORE_CONFIG.name || 'AmbicorpFlow'
 
   const brandTag = product.brand
     ? `#${product.brand.toLowerCase().replace(/[^a-z0-9]/g, '')}`
@@ -197,13 +197,13 @@ ${baseHashtags} #atacado #revenda #lotedenotebooks #b2b #informatica`
  * - Fundo premium escuro/neutro com destaque esmeralda
  * - Selo "RECONDICIONADO · PROCEDÊNCIA GARANTIDA" no topo
  * - Foto de capa do produto em crop central proporcional
- * - Faixa inferior escura com linha esmeralda, marca AMbicorpFlow, specs, preço à vista e WhatsApp
+ * - Faixa inferior escura com linha esmeralda, marca AmbicorpFlow, specs, preço à vista e WhatsApp
  * - QR Code escaneável apontando para a URL pública do produto com "COMPRE PELO QR"
  */
 export async function generateTikTokPostImage(
   imageUrl: string,
   product: Product,
-  storeName: string = STORE_CONFIG.name || 'AMbicorpFlow',
+  storeName: string = STORE_CONFIG.name || 'AmbicorpFlow',
 ): Promise<string> {
   const safeDataUrl = await loadImageAsDataUrl(imageUrl)
 
@@ -372,7 +372,7 @@ export async function generateTikTokPostImage(
       ctx.fillStyle = '#10b981'
       ctx.fillRect(0, footerY, 1080, 8)
 
-      // 5. Marca AMbicorpFlow e Specs
+      // 5. Marca AmbicorpFlow e Specs
       ctx.fillStyle = '#ffffff'
       ctx.font = '900 52px system-ui, -apple-system, sans-serif'
       ctx.fillText(storeName, 60, footerY + 80)

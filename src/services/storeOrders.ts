@@ -120,15 +120,15 @@ export const mercadoPagoService = {
   async getPublicConfig(): Promise<MPPublicConfigResponse> {
     // 1. Tenta endpoint público seguro de backend (pb_hooks) sem expor tokens
     try {
-      const res = await fetch(`${pb.baseURL}/api/store/mp/public-config`, {
+      const data = await pb.send<any>('/backend/v1/store/mp/public-config', {
+        method: 'GET',
         headers: { Accept: 'application/json' },
       })
-      if (res.ok) {
-        const data = await res.json()
+      if (data) {
         return {
           enabled: Boolean(data.enabled),
           public_key: data.public_key || '',
-          store_title: data.store_title || 'AMbicorpFlow',
+          store_title: data.store_title || 'AmbicorpFlow',
         }
       }
     } catch (_) {
@@ -151,7 +151,7 @@ export const mercadoPagoService = {
           return {
             enabled: isEnabled && hasValidToken,
             public_key: s.mp_public_key || '',
-            store_title: s.store_title || 'AMbicorpFlow',
+            store_title: s.store_title || 'AmbicorpFlow',
           }
         }
       } catch {
@@ -159,7 +159,7 @@ export const mercadoPagoService = {
       }
     }
 
-    return { enabled: false, public_key: '', store_title: 'AMbicorpFlow' }
+    return { enabled: false, public_key: '', store_title: 'AmbicorpFlow' }
   },
 
   /**
@@ -169,21 +169,20 @@ export const mercadoPagoService = {
     const returnBase = returnUrl || (typeof window !== 'undefined' ? window.location.origin : '')
 
     try {
-      // 1. Tenta endpoint direto se estiver acessível
-      const res = await fetch(`${pb.baseURL}/api/store/mp/create-preference`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
+      // 1. Tenta endpoint direto se estiver acessível via pb.send
+      const res = await pb.send<MPCreatePreferenceResponse>(
+        '/backend/v1/store/mp/create-preference',
+        {
+          method: 'POST',
+          body: {
+            order_id: orderId,
+            return_url: returnBase,
+          },
         },
-        body: JSON.stringify({
-          order_id: orderId,
-          return_url: returnBase,
-        }),
-      })
+      )
 
-      if (res.ok) {
-        return await res.json()
+      if (res) {
+        return res
       }
     } catch (_) {
       // continua para fallback

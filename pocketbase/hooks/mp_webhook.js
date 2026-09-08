@@ -1,13 +1,13 @@
 // Webhook do Mercado Pago para receber notificações de pagamentos
-// Route: POST /api/store/mp/webhook
-// Route: GET /api/store/mp/webhook (para validação/ping da URL pelo MP)
+// Route: POST /backend/v1/store/mp/webhook
+// Route: GET /backend/v1/store/mp/webhook (para validação/ping da URL pelo MP)
 // Público, sem autenticação PocketBase (recebe requisições diretas dos servidores do Mercado Pago)
 
-routerAdd('GET', '/api/store/mp/webhook', (e) => {
-  return e.json(200, { status: 'ok', service: 'AMbicorpFlow Mercado Pago Webhook' })
+routerAdd('GET', '/backend/v1/store/mp/webhook', (e) => {
+  return e.json(200, { status: 'ok', service: 'AmbicorpFlow Mercado Pago Webhook' })
 })
 
-routerAdd('POST', '/api/store/mp/webhook', (e) => {
+routerAdd('POST', '/backend/v1/store/mp/webhook', (e) => {
   let body = {}
   try {
     body = e.requestInfo().body || {}

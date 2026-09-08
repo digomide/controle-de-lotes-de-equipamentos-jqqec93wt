@@ -134,7 +134,7 @@ export function EtiquetaModal({ open, onOpenChange, data }: EtiquetaModalProps) 
               <div className="flex items-center gap-1.5">
                 <Laptop className="w-4 h-4 text-black print:text-black" />
                 <span className="font-extrabold text-xs tracking-tight uppercase">
-                  LoteEquip · Controle de Ativos
+                  AmbicorpFlow · Controle de Ativos
                 </span>
               </div>
               <span className="font-mono text-[11px] font-black border border-black px-1.5 py-0.2 rounded">

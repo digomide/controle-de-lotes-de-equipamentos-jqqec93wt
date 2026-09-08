@@ -6,7 +6,7 @@ interface AmbicorpFlowLogoProps {
    */
   size?: 'sm' | 'md' | 'lg'
   /**
-   * Exibir o wordmark ("AMbicorpFlow") ao lado do símbolo
+   * Exibir o wordmark ("AmbicorpFlow") ao lado do símbolo
    */
   showWordmark?: boolean
   /**
@@ -20,7 +20,7 @@ interface AmbicorpFlowLogoProps {
 }
 
 /**
- * Logo oficial AMbicorpFlow
+ * Logo oficial AmbicorpFlow
  * Símbolo tech moderno combinando monograma "AF", dinâmica de fluxo contínuo (Flow),
  * chip corporativo e tons quentes/coral (#f97316 / #ea580c / #c2410c) com ardósia/grafite (#0f172a).
  */
@@ -132,7 +132,7 @@ export const AmbicorpFlowLogo: React.FC<AmbicorpFlowLogoProps> = ({
         </svg>
       </div>
 
-      {/* Wordmark AMbicorpFlow */}
+      {/* Wordmark AmbicorpFlow */}
       {showWordmark && (
         <div className="flex flex-col justify-center min-w-0 leading-none">
           <div className="flex items-baseline tracking-tight font-extrabold">
@@ -141,8 +141,8 @@ export const AmbicorpFlowLogo: React.FC<AmbicorpFlowLogoProps> = ({
                 variant === 'dark' ? 'text-white' : 'text-slate-900'
               }`}
             >
-              <span className="text-orange-500 font-black">AM</span>
-              <span>bicorp</span>
+              <span className="text-orange-500 font-black">A</span>
+              <span>mbicorp</span>
               <span className="text-orange-500 font-black ml-0.5">Flow</span>
             </span>
           </div>

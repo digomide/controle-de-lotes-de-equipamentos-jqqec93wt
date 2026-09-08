@@ -61,10 +61,12 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center p-3 bg-slate-900 rounded-2xl shadow-lg mb-4 text-emerald-400">
+          <div className="inline-flex items-center justify-center p-3 bg-slate-900 rounded-2xl shadow-lg mb-4 text-orange-400">
             <Boxes className="w-10 h-10" />
           </div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">LoteEquip Gestão</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+            <span className="text-orange-500">Ambicorp</span>Flow
+          </h1>
           <p className="text-sm text-slate-600 mt-1">Controle de Lotes de Equipamentos & Vendas</p>
         </div>
 
@@ -171,7 +173,7 @@ export default function Login() {
             &larr; Ver Catálogo / Loja Pública (sem login)
           </Link>
           <p className="text-xs text-slate-500">
-            LoteEquip • Controle Interno de Lotes e Vendas © {new Date().getFullYear()}
+            AmbicorpFlow • Controle Interno de Lotes e Vendas © {new Date().getFullYear()}
           </p>
         </div>
       </div>

@@ -60,7 +60,7 @@ const TEMPLATE_SUGGESTIONS = [
     channel: 'whatsapp' as const,
     batch_notice: true,
     tipo: 'revendedor' as const,
-    body: `Olá {{nome}}, tudo bem?\n\nAcabou de chegar um novo lote corporativo aqui na AMbicorpFlow:\n📦 *{{produto}}*\n🏷️ Preço especial de lote: *{{preco}}*\n\nEquipamentos testados, higienizados e com garantia. Lote limitado!\nConfira as fotos e especificações completas:\n👉 {{link_loja}}\n\nPodemos separar um lote para você? Responda direto neste WhatsApp!`,
+    body: `Olá {{nome}}, tudo bem?\n\nAcabou de chegar um novo lote corporativo aqui na AmbicorpFlow:\n📦 *{{produto}}*\n🏷️ Preço especial de lote: *{{preco}}*\n\nEquipamentos testados, higienizados e com garantia. Lote limitado!\nConfira as fotos e especificações completas:\n👉 {{link_loja}}\n\nPodemos separar um lote para você? Responda direto neste WhatsApp!`,
   },
   {
     title: 'Oferta Especial Direta (Equipamento Específico)',

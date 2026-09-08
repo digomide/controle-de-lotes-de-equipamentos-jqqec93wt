@@ -139,7 +139,7 @@ onRecordAfterCreateSuccess((e) => {
 }, 'mp_test_jobs')
 
 // Mantém também rota routerAdd caso no futuro o Skip Cloud habilite routerAdd no boot
-routerAdd('POST', '/api/store/mp/test-connection', (e) => {
+routerAdd('POST', '/backend/v1/store/mp/test-connection', (e) => {
   let authRecord = e.auth
   if (!authRecord) {
     try {

@@ -84,7 +84,7 @@ export default function Layout() {
     if (p.startsWith('/estoque')) return 'Controle de Lotes & Estoque'
     if (p.startsWith('/ajustes')) return 'Ajuste de Inventário & Divergências'
     if (p.startsWith('/configuracoes')) return 'Configurações do Sistema'
-    return 'LoteEquip Gestão'
+    return 'AmbicorpFlow'
   }
 
   const handleSearchSubmit = (e: React.FormEvent) => {
@@ -137,13 +137,13 @@ export default function Layout() {
         {/* Brand Header */}
         <div className="h-16 flex items-center justify-between px-4 border-b border-slate-800">
           <div className="flex items-center gap-3 overflow-hidden">
-            <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-lg flex-shrink-0">
-              <Boxes className="w-6 h-6" />
+            <div className="p-1.5 bg-orange-500/10 rounded-lg flex-shrink-0">
+              <Boxes className="w-6 h-6 text-orange-400" />
             </div>
             {!collapsed && (
               <div className="leading-tight truncate">
                 <span className="font-bold text-white text-base tracking-tight block truncate">
-                  LoteEquip
+                  <span className="text-orange-500">Ambicorp</span>Flow
                 </span>
                 <span className="text-xs text-slate-400 block truncate">Controle de Lotes</span>
               </div>
@@ -210,11 +210,13 @@ export default function Layout() {
                 className="w-72 p-0 bg-slate-900 border-slate-800 text-white"
               >
                 <div className="h-16 flex items-center gap-3 px-6 border-b border-slate-800">
-                  <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-lg">
-                    <Boxes className="w-6 h-6" />
+                  <div className="p-1.5 bg-orange-500/10 rounded-lg">
+                    <Boxes className="w-6 h-6 text-orange-400" />
                   </div>
                   <div>
-                    <h2 className="font-bold text-white text-base">LoteEquip</h2>
+                    <h2 className="font-bold text-white text-base">
+                      <span className="text-orange-500">Ambicorp</span>Flow
+                    </h2>
                     <p className="text-xs text-slate-400">Controle de Lotes</p>
                   </div>
                 </div>

@@ -15,7 +15,7 @@ export const PublicStoreHeader: React.FC = () => {
           <Link
             to="/loja"
             className="flex items-center gap-3 group min-w-0"
-            title="AMbicorpFlow - Início do Catálogo"
+            title="AmbicorpFlow - Início do Catálogo"
           >
             <div className="min-w-0">
               <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap">
@@ -78,7 +78,7 @@ export const PublicStoreHeader: React.FC = () => {
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm shadow-sm transition-all hover:shadow-md"
-              title="Fale com a AMbicorpFlow no WhatsApp"
+              title="Fale com a AmbicorpFlow no WhatsApp"
             >
               <MessageSquare className="w-4 h-4" />
               <span>Fale no WhatsApp</span>

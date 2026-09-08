@@ -455,7 +455,7 @@ export default function LojaPublica() {
           </div>
         )}
 
-        {/* Grid de Cards Públicos (Estilo AMbicorpFlow) */}
+        {/* Grid de Cards Públicos (Estilo AmbicorpFlow) */}
         {!loading && !error && (
           <>
             {filteredProducts.length === 0 ? (

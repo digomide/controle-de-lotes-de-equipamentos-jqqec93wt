@@ -68,10 +68,10 @@ const SELLER_CENTER_STEPS: SellerStep[] = [
   {
     id: 'step_cnpj',
     category: 'documentos',
-    title: '2. Cadastro do CNPJ da AMbicorp',
+    title: '2. Cadastro do CNPJ da Ambicorp',
     subtitle: 'Conta corporativa Pessoa Jurídica (PJ) no seu nome',
     details:
-      'Selecione o tipo de vendedor como "Pessoa Jurídica (Empresa)". Insira a Razão Social, Nome Fantasia, CNPJ da AMbicorp e o CNAE correspondente (comércio de equipamentos de informática).',
+      'Selecione o tipo de vendedor como "Pessoa Jurídica (Empresa)". Insira a Razão Social, Nome Fantasia, CNPJ da Ambicorp e o CNAE correspondente (comércio de equipamentos de informática).',
   },
   {
     id: 'step_rep_legal',
@@ -87,7 +87,7 @@ const SELLER_CENTER_STEPS: SellerStep[] = [
     title: '4. Configuração de Conta Bancária PJ',
     subtitle: 'Conta bancária com a mesma titularidade do CNPJ',
     details:
-      'Cadastre a conta corrente PJ da AMbicorp para recebimento automático dos repasses das vendas. O TikTok Shop valida que a chave/dados pertençam ao mesmo CNPJ cadastrado.',
+      'Cadastre a conta corrente PJ da Ambicorp para recebimento automático dos repasses das vendas. O TikTok Shop valida que a chave/dados pertençam ao mesmo CNPJ cadastrado.',
   },
   {
     id: 'step_warehouse',
@@ -103,7 +103,7 @@ const SELLER_CENTER_STEPS: SellerStep[] = [
     title: '6. Primeiro Cadastro de Produtos & Próxima Etapa de API',
     subtitle: 'Cadastro manual dos primeiros notebooks e preparação para integração via API',
     details:
-      'Você pode cadastrar os primeiros notebooks manualmente no Seller Center com as fotos e especificações geradas aqui no Estúdio. Assim como no Mercado Livre, a próxima etapa será conectar a API oficial do TikTok Shop para sincronizar todo o catálogo direto do AMbicorpFlow!',
+      'Você pode cadastrar os primeiros notebooks manualmente no Seller Center com as fotos e especificações geradas aqui no Estúdio. Assim como no Mercado Livre, a próxima etapa será conectar a API oficial do TikTok Shop para sincronizar todo o catálogo direto do AmbicorpFlow!',
   },
 ]
 
@@ -686,7 +686,7 @@ export default function PostTikTok() {
                             </h4>
                             <p className="text-[11px] text-slate-500">
                               Foto em crop central, selo de procedência garantida, faixa
-                              AMbicorpFlow, specs, valor à vista e QR Code direto da loja.
+                              AmbicorpFlow, specs, valor à vista e QR Code direto da loja.
                             </p>
                           </div>
 
@@ -726,7 +726,7 @@ export default function PostTikTok() {
                             <div className="relative w-44 h-80 rounded-xl overflow-hidden border border-slate-300 shadow-lg shrink-0 bg-slate-950 flex items-center justify-center">
                               <img
                                 src={generatedImageUrl}
-                                alt="Post TikTok AMbicorpFlow"
+                                alt="Post TikTok AmbicorpFlow"
                                 className="w-full h-full object-contain"
                               />
                             </div>
@@ -850,7 +850,7 @@ export default function PostTikTok() {
                     Com a restrição temporária da Meta no seu perfil pessoal (até 19/12), o TikTok
                     Shop é o canal ideal que opera de forma totalmente independente. Siga o
                     checklist abaixo para habilitar suas vendas diretas como Pessoa Jurídica (CNPJ
-                    AMbicorp).
+                    Ambicorp).
                   </p>
                 </div>
 

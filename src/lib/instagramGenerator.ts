@@ -162,7 +162,7 @@ export function generateInstagramCaption(
   const finalStoreUrl = storeUrl || getProductStoreUrl(product)
 
   const phone = STORE_CONFIG.whatsappDisplay
-  const storeName = STORE_CONFIG.name || 'AMbicorpFlow'
+  const storeName = STORE_CONFIG.name || 'AmbicorpFlow'
 
   // Montar hashtags relevantes com base na marca e tipo
   const brandTag = product.brand
@@ -276,13 +276,13 @@ ${baseHashtags} #vendascorporativas #lotesdenotebooks #revendainformatica #ataca
 /**
  * Gera uma imagem 1080x1080 com a foto do produto em crop centralizado,
  * selo de procedência mantido no topo esquerdo (removendo selo "16 itens testados"),
- * rodapé corporativo AMbicorpFlow, preço, WhatsApp e QR Code escaneável
+ * rodapé corporativo AmbicorpFlow, preço, WhatsApp e QR Code escaneável
  * apontando direto para a página de compra do produto.
  */
 export async function generatePostImage(
   imageUrl: string,
   product: Product,
-  storeName: string = STORE_CONFIG.name || 'AMbicorpFlow',
+  storeName: string = STORE_CONFIG.name || 'AmbicorpFlow',
 ): Promise<string> {
   // Pré-converter a imagem em Data URL segura contra CORS tainted canvas
   const safeDataUrl = await loadImageAsDataUrl(imageUrl)

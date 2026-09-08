@@ -28,7 +28,7 @@ export interface StoreConfig {
 }
 
 export const STORE_CONFIG: StoreConfig = {
-  name: 'AMbicorpFlow',
+  name: 'AmbicorpFlow',
   tagline: 'Notebooks corporativos seminovos revisados com garantia e procedência',
   // Número comercial oficial (DDI + DDD + Número: 55 + 31 + 992310866)
   whatsappNumber: '5531992310866',

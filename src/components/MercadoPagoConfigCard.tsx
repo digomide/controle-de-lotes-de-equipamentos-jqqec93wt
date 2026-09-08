@@ -31,7 +31,7 @@ export function MercadoPagoConfigCard() {
   const [accessToken, setAccessToken] = useState('')
   const [publicKey, setPublicKey] = useState('')
   const [mpEnabled, setMpEnabled] = useState(false)
-  const [storeTitle, setStoreTitle] = useState('AMbicorpFlow Store')
+  const [storeTitle, setStoreTitle] = useState('AmbicorpFlow Store')
   const [statementDescriptor, setStatementDescriptor] = useState('AMBICORPFLOW')
   const [webhookSecret, setWebhookSecret] = useState('')
 
@@ -55,7 +55,7 @@ export function MercadoPagoConfigCard() {
         setAccessToken(data.mp_access_token || '')
         setPublicKey(data.mp_public_key || '')
         setMpEnabled(Boolean(data.mp_enabled))
-        setStoreTitle(data.store_title || 'AMbicorpFlow Store')
+        setStoreTitle(data.store_title || 'AmbicorpFlow Store')
         setStatementDescriptor(data.statement_descriptor || 'AMBICORPFLOW')
         setWebhookSecret(data.webhook_secret || '')
       }
@@ -430,7 +430,7 @@ export function MercadoPagoConfigCard() {
             (Pagamentos / Pedidos) para baixa de estoque instantânea:
           </p>
           <div className="p-2.5 bg-black/40 rounded-lg font-mono text-emerald-300 text-[11px] select-all break-all border border-slate-800">
-            https://controle-de-lotes-de-equipamentos-25024.shrd00.internal.goskip.dev/api/store/mp/webhook
+            https://controle-de-lotes-de-equipamentos-25024.shrd00.internal.goskip.dev/backend/v1/store/mp/webhook
           </div>
         </div>
       </CardContent>

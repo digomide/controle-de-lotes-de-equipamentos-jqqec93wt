@@ -1,11 +1,11 @@
 // Endpoint público para verificar se o Mercado Pago está ativo e obter a public_key para a loja
-// Route: GET /api/store/mp/public-config
+// Route: GET /backend/v1/store/mp/public-config
 // Sem auth (público para a loja saber se exibe o botão ou modo degradado)
 
-routerAdd('GET', '/api/store/mp/public-config', (e) => {
+routerAdd('GET', '/backend/v1/store/mp/public-config', (e) => {
   let enabled = false
   let publicKey = ''
-  let storeTitle = 'AMbicorpFlow'
+  let storeTitle = 'AmbicorpFlow'
 
   try {
     const settings = $app.findRecordsByFilter('mercadopago_settings', '1=1', '-created', 1, 0)
@@ -14,7 +14,7 @@ routerAdd('GET', '/api/store/mp/public-config', (e) => {
       const token = s.getString('mp_access_token')
       const isEnabled = s.getBool('mp_enabled')
       publicKey = s.getString('mp_public_key') || ''
-      storeTitle = s.getString('store_title') || 'AMbicorpFlow'
+      storeTitle = s.getString('store_title') || 'AmbicorpFlow'
       // Só está ativo de fato se tiver o mp_access_token e mp_enabled === true
       enabled = Boolean(isEnabled && token && token.trim().length > 10)
     }

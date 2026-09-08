@@ -90,7 +90,7 @@ export default function LojaCorporativo() {
     const rawNumber = STORE_CONFIG.whatsappNumber.replace(/\D/g, '')
     const target = rawNumber.startsWith('55') ? rawNumber : `55${rawNumber}`
     const text = encodeURIComponent(
-      `Olá! Tenho interesse em compras corporativas / lotes de notebooks na AMbicorpFlow. Gostaria de solicitar uma cotação por volume.`,
+      `Olá! Tenho interesse em compras corporativas / lotes de notebooks na AmbicorpFlow. Gostaria de solicitar uma cotação por volume.`,
     )
     return `https://wa.me/${target}?text=${text}`
   }
@@ -200,7 +200,7 @@ export default function LojaCorporativo() {
                 Vantagens B2B
               </Badge>
               <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-                Por que adquirir lotes com a AMbicorpFlow?
+                Por que adquirir lotes com a AmbicorpFlow?
               </h2>
               <p className="text-sm text-slate-500">
                 Segurança técnica e previsibilidade financeira para o seu negócio ou parque de TI.

@@ -111,7 +111,7 @@ export default function CotacoesCorporativas() {
     const digits = phone.replace(/\D/g, '')
     const target = digits.startsWith('55') ? digits : `55${digits}`
     const text = encodeURIComponent(
-      `Olá ${name}! Sou da AMbicorpFlow, recebemos sua cotação de lote para a empresa ${company}.`,
+      `Olá ${name}! Sou da AmbicorpFlow, recebemos sua cotação de lote para a empresa ${company}.`,
     )
     return `https://wa.me/${target}?text=${text}`
   }

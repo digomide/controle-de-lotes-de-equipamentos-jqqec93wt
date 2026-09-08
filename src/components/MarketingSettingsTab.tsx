@@ -287,7 +287,7 @@ export function MarketingSettingsTab() {
                   no campo <strong>META_WA_TOKEN</strong>.
                 </li>
                 <li>
-                  Cadastre o número comercial da AMbicorpFlow <strong>(31) 99231-0866</strong> como
+                  Cadastre o número comercial da AmbicorpFlow <strong>(31) 99231-0866</strong> como
                   número oficial da sua conta comercial.
                 </li>
               </ol>

@@ -994,7 +994,7 @@ export default function CatalogoDetalhe() {
     const reportText = [
       reportDivider,
       'LAUDO TÉCNICO E CHECKLIST DE INSPEÇÃO / REVISÃO',
-      'LoteEquip Gestão de Equipamentos',
+      'AmbicorpFlow - Gestão de Equipamentos',
       reportDivider,
       `Equipamento: ${product.name}`,
       `Código / SKU: ${product.sku}`,
@@ -1034,7 +1034,7 @@ export default function CatalogoDetalhe() {
       'ITENS E PENDÊNCIAS DE ENTREGA:',
       delivContent,
       reportDivider,
-      'Relatório gerado via LoteEquip. Equipamento testado e aprovado para comercialização.',
+      'Relatório gerado via AmbicorpFlow. Equipamento testado e aprovado para comercialização.',
     ].join('\n')
 
     const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' })

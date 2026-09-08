@@ -437,7 +437,7 @@ export function MercadoLivreConfigCard() {
                     <strong className="text-slate-800">Criar Nova Aplicação</strong>.
                   </li>
                   <li>
-                    Em <em>Nome</em>, defina ex: "AMbicorpFlow Anúncios".
+                    Em <em>Nome</em>, defina ex: "AmbicorpFlow Anúncios".
                   </li>
                   <li>
                     No campo <strong className="text-slate-800">Redirect URI</strong>, copie e cole

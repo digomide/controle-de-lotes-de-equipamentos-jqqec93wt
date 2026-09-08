@@ -142,7 +142,7 @@ export default function PostInstagram() {
       setGeneratedImageUrl(dataUrl)
       toast({
         title: 'Imagem gerada com sucesso!',
-        description: 'Foto 1080x1080 com faixa AMbicorpFlow pronta para download.',
+        description: 'Foto 1080x1080 com faixa AmbicorpFlow pronta para download.',
       })
     } catch (err: any) {
       console.error('Erro ao gerar imagem:', err)
@@ -536,7 +536,7 @@ export default function PostInstagram() {
                           Imagem para Feed (1080x1080 PNG)
                         </h4>
                         <p className="text-[11px] text-slate-500">
-                          Foto centralizada com faixa profissional AMbicorpFlow, preço e WhatsApp.
+                          Foto centralizada com faixa profissional AmbicorpFlow, preço e WhatsApp.
                         </p>
                       </div>
 
@@ -575,7 +575,7 @@ export default function PostInstagram() {
                         <div className="relative w-48 h-48 rounded-lg overflow-hidden border border-slate-200 shadow-md shrink-0 bg-white">
                           <img
                             src={generatedImageUrl}
-                            alt="Post Instagram AMbicorpFlow"
+                            alt="Post Instagram AmbicorpFlow"
                             className="w-full h-full object-contain"
                           />
                         </div>
