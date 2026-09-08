@@ -29,12 +29,24 @@ export interface CollectorDeduplicatedAd {
   condition?: string
 }
 
-export interface CollectorTopSpec {
+export interface CollectorSpecMetrics {
   spec: string
   totalUnits: number
+  totalRevenue: number
   adCount: number
+  adsWithSalesCount: number
+  adsWithoutSalesCount: number
   weightedAvgPrice: number
+  simpleAvgPrice: number
+  medianPrice: number
+  minPrice: number
+  maxPrice: number
+  sharePercent: number
+  championAd: CollectorDeduplicatedAd | null
+  ads: CollectorDeduplicatedAd[]
 }
+
+export type CollectorTopSpec = CollectorSpecMetrics
 
 export interface CollectorSummaryReport {
   ok: boolean
@@ -58,6 +70,7 @@ export interface CollectorSummaryReport {
   champion_ad: CollectorDeduplicatedAd | null
   top_ads: CollectorDeduplicatedAd[]
   top_specs: CollectorTopSpec[]
+  all_specs: CollectorSpecMetrics[]
   all_deduplicated_ads: CollectorDeduplicatedAd[]
 }
 
@@ -320,6 +333,90 @@ export const mlCollectorService = {
   },
 
   /**
+   * Extração taxonômica fina de especificações para agrupamento justo (DDR, GB, MHz, Formato, etc)
+   */
+  extractFineSpec(title: string): string {
+    const cleanTitle = (title || '').trim()
+    if (!cleanTitle) return 'Outros'
+
+    // 1. Identificar geração de memória RAM (DDR2, DDR3, DDR3L, DDR4, DDR5, PC2, PC3, PC3L, PC4)
+    const ddrMatch = cleanTitle.match(
+      /\b(ddr\s*5|ddr\s*4|ddr\s*3\s*l|ddr\s*3|ddr\s*2|pc\s*5|pc\s*4|pc\s*3\s*l|pc\s*3|pc\s*2)\b/i,
+    )
+
+    // 2. Identificar capacidade (ex: 2GB, 4GB, 8GB, 16GB, 32GB, 64GB) ou Kit (ex: 2x8gb, 2x4gb)
+    const kitMatch = cleanTitle.match(/\b(\d+)\s*[xX*]\s*(\d+)\s*(?:gb|gigas?)\b/i)
+    const capMatch = cleanTitle.match(/\b(\d+)\s*(?:gb|gigas?)\b/i)
+
+    // 3. Identificar frequência em MHz (ex: 667, 800, 1066, 1333, 1600, 1866, 2133, 2400, 2666, 2933, 3000, 3200, 3600, 4800, 5200, 5600, 6000)
+    const mhzMatch = cleanTitle.match(
+      /\b(667|800|1066|1333|1600|1866|2133|2400|2666|2933|3000|3200|3600|4800|5200|5600|6000)\s*(?:mhz)?\b/i,
+    )
+
+    // 4. Form factor / formato (SODIMM / Notebook / Laptop vs DIMM / Desktop)
+    const isNotebook = /\b(sodimm|so-dimm|notebook|laptop|para\s+notebook)\b/i.test(cleanTitle)
+    const isDesktop = /\b(dimm|udimm|desktop|pc\s+desktop|para\s+pc)\b/i.test(cleanTitle)
+
+    let formTag = ''
+    if (isNotebook) formTag = ' SODIMM'
+    else if (isDesktop) formTag = ' Desktop'
+
+    if (ddrMatch || capMatch) {
+      let ddr = ddrMatch ? ddrMatch[0].toUpperCase().replace(/\s+/g, '') : 'RAM'
+      // Normalizar PC3L -> DDR3L, PC4 -> DDR4 etc
+      if (ddr === 'PC3L') ddr = 'DDR3L'
+      else if (ddr === 'PC3') ddr = 'DDR3'
+      else if (ddr === 'PC4') ddr = 'DDR4'
+      else if (ddr === 'PC5') ddr = 'DDR5'
+      else if (ddr === 'PC2') ddr = 'DDR2'
+
+      let cap = ''
+      if (kitMatch) {
+        cap = `${kitMatch[1]}x${kitMatch[2]}GB`
+      } else if (capMatch) {
+        cap = `${capMatch[1]}GB`
+      }
+
+      let freq = ''
+      if (mhzMatch) {
+        freq = `${mhzMatch[1]}MHz`
+      } else {
+        // Regra do usuário: anúncios sem frequência explícita viram "(freq. n/d)" em vez de misturar
+        freq = '(freq. n/d)'
+      }
+
+      return `${ddr} ${cap} ${freq}${formTag}`.replace(/\s+/g, ' ').trim()
+    }
+
+    // Processadores (ex: i3, i5, i7, i9 com geração ou modelo, Ryzen 5 5600g etc)
+    const cpuIntelMatch = cleanTitle.match(/\b(core\s+)?(i[3579])[- ]?(\d{3,5}[a-z]{0,2})\b/i)
+    if (cpuIntelMatch) {
+      return `Intel ${cpuIntelMatch[2].toUpperCase()}-${cpuIntelMatch[3].toUpperCase()}`
+    }
+    const cpuAmdMatch = cleanTitle.match(/\b(ryzen\s+[3579])\s*(\d{4}[a-z]{0,2})\b/i)
+    if (cpuAmdMatch) {
+      return `AMD ${cpuAmdMatch[1].toUpperCase()} ${cpuAmdMatch[2].toUpperCase()}`
+    }
+
+    // Armazenamento SSD / HD
+    const storageMatch = cleanTitle.match(/\b(ssd|nvme|m\.2|hd|disco\s+rigido)\b/i)
+    const storageCap = cleanTitle.match(/\b(\d+)\s*(?:gb|tb)\b/i)
+    if (storageMatch && storageCap) {
+      const type = storageMatch[1].toUpperCase().replace(/\./g, '')
+      const cap = storageCap[0].toUpperCase().replace(/\s+/g, '')
+      return `${type} ${cap}`
+    }
+
+    // Form factor de gabinetes / computadores (SFF, Tiny, Mini, Micro, Desktop)
+    const formMatch = cleanTitle.match(/\b(sff|tiny|mini|micro|usff|desktop|ultrabook)\b/i)
+    if (formMatch) {
+      return formMatch[1].toUpperCase()
+    }
+
+    return 'Outras Especificações'
+  },
+
+  /**
    * Helper para decodificar o payload caso o SDK venha como string, objeto ou array de bytes
    */
   decodePayload(rawPayload: any): MLCollectorPayload | null {
@@ -518,58 +615,103 @@ export const mlCollectorService = {
       const maxPriceWithSales =
         pricesWithSales.length > 0 ? pricesWithSales[pricesWithSales.length - 1] : 0
 
-      // Agrupamento por especificação
+      // Agrupamento por especificação fina cobrindo TODOS os anúncios (com vendas E sem vendas)
       const specMap = new Map<
         string,
-        { spec: string; totalUnits: number; revenue: number; adCount: number }
+        {
+          spec: string
+          totalUnits: number
+          totalRevenue: number
+          adCount: number
+          adsWithSalesCount: number
+          adsWithoutSalesCount: number
+          pricesWithSales: number[]
+          ads: CollectorDeduplicatedAd[]
+        }
       >()
 
-      for (const itemA of adsWithSales) {
-        const ddrMatch = itemA.title.match(/\b(ddr\s*[2345]|pc\s*[2345]|sodimm|dimm)\b/i)
-        const capMatch = itemA.title.match(/\b(\d+)\s*(?:gb|gigas?|tb)\b/i)
-        const mhzMatch = itemA.title.match(
-          /\b(1066|1333|1600|1866|2133|2400|2666|2933|3200|3600|4800|5200|5600)\s*(?:mhz)?\b/i,
-        )
-
-        let specKey = 'Outras'
-        if (ddrMatch || capMatch) {
-          const ddr = ddrMatch ? ddrMatch[0].toUpperCase().replace(/\s+/g, '') : 'RAM'
-          const cap = capMatch ? capMatch[1] + 'GB' : ''
-          const mhz = mhzMatch ? ' ' + mhzMatch[1] + 'MHz' : ''
-          specKey = `${ddr} ${cap}${mhz}`.trim()
-        } else {
-          // Tentar capturar modelos ou termos (ex: SFF, Desktop, Notebook, Mini)
-          const formMatch = itemA.title.match(/\b(sff|tiny|mini|desktop|notebook|ultrabook)\b/i)
-          if (formMatch) {
-            specKey = formMatch[1].toUpperCase()
-          }
-        }
+      for (const ad of allAds) {
+        const specKey = this.extractFineSpec(ad.title)
 
         if (!specMap.has(specKey)) {
           specMap.set(specKey, {
             spec: specKey,
             totalUnits: 0,
-            revenue: 0,
+            totalRevenue: 0,
             adCount: 0,
+            adsWithSalesCount: 0,
+            adsWithoutSalesCount: 0,
+            pricesWithSales: [],
+            ads: [],
           })
         }
+
         const sp = specMap.get(specKey)!
-        const qty = itemA.sold_quantity || 0
-        sp.totalUnits += qty
         sp.adCount += 1
-        if (itemA.price && itemA.price > 0) {
-          sp.revenue += itemA.price * qty
+        sp.ads.push(ad)
+
+        const soldQty = ad.sold_quantity != null && ad.sold_quantity > 0 ? ad.sold_quantity : 0
+        if (soldQty > 0) {
+          sp.adsWithSalesCount += 1
+          sp.totalUnits += soldQty
+          if (ad.price && ad.price > 0) {
+            sp.totalRevenue += ad.price * soldQty
+            sp.pricesWithSales.push(ad.price)
+          }
+        } else {
+          sp.adsWithoutSalesCount += 1
         }
       }
 
-      const specsRanked: CollectorTopSpec[] = Array.from(specMap.values()).map((sp) => ({
-        spec: sp.spec,
-        totalUnits: sp.totalUnits,
-        adCount: sp.adCount,
-        weightedAvgPrice:
-          sp.totalUnits > 0 ? Math.round((sp.revenue / sp.totalUnits) * 100) / 100 : 0,
-      }))
-      specsRanked.sort((a, b) => b.totalUnits - a.totalUnits)
+      const allSpecsRanked: CollectorSpecMetrics[] = Array.from(specMap.values()).map((sp) => {
+        sp.pricesWithSales.sort((a, b) => a - b)
+        const count = sp.pricesWithSales.length
+        const simpleAvg = count > 0 ? sp.pricesWithSales.reduce((s, p) => s + p, 0) / count : 0
+        const weightedAvg = sp.totalUnits > 0 ? sp.totalRevenue / sp.totalUnits : 0
+        const median =
+          count > 0
+            ? count % 2 === 0
+              ? (sp.pricesWithSales[count / 2 - 1] + sp.pricesWithSales[count / 2]) / 2
+              : sp.pricesWithSales[Math.floor(count / 2)]
+            : 0
+
+        const min = count > 0 ? sp.pricesWithSales[0] : 0
+        const max = count > 0 ? sp.pricesWithSales[count - 1] : 0
+
+        const share =
+          totalSoldUnits > 0 ? Math.round((sp.totalUnits / totalSoldUnits) * 1000) / 10 : 0
+
+        // Anúncio campeão da especificação
+        const specAdsWithSales = sp.ads.filter(
+          (a) => a.sold_quantity != null && a.sold_quantity > 0,
+        )
+        specAdsWithSales.sort((a, b) => (b.sold_quantity || 0) - (a.sold_quantity || 0))
+        const champion =
+          specAdsWithSales.length > 0 ? specAdsWithSales[0] : sp.ads.length > 0 ? sp.ads[0] : null
+
+        return {
+          spec: sp.spec,
+          totalUnits: sp.totalUnits,
+          totalRevenue: Math.round(sp.totalRevenue * 100) / 100,
+          adCount: sp.adCount,
+          adsWithSalesCount: sp.adsWithSalesCount,
+          adsWithoutSalesCount: sp.adsWithoutSalesCount,
+          weightedAvgPrice: Math.round(weightedAvg * 100) / 100,
+          simpleAvgPrice: Math.round(simpleAvg * 100) / 100,
+          medianPrice: Math.round(median * 100) / 100,
+          minPrice: min,
+          maxPrice: max,
+          sharePercent: share,
+          championAd: champion,
+          ads: sp.ads,
+        }
+      })
+
+      // Ordenar por volume de unidades vendidas decrescente; desempate por contagem de anúncios
+      allSpecsRanked.sort((a, b) => {
+        if (b.totalUnits !== a.totalUnits) return b.totalUnits - a.totalUnits
+        return b.adCount - a.adCount
+      })
 
       return {
         ok: true,
@@ -586,7 +728,8 @@ export const mlCollectorService = {
         max_price: maxPriceWithSales,
         champion_ad: adsWithSales.length > 0 ? adsWithSales[0] : null,
         top_ads: adsWithSales.slice(0, 10),
-        top_specs: specsRanked.slice(0, 8),
+        top_specs: allSpecsRanked.slice(0, 8),
+        all_specs: allSpecsRanked,
         all_deduplicated_ads: allAds,
       }
     } catch (err) {

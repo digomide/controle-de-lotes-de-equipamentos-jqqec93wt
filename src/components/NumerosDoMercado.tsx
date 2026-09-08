@@ -13,49 +13,83 @@ import {
 import type { CollectorSummaryReport } from '@/services/mlCollectorService'
 import type { ExactProductSummary } from '@/services/mlExactProductService'
 
+import type { CollectorSpecMetrics } from '@/services/mlCollectorService'
+
 interface NumerosDoMercadoProps {
   collectorReport: CollectorSummaryReport | null
   catalogSummary: ExactProductSummary | null
+  selectedSpec?: CollectorSpecMetrics | null
+  onClearSelectedSpec?: () => void
+  searchTerm?: string
 }
 
-export function NumerosDoMercado({ collectorReport, catalogSummary }: NumerosDoMercadoProps) {
+export function NumerosDoMercado({
+  collectorReport,
+  catalogSummary,
+  selectedSpec,
+  onClearSelectedSpec,
+  searchTerm,
+}: NumerosDoMercadoProps) {
   // Preferir dados enriquecidos da coleta com vendas auditadas; quando não houver coletor, sintetizar honestamente com catalogSummary
   const hasCollector = Boolean(collectorReport && collectorReport.total_deduplicated_ads > 0)
 
+  // Quando uma especificação específica estiver selecionada, as métricas refletem ESTRITAMENTE aquela família
+  const isSpecFiltered = Boolean(selectedSpec)
+
   // 1. Total de unidades vendidas somadas
-  const totalSoldUnits = hasCollector
-    ? collectorReport!.total_sold_units || 0
-    : catalogSummary?.totalConfirmedSalesAcrossSellers || 0
+  const totalSoldUnits = isSpecFiltered
+    ? selectedSpec!.totalUnits
+    : hasCollector
+      ? collectorReport!.total_sold_units || 0
+      : catalogSummary?.totalConfirmedSalesAcrossSellers || 0
 
   // 2. Preço médio ponderado (faturamento / unidades)
-  const weightedAvgPrice = hasCollector
-    ? collectorReport!.weighted_avg_price || 0
-    : catalogSummary?.priceAvg || 0
+  const weightedAvgPrice = isSpecFiltered
+    ? selectedSpec!.weightedAvgPrice
+    : hasCollector
+      ? collectorReport!.weighted_avg_price || 0
+      : catalogSummary?.priceAvg || 0
 
   // 3. Média simples vs mediana
-  const simpleAvgPrice = hasCollector
-    ? collectorReport!.simple_avg_price || 0
-    : catalogSummary?.priceAvg || 0
+  const simpleAvgPrice = isSpecFiltered
+    ? selectedSpec!.simpleAvgPrice
+    : hasCollector
+      ? collectorReport!.simple_avg_price || 0
+      : catalogSummary?.priceAvg || 0
 
-  const medianPrice = hasCollector
-    ? collectorReport!.median_price || 0
-    : catalogSummary?.priceMedian || 0
+  const medianPrice = isSpecFiltered
+    ? selectedSpec!.medianPrice
+    : hasCollector
+      ? collectorReport!.median_price || 0
+      : catalogSummary?.priceMedian || 0
 
   // 4. Faixa de preço de quem vende (piso e teto)
-  const minPrice = hasCollector ? collectorReport!.min_price || 0 : catalogSummary?.priceMin || 0
+  const minPrice = isSpecFiltered
+    ? selectedSpec!.minPrice
+    : hasCollector
+      ? collectorReport!.min_price || 0
+      : catalogSummary?.priceMin || 0
 
-  const maxPrice = hasCollector ? collectorReport!.max_price || 0 : catalogSummary?.priceMax || 0
+  const maxPrice = isSpecFiltered
+    ? selectedSpec!.maxPrice
+    : hasCollector
+      ? collectorReport!.max_price || 0
+      : catalogSummary?.priceMax || 0
 
   // 5. Total de anúncios e % com vendas
-  const totalAds = hasCollector
-    ? collectorReport!.total_deduplicated_ads
-    : catalogSummary?.totalActiveAds || 0
+  const totalAds = isSpecFiltered
+    ? selectedSpec!.adCount
+    : hasCollector
+      ? collectorReport!.total_deduplicated_ads
+      : catalogSummary?.totalActiveAds || 0
 
-  const adsWithSales = hasCollector
-    ? collectorReport!.ads_with_sales_count
-    : catalogSummary?.hasAnyConfirmedSales
-      ? 1
-      : 0
+  const adsWithSales = isSpecFiltered
+    ? selectedSpec!.adsWithSalesCount
+    : hasCollector
+      ? collectorReport!.ads_with_sales_count
+      : catalogSummary?.hasAnyConfirmedSales
+        ? 1
+        : 0
 
   const percentWithSales = totalAds > 0 ? Math.round((adsWithSales / totalAds) * 100) : 0
 
@@ -63,21 +97,50 @@ export function NumerosDoMercado({ collectorReport, catalogSummary }: NumerosDoM
     <Card className="border-slate-200 bg-white shadow-xs">
       <CardHeader className="pb-3 border-b border-slate-100">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-          <div className="space-y-0.5">
-            <div className="flex items-center gap-2">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 flex-wrap">
               <Badge className="bg-slate-900 text-white font-bold text-xs gap-1.5 px-2.5 py-0.5">
                 <BarChart3 className="w-3.5 h-3.5 text-indigo-400" />
                 3. NÚMEROS DO MERCADO
               </Badge>
-              <Badge variant="outline" className="text-[10px] text-slate-600 bg-slate-50">
-                Síntese Executiva & Médias de Venda
-              </Badge>
+              {isSpecFiltered ? (
+                <div className="flex items-center gap-1.5 bg-amber-500/15 border border-amber-400 text-amber-950 px-2.5 py-0.5 rounded-md text-xs font-bold">
+                  <span>{searchTerm || 'termo'}</span>
+                  <span className="text-amber-600">›</span>
+                  <span className="text-amber-950 font-black">{selectedSpec!.spec}</span>
+                  {onClearSelectedSpec && (
+                    <button
+                      type="button"
+                      onClick={onClearSelectedSpec}
+                      className="ml-1 text-amber-800 hover:text-black font-extrabold"
+                      title="Voltar à visão do termo inteiro"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <Badge variant="outline" className="text-[10px] text-slate-600 bg-slate-50">
+                  Todas as especificações (Termo Geral)
+                </Badge>
+              )}
             </div>
             <p className="text-xs text-slate-500">
-              Visão macro consolidada de faturamento real, dispersão de preços e densidade de
-              anúncios com vendas.
+              {isSpecFiltered
+                ? `Métricas isoladas exclusivamente para a família "${selectedSpec!.spec}". Preços calculados apenas sobre anúncios com vendas auditadas desta especificação.`
+                : 'Visão macro consolidada de faturamento real, dispersão de preços e densidade de anúncios com vendas.'}
             </p>
           </div>
+
+          {isSpecFiltered && onClearSelectedSpec && (
+            <button
+              type="button"
+              onClick={onClearSelectedSpec}
+              className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 underline underline-offset-2 shrink-0"
+            >
+              ← Voltar ao termo inteiro (todas as specs)
+            </button>
+          )}
         </div>
       </CardHeader>
 

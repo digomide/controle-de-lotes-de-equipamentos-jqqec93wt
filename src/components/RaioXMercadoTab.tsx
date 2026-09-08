@@ -59,6 +59,8 @@ import { QualMaisVendeHero } from '@/components/QualMaisVendeHero'
 import { AnuncioCampeaoSection } from '@/components/AnuncioCampeaoSection'
 import { NumerosDoMercado } from '@/components/NumerosDoMercado'
 import { PodioVendasCollector } from '@/components/PodioVendasCollector'
+import { RankingCompletoEspecificacoes } from '@/components/RankingCompletoEspecificacoes'
+import type { CollectorSpecMetrics } from '@/services/mlCollectorService'
 
 interface RaioXMercadoTabProps {
   onOpenCollector?: (term?: string) => void
@@ -103,10 +105,24 @@ export function RaioXMercadoTab({ onOpenCollector }: RaioXMercadoTabProps = {}) 
   } | null>(null)
   const [collectorReport, setCollectorReport] = useState<CollectorSummaryReport | null>(null)
   const [loadingCollectorReport, setLoadingCollectorReport] = useState(false)
+  const [selectedSpec, setSelectedSpec] = useState<CollectorSpecMetrics | null>(null)
 
   // Controle de Escopo do Raio-X
   const [scopeMode, setScopeMode] = useState<RaioXScopeMode>('exact')
   const [manualBrain, setManualBrain] = useState<ExactProductSearchMode | null>(null)
+
+  // Resetar seleção de especificação sempre que o termo pesquisado mudar
+  useEffect(() => {
+    setSelectedSpec(null)
+  }, [activeQuery, searchTerm])
+
+  // Função para rolar suavemente até o Ranking Completo
+  function scrollToRanking() {
+    const el = document.getElementById('ranking-completo-specs')
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }
 
   // Sugestões de produtos exatos para pesquisa rápida
   const suggestedExactProducts = [
@@ -575,18 +591,42 @@ export function RaioXMercadoTab({ onOpenCollector }: RaioXMercadoTabProps = {}) 
             report={collectorReport}
             searchTerm={activeQuery || searchTerm}
             onOpenCollector={() => onOpenCollector && onOpenCollector(activeQuery || searchTerm)}
+            selectedSpecName={selectedSpec?.spec || null}
+            onSelectSpec={(spec) => setSelectedSpec(spec)}
+            onOpenFullRanking={scrollToRanking}
           />
 
           {/* 2. ANÚNCIO CAMPEÃO (Card Destaque) */}
           <AnuncioCampeaoSection
-            championAd={collectorReport.champion_ad}
-            topAds={collectorReport.top_ads}
+            championAd={selectedSpec ? selectedSpec.championAd : collectorReport.champion_ad}
+            topAds={
+              selectedSpec
+                ? selectedSpec.ads.filter((a) => a.sold_quantity != null && a.sold_quantity > 0)
+                : collectorReport.top_ads
+            }
             searchTerm={activeQuery || searchTerm}
             onOpenCollector={() => onOpenCollector && onOpenCollector(activeQuery || searchTerm)}
+            selectedSpecName={selectedSpec?.spec || null}
+            onClearSelectedSpec={() => setSelectedSpec(null)}
           />
 
           {/* 3. NÚMEROS DO MERCADO (Cards de Síntese) */}
-          <NumerosDoMercado collectorReport={collectorReport} catalogSummary={null} />
+          <NumerosDoMercado
+            collectorReport={collectorReport}
+            catalogSummary={null}
+            selectedSpec={selectedSpec}
+            onClearSelectedSpec={() => setSelectedSpec(null)}
+            searchTerm={activeQuery || searchTerm}
+          />
+
+          {/* 3.1 RANKING COMPLETO DE TODAS AS ESPECIFICAÇÕES */}
+          <RankingCompletoEspecificacoes
+            specs={collectorReport.all_specs || []}
+            selectedSpecName={selectedSpec?.spec || null}
+            onSelectSpec={(spec) => setSelectedSpec(spec)}
+            totalSoldUnitsAll={collectorReport.total_sold_units || 0}
+            searchTerm={activeQuery || searchTerm}
+          />
         </div>
       )}
 
@@ -751,50 +791,76 @@ export function RaioXMercadoTab({ onOpenCollector }: RaioXMercadoTabProps = {}) 
             report={collectorReport}
             searchTerm={summary.searchTerm}
             onOpenCollector={() => onOpenCollector && onOpenCollector(activeQuery || searchTerm)}
+            selectedSpecName={selectedSpec?.spec || null}
+            onSelectSpec={(spec) => setSelectedSpec(spec)}
+            onOpenFullRanking={scrollToRanking}
           />
 
           {/* 2. "ANÚNCIO CAMPEÃO" (Card Destaque Real) */}
           <AnuncioCampeaoSection
             championAd={
-              collectorReport?.champion_ad ||
-              (summary.allAds.length > 0 && summary.allAds[0].soldQuantity
-                ? {
-                    id: summary.allAds[0].id,
-                    mlb_id: summary.allAds[0].id,
-                    title: summary.allAds[0].title,
-                    price: summary.allAds[0].price,
-                    sold_quantity: summary.allAds[0].soldQuantity || 0,
-                    thumbnail: summary.allAds[0].thumbnail,
-                    seller_name: summary.allAds[0].sellerNickname,
-                    permalink: summary.allAds[0].permalink,
-                    condition: summary.allAds[0].listingTypeLabel,
-                    is_full: false,
-                    is_free_shipping: false,
-                  }
-                : null)
+              selectedSpec
+                ? selectedSpec.championAd
+                : collectorReport?.champion_ad ||
+                  (summary.allAds.length > 0 && summary.allAds[0].soldQuantity
+                    ? {
+                        id: summary.allAds[0].id,
+                        mlb_id: summary.allAds[0].id,
+                        title: summary.allAds[0].title,
+                        price: summary.allAds[0].price,
+                        sold_quantity: summary.allAds[0].soldQuantity || 0,
+                        thumbnail: summary.allAds[0].thumbnail,
+                        seller_name: summary.allAds[0].sellerNickname,
+                        permalink: summary.allAds[0].permalink,
+                        condition: summary.allAds[0].listingTypeLabel,
+                        is_full: false,
+                        is_free_shipping: false,
+                      }
+                    : null)
             }
             topAds={
-              collectorReport?.top_ads ||
-              summary.allAds.slice(0, 5).map((ad) => ({
-                id: ad.id,
-                mlb_id: ad.id,
-                title: ad.title,
-                price: ad.price,
-                sold_quantity: ad.soldQuantity || 0,
-                thumbnail: ad.thumbnail,
-                seller_name: ad.sellerNickname,
-                permalink: ad.permalink,
-                condition: ad.listingTypeLabel,
-                is_full: false,
-                is_free_shipping: false,
-              }))
+              selectedSpec
+                ? selectedSpec.ads.filter((a) => a.sold_quantity != null && a.sold_quantity > 0)
+                : collectorReport?.top_ads ||
+                  summary.allAds.slice(0, 5).map((ad) => ({
+                    id: ad.id,
+                    mlb_id: ad.id,
+                    title: ad.title,
+                    price: ad.price,
+                    sold_quantity: ad.soldQuantity || 0,
+                    thumbnail: ad.thumbnail,
+                    seller_name: ad.sellerNickname,
+                    permalink: ad.permalink,
+                    condition: ad.listingTypeLabel,
+                    is_full: false,
+                    is_free_shipping: false,
+                  }))
             }
             searchTerm={summary.searchTerm}
             onOpenCollector={() => onOpenCollector && onOpenCollector(activeQuery || searchTerm)}
+            selectedSpecName={selectedSpec?.spec || null}
+            onClearSelectedSpec={() => setSelectedSpec(null)}
           />
 
           {/* 3. "NÚMEROS DO MERCADO" (Cards de Síntese) */}
-          <NumerosDoMercado collectorReport={collectorReport} catalogSummary={summary} />
+          <NumerosDoMercado
+            collectorReport={collectorReport}
+            catalogSummary={summary}
+            selectedSpec={selectedSpec}
+            onClearSelectedSpec={() => setSelectedSpec(null)}
+            searchTerm={summary.searchTerm}
+          />
+
+          {/* 3.1 RANKING COMPLETO DE TODAS AS ESPECIFICAÇÕES */}
+          {collectorReport && collectorReport.all_specs && collectorReport.all_specs.length > 0 && (
+            <RankingCompletoEspecificacoes
+              specs={collectorReport.all_specs}
+              selectedSpecName={selectedSpec?.spec || null}
+              onSelectSpec={(spec) => setSelectedSpec(spec)}
+              totalSoldUnitsAll={collectorReport.total_sold_units || 0}
+              searchTerm={summary.searchTerm}
+            />
+          )}
 
           {/* 4. "OPORTUNIDADE DE MARGEM & ÂNCORA DE PREÇO" (Card Aprovado pelo Usuário - Mantido na Íntegra) */}
           <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50/70 via-white to-amber-50/30 shadow-sm overflow-hidden">

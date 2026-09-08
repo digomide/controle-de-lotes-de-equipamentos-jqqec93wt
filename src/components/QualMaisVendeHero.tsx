@@ -27,15 +27,27 @@ interface QualMaisVendeHeroProps {
   report: CollectorSummaryReport | null
   searchTerm: string
   onOpenCollector?: () => void
+  selectedSpecName?: string | null
+  onSelectSpec?: (spec: CollectorTopSpec | null) => void
+  onOpenFullRanking?: () => void
 }
 
-export function QualMaisVendeHero({ report, searchTerm, onOpenCollector }: QualMaisVendeHeroProps) {
+export function QualMaisVendeHero({
+  report,
+  searchTerm,
+  onOpenCollector,
+  selectedSpecName,
+  onSelectSpec,
+  onOpenFullRanking,
+}: QualMaisVendeHeroProps) {
   const [showAllSpecs, setShowAllSpecs] = useState(false)
 
   // Caso não haja dados ou relatório com especificações
-  const hasSpecs = Boolean(report && report.top_specs && report.top_specs.length > 0)
-  const championSpec: CollectorTopSpec | null = hasSpecs ? report!.top_specs[0] : null
-  const subsequentSpecs: CollectorTopSpec[] = hasSpecs ? report!.top_specs.slice(1) : []
+  const allSpecsList =
+    report?.all_specs && report.all_specs.length > 0 ? report.all_specs : report?.top_specs || []
+  const hasSpecs = allSpecsList.length > 0
+  const championSpec: CollectorTopSpec | null = hasSpecs ? allSpecsList[0] : null
+  const subsequentSpecs: CollectorTopSpec[] = hasSpecs ? allSpecsList.slice(1) : []
   const displayedSubsequent = showAllSpecs ? subsequentSpecs : subsequentSpecs.slice(0, 4)
 
   const totalSoldUnits = report?.total_sold_units || 0
@@ -121,7 +133,13 @@ export function QualMaisVendeHero({ report, searchTerm, onOpenCollector }: QualM
 
       <CardContent className="p-4 sm:p-6 space-y-6">
         {/* BLOCO CAMPEÃO COM DESTAQUE MÁXIMO */}
-        <div className="p-4 sm:p-6 bg-gradient-to-r from-amber-500/20 via-amber-400/10 to-white rounded-2xl border-2 border-amber-400 shadow-xs relative">
+        <div
+          className={`p-4 sm:p-6 bg-gradient-to-r from-amber-500/20 via-amber-400/10 to-white rounded-2xl border-2 transition-all relative ${
+            selectedSpecName === championSpec.spec
+              ? 'border-amber-500 ring-2 ring-amber-400 shadow-md'
+              : 'border-amber-400 shadow-xs hover:border-amber-500'
+          }`}
+        >
           <div className="absolute -top-3.5 left-5">
             <Badge className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs gap-1.5 px-3.5 py-1 shadow-sm">
               <Trophy className="w-4 h-4 fill-slate-950 text-slate-950" />🏆 ESPECIFICAÇÃO CAMPEÃ DE
@@ -137,13 +155,42 @@ export function QualMaisVendeHero({ report, searchTerm, onOpenCollector }: QualM
                   #1
                 </div>
                 <div>
-                  <h2 className="text-2xl sm:text-3xl font-black text-slate-950 tracking-tight leading-tight">
-                    {championSpec.spec}
-                  </h2>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h2 className="text-2xl sm:text-3xl font-black text-slate-950 tracking-tight leading-tight">
+                      {championSpec.spec}
+                    </h2>
+                    {selectedSpecName === championSpec.spec && (
+                      <Badge className="bg-emerald-600 text-white text-xs font-bold">
+                        Selecionada
+                      </Badge>
+                    )}
+                  </div>
                   <p className="text-xs text-slate-600">
                     Especificação que mais converte clientes e concentra a maior fatia de vendas no
                     Mercado Livre.
                   </p>
+                  {onSelectSpec && (
+                    <Button
+                      size="sm"
+                      variant={selectedSpecName === championSpec.spec ? 'default' : 'outline'}
+                      onClick={() => {
+                        if (selectedSpecName === championSpec.spec) {
+                          onSelectSpec(null)
+                        } else {
+                          onSelectSpec(championSpec)
+                        }
+                      }}
+                      className={`h-7 text-xs font-bold mt-1 ${
+                        selectedSpecName === championSpec.spec
+                          ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                          : 'border-amber-300 text-amber-950 bg-white hover:bg-amber-100'
+                      }`}
+                    >
+                      {selectedSpecName === championSpec.spec
+                        ? '✕ Desmarcar (Ver Todas)'
+                        : 'Filtrar Números Desta Campeã'}
+                    </Button>
+                  )}
                 </div>
               </div>
 
@@ -213,36 +260,49 @@ export function QualMaisVendeHero({ report, searchTerm, onOpenCollector }: QualM
         {/* SUBSEQUENTES: RANKING 2º AO 5º (OU EXPANSÍVEL) */}
         {subsequentSpecs.length > 0 && (
           <div className="space-y-3 pt-1">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2 flex-wrap">
                 <Cpu className="w-4 h-4 text-slate-700" />
                 <h4 className="text-xs sm:text-sm font-bold text-slate-900 uppercase tracking-wide">
-                  Ranking das Subsequentes (2º ao{' '}
-                  {Math.min(subsequentSpecs.length + 1, showAllSpecs ? 10 : 5)}º lugar)
+                  Ranking Top Subsequentes (2º ao 5º lugar)
                 </h4>
                 <Badge
                   variant="outline"
                   className="text-[10px] text-slate-600 bg-slate-50 border-slate-200"
                 >
-                  {subsequentSpecs.length} especificações complementares
+                  {allSpecsList.length} especificações no total
                 </Badge>
               </div>
 
-              {subsequentSpecs.length > 4 && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setShowAllSpecs(!showAllSpecs)}
-                  className="h-7 text-xs text-indigo-600 hover:text-indigo-800 font-semibold gap-1 px-2"
-                >
-                  {showAllSpecs ? 'Ver Menos' : `Ver Todas (${subsequentSpecs.length})`}
-                  {showAllSpecs ? (
-                    <ChevronUp className="w-3.5 h-3.5" />
-                  ) : (
-                    <ChevronDown className="w-3.5 h-3.5" />
-                  )}
-                </Button>
-              )}
+              <div className="flex items-center gap-2">
+                {onOpenFullRanking && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={onOpenFullRanking}
+                    className="h-7 text-xs bg-indigo-50 border-indigo-300 text-indigo-900 hover:bg-indigo-100 font-bold gap-1 px-2.5"
+                  >
+                    <Layers className="w-3.5 h-3.5 text-indigo-600" />
+                    Ver todas as {allSpecsList.length} especificações
+                  </Button>
+                )}
+
+                {subsequentSpecs.length > 4 && !onOpenFullRanking && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowAllSpecs(!showAllSpecs)}
+                    className="h-7 text-xs text-indigo-600 hover:text-indigo-800 font-semibold gap-1 px-2"
+                  >
+                    {showAllSpecs ? 'Ver Menos' : `Ver Mais (${subsequentSpecs.length})`}
+                    {showAllSpecs ? (
+                      <ChevronUp className="w-3.5 h-3.5" />
+                    ) : (
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    )}
+                  </Button>
+                )}
+              </div>
             </div>
 
             {/* Lista/Tabela Compacta com Barras de Representatividade */}
@@ -260,7 +320,22 @@ export function QualMaisVendeHero({ report, searchTerm, onOpenCollector }: QualM
                 return (
                   <div
                     key={specItem.spec || idx}
-                    className="p-3 sm:p-3.5 hover:bg-slate-50/80 transition-colors flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs"
+                    onClick={() => {
+                      if (onSelectSpec) {
+                        if (selectedSpecName === specItem.spec) {
+                          onSelectSpec(null)
+                        } else {
+                          onSelectSpec(specItem)
+                        }
+                      }
+                    }}
+                    className={`p-3 sm:p-3.5 transition-colors flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs ${
+                      onSelectSpec ? 'cursor-pointer' : ''
+                    } ${
+                      selectedSpecName === specItem.spec
+                        ? 'bg-amber-50/90 border-l-4 border-l-amber-500'
+                        : 'hover:bg-slate-50/80'
+                    }`}
                   >
                     {/* Rank e Nome */}
                     <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -284,6 +359,11 @@ export function QualMaisVendeHero({ report, searchTerm, onOpenCollector }: QualM
                           >
                             {specItem.spec}
                           </h5>
+                          {selectedSpecName === specItem.spec && (
+                            <Badge className="bg-amber-500 text-slate-950 text-[9px] font-bold px-1.5 py-0 h-4">
+                              Selecionada
+                            </Badge>
+                          )}
                           <span className="text-[11px] text-slate-400 font-mono">
                             · {specItem.adCount} anúncio(s)
                           </span>

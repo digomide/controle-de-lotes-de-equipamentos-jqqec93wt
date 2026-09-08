@@ -21,6 +21,8 @@ interface AnuncioCampeaoSectionProps {
   topAds: CollectorDeduplicatedAd[]
   searchTerm: string
   onOpenCollector?: () => void
+  selectedSpecName?: string | null
+  onClearSelectedSpec?: () => void
 }
 
 export function AnuncioCampeaoSection({
@@ -28,11 +30,15 @@ export function AnuncioCampeaoSection({
   topAds,
   searchTerm,
   onOpenCollector,
+  selectedSpecName,
+  onClearSelectedSpec,
 }: AnuncioCampeaoSectionProps) {
   const [showAllSubsequent, setShowAllSubsequent] = useState(false)
 
   // Subsequentes (#2 em diante)
-  const subsequentAds = topAds.filter((ad) => !championAd || ad.id !== championAd.id)
+  const subsequentAds = topAds.filter(
+    (ad) => !championAd || (ad.id !== championAd.id && ad.mlb_id !== championAd.mlb_id),
+  )
   const displayedSubsequent = showAllSubsequent ? subsequentAds : subsequentAds.slice(0, 4)
 
   if (!championAd) {
@@ -84,16 +90,35 @@ export function AnuncioCampeaoSection({
                 <Trophy className="w-4 h-4 fill-slate-950 text-slate-950" />
                 2. ANÚNCIO CAMPEÃO DO MERCADO LIVRE
               </Badge>
-              <Badge
-                variant="outline"
-                className="bg-white text-slate-700 border-slate-300 font-mono text-[10px]"
-              >
-                Anúncio #1 Absoluto em Volume Real
-              </Badge>
+              {selectedSpecName ? (
+                <div className="flex items-center gap-1.5 bg-amber-500/20 border border-amber-400 text-amber-950 px-2.5 py-0.5 rounded-md text-xs font-bold">
+                  <span>{searchTerm || 'termo'}</span>
+                  <span className="text-amber-600">›</span>
+                  <span className="text-amber-950 font-black">{selectedSpecName}</span>
+                  {onClearSelectedSpec && (
+                    <button
+                      type="button"
+                      onClick={onClearSelectedSpec}
+                      className="ml-1 text-amber-800 hover:text-black font-extrabold"
+                      title="Voltar ao termo geral"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <Badge
+                  variant="outline"
+                  className="bg-white text-slate-700 border-slate-300 font-mono text-[10px]"
+                >
+                  Anúncio #1 Absoluto em Volume Real
+                </Badge>
+              )}
             </div>
             <p className="text-xs text-slate-600">
-              O produto real que mais faturou e girou estoque nesta busca, com dados auditados
-              diretamente da página.
+              {selectedSpecName
+                ? `Anúncio líder específico da família "${selectedSpecName}" com maior volume auditado nesta especificação.`
+                : 'O produto real que mais faturou e girou estoque nesta busca, com dados auditados diretamente da página.'}
             </p>
           </div>
 

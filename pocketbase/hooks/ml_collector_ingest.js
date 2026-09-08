@@ -583,55 +583,167 @@ routerAdd('GET', '/backend/v1/custom/ml-collector/summary', function (e) {
     var maxPriceWithSales =
       pricesWithSales.length > 0 ? pricesWithSales[pricesWithSales.length - 1] : 0
 
-    // Agrupamento por especificação (DDR, Capacidade, Frequência)
-    var specMap = {}
-    for (var n = 0; n < adsWithSales.length; n++) {
-      var itemA = adsWithSales[n]
-      var ddrMatch = itemA.title.match(/\\b(ddr\\s*[2345]|pc\\s*[2345])\\b/i)
-      var capMatch = itemA.title.match(/\\b(\\d+)\\s*(?:gb|gigas?)\\b/i)
-      var mhzMatch = itemA.title.match(
-        /\\b(1333|1600|2133|2400|2666|3200|4800|5600)\\s*(?:mhz)?\\b/i,
+    function extractFineSpec(title) {
+      var cleanTitle = (title || '').toString().trim()
+      if (!cleanTitle) return 'Outros'
+
+      var ddrMatch = cleanTitle.match(
+        /\\b(ddr\\s*5|ddr\\s*4|ddr\\s*3\\s*l|ddr\\s*3|ddr\\s*2|pc\\s*5|pc\\s*4|pc\\s*3\\s*l|pc\\s*3|pc\\s*2)\\b/i,
+      )
+      var kitMatch = cleanTitle.match(/\\b(\\d+)\\s*[xX*]\\s*(\\d+)\\s*(?:gb|gigas?)\\b/i)
+      var capMatch = cleanTitle.match(/\\b(\\d+)\\s*(?:gb|gigas?)\\b/i)
+      var mhzMatch = cleanTitle.match(
+        /\\b(667|800|1066|1333|1600|1866|2133|2400|2666|2933|3000|3200|3600|4800|5200|5600|6000)\\s*(?:mhz)?\\b/i,
       )
 
-      var specKey = 'Outras'
+      var isNotebook = /\\b(sodimm|so-dimm|notebook|laptop|para\\s+notebook)\\b/i.test(cleanTitle)
+      var isDesktop = /\\b(dimm|udimm|desktop|pc\\s+desktop|para\\s+pc)\\b/i.test(cleanTitle)
+
+      var formTag = ''
+      if (isNotebook) formTag = ' SODIMM'
+      else if (isDesktop) formTag = ' Desktop'
+
       if (ddrMatch || capMatch) {
         var ddr = ddrMatch ? ddrMatch[0].toUpperCase().replace(/\\s+/g, '') : 'RAM'
-        var cap = capMatch ? capMatch[1] + 'GB' : ''
-        var mhz = mhzMatch ? ' ' + mhzMatch[1] + 'MHz' : ''
-        specKey = (ddr + ' ' + cap + mhz).trim()
+        if (ddr === 'PC3L') ddr = 'DDR3L'
+        else if (ddr === 'PC3') ddr = 'DDR3'
+        else if (ddr === 'PC4') ddr = 'DDR4'
+        else if (ddr === 'PC5') ddr = 'DDR5'
+        else if (ddr === 'PC2') ddr = 'DDR2'
+
+        var cap = ''
+        if (kitMatch) {
+          cap = kitMatch[1] + 'x' + kitMatch[2] + 'GB'
+        } else if (capMatch) {
+          cap = capMatch[1] + 'GB'
+        }
+
+        var freq = ''
+        if (mhzMatch) {
+          freq = mhzMatch[1] + 'MHz'
+        } else {
+          freq = '(freq. n/d)'
+        }
+
+        return (ddr + ' ' + cap + ' ' + freq + formTag).replace(/\\s+/g, ' ').trim()
       }
 
-      if (!specMap[specKey]) {
-        specMap[specKey] = {
-          spec: specKey,
+      var cpuIntelMatch = cleanTitle.match(/\\b(core\\s+)?(i[3579])[- ]?(\\d{3,5}[a-z]{0,2})\\b/i)
+      if (cpuIntelMatch) {
+        return 'Intel ' + cpuIntelMatch[2].toUpperCase() + '-' + cpuIntelMatch[3].toUpperCase()
+      }
+      var cpuAmdMatch = cleanTitle.match(/\\b(ryzen\\s+[3579])\\s*(\\d{4}[a-z]{0,2})\\b/i)
+      if (cpuAmdMatch) {
+        return 'AMD ' + cpuAmdMatch[1].toUpperCase() + ' ' + cpuAmdMatch[2].toUpperCase()
+      }
+
+      var storageMatch = cleanTitle.match(/\\b(ssd|nvme|m\\.2|hd|disco\\s+rigido)\\b/i)
+      var storageCap = cleanTitle.match(/\\b(\\d+)\\s*(?:gb|tb)\\b/i)
+      if (storageMatch && storageCap) {
+        var type = storageMatch[1].toUpperCase().replace(/\\./g, '')
+        var scap = storageCap[0].toUpperCase().replace(/\\s+/g, '')
+        return type + ' ' + scap
+      }
+
+      var formMatch = cleanTitle.match(/\\b(sff|tiny|mini|micro|usff|desktop|ultrabook)\\b/i)
+      if (formMatch) {
+        return formMatch[1].toUpperCase()
+      }
+
+      return 'Outras Especificações'
+    }
+
+    // Agrupamento por especificação fina cobrindo TODOS os anúncios
+    var specMap = {}
+    for (var n = 0; n < allAds.length; n++) {
+      var itm = allAds[n]
+      var sKey = extractFineSpec(itm.title)
+
+      if (!specMap[sKey]) {
+        specMap[sKey] = {
+          spec: sKey,
           totalUnits: 0,
-          revenue: 0,
+          totalRevenue: 0,
           adCount: 0,
-          prices: [],
+          adsWithSalesCount: 0,
+          adsWithoutSalesCount: 0,
+          pricesWithSales: [],
+          ads: [],
         }
       }
-      specMap[specKey].totalUnits += itemA.sold_quantity
-      specMap[specKey].adCount += 1
-      if (itemA.price && itemA.price > 0) {
-        specMap[specKey].revenue += itemA.price * itemA.sold_quantity
-        specMap[specKey].prices.push(itemA.price)
+
+      var sObj = specMap[sKey]
+      sObj.adCount += 1
+      sObj.ads.push(itm)
+
+      var sq = itm.sold_quantity != null && itm.sold_quantity > 0 ? itm.sold_quantity : 0
+      if (sq > 0) {
+        sObj.adsWithSalesCount += 1
+        sObj.totalUnits += sq
+        if (itm.price && itm.price > 0) {
+          sObj.totalRevenue += itm.price * sq
+          sObj.pricesWithSales.push(itm.price)
+        }
+      } else {
+        sObj.adsWithoutSalesCount += 1
       }
     }
 
     var specKeys = Object.keys(specMap)
-    var specsRanked = []
+    var allSpecsRanked = []
     for (var p = 0; p < specKeys.length; p++) {
       var sp = specMap[specKeys[p]]
-      specsRanked.push({
+      sp.pricesWithSales.sort(function (a, b) {
+        return a - b
+      })
+
+      var cnt = sp.pricesWithSales.length
+      var sAvg =
+        cnt > 0
+          ? sp.pricesWithSales.reduce(function (s, val) {
+              return s + val
+            }, 0) / cnt
+          : 0
+      var wAvg = sp.totalUnits > 0 ? sp.totalRevenue / sp.totalUnits : 0
+      var med =
+        cnt > 0
+          ? cnt % 2 === 0
+            ? (sp.pricesWithSales[cnt / 2 - 1] + sp.pricesWithSales[cnt / 2]) / 2
+            : sp.pricesWithSales[Math.floor(cnt / 2)]
+          : 0
+      var sMin = cnt > 0 ? sp.pricesWithSales[0] : 0
+      var sMax = cnt > 0 ? sp.pricesWithSales[cnt - 1] : 0
+      var shareP = totalSoldUnits > 0 ? Math.round((sp.totalUnits / totalSoldUnits) * 1000) / 10 : 0
+
+      var sAdsWithSales = sp.ads.filter(function (a) {
+        return a.sold_quantity != null && a.sold_quantity > 0
+      })
+      sAdsWithSales.sort(function (a, b) {
+        return (b.sold_quantity || 0) - (a.sold_quantity || 0)
+      })
+      var chAd = sAdsWithSales.length > 0 ? sAdsWithSales[0] : sp.ads.length > 0 ? sp.ads[0] : null
+
+      allSpecsRanked.push({
         spec: sp.spec,
         totalUnits: sp.totalUnits,
+        totalRevenue: Math.round(sp.totalRevenue * 100) / 100,
         adCount: sp.adCount,
-        weightedAvgPrice:
-          sp.totalUnits > 0 ? Math.round((sp.revenue / sp.totalUnits) * 100) / 100 : 0,
+        adsWithSalesCount: sp.adsWithSalesCount,
+        adsWithoutSalesCount: sp.adsWithoutSalesCount,
+        weightedAvgPrice: Math.round(wAvg * 100) / 100,
+        simpleAvgPrice: Math.round(sAvg * 100) / 100,
+        medianPrice: Math.round(med * 100) / 100,
+        minPrice: sMin,
+        maxPrice: sMax,
+        sharePercent: shareP,
+        championAd: chAd,
+        ads: sp.ads,
       })
     }
-    specsRanked.sort(function (a, b) {
-      return b.totalUnits - a.totalUnits
+
+    allSpecsRanked.sort(function (a, b) {
+      if (b.totalUnits !== a.totalUnits) return b.totalUnits - a.totalUnits
+      return b.adCount - a.adCount
     })
 
     return e.json(200, {
@@ -649,7 +761,8 @@ routerAdd('GET', '/backend/v1/custom/ml-collector/summary', function (e) {
       max_price: maxPriceWithSales,
       champion_ad: adsWithSales.length > 0 ? adsWithSales[0] : null,
       top_ads: adsWithSales.slice(0, 10),
-      top_specs: specsRanked.slice(0, 8),
+      top_specs: allSpecsRanked.slice(0, 8),
+      all_specs: allSpecsRanked,
       all_deduplicated_ads: allAds,
     })
   } catch (err) {
