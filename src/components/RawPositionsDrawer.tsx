@@ -32,6 +32,7 @@ import {
   positionOverridesService,
   type PositionOverrideAction,
 } from '@/services/positionOverridesService'
+import pb from '@/lib/pocketbase/client'
 
 interface RawPositionsDrawerProps {
   searchTerm: string
@@ -257,17 +258,14 @@ export function RawPositionsDrawer({
     }))
 
     try {
-      const response = await fetch('/api/ml-ad-scrape-sold', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: itemsToProbe }),
-      })
-
-      if (!response.ok) {
-        throw new Error(`Falha no leitor de vendas (HTTP ${response.status})`)
-      }
-
-      const data = await response.json()
+      const data = await pb.send<{ results?: Record<string, any> }>(
+        '/backend/v1/ml-ad-scrape-sold',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items: itemsToProbe }),
+        },
+      )
       const results = data.results || {}
       let wafCount = 0
       let successCount = 0

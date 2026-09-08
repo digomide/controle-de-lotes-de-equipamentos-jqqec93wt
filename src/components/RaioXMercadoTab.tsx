@@ -1237,21 +1237,11 @@ export function RaioXMercadoTab({ onOpenCollector }: RaioXMercadoTabProps = {}) 
               overrides={overrides}
               onOverrideChange={async (updated) => {
                 setOverrides(updated)
-                if (summary) {
-                  const updatedSummary = aggregateSellersByExactProduct(
-                    rawProducts,
-                    summary.cleanQuery,
-                    scopeMode,
-                    null,
-                    collectorSalesMap,
-                    updated,
-                  )
-                  setSummary(updatedSummary)
-                }
+                const termToRefresh = activeQuery || searchTerm || summary?.searchTerm || ''
                 if (collectorReport) {
                   const refreshed = mlCollectorService.filterAndRecalculateReport(
                     collectorReport,
-                    summary.cleanQuery,
+                    termToRefresh,
                     updated,
                   )
                   setCollectorReport(refreshed)

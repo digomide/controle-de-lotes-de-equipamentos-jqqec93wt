@@ -20,6 +20,11 @@ import {
   AlertCircle,
   ShieldCheck,
   Activity,
+  ChevronDown,
+  ChevronUp,
+  X,
+  ExternalLink,
+  Filter,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -27,6 +32,13 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog'
 import { useNavigate } from 'react-router-dom'
 import { useToast } from '@/hooks/use-toast'
 import { useAuth } from '@/contexts/AuthContext'
@@ -38,6 +50,7 @@ import {
 } from '@/lib/mlBookmarklet'
 import { mlCollectorService, type MLCollectorImportRecord } from '@/services/mlCollectorService'
 import { detectCollectorNoiseAd } from '@/lib/catalogFilter'
+import type { MLCollectorResultItem } from '@/lib/mlBookmarklet'
 import {
   positionOverridesService,
   type PositionOverrideAction,
@@ -107,6 +120,11 @@ export function ColetorNavegadorPanel({
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [historyAuthError, setHistoryAuthError] = useState(false)
   const [activeImportId, setActiveImportId] = useState<string | null>(null)
+
+  // Gerenciamento de itens e ruído por coleta
+  const [inspectingImport, setInspectingImport] = useState<MLCollectorImportRecord | null>(null)
+  const [filterOnlyNoiseInModal, setFilterOnlyNoiseInModal] = useState(false)
+  const [deletingItemId, setDeletingItemId] = useState<string | null>(null)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -393,6 +411,70 @@ export function ColetorNavegadorPanel({
         title: `Coleta aplicada: "${item.search_term}"`,
         description: 'As métricas do Raio-X foram atualizadas com as vendas desta coleta.',
       })
+    }
+  }
+
+  // Helper para obter métricas de ruído de um registro do histórico
+  function getImportNoiseStats(record: MLCollectorImportRecord): {
+    total: number
+    noiseCount: number
+    noisePercent: number
+  } {
+    const payload = mlCollectorService.decodePayload(record.payload)
+    const results = payload?.results || []
+    const total = results.length || record.results_count || 0
+    if (!total) return { total: 0, noiseCount: 0, noisePercent: 0 }
+
+    let noiseCount = 0
+    for (const it of results) {
+      const check = detectCollectorNoiseAd(it.title || '', record.search_term)
+      if (check.isNoise) {
+        noiseCount++
+      }
+    }
+    const noisePercent = total > 0 ? Math.round((noiseCount / total) * 100) : 0
+    return { total, noiseCount, noisePercent }
+  }
+
+  // Remover item de uma coleta com persistência
+  async function handleRemoveItemFromImport(importId: string, itemMlbId: string) {
+    setDeletingItemId(itemMlbId)
+    try {
+      const success = await mlCollectorService.removeItemFromImport(importId, itemMlbId)
+      if (success) {
+        toast({
+          title: 'Item removido da coleta!',
+          description: `O anúncio ${itemMlbId} foi excluído da coleta salva e recalculado no banco.`,
+        })
+
+        // Atualizar lista de histórico localmente
+        await loadHistory()
+
+        // Se a modal estiver inspecionando esta coleta, atualizar o item inspecionado
+        if (inspectingImport && inspectingImport.id === importId) {
+          const fresh = await pb
+            .collection('ml_collector_imports')
+            .getOne<MLCollectorImportRecord>(importId)
+          setInspectingImport(fresh)
+          if (activeImportId === importId && onImportApplied) {
+            onImportApplied(fresh)
+          }
+        }
+      } else {
+        toast({
+          title: 'Falha ao remover item',
+          description: 'Não foi possível encontrar ou excluir o item na coleta.',
+          variant: 'destructive',
+        })
+      }
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao remover',
+        description: err.message || 'Verifique sua conexão e tente novamente.',
+        variant: 'destructive',
+      })
+    } finally {
+      setDeletingItemId(null)
     }
   }
 
@@ -1270,22 +1352,58 @@ export function ColetorNavegadorPanel({
                       </Button>
                     </div>
 
-                    <div className="flex items-center gap-2 text-xs">
+                    <div className="flex flex-wrap items-center gap-1.5 text-xs">
                       <Badge variant="secondary" className="text-[10px] font-mono">
                         {item.results_count || 0} anúncios
                       </Badge>
                       <Badge className="bg-emerald-100 text-emerald-800 border-emerald-300 text-[10px] font-mono font-bold">
                         🔥 {item.with_sales_count || 0} com vendas
                       </Badge>
+                      {(() => {
+                        const noiseStats = getImportNoiseStats(item)
+                        if (noiseStats.noiseCount > 0) {
+                          return (
+                            <Badge
+                              variant="outline"
+                              className="bg-amber-50 text-amber-900 border-amber-300 text-[10px] font-medium"
+                              title={`${noiseStats.noiseCount} de ${noiseStats.total} anúncios parecem fora de contexto`}
+                            >
+                              ⚠️ {noiseStats.noiseCount} de {noiseStats.total} fora de contexto
+                            </Badge>
+                          )
+                        }
+                        return (
+                          <Badge
+                            variant="outline"
+                            className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]"
+                          >
+                            ✓ 0 ruídos
+                          </Badge>
+                        )
+                      })()}
                     </div>
 
                     <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-100">
                       <span>
                         {item.imported_at ? new Date(item.imported_at).toLocaleString('pt-BR') : ''}
                       </span>
-                      <span className="text-indigo-600 font-bold flex items-center gap-0.5">
-                        {isSelected ? '✓ Aplicado' : 'Reaplicar →'}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setInspectingImport(item)
+                            setFilterOnlyNoiseInModal(false)
+                          }}
+                          className="text-slate-600 hover:text-indigo-600 underline font-medium"
+                          title="Ver anúncios coletados e excluir ruídos"
+                        >
+                          Gerenciar itens
+                        </button>
+                        <span className="text-indigo-600 font-bold flex items-center gap-0.5">
+                          {isSelected ? '✓ Aplicado' : 'Reaplicar →'}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 )
@@ -1294,6 +1412,186 @@ export function ColetorNavegadorPanel({
           )}
         </CardContent>
       </Card>
+
+      {/* Dialog para Inspecionar e Excluir Itens com Persistência */}
+      <Dialog
+        open={Boolean(inspectingImport)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setInspectingImport(null)
+            setFilterOnlyNoiseInModal(false)
+          }
+        }}
+      >
+        <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col p-6 overflow-hidden">
+          {inspectingImport && (() => {
+            const payload = mlCollectorService.decodePayload(inspectingImport.payload)
+            const allItems: MLCollectorResultItem[] = payload?.results || []
+            const noiseItems = allItems.filter(
+              (it) => detectCollectorNoiseAd(it.title || '', inspectingImport.search_term).isNoise,
+            )
+            const displayedItems = filterOnlyNoiseInModal ? noiseItems : allItems
+
+            return (
+              <>
+                <DialogHeader className="pb-3 border-b border-slate-200">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <DialogTitle className="text-base font-bold text-slate-900 flex items-center gap-2">
+                        <span>Gerenciar Itens da Coleta:</span>
+                        <span className="text-indigo-600">"{inspectingImport.search_term}"</span>
+                      </DialogTitle>
+                      <DialogDescription className="text-xs text-slate-500 mt-1">
+                        Exclua itens irrelevantes ou fora de contexto. A exclusão é salva no banco e
+                        recalcula os totais e vendas da coleta.
+                      </DialogDescription>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Badge variant="secondary" className="font-mono text-xs">
+                        {allItems.length} total
+                      </Badge>
+                      {noiseItems.length > 0 ? (
+                        <Badge className="bg-amber-100 text-amber-900 border-amber-300 text-xs font-semibold">
+                          ⚠️ {noiseItems.length} ruídos detectados
+                        </Badge>
+                      ) : (
+                        <Badge className="bg-emerald-100 text-emerald-800 border-emerald-300 text-xs">
+                          ✓ Nenhum ruído detectado
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Filtro de exibição */}
+                  <div className="flex items-center justify-between pt-3 mt-1">
+                    <div className="flex items-center gap-2 text-xs">
+                      <Button
+                        size="sm"
+                        variant={!filterOnlyNoiseInModal ? 'default' : 'outline'}
+                        onClick={() => setFilterOnlyNoiseInModal(false)}
+                        className="h-7 text-xs"
+                      >
+                        Todos ({allItems.length})
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={filterOnlyNoiseInModal ? 'default' : 'outline'}
+                        onClick={() => setFilterOnlyNoiseInModal(true)}
+                        className="h-7 text-xs gap-1.5"
+                      >
+                        <Filter className="w-3 h-3" />
+                        Apenas fora de contexto ({noiseItems.length})
+                      </Button>
+                    </div>
+
+                    {noiseItems.length > 0 && !filterOnlyNoiseInModal && (
+                      <span className="text-[11px] text-amber-700 font-medium">
+                        Dica: use o filtro para revisar os {noiseItems.length} itens suspeitos.
+                      </span>
+                    )}
+                  </div>
+                </DialogHeader>
+
+                <div className="flex-1 overflow-y-auto divide-y divide-slate-100 py-2 pr-1">
+                  {displayedItems.length === 0 ? (
+                    <div className="text-center py-12 text-slate-400 text-xs">
+                      {filterOnlyNoiseInModal
+                        ? 'Nenhum anúncio marcado como ruído nesta coleta!'
+                        : 'Nenhum anúncio nesta coleta.'}
+                    </div>
+                  ) : (
+                    displayedItems.map((item, idx) => {
+                      const noiseCheck = detectCollectorNoiseAd(
+                        item.title || '',
+                        inspectingImport.search_term,
+                      )
+                      const isNoise = noiseCheck.isNoise
+                      const itemId = item.id || item.mlb_id || `item_${idx}`
+                      const isDeleting = deletingItemId === itemId
+
+                      return (
+                        <div
+                          key={itemId}
+                          className={`p-3 flex items-start justify-between gap-3 transition-colors ${
+                            isNoise ? 'bg-amber-50/50' : 'hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-[11px] text-slate-400 font-semibold">
+                                #{idx + 1}
+                              </span>
+                              <span className="font-mono text-xs font-bold text-slate-700">
+                                {item.mlb_id || item.id}
+                              </span>
+                              {isNoise && (
+                                <Badge className="bg-amber-100 text-amber-900 border-amber-300 text-[10px] font-bold">
+                                  ⚠️ Fora de contexto
+                                </Badge>
+                              )}
+                              {item.sold_quantity != null && item.sold_quantity > 0 ? (
+                                <Badge className="bg-emerald-100 text-emerald-800 border-emerald-300 text-[10px] font-mono font-bold">
+                                  🔥 {item.sold_quantity} vendas
+                                </Badge>
+                              ) : null}
+                              {item.price != null && item.price > 0 ? (
+                                <span className="text-xs text-slate-600 font-medium">
+                                  {item.price.toLocaleString('pt-BR', {
+                                    style: 'currency',
+                                    currency: 'BRL',
+                                  })}
+                                </span>
+                              ) : null}
+                            </div>
+
+                            <p className="text-xs text-slate-900 font-medium leading-snug">
+                              {item.title}
+                            </p>
+
+                            {isNoise && noiseCheck.reason && (
+                              <p className="text-[11px] text-amber-800 italic">
+                                Motivo: {noiseCheck.reason}
+                              </p>
+                            )}
+
+                            {item.permalink && (
+                              <a
+                                href={item.permalink}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 text-[11px] text-indigo-600 hover:text-indigo-800 underline mt-0.5"
+                              >
+                                Ver no Mercado Livre <ExternalLink className="w-2.5 h-2.5" />
+                              </a>
+                            )}
+                          </div>
+
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            disabled={isDeleting}
+                            onClick={() =>
+                              handleRemoveItemFromImport(
+                                inspectingImport.id,
+                                item.id || item.mlb_id || '',
+                              )
+                            }
+                            className="h-7 text-xs px-2.5 shrink-0 bg-rose-600 hover:bg-rose-700"
+                            title="Excluir este item da coleta permanentemente"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 mr-1" />
+                            {isDeleting ? 'Excluindo...' : 'Excluir'}
+                          </Button>
+                        </div>
+                      )
+                    })
+                  )}
+                </div>
+              </>
+            )
+          })()}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
