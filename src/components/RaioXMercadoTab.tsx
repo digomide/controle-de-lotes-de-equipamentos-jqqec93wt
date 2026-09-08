@@ -571,9 +571,13 @@ export function RaioXMercadoTab({ onOpenCollector }: RaioXMercadoTabProps = {}) 
             <div className="flex items-center gap-2">
               <Trophy className="w-4 h-4 text-amber-600 shrink-0" />
               <span>
-                Exibindo narrativa real com dados do <strong>Coletor de Vendas</strong> para &quot;
-                {activeQuery || searchTerm}&quot;. Para cruzar com os anúncios ao vivo da API do
-                Mercado Livre, clique ao lado:
+                Exibindo narrativa com dados do <strong>Coletor de Vendas</strong> para &quot;
+                {activeQuery || searchTerm}&quot; ({collectorReport.total_deduplicated_ads} anúncios
+                úteis
+                {collectorReport.noise_ads_count
+                  ? `, ${collectorReport.noise_ads_count} ruídos excluídos`
+                  : ''}
+                ).
               </span>
             </div>
             <Button
@@ -585,6 +589,28 @@ export function RaioXMercadoTab({ onOpenCollector }: RaioXMercadoTabProps = {}) 
               Analisar Catálogo ML
             </Button>
           </div>
+
+          {/* ALERTA DE RUÍDO DETECTADO SE HOUVER ITENS FILTRADOS */}
+          {Boolean(collectorReport.noise_ads_count && collectorReport.noise_ads_count > 0) && (
+            <div className="p-3 bg-slate-100 border border-slate-300 rounded-lg text-xs text-slate-700 flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2">
+                <span className="text-amber-600 font-bold">🛡️ Filtro Anti-Ruído:</span>
+                <span>
+                  <strong>{collectorReport.noise_ads_count}</strong> anúncio(s) fora de contexto
+                  (miniaturas, brinquedos, bicicletas ou excluídos manualmente) foram segregados das
+                  métricas e do pódio.
+                </span>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => onOpenCollector && onOpenCollector(activeQuery || searchTerm)}
+                className="h-7 text-xs bg-white text-slate-700 border-slate-300 hover:bg-slate-50 gap-1 font-semibold"
+              >
+                Gerenciar no Coletor
+              </Button>
+            </div>
+          )}
 
           {/* 1. QUAL MAIS VENDE? (Herói do Topo) */}
           <QualMaisVendeHero
@@ -1209,7 +1235,28 @@ export function RaioXMercadoTab({ onOpenCollector }: RaioXMercadoTabProps = {}) 
               rawProducts={rawProducts}
               activeBrain={summary.activeBrain}
               overrides={overrides}
-              onOverrideChange={(updated) => setOverrides(updated)}
+              onOverrideChange={async (updated) => {
+                setOverrides(updated)
+                if (summary) {
+                  const updatedSummary = aggregateSellersByExactProduct(
+                    rawProducts,
+                    summary.cleanQuery,
+                    scopeMode,
+                    null,
+                    collectorSalesMap,
+                    updated,
+                  )
+                  setSummary(updatedSummary)
+                }
+                if (collectorReport) {
+                  const refreshed = mlCollectorService.filterAndRecalculateReport(
+                    collectorReport,
+                    summary.cleanQuery,
+                    updated,
+                  )
+                  setCollectorReport(refreshed)
+                }
+              }}
             />
           )}
 

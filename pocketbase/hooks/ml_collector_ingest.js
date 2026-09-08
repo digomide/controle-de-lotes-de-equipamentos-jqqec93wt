@@ -462,6 +462,89 @@ routerAdd('GET', '/backend/v1/custom/ml-collector/summary', function (e) {
       0,
     )
 
+    // Buscar overrides cadastrados para o termo
+    var overridesMap = {}
+    try {
+      var overrideRecs = $app.findRecordsByFilter(
+        'ml_position_overrides',
+        "search_term = '" + term.replace(/'/g, "\\'") + "'",
+        '-created',
+        500,
+        0,
+      )
+      for (var ov = 0; ov < overrideRecs.length; ov++) {
+        var oRec = overrideRecs[ov]
+        var oItemId = oRec.getString('ml_item_id')
+        var oAct = oRec.getString('action')
+        if (oItemId && oAct && !overridesMap[oItemId]) {
+          overridesMap[oItemId] = oAct
+        }
+      }
+    } catch (_) {}
+
+    // Lista de termos fora do contexto de informática (miniaturas, bicicletas, brinquedos)
+    var NOISE_TERMS = [
+      'miniatura',
+      'miniaturas',
+      'mini bike',
+      'bicicleta',
+      'bicicletinha',
+      'bike',
+      'hot wheels',
+      'hotwheels',
+      'carrinho',
+      'carrinhos',
+      'boneco',
+      'bonecos',
+      'boneca',
+      'bonecas',
+      'brinquedo',
+      'brinquedos',
+      'infantil',
+      'escala 1',
+      '1:18',
+      '1:24',
+      '1:32',
+      '1:43',
+      '1:64',
+      'diecast',
+      'maisto',
+      'burago',
+      'bburago',
+      'action figure',
+      'pelucia',
+      'vestido',
+      'saia',
+      'blusa',
+      'perfume',
+      'maquiagem',
+      'batom',
+      'esmalte',
+      'shampoo',
+      'condicionador',
+      'sabonete',
+      'brinco',
+      'colar',
+      'anel',
+      'bebe',
+      'maternidade',
+      'chupeta',
+      'mamadeira',
+      'fralda',
+    ]
+
+    function checkIsNoise(t) {
+      var lower = (t || '').toString().toLowerCase()
+      // Se o próprio termo do usuário inclui a palavra, não exclui por ela
+      for (var nt = 0; nt < NOISE_TERMS.length; nt++) {
+        var word = NOISE_TERMS[nt]
+        if (term.indexOf(word) === -1 && lower.indexOf(word) !== -1) {
+          return true
+        }
+      }
+      return false
+    }
+
     var deduplicatedAds = {}
     var importsList = []
 
@@ -533,9 +616,36 @@ routerAdd('GET', '/backend/v1/custom/ml-collector/summary', function (e) {
     }
 
     var allAdsKeys = Object.keys(deduplicatedAds)
+    var rawAllAds = []
     var allAds = []
+    var noiseAds = []
+    var manuallyExcludedCount = 0
+    var manuallyIncludedCount = 0
+
     for (var k = 0; k < allAdsKeys.length; k++) {
-      allAds.push(deduplicatedAds[allAdsKeys[k]])
+      var candidate = deduplicatedAds[allAdsKeys[k]]
+      rawAllAds.push(candidate)
+
+      var cId = candidate.id || candidate.mlb_id
+      var ovAction = overridesMap[cId]
+
+      if (ovAction === 'exclude') {
+        manuallyExcludedCount++
+        noiseAds.push(candidate)
+        continue
+      }
+      if (ovAction === 'include') {
+        manuallyIncludedCount++
+        allAds.push(candidate)
+        continue
+      }
+
+      if (checkIsNoise(candidate.title)) {
+        noiseAds.push(candidate)
+        continue
+      }
+
+      allAds.push(candidate)
     }
 
     var adsWithSales = allAds.filter(function (a) {
@@ -762,6 +872,11 @@ routerAdd('GET', '/backend/v1/custom/ml-collector/summary', function (e) {
       top_specs: allSpecsRanked.slice(0, 8),
       all_specs: allSpecsRanked,
       all_deduplicated_ads: allAds,
+      noise_ads_count: noiseAds.length,
+      noise_ads: noiseAds,
+      manually_excluded_count: manuallyExcludedCount,
+      manually_included_count: manuallyIncludedCount,
+      raw_total_ads_count: rawAllAds.length,
     })
   } catch (err) {
     return e.json(500, { ok: false, error: 'Erro ao gerar resumo: ' + (err.message || err) })

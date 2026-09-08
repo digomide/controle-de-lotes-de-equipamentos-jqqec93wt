@@ -1328,3 +1328,123 @@ export function highlightMatchedTitle(title: string, tokens: string[]): Highligh
 
   return segments
 }
+
+/**
+ * Padrões de ruído severo e termos fora do escopo de TI / Informática / Computadores.
+ * Capturam miniaturas de brinquedo, bicicletas, bonecos, vestuário, maquiagem, itens infantis
+ * quando a palavra "mini" ou marcas trazem lixo do ML.
+ */
+export const IRRELEVANT_NOISE_TERMS = [
+  'miniatura',
+  'miniaturas',
+  'mini bike',
+  'bicicleta',
+  'bicicletinha',
+  'bike',
+  'hot wheels',
+  'hotwheels',
+  'carrinho',
+  'carrinhos',
+  'boneco',
+  'bonecos',
+  'boneca',
+  'bonecas',
+  'brinquedo',
+  'brinquedos',
+  'infantil',
+  'escala 1',
+  '1:18',
+  '1:24',
+  '1:32',
+  '1:43',
+  '1:64',
+  'diecast',
+  'maisto',
+  'burago',
+  'bburago',
+  'action figure',
+  'pelucia',
+  'vestido',
+  'saia',
+  'blusa',
+  'perfume',
+  'maquiagem',
+  'batom',
+  'esmalte',
+  'shampoo',
+  'condicionador',
+  'sabonete',
+  'brinco',
+  'colar',
+  'anel',
+  'pulseira infantil',
+  'bebe',
+  'maternidade',
+  'chupeta',
+  'mamadeira',
+  'fralda',
+  'fogao infantil',
+  'panela infantil',
+]
+
+/**
+ * Heurística de detecção de ruído / anúncio irrelevante para buscas de informática e hardware.
+ * Retorna se o anúncio é considerado ruído (fora de contexto) e a justificativa clara.
+ */
+export function detectCollectorNoiseAd(
+  title: string,
+  searchQuery?: string,
+): { isNoise: boolean; reason?: string } {
+  const normTitle = normalizeCatalogText(title || '')
+  if (!normTitle) return { isNoise: false }
+
+  const q = normalizeCatalogText(searchQuery || '')
+  const qTokens = extractExactProductTokens(q)
+  const isDellSearch =
+    qTokens.includes('del') ||
+    qTokens.includes('dell') ||
+    normTitle.includes('dell') ||
+    normTitle.includes('del')
+  const isMiniSearch = qTokens.includes('mini') || normTitle.includes('mini')
+
+  // 1. Checar termos explícitos de ruído (brinquedos, miniaturas, bicicletas, etc.)
+  for (const term of IRRELEVANT_NOISE_TERMS) {
+    // Se o usuário procurou propositalmente por esse termo, não rejeita por ele
+    if (qTokens.includes(term) || q.includes(term)) continue
+
+    const pattern = new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i')
+    if (pattern.test(normTitle) || normTitle.includes(term)) {
+      return {
+        isNoise: true,
+        reason: `Termo fora de informática detectado: "${term}"`,
+      }
+    }
+  }
+
+  // 2. Se a busca envolve "mini" e marca de informática como "del" / "dell",
+  // filtrar produtos onde "mini" é miniatura/brinquedo ou veículo (ex.: "mini moto", "mini buggy")
+  if (isMiniSearch) {
+    const miniVehicleOrToy =
+      /\b(mini\s*(carro|moto|veiculo|quadriciclo|buggy|skate|patinete|crafter|fusca|kombi|opala|camaro|ferrari|porsche))\b/i
+    if (miniVehicleOrToy.test(normTitle)) {
+      return {
+        isNoise: true,
+        reason: 'Miniatura ou veículo infantil detectado em busca de mini PC',
+      }
+    }
+  }
+
+  // 3. Em buscas de "del mini" / "dell mini" / "mini 3050":
+  // Se contiver marca de celular/smartphone muito distante ou brinquedo sem contexto de desktop/pc
+  if (isDellSearch && isMiniSearch) {
+    if (
+      /\b(celular|smartphone)\b/i.test(normTitle) &&
+      !/\b(optiplex|desktop|computador|pc|intel|core|i3|i5|i7|micro|tiny)\b/i.test(normTitle)
+    ) {
+      // Ex: smartphone dell antigo "Dell Mini 3" celular histórico vs Mini PC Dell
+      // Observação: Se o usuário procurou "del mini 3" para PC, e vier celular, é classificado como celular
+    }
+  }
+
+  return { isNoise: false }
+}

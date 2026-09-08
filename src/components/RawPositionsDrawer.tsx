@@ -24,6 +24,7 @@ import { useToast } from '@/hooks/use-toast'
 import {
   evaluateExactProductMatch,
   detectSearchMode,
+  detectCollectorNoiseAd,
   type ExactProductSearchMode,
 } from '@/lib/catalogFilter'
 import { formatMLSoldQuantity, type MLCatalogProduct } from '@/services/mlCatalogService'
@@ -83,6 +84,8 @@ export function RawPositionsDrawer({
       )
 
       const override = overrides[prodId]
+      const noise = detectCollectorNoiseAd(prod.title || '', cleanQuery)
+
       let statusKind: 'linked_auto' | 'linked_manual' | 'rejected_manual' | 'rejected_auto'
       let isEffectivelyLinked = false
 
@@ -92,6 +95,9 @@ export function RawPositionsDrawer({
       } else if (override === 'exclude') {
         statusKind = 'rejected_manual'
         isEffectivelyLinked = false
+      } else if (noise.isNoise) {
+        statusKind = 'rejected_auto'
+        isEffectivelyLinked = false
       } else if (scoreResult.isExactMatch) {
         statusKind = 'linked_auto'
         isEffectivelyLinked = true
@@ -100,11 +106,12 @@ export function RawPositionsDrawer({
         isEffectivelyLinked = false
       }
 
-      // Motivo exato da rejeição gerado por evaluateExactProductMatch
-      const rejectionReason =
-        (scoreResult.reasons && scoreResult.reasons.length > 0
-          ? scoreResult.reasons.join(' · ')
-          : '') || 'Fora dos critérios taxonômicos do produto'
+      // Motivo exato da rejeição
+      const rejectionReason = noise.isNoise
+        ? noise.reason || 'Item irrelevante detectado (fora do escopo de informática)'
+        : (scoreResult.reasons && scoreResult.reasons.length > 0
+            ? scoreResult.reasons.join(' · ')
+            : '') || 'Fora dos critérios taxonômicos do produto'
 
       return {
         product: prod,

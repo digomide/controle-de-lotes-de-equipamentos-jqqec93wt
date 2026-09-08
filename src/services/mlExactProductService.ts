@@ -5,6 +5,7 @@ import {
   detectSearchMode,
   isKitOrBundleTitle,
   isAccessoryTitle,
+  detectCollectorNoiseAd,
   type ExactProductScoreResult,
   type ExactProductSearchMode,
 } from '@/lib/catalogFilter'
@@ -263,18 +264,24 @@ export function aggregateSellersByExactProduct(
     } else if (override === 'exclude') {
       // Forçado manualmente pelo usuário a rejeitar/descartar
       include = false
-    } else if (scopeMode === 'exact') {
-      include = scoreResult.isExactMatch
-    } else if (scopeMode === 'all_mentions') {
-      // "Tudo que cita o termo" — sem filtro rígido de acessórios/componentes
-      include = true
-    } else if (scopeMode === 'own_only') {
-      // "Só meus anúncios" — apenas posições mineradas da própria conta
-      const isOwn = Boolean(
-        prod.is_own_account ||
-        (Array.isArray(prod.competitors) && prod.competitors.some((c) => c.is_own)),
-      )
-      include = isOwn
+    } else {
+      // Heurística de ruído absoluto (miniaturas, bicicletas, brinquedos)
+      const noise = detectCollectorNoiseAd(prod.title || '', cleanQuery)
+      if (noise.isNoise) {
+        include = false
+      } else if (scopeMode === 'exact') {
+        include = scoreResult.isExactMatch
+      } else if (scopeMode === 'all_mentions') {
+        // "Tudo que cita o termo" — sem filtro rígido de acessórios/componentes, mas sem ruído grotesco
+        include = true
+      } else if (scopeMode === 'own_only') {
+        // "Só meus anúncios" — apenas posições mineradas da própria conta
+        const isOwn = Boolean(
+          prod.is_own_account ||
+          (Array.isArray(prod.competitors) && prod.competitors.some((c) => c.is_own)),
+        )
+        include = isOwn
+      }
     }
 
     if (include) {

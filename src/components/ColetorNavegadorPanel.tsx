@@ -37,6 +37,11 @@ import {
   type MLCollectorPayload,
 } from '@/lib/mlBookmarklet'
 import { mlCollectorService, type MLCollectorImportRecord } from '@/services/mlCollectorService'
+import { detectCollectorNoiseAd } from '@/lib/catalogFilter'
+import {
+  positionOverridesService,
+  type PositionOverrideAction,
+} from '@/services/positionOverridesService'
 import pb from '@/lib/pocketbase/client'
 
 interface ColetorNavegadorPanelProps {
