@@ -35,7 +35,7 @@ import {
   type MLCollectorPayload,
 } from '@/lib/mlBookmarklet'
 import { mlCollectorService, type MLCollectorImportRecord } from '@/services/mlCollectorService'
-import pb, { getPocketBaseUrl } from '@/lib/pocketbase/client'
+import pb from '@/lib/pocketbase/client'
 
 interface ColetorNavegadorPanelProps {
   initialSearchTerm?: string
@@ -51,7 +51,7 @@ export function ColetorNavegadorPanel({
   // Chave de coleta e URL do backend PocketBase (para evitar erro HTTP 405 ao dar POST em frontend estático)
   const [collectorKey, setCollectorKey] = useState('')
   const [backendUrl, setBackendUrl] = useState(() => {
-    const pbUrl = getPocketBaseUrl()
+    const pbUrl = pb.baseUrl
     if (pbUrl) return pbUrl
     if (typeof window !== 'undefined') {
       return window.location.origin
@@ -461,16 +461,24 @@ export function ColetorNavegadorPanel({
                   <div className="flex items-center gap-2">
                     <CardTitle className="text-base font-bold text-indigo-950 flex items-center gap-2">
                       <Cpu className="w-5 h-5 text-indigo-600" />
-                      Coletor Automático com Tampermonkey (Zero Clique)
+                      Coletor Automático com Tampermonkey v1.3.1 (Zero Clique)
                     </CardTitle>
                     <Badge className="bg-emerald-600 text-white text-[10px] font-bold">
                       Recomendado
+                    </Badge>
+                    <Badge
+                      variant="outline"
+                      className="text-indigo-700 border-indigo-300 text-[10px]"
+                    >
+                      v1.3.1 Atualizada
                     </Badge>
                   </div>
                   <CardDescription className="text-xs text-slate-600">
                     Roda em segundo plano enquanto você navega normalmente no Mercado Livre. Detecta
                     as buscas, lê vendas reais, acompanha paginação SPA e sincroniza tudo com o app
-                    de Lotes.
+                    de Lotes. Se você já instalou antes,{' '}
+                    <strong>copie novamente e substitua no Tampermonkey</strong> para aplicar a
+                    v1.3.1 com correções de leitura e envio.
                   </CardDescription>
                 </div>
 
@@ -538,9 +546,9 @@ export function ColetorNavegadorPanel({
                     <strong className="text-xs text-slate-900">Pronto! Use o ML</strong>
                   </div>
                   <p className="text-[11px] text-slate-600 leading-relaxed">
-                    Abra qualquer busca no Mercado Livre. As diretivas <code>@connect</code> já vêm
-                    embutidas para autorizar o envio automático sem timeout. O HUD no canto mostrará
-                    o status real.
+                    Abra qualquer busca no Mercado Livre. Um HUD flutuante &quot;Coletor Lotes&quot;
+                    aparecerá no canto inferior direito mostrando anúncios e vendas lidas, enviando
+                    direto ao banco com botão de Reenviar se necessário.
                   </p>
                 </div>
               </div>

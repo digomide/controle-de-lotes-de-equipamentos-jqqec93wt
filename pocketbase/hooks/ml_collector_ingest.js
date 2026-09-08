@@ -158,7 +158,11 @@ try {
       console.log(
         '[ml_collector_ingest] Ingestão via API padrão autorizada para o termo: "' +
           (record ? record.getString('search_term') : '') +
-          '"',
+          '" (resultados: ' +
+          (record ? record.getInt('results_count') : 0) +
+          ', com vendas: ' +
+          (record ? record.getInt('with_sales_count') : 0) +
+          ')',
       )
 
       return e.next()
@@ -193,7 +197,7 @@ onRecordCreate((e) => {
 // ------------------------------------------------------------------------------------------------
 // 2. Rota personalizada routerAdd mantida com sintaxe moderna v0.23+/v0.36
 // ------------------------------------------------------------------------------------------------
-routerAdd('OPTIONS', '/api/ml-collector/ingest', (e) => {
+routerAdd('OPTIONS', '/backend/v1/ml-collector/ingest', (e) => {
   try {
     var res = e.response
     if (res && res.header) {
@@ -207,7 +211,7 @@ routerAdd('OPTIONS', '/api/ml-collector/ingest', (e) => {
   return e.noContent(204)
 })
 
-routerAdd('GET', '/api/ml-collector/ingest', (e) => {
+routerAdd('GET', '/backend/v1/ml-collector/ingest', (e) => {
   try {
     var res = e.response
     if (res && res.header) {
@@ -224,7 +228,7 @@ routerAdd('GET', '/api/ml-collector/ingest', (e) => {
   })
 })
 
-routerAdd('POST', '/api/ml-collector/ingest', (e) => {
+routerAdd('POST', '/backend/v1/ml-collector/ingest', (e) => {
   try {
     var res = e.response
     if (res && res.header) {

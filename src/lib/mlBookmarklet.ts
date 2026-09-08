@@ -128,92 +128,116 @@ export function getBookmarkletScript(): string {
         seller_name: sellerName
       });
     } else {
-      const cardNodes = document.querySelectorAll(
-        '.ui-search-layout__item, .ui-search-result__wrapper, li.ui-search-layout__item, div[class*="ui-search-result"], .poly-card'
-      );
+      const cardSelectors = [
+        '.ui-search-layout__item',
+        '.ui-search-result__wrapper',
+        'li.ui-search-layout__item',
+        'div[class*="ui-search-result"]',
+        '.poly-card',
+        '.poly-component',
+        'section.ui-search-results li',
+        '.andes-card'
+      ];
+      let cardNodes = document.querySelectorAll(cardSelectors.join(', '));
+      if (!cardNodes || cardNodes.length === 0) {
+        const mlbLinks = Array.from(document.querySelectorAll('a[href*="/MLB-"], a[href*="/p/MLB"]'));
+        const seenCards = new Set();
+        cardNodes = [];
+        mlbLinks.forEach(a => {
+          const container = a.closest('li') || a.closest('.andes-card') || a.parentElement;
+          if (container && !seenCards.has(container)) {
+            seenCards.add(container);
+            cardNodes.push(container);
+          }
+        });
+      }
 
       const seenLinks = new Set();
 
       cardNodes.forEach((card) => {
-        const linkEl = card.querySelector('a.ui-search-link') || card.querySelector('a[href*="MLB"]') || card.querySelector('a.poly-component__title') || card.querySelector('h2 a') || card.querySelector('a');
-        if (!linkEl) return;
+        try {
+          const linkEl = card.querySelector('a.ui-search-link') || card.querySelector('a[href*="MLB"]') || card.querySelector('a.poly-component__title') || card.querySelector('h2 a') || card.querySelector('a');
+          if (!linkEl) return;
 
-        const permalink = linkEl.href || '';
-        const mlbId = extractMlbId(permalink);
-        if (permalink && seenLinks.has(permalink)) return;
-        if (permalink) seenLinks.add(permalink);
+          const permalink = linkEl.href || '';
+          const mlbId = extractMlbId(permalink);
+          if (permalink && seenLinks.has(permalink)) return;
+          if (permalink) seenLinks.add(permalink);
 
-        const titleEl = card.querySelector('h2') || card.querySelector('.ui-search-item__title') || card.querySelector('.poly-component__title') || linkEl;
-        const title = (titleEl ? titleEl.textContent : '').trim();
-        if (!title) return;
+          const titleEl = card.querySelector('h2') || card.querySelector('.ui-search-item__title') || card.querySelector('.poly-component__title') || linkEl;
+          const title = (titleEl ? titleEl.textContent : '').trim();
+          if (!title || title.length < 3) return;
 
-        let price = undefined;
-        const fractionEl = card.querySelector('.andes-money-amount__fraction') || card.querySelector('.price-tag-fraction');
-        if (fractionEl) {
-          price = parsePrice(fractionEl.textContent);
-        }
-
-        let soldQty = null;
-        let soldRaw = '';
-
-        const polyReviewsEl = card.querySelector('.poly-reviews__total') || card.querySelector('.ui-search-reviews__amount') || card.querySelector('.poly-component__sales');
-        if (polyReviewsEl) {
-          const parsed = parseSoldQuantity(polyReviewsEl.textContent);
-          if (parsed.qty != null) {
-            soldQty = parsed.qty;
-            soldRaw = parsed.raw;
+          let price = undefined;
+          const fractionEl = card.querySelector('.andes-money-amount__fraction') || card.querySelector('.price-tag-fraction') || card.querySelector('[class*="money-amount"] [class*="fraction"]');
+          if (fractionEl) {
+            price = parsePrice(fractionEl.textContent);
           }
-        }
 
-        if (soldQty == null) {
-          const textNodes = card.querySelectorAll('span, p, div');
-          for (const node of textNodes) {
-            if (node.children.length > 2) continue;
-            const t = (node.textContent || '').trim();
-            if (/vendidos?|vendas?/i.test(t)) {
-              const parsed = parseSoldQuantity(t);
-              if (parsed.qty != null) {
-                soldQty = parsed.qty;
-                soldRaw = parsed.raw;
-                break;
+          let soldQty = null;
+          let soldRaw = '';
+
+          const polyReviewsEl = card.querySelector('.poly-reviews__total') || card.querySelector('.ui-search-reviews__amount') || card.querySelector('.poly-component__sales') || card.querySelector('[class*="reviews__total"]') || card.querySelector('[class*="sales"]');
+          if (polyReviewsEl) {
+            const parsed = parseSoldQuantity(polyReviewsEl.textContent);
+            if (parsed.qty != null) {
+              soldQty = parsed.qty;
+              soldRaw = parsed.raw;
+            }
+          }
+
+          if (soldQty == null) {
+            const textNodes = card.querySelectorAll('span, p, div');
+            for (const node of textNodes) {
+              if (node.children.length > 2) continue;
+              const t = (node.textContent || '').trim();
+              if (/vendidos?|vendas?/i.test(t)) {
+                const parsed = parseSoldQuantity(t);
+                if (parsed.qty != null) {
+                  soldQty = parsed.qty;
+                  soldRaw = parsed.raw;
+                  break;
+                }
               }
             }
           }
+
+          let condition = undefined;
+          const cardText = card.textContent || '';
+          if (/\\busado\\b/i.test(cardText)) condition = 'usado';
+          else if (/\\brecondicionado\\b/i.test(cardText)) condition = 'recondicionado';
+          else if (/\\bnovo\\b/i.test(cardText)) condition = 'novo';
+
+          let sellerName = '';
+          const sellerEl = card.querySelector('.ui-search-official-store-label') || card.querySelector('.ui-search-item__brand-discoverability') || card.querySelector('.poly-component__seller') || card.querySelector('[class*="seller"]');
+          if (sellerEl) {
+            sellerName = sellerEl.textContent.replace(/por\\s+/i, '').trim();
+          }
+
+          const imgEl = card.querySelector('img');
+          const thumbnail = imgEl ? (imgEl.src || imgEl.getAttribute('data-src') || '') : '';
+
+          const isFull = Boolean(card.querySelector('.ui-search-item__fulfillment') || card.querySelector('.poly-component__shipped-from'));
+          const isFreeShipping = /frete gr[áa]tis/i.test(cardText);
+
+          items.push({
+            id: mlbId || 'MLB_' + (items.length + 1),
+            mlb_id: mlbId,
+            title,
+            price,
+            currency: 'BRL',
+            condition,
+            sold_quantity: soldQty,
+            sold_quantity_text: soldRaw,
+            permalink,
+            thumbnail,
+            seller_name: sellerName,
+            is_free_shipping: isFreeShipping,
+            is_full: isFull
+          });
+        } catch (e) {
+          console.warn('[Bookmarklet] Erro ao extrair item individual:', e);
         }
-
-        let condition = undefined;
-        const cardText = card.textContent || '';
-        if (/\\busado\\b/i.test(cardText)) condition = 'usado';
-        else if (/\\brecondicionado\\b/i.test(cardText)) condition = 'recondicionado';
-        else if (/\\bnovo\\b/i.test(cardText)) condition = 'novo';
-
-        let sellerName = '';
-        const sellerEl = card.querySelector('.ui-search-official-store-label') || card.querySelector('.ui-search-item__brand-discoverability') || card.querySelector('.poly-component__seller');
-        if (sellerEl) {
-          sellerName = sellerEl.textContent.replace(/por\\s+/i, '').trim();
-        }
-
-        const imgEl = card.querySelector('img');
-        const thumbnail = imgEl ? (imgEl.src || imgEl.getAttribute('data-src') || '') : '';
-
-        const isFull = Boolean(card.querySelector('.ui-search-item__fulfillment') || card.querySelector('.poly-component__shipped-from'));
-        const isFreeShipping = /frete gr[áa]tis/i.test(cardText);
-
-        items.push({
-          id: mlbId || 'MLB_' + (items.length + 1),
-          mlb_id: mlbId,
-          title,
-          price,
-          currency: 'BRL',
-          condition,
-          sold_quantity: soldQty,
-          sold_quantity_text: soldRaw,
-          permalink,
-          thumbnail,
-          seller_name: sellerName,
-          is_free_shipping: isFreeShipping,
-          is_full: isFull
-        });
       });
     }
 
@@ -389,87 +413,111 @@ export function getTurboBookmarkletScript(options: {
 
     function extractItemsFromDocument(doc, pageNum) {
       const items = [];
-      const cardNodes = doc.querySelectorAll(
-        '.ui-search-layout__item, .ui-search-result__wrapper, li.ui-search-layout__item, div[class*="ui-search-result"], .poly-card'
-      );
+      const cardSelectors = [
+        '.ui-search-layout__item',
+        '.ui-search-result__wrapper',
+        'li.ui-search-layout__item',
+        'div[class*="ui-search-result"]',
+        '.poly-card',
+        '.poly-component',
+        'section.ui-search-results li',
+        '.andes-card'
+      ];
+      let cardNodes = doc.querySelectorAll(cardSelectors.join(', '));
+      if (!cardNodes || cardNodes.length === 0) {
+        const mlbLinks = Array.from(doc.querySelectorAll('a[href*="/MLB-"], a[href*="/p/MLB"]'));
+        const seenCards = new Set();
+        cardNodes = [];
+        mlbLinks.forEach(a => {
+          const container = a.closest('li') || a.closest('.andes-card') || a.parentElement;
+          if (container && !seenCards.has(container)) {
+            seenCards.add(container);
+            cardNodes.push(container);
+          }
+        });
+      }
 
       cardNodes.forEach((card) => {
-        const linkEl = card.querySelector('a.ui-search-link') || card.querySelector('a[href*="MLB"]') || card.querySelector('a.poly-component__title') || card.querySelector('h2 a') || card.querySelector('a');
-        if (!linkEl) return;
+        try {
+          const linkEl = card.querySelector('a.ui-search-link') || card.querySelector('a[href*="MLB"]') || card.querySelector('a.poly-component__title') || card.querySelector('h2 a') || card.querySelector('a');
+          if (!linkEl) return;
 
-        const permalink = linkEl.href || '';
-        const mlbId = extractMlbId(permalink);
-        const titleEl = card.querySelector('h2') || card.querySelector('.ui-search-item__title') || card.querySelector('.poly-component__title') || linkEl;
-        const title = (titleEl ? titleEl.textContent : '').trim();
-        if (!title) return;
+          const permalink = linkEl.href || '';
+          const mlbId = extractMlbId(permalink);
+          const titleEl = card.querySelector('h2') || card.querySelector('.ui-search-item__title') || card.querySelector('.poly-component__title') || linkEl;
+          const title = (titleEl ? titleEl.textContent : '').trim();
+          if (!title || title.length < 3) return;
 
-        let price = undefined;
-        const fractionEl = card.querySelector('.andes-money-amount__fraction') || card.querySelector('.price-tag-fraction');
-        if (fractionEl) {
-          price = parsePrice(fractionEl.textContent);
-        }
-
-        let soldQty = null;
-        let soldRaw = '';
-
-        const polyReviewsEl = card.querySelector('.poly-reviews__total') || card.querySelector('.ui-search-reviews__amount') || card.querySelector('.poly-component__sales');
-        if (polyReviewsEl) {
-          const parsed = parseSoldQuantity(polyReviewsEl.textContent);
-          if (parsed.qty != null) {
-            soldQty = parsed.qty;
-            soldRaw = parsed.raw;
+          let price = undefined;
+          const fractionEl = card.querySelector('.andes-money-amount__fraction') || card.querySelector('.price-tag-fraction') || card.querySelector('[class*="money-amount"] [class*="fraction"]');
+          if (fractionEl) {
+            price = parsePrice(fractionEl.textContent);
           }
-        }
 
-        if (soldQty == null) {
-          const textNodes = card.querySelectorAll('span, p, div');
-          for (const node of textNodes) {
-            if (node.children.length > 2) continue;
-            const t = (node.textContent || '').trim();
-            if (/vendidos?|vendas?/i.test(t)) {
-              const parsed = parseSoldQuantity(t);
-              if (parsed.qty != null) {
-                soldQty = parsed.qty;
-                soldRaw = parsed.raw;
-                break;
+          let soldQty = null;
+          let soldRaw = '';
+
+          const polyReviewsEl = card.querySelector('.poly-reviews__total') || card.querySelector('.ui-search-reviews__amount') || card.querySelector('.poly-component__sales') || card.querySelector('[class*="reviews__total"]') || card.querySelector('[class*="sales"]');
+          if (polyReviewsEl) {
+            const parsed = parseSoldQuantity(polyReviewsEl.textContent);
+            if (parsed.qty != null) {
+              soldQty = parsed.qty;
+              soldRaw = parsed.raw;
+            }
+          }
+
+          if (soldQty == null) {
+            const textNodes = card.querySelectorAll('span, p, div');
+            for (const node of textNodes) {
+              if (node.children.length > 2) continue;
+              const t = (node.textContent || '').trim();
+              if (/vendidos?|vendas?/i.test(t)) {
+                const parsed = parseSoldQuantity(t);
+                if (parsed.qty != null) {
+                  soldQty = parsed.qty;
+                  soldRaw = parsed.raw;
+                  break;
+                }
               }
             }
           }
+
+          let condition = undefined;
+          const cardText = card.textContent || '';
+          if (/\\busado\\b/i.test(cardText)) condition = 'usado';
+          else if (/\\brecondicionado\\b/i.test(cardText)) condition = 'recondicionado';
+          else if (/\\bnovo\\b/i.test(cardText)) condition = 'novo';
+
+          let sellerName = '';
+          const sellerEl = card.querySelector('.ui-search-official-store-label') || card.querySelector('.ui-search-item__brand-discoverability') || card.querySelector('.poly-component__seller') || card.querySelector('[class*="seller"]');
+          if (sellerEl) {
+            sellerName = sellerEl.textContent.replace(/por\\s+/i, '').trim();
+          }
+
+          const imgEl = card.querySelector('img');
+          const thumbnail = imgEl ? (imgEl.src || imgEl.getAttribute('data-src') || '') : '';
+          const isFull = Boolean(card.querySelector('.ui-search-item__fulfillment') || card.querySelector('.poly-component__shipped-from'));
+          const isFreeShipping = /frete gr[áa]tis/i.test(cardText);
+
+          items.push({
+            id: mlbId || 'MLB_' + (items.length + 1),
+            mlb_id: mlbId,
+            title,
+            price,
+            currency: 'BRL',
+            condition,
+            sold_quantity: soldQty,
+            sold_quantity_text: soldRaw,
+            permalink,
+            thumbnail,
+            seller_name: sellerName,
+            is_free_shipping: isFreeShipping,
+            is_full: isFull,
+            page_number: pageNum
+          });
+        } catch (e) {
+          console.warn('[Turbo] Erro ao extrair card:', e);
         }
-
-        let condition = undefined;
-        const cardText = card.textContent || '';
-        if (/\\busado\\b/i.test(cardText)) condition = 'usado';
-        else if (/\\brecondicionado\\b/i.test(cardText)) condition = 'recondicionado';
-        else if (/\\bnovo\\b/i.test(cardText)) condition = 'novo';
-
-        let sellerName = '';
-        const sellerEl = card.querySelector('.ui-search-official-store-label') || card.querySelector('.ui-search-item__brand-discoverability') || card.querySelector('.poly-component__seller');
-        if (sellerEl) {
-          sellerName = sellerEl.textContent.replace(/por\\s+/i, '').trim();
-        }
-
-        const imgEl = card.querySelector('img');
-        const thumbnail = imgEl ? (imgEl.src || imgEl.getAttribute('data-src') || '') : '';
-        const isFull = Boolean(card.querySelector('.ui-search-item__fulfillment') || card.querySelector('.poly-component__shipped-from'));
-        const isFreeShipping = /frete gr[áa]tis/i.test(cardText);
-
-        items.push({
-          id: mlbId || 'MLB_' + (items.length + 1),
-          mlb_id: mlbId,
-          title,
-          price,
-          currency: 'BRL',
-          condition,
-          sold_quantity: soldQty,
-          sold_quantity_text: soldRaw,
-          permalink,
-          thumbnail,
-          seller_name: sellerName,
-          is_free_shipping: isFreeShipping,
-          is_full: isFull,
-          page_number: pageNum
-        });
       });
 
       return items;
@@ -784,9 +832,9 @@ export function getTurboBookmarkletScript(options: {
             body: JSON.stringify(recordBody)
           });
 
-          // Se a rota nativa falhar com 404, tenta rota custom /api/ml-collector/ingest como fallback
+          // Se a rota nativa falhar com 404, tenta rota customizada como fallback
           if (resp.status === 404) {
-            const fallbackEndpoint = BACKEND_URL + '/api/ml-collector/ingest';
+            const fallbackEndpoint = BACKEND_URL + '/backend/v1/ml-collector/ingest';
             resp = await fetch(fallbackEndpoint, {
               method: 'POST',
               mode: 'cors',
@@ -794,12 +842,7 @@ export function getTurboBookmarkletScript(options: {
                 'Content-Type': 'application/json',
                 'X-Collector-Key': COLLECTOR_KEY
               },
-              body: JSON.stringify({
-                search_term: searchTerm,
-                source_url: window.location.href,
-                notes: 'turbo',
-                payload: payload
-              })
+              body: JSON.stringify(recordBody)
             });
           }
 
@@ -893,7 +936,7 @@ export function getTampermonkeyUserscript(options: {
   return `// ==UserScript==
 // @name         Coletor Automático Mercado Livre · Lotes & Raio-X
 // @namespace    https://controle-de-lotes.app/
-// @version      1.3.0
+// @version      1.3.1
 // @description  Captura automaticamente contadores públicos de vendas e anúncios no Mercado Livre e envia ao app de Lotes
 // @author       Controle de Lotes de Equipamentos
 // @match        *://lista.mercadolivre.com.br/*
@@ -976,132 +1019,189 @@ ${connectDirectives}
     const items = [];
     const sourceUrl = window.location.href;
 
-    if (isItemPage) {
-      const singleTitleEl = document.querySelector('h1.ui-pdp-title');
-      if (singleTitleEl) {
-        const title = singleTitleEl.textContent.trim();
-        let price = undefined;
-        const priceMetaEl = document.querySelector('.ui-pdp-price__second-line .andes-money-amount__fraction');
-        if (priceMetaEl) {
-          price = parsePrice(priceMetaEl.textContent);
+    try {
+      if (isItemPage) {
+        const singleTitleEl = document.querySelector('h1.ui-pdp-title') || document.querySelector('h1');
+        if (singleTitleEl) {
+          const title = singleTitleEl.textContent.trim();
+          let price = undefined;
+          const priceMetaEl = document.querySelector('.ui-pdp-price__second-line .andes-money-amount__fraction') ||
+                              document.querySelector('.andes-money-amount__fraction');
+          if (priceMetaEl) {
+            price = parsePrice(priceMetaEl.textContent);
+          }
+
+          let soldQty = null;
+          let soldRaw = '';
+          let condition = '';
+          const subtitleEl = document.querySelector('.ui-pdp-subtitle') ||
+                             document.querySelector('.ui-pdp-header__subtitle') ||
+                             document.querySelector('.ui-pdp-color--GRAY');
+          if (subtitleEl) {
+            const subText = subtitleEl.textContent || '';
+            const parsed = parseSoldQuantity(subText);
+            soldQty = parsed.qty;
+            soldRaw = parsed.raw;
+            if (/usado/i.test(subText)) condition = 'usado';
+            else if (/recondicionado/i.test(subText)) condition = 'recondicionado';
+            else if (/novo/i.test(subText)) condition = 'novo';
+          }
+
+          let sellerName = '';
+          const sellerEl = document.querySelector('.ui-pdp-seller__link-trigger') ||
+                           document.querySelector('.ui-seller-info a') ||
+                           document.querySelector('.ui-pdp-action-modal__link');
+          if (sellerEl) sellerName = sellerEl.textContent.trim();
+
+          items.push({
+            id: extractMlbId(sourceUrl) || 'MLB_PAGE',
+            mlb_id: extractMlbId(sourceUrl),
+            title,
+            price,
+            currency: 'BRL',
+            condition: condition || 'usado',
+            sold_quantity: soldQty,
+            sold_quantity_text: soldRaw,
+            permalink: sourceUrl,
+            seller_name: sellerName
+          });
         }
+        return items;
+      }
 
-        let soldQty = null;
-        let soldRaw = '';
-        let condition = '';
-        const subtitleEl = document.querySelector('.ui-pdp-subtitle') || document.querySelector('.ui-pdp-header__subtitle');
-        if (subtitleEl) {
-          const subText = subtitleEl.textContent || '';
-          const parsed = parseSoldQuantity(subText);
-          soldQty = parsed.qty;
-          soldRaw = parsed.raw;
-          if (/usado/i.test(subText)) condition = 'usado';
-          else if (/recondicionado/i.test(subText)) condition = 'recondicionado';
-          else if (/novo/i.test(subText)) condition = 'novo';
-        }
-
-        let sellerName = '';
-        const sellerEl = document.querySelector('.ui-pdp-seller__link-trigger') || document.querySelector('.ui-seller-info a') || document.querySelector('.ui-pdp-action-modal__link');
-        if (sellerEl) sellerName = sellerEl.textContent.trim();
-
-        items.push({
-          id: extractMlbId(sourceUrl) || 'MLB_PAGE',
-          mlb_id: extractMlbId(sourceUrl),
-          title,
-          price,
-          currency: 'BRL',
-          condition: condition || 'usado',
-          sold_quantity: soldQty,
-          sold_quantity_text: soldRaw,
-          permalink: sourceUrl,
-          seller_name: sellerName
+      // Variações de layout e classes do Mercado Livre (clássico, poly, grid, lista)
+      const cardSelectors = [
+        '.ui-search-layout__item',
+        '.ui-search-result__wrapper',
+        'li.ui-search-layout__item',
+        'div[class*="ui-search-result"]',
+        '.poly-card',
+        '.poly-component',
+        'section.ui-search-results li',
+        '.andes-card'
+      ];
+      let cardNodes = document.querySelectorAll(cardSelectors.join(', '));
+      if (!cardNodes || cardNodes.length === 0) {
+        // Fallback: busca por links que contenham /MLB- ou /p/MLB
+        const mlbLinks = Array.from(document.querySelectorAll('a[href*="/MLB-"], a[href*="/p/MLB"]'));
+        const seenCards = new Set();
+        cardNodes = [];
+        mlbLinks.forEach(a => {
+          const container = a.closest('li') || a.closest('.andes-card') || a.parentElement;
+          if (container && !seenCards.has(container)) {
+            seenCards.add(container);
+            cardNodes.push(container);
+          }
         });
       }
-      return items;
-    }
 
-    const cardNodes = document.querySelectorAll(
-      '.ui-search-layout__item, .ui-search-result__wrapper, li.ui-search-layout__item, div[class*="ui-search-result"], .poly-card'
-    );
+      const seenLinks = new Set();
 
-    cardNodes.forEach((card) => {
-      const linkEl = card.querySelector('a.ui-search-link') || card.querySelector('a[href*="MLB"]') || card.querySelector('a.poly-component__title') || card.querySelector('h2 a') || card.querySelector('a');
-      if (!linkEl) return;
+      cardNodes.forEach((card) => {
+        try {
+          const linkEl = card.querySelector('a.ui-search-link') ||
+                         card.querySelector('a.poly-component__title') ||
+                         card.querySelector('a[href*="MLB"]') ||
+                         card.querySelector('h2 a') ||
+                         card.querySelector('a');
+          if (!linkEl) return;
 
-      const permalink = linkEl.href || '';
-      const mlbId = extractMlbId(permalink);
+          const permalink = linkEl.href || '';
+          const mlbId = extractMlbId(permalink);
+          if (permalink && seenLinks.has(permalink)) return;
+          if (permalink) seenLinks.add(permalink);
 
-      const titleEl = card.querySelector('h2') || card.querySelector('.ui-search-item__title') || card.querySelector('.poly-component__title') || linkEl;
-      const title = (titleEl ? titleEl.textContent : '').trim();
-      if (!title) return;
+          const titleEl = card.querySelector('h2') ||
+                          card.querySelector('.ui-search-item__title') ||
+                          card.querySelector('.poly-component__title') ||
+                          linkEl;
+          const title = (titleEl ? titleEl.textContent : '').trim();
+          if (!title || title.length < 3) return;
 
-      let price = undefined;
-      const fractionEl = card.querySelector('.andes-money-amount__fraction') || card.querySelector('.price-tag-fraction');
-      if (fractionEl) {
-        price = parsePrice(fractionEl.textContent);
-      }
+          let price = undefined;
+          const fractionEl = card.querySelector('.andes-money-amount__fraction') ||
+                             card.querySelector('.price-tag-fraction') ||
+                             card.querySelector('[class*="money-amount"] [class*="fraction"]');
+          if (fractionEl) {
+            price = parsePrice(fractionEl.textContent);
+          }
 
-      let soldQty = null;
-      let soldRaw = '';
+          let soldQty = null;
+          let soldRaw = '';
 
-      const polyReviewsEl = card.querySelector('.poly-reviews__total') || card.querySelector('.ui-search-reviews__amount') || card.querySelector('.poly-component__sales');
-      if (polyReviewsEl) {
-        const parsed = parseSoldQuantity(polyReviewsEl.textContent);
-        if (parsed.qty != null) {
-          soldQty = parsed.qty;
-          soldRaw = parsed.raw;
-        }
-      }
-
-      if (soldQty == null) {
-        const textNodes = card.querySelectorAll('span, p, div');
-        for (const node of textNodes) {
-          if (node.children.length > 2) continue;
-          const t = (node.textContent || '').trim();
-          if (/vendidos?|vendas?/i.test(t)) {
-            const parsed = parseSoldQuantity(t);
+          // Busca contadores explícitos estilo "+100 vendidos", "+5 mil vendidos"
+          const polyReviewsEl = card.querySelector('.poly-reviews__total') ||
+                                card.querySelector('.ui-search-reviews__amount') ||
+                                card.querySelector('.poly-component__sales') ||
+                                card.querySelector('[class*="reviews__total"]') ||
+                                card.querySelector('[class*="sales"]');
+          if (polyReviewsEl) {
+            const parsed = parseSoldQuantity(polyReviewsEl.textContent);
             if (parsed.qty != null) {
               soldQty = parsed.qty;
               soldRaw = parsed.raw;
-              break;
             }
           }
+
+          if (soldQty == null) {
+            const textNodes = card.querySelectorAll('span, p, div');
+            for (const node of textNodes) {
+              if (node.children.length > 2) continue;
+              const t = (node.textContent || '').trim();
+              if (/vendidos?|vendas?/i.test(t)) {
+                const parsed = parseSoldQuantity(t);
+                if (parsed.qty != null) {
+                  soldQty = parsed.qty;
+                  soldRaw = parsed.raw;
+                  break;
+                }
+              }
+            }
+          }
+
+          let condition = undefined;
+          const cardText = card.textContent || '';
+          if (/\\busado\\b/i.test(cardText)) condition = 'usado';
+          else if (/\\brecondicionado\\b/i.test(cardText)) condition = 'recondicionado';
+          else if (/\\bnovo\\b/i.test(cardText)) condition = 'novo';
+
+          let sellerName = '';
+          const sellerEl = card.querySelector('.ui-search-official-store-label') ||
+                           card.querySelector('.ui-search-item__brand-discoverability') ||
+                           card.querySelector('.poly-component__seller') ||
+                           card.querySelector('[class*="seller"]');
+          if (sellerEl) {
+            sellerName = sellerEl.textContent.replace(/por\\s+/i, '').trim();
+          }
+
+          const imgEl = card.querySelector('img');
+          const thumbnail = imgEl ? (imgEl.src || imgEl.getAttribute('data-src') || '') : '';
+          const isFull = Boolean(card.querySelector('.ui-search-item__fulfillment') || card.querySelector('.poly-component__shipped-from'));
+          const isFreeShipping = /frete gr[áa]tis/i.test(cardText);
+
+          items.push({
+            id: mlbId || 'MLB_' + (items.length + 1),
+            mlb_id: mlbId,
+            title,
+            price,
+            currency: 'BRL',
+            condition,
+            sold_quantity: soldQty,
+            sold_quantity_text: soldRaw,
+            permalink,
+            thumbnail,
+            seller_name: sellerName,
+            is_free_shipping: isFreeShipping,
+            is_full: isFull
+          });
+        } catch (cardErr) {
+          // Se falhar a leitura de um card específico, não quebra a extração dos demais
+          console.warn('[Coletor] Erro ao extrair card individual:', cardErr);
         }
-      }
-
-      let condition = undefined;
-      const cardText = card.textContent || '';
-      if (/\\busado\\b/i.test(cardText)) condition = 'usado';
-      else if (/\\brecondicionado\\b/i.test(cardText)) condition = 'recondicionado';
-      else if (/\\bnovo\\b/i.test(cardText)) condition = 'novo';
-
-      let sellerName = '';
-      const sellerEl = card.querySelector('.ui-search-official-store-label') || card.querySelector('.ui-search-item__brand-discoverability') || card.querySelector('.poly-component__seller');
-      if (sellerEl) {
-        sellerName = sellerEl.textContent.replace(/por\\s+/i, '').trim();
-      }
-
-      const imgEl = card.querySelector('img');
-      const thumbnail = imgEl ? (imgEl.src || imgEl.getAttribute('data-src') || '') : '';
-      const isFull = Boolean(card.querySelector('.ui-search-item__fulfillment') || card.querySelector('.poly-component__shipped-from'));
-      const isFreeShipping = /frete gr[áa]tis/i.test(cardText);
-
-      items.push({
-        id: mlbId || 'MLB_' + (items.length + 1),
-        mlb_id: mlbId,
-        title,
-        price,
-        currency: 'BRL',
-        condition,
-        sold_quantity: soldQty,
-        sold_quantity_text: soldRaw,
-        permalink,
-        thumbnail,
-        seller_name: sellerName,
-        is_free_shipping: isFreeShipping,
-        is_full: isFull
       });
-    });
+    } catch (err) {
+      console.error('[Coletor] Falha geral em extractItemsFromDOM:', err);
+    }
 
     return items;
   }
@@ -1208,36 +1308,47 @@ ${connectDirectives}
   }
 
   function collectCurrentPage() {
-    const term = extractSearchTerm() || currentSearchTerm;
-    if (term !== currentSearchTerm && accumulatedItems.size > 0) {
-      // O usuário mudou de busca na mesma aba: envia o lote anterior
-      sendBatchToApp(true);
-      accumulatedItems.clear();
-      currentSearchTerm = term;
-    }
-
-    const items = extractItemsFromDOM();
-    let newItemsCount = 0;
-    items.forEach(item => {
-      const key = item.mlb_id || item.permalink || item.id;
-      if (key && !accumulatedItems.has(key)) {
-        accumulatedItems.set(key, item);
-        newItemsCount++;
+    try {
+      const term = extractSearchTerm() || currentSearchTerm;
+      if (term && term !== currentSearchTerm && accumulatedItems.size > 0) {
+        // O usuário mudou de busca na mesma aba: envia o lote anterior
+        sendBatchToApp(true);
+        accumulatedItems.clear();
+        currentSearchTerm = term;
+      } else if (term) {
+        currentSearchTerm = term;
       }
-    });
 
-    let salesCount = 0;
-    accumulatedItems.forEach(i => {
-      if (i.sold_quantity != null && i.sold_quantity > 0) salesCount++;
-    });
+      const items = extractItemsFromDOM();
+      let newItemsCount = 0;
+      items.forEach(item => {
+        const key = item.mlb_id || item.permalink || item.id;
+        if (key && !accumulatedItems.has(key)) {
+          accumulatedItems.set(key, item);
+          newItemsCount++;
+        }
+      });
 
-    setStatus('collecting', '"' + currentSearchTerm.substring(0, 18) + '" · ' + accumulatedItems.size + ' itens (' + salesCount + ' com vendas)');
+      let salesCount = 0;
+      accumulatedItems.forEach(i => {
+        if (i.sold_quantity != null && i.sold_quantity > 0) salesCount++;
+      });
 
-    // Programar envio automático com debounce
-    if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => {
-      sendBatchToApp();
-    }, CONFIG.debounceDelayMs);
+      if (accumulatedItems.size === 0) {
+        setStatus('collecting', 'Aguardando anúncios carregarem na página...');
+      } else {
+        setStatus('collecting', '"' + currentSearchTerm.substring(0, 18) + '" · ' + accumulatedItems.size + ' itens (' + salesCount + ' com vendas)');
+      }
+
+      // Programar envio automático com debounce
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        sendBatchToApp();
+      }, CONFIG.debounceDelayMs);
+    } catch (collectErr) {
+      console.error('[Coletor Automático] Erro durante collectCurrentPage:', collectErr);
+      setStatus('error', 'Falha ao ler página: ' + (collectErr && collectErr.message ? collectErr.message : 'desconhecida'));
+    }
   }
 
   function sendBatchToApp(isSync = false) {
@@ -1265,7 +1376,7 @@ ${connectDirectives}
     const baseUrl = (CONFIG.backendUrl || CONFIG.appUrl).replace(//+$/, '');
     // Endpoint oficial: API de coleções padrão do PocketBase
     const primaryEndpoint = baseUrl + '/api/collections/ml_collector_imports/records';
-    const fallbackEndpoint = baseUrl + '/api/ml-collector/ingest';
+    const fallbackEndpoint = baseUrl + '/backend/v1/ml-collector/ingest';
 
     const recordBody = {
       search_term: currentSearchTerm,
