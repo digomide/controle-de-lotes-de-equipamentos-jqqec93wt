@@ -1096,8 +1096,7 @@ export const mlCollectorService = {
       payload.results_count = updatedResults.length
       payload.with_sales_count = withSales
 
-      const payloadToSave =
-        typeof record.payload === 'string' ? JSON.stringify(payload) : payload
+      const payloadToSave = typeof record.payload === 'string' ? JSON.stringify(payload) : payload
 
       await pb.collection('ml_collector_imports').update(importId, {
         payload: payloadToSave,
