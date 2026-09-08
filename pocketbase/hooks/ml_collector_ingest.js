@@ -1,70 +1,14 @@
 // Hook de ingestão e segurança para o Coletor do Mercado Livre (Userscript Tampermonkey, Coletor Turbo e Coletor Manual)
 //
-// 1. MECANISMO PRINCIPAL (API padrão de coleções - 100% suportada no Skip Cloud / PocketBase v0.36):
+// 1. MECANISMO PRINCIPAL:
 //    Intercepta requisições de criação para a coleção ml_collector_imports:
 //    POST /api/collections/ml_collector_imports/records
-//    Valida a chave informada via header X-Collector-Key (ou Authorization Bearer / body.key) contra ml_collector_keys.
+//    Valida a chave informada via header X-Collector-Key (ou Authorization Bearer / query.key / body.key) contra ml_collector_keys.
 //    Se válida, autoriza e calcula estatísticas complementares.
-//    Se inválida e sem sessão auth válida, bloqueia imediatamente com UnauthorizedError (HTTP 401).
+//    Se inválida e sem sessão auth válida, bloqueia imediatamente com erro 401.
 //
-// 2. MECANISMO SECUNDÁRIO (routerAdd atualizado para v0.23+/v0.36):
-//    Registra também routerAdd('POST', '/api/ml-collector/ingest', (e) => ...) caso o router passe a responder.
-
-// Helper compartilhado para extrair e validar a chave em ml_collector_keys
-function validateCollectorAccess(reqInfo, authRecord) {
-  var headers = (reqInfo && reqInfo.headers) || {}
-  var query = (reqInfo && reqInfo.query) || {}
-  var body = (reqInfo && reqInfo.body) || {}
-
-  var collectorKey = (
-    headers['x-collector-key'] ||
-    headers['X-Collector-Key'] ||
-    headers['x_collector_key'] ||
-    query.key ||
-    body.collector_key ||
-    body.key ||
-    ''
-  )
-    .toString()
-    .trim()
-
-  var authHeader = (headers.authorization || headers.Authorization || '').toString().trim()
-  if (!collectorKey && authHeader.toLowerCase().indexOf('bearer ') === 0) {
-    collectorKey = authHeader.substring(7).trim()
-  }
-
-  var isAuthorized = false
-  var keyRecord = null
-
-  if (collectorKey) {
-    try {
-      var records = $app.findRecordsByFilter(
-        'ml_collector_keys',
-        "key = '" + collectorKey.replace(/'/g, "\\'") + "' && active = true",
-        '',
-        1,
-        0,
-      )
-      if (records && records.length > 0) {
-        isAuthorized = true
-        keyRecord = records[0]
-      }
-    } catch (kErr) {
-      console.log('[ml_collector_ingest] Erro ao consultar ml_collector_keys: ' + kErr)
-    }
-  }
-
-  // Se não foi informada chave de coletor, mas há usuário autenticado no PocketBase (ex: admin ou operador no painel)
-  if (!isAuthorized && authRecord) {
-    isAuthorized = true
-  }
-
-  return {
-    isAuthorized: isAuthorized,
-    keyRecord: keyRecord,
-    collectorKey: collectorKey,
-  }
-}
+// 2. MECANISMO SECUNDÁRIO:
+//    Registra também routerAdd para rotas personalizadas com CORS.
 
 // ------------------------------------------------------------------------------------------------
 // 1. Interceptor de criação na coleção ml_collector_imports (API Padrão)
@@ -74,18 +18,83 @@ try {
   if (typeof onRecordCreateRequest === 'function') {
     onRecordCreateRequest((e) => {
       // Ignora para superusers
-      if (e.hasSuperuserAuth && e.hasSuperuserAuth()) {
-        return e.next()
+      try {
+        if (e.hasSuperuserAuth && e.hasSuperuserAuth()) {
+          return e.next()
+        }
+      } catch (_) {}
+
+      var reqInfo = null
+      try {
+        reqInfo = e.requestInfo ? e.requestInfo() : null
+      } catch (_) {}
+
+      var headers = (reqInfo && reqInfo.headers) || {}
+      var query = (reqInfo && reqInfo.query) || {}
+      var body = (reqInfo && reqInfo.body) || {}
+
+      var collectorKey = (
+        headers['x-collector-key'] ||
+        headers['X-Collector-Key'] ||
+        headers['x_collector_key'] ||
+        query.key ||
+        body.collector_key ||
+        body.key ||
+        ''
+      )
+        .toString()
+        .trim()
+
+      var authHeader = (headers.authorization || headers.Authorization || '').toString().trim()
+      if (!collectorKey && authHeader.toLowerCase().indexOf('bearer ') === 0) {
+        collectorKey = authHeader.substring(7).trim()
       }
 
-      var reqInfo = e.requestInfo ? e.requestInfo() : null
-      var auth = e.auth || (reqInfo && reqInfo.auth)
-      var authValidation = validateCollectorAccess(reqInfo, auth)
+      var isAuthorized = false
+      var keyRecord = null
 
-      if (!authValidation.isAuthorized) {
-        throw new UnauthorizedError(
+      if (collectorKey) {
+        try {
+          var safeKey = collectorKey.replace(/'/g, "\\'")
+          var records = $app.findRecordsByFilter(
+            'ml_collector_keys',
+            "key = '" + safeKey + "' && active = true",
+            '',
+            1,
+            0,
+          )
+          if (records && records.length > 0) {
+            isAuthorized = true
+            keyRecord = records[0]
+          }
+        } catch (kErr) {
+          console.log('[ml_collector_ingest] Erro ao consultar ml_collector_keys: ' + kErr)
+        }
+      }
+
+      // Se não informou chave de coletor, aceita sessão autenticada de usuário (ex: admin no painel)
+      var auth = e.auth || (reqInfo && reqInfo.auth)
+      if (!isAuthorized && auth) {
+        isAuthorized = true
+      }
+
+      if (!isAuthorized) {
+        if (typeof UnauthorizedError === 'function') {
+          throw new UnauthorizedError(
+            'Chave de coleta inválida ou ausente. Forneça o header X-Collector-Key ativo.',
+          )
+        }
+        if (typeof ApiError === 'function') {
+          throw new ApiError(
+            401,
+            'Chave de coleta inválida ou ausente. Forneça o header X-Collector-Key ativo.',
+          )
+        }
+        var authErr = new Error(
           'Chave de coleta inválida ou ausente. Forneça o header X-Collector-Key ativo.',
         )
+        authErr.status = 401
+        throw authErr
       }
 
       // Normalizar campos e estatísticas do registro sendo inserido
@@ -148,10 +157,10 @@ try {
       }
 
       // Atualizar timestamp da chave utilizada
-      if (authValidation.keyRecord) {
+      if (keyRecord) {
         try {
-          authValidation.keyRecord.set('last_used_at', new Date().toISOString())
-          $app.save(authValidation.keyRecord)
+          keyRecord.set('last_used_at', new Date().toISOString())
+          $app.save(keyRecord)
         } catch (_) {}
       }
 
@@ -251,10 +260,58 @@ routerAdd('POST', '/backend/v1/ml-collector/ingest', (e) => {
     })
   }
 
-  var reqInfo = e.requestInfo()
-  var authValidation = validateCollectorAccess(reqInfo, e.auth)
+  var reqInfo = null
+  try {
+    reqInfo = e.requestInfo ? e.requestInfo() : null
+  } catch (_) {}
 
-  if (!authValidation.isAuthorized) {
+  var headers = (reqInfo && reqInfo.headers) || {}
+  var query = (reqInfo && reqInfo.query) || {}
+
+  var collectorKey = (
+    headers['x-collector-key'] ||
+    headers['X-Collector-Key'] ||
+    headers['x_collector_key'] ||
+    query.key ||
+    body.collector_key ||
+    body.key ||
+    ''
+  )
+    .toString()
+    .trim()
+
+  var authHeader = (headers.authorization || headers.Authorization || '').toString().trim()
+  if (!collectorKey && authHeader.toLowerCase().indexOf('bearer ') === 0) {
+    collectorKey = authHeader.substring(7).trim()
+  }
+
+  var isAuthorized = false
+  var keyRecord = null
+
+  if (collectorKey) {
+    try {
+      var safeKey = collectorKey.replace(/'/g, "\\'")
+      var records = $app.findRecordsByFilter(
+        'ml_collector_keys',
+        "key = '" + safeKey + "' && active = true",
+        '',
+        1,
+        0,
+      )
+      if (records && records.length > 0) {
+        isAuthorized = true
+        keyRecord = records[0]
+      }
+    } catch (kErr) {
+      console.log('[ml_collector_ingest] Erro ao consultar ml_collector_keys: ' + kErr)
+    }
+  }
+
+  if (!isAuthorized && e.auth) {
+    isAuthorized = true
+  }
+
+  if (!isAuthorized) {
     return e.json(401, {
       ok: false,
       error:
@@ -334,10 +391,10 @@ routerAdd('POST', '/backend/v1/ml-collector/ingest', (e) => {
 
     $app.save(importRecord)
 
-    if (authValidation.keyRecord) {
+    if (keyRecord) {
       try {
-        authValidation.keyRecord.set('last_used_at', new Date().toISOString())
-        $app.save(authValidation.keyRecord)
+        keyRecord.set('last_used_at', new Date().toISOString())
+        $app.save(keyRecord)
       } catch (_) {}
     }
 
