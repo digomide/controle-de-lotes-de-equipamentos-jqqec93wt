@@ -439,14 +439,16 @@
     width: 210mm !important;
     min-width: 210mm !important;
     max-width: 210mm !important;
-    min-height: 297mm !important;
+    height: 297mm !important;
+    max-height: 297mm !important;
     box-sizing: border-box !important;
-    padding: 8mm 10mm !important;
+    padding: 6mm 8mm !important;
     margin: 0 auto !important;
     page-break-after: always !important;
     break-after: page !important;
     page-break-inside: avoid !important;
     break-inside: avoid !important;
+    overflow: hidden !important;
     background: #ffffff !important;
     color: #000000 !important;
   }
@@ -459,11 +461,37 @@
   .printable-checklist-page {
     width: 100% !important;
     height: 100% !important;
+    max-height: 285mm !important;
+    box-sizing: border-box !important;
     border: none !important;
     box-shadow: none !important;
     padding: 0 !important;
     margin: 0 !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
     background: #ffffff !important;
     color: #000000 !important;
+  }
+
+  /* Compactação específica para impressão de Checklist A4 */
+  .printable-checklist-page .checklist-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 1.5mm !important;
+  }
+
+  .printable-checklist-page .checklist-photo-grid {
+    gap: 2mm !important;
+  }
+
+  .printable-checklist-page .checklist-photo-item {
+    aspect-ratio: 16 / 7.5 !important;
+    max-height: 23mm !important;
+  }
+
+  .printable-checklist-page * {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
   }
 }
