@@ -35,13 +35,18 @@ export function AnuncioCampeaoSection({
 }: AnuncioCampeaoSectionProps) {
   const [showAllSubsequent, setShowAllSubsequent] = useState(false)
 
+  const effectiveChampion = championAd
+  const effectiveTopAds = topAds || []
+
   // Subsequentes (#2 em diante)
-  const subsequentAds = topAds.filter(
-    (ad) => !championAd || (ad.id !== championAd.id && ad.mlb_id !== championAd.mlb_id),
+  const subsequentAds = effectiveTopAds.filter(
+    (ad) =>
+      !effectiveChampion ||
+      (ad.id !== effectiveChampion.id && ad.mlb_id !== effectiveChampion.mlb_id),
   )
   const displayedSubsequent = showAllSubsequent ? subsequentAds : subsequentAds.slice(0, 4)
 
-  if (!championAd) {
+  if (!effectiveChampion) {
     return (
       <Card className="border-slate-200 bg-white shadow-xs">
         <CardContent className="p-6">
@@ -123,13 +128,13 @@ export function AnuncioCampeaoSection({
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {championAd.permalink && (
+            {effectiveChampion.permalink && (
               <Button
                 size="sm"
                 className="h-8 text-xs bg-amber-600 hover:bg-amber-700 text-white font-bold gap-1.5 shadow-2xs"
                 asChild
               >
-                <a href={championAd.permalink} target="_blank" rel="noopener noreferrer">
+                <a href={effectiveChampion.permalink} target="_blank" rel="noopener noreferrer">
                   Ver Anúncio no ML
                   <ExternalLink className="w-3.5 h-3.5" />
                 </a>
@@ -152,10 +157,10 @@ export function AnuncioCampeaoSection({
           <div className="pt-2 flex flex-col md:flex-row items-start md:items-center justify-between gap-5">
             <div className="flex items-start gap-4 flex-1 min-w-0">
               {/* Imagem */}
-              {championAd.thumbnail ? (
+              {effectiveChampion.thumbnail ? (
                 <img
-                  src={championAd.thumbnail}
-                  alt={championAd.title}
+                  src={effectiveChampion.thumbnail}
+                  alt={effectiveChampion.title}
                   className="w-20 h-20 sm:w-24 sm:h-24 object-cover rounded-xl border border-amber-300 bg-white shrink-0 shadow-xs"
                 />
               ) : (
@@ -169,27 +174,27 @@ export function AnuncioCampeaoSection({
                 <div className="flex items-center gap-2 flex-wrap">
                   <h3
                     className="text-base sm:text-lg font-black text-slate-950 leading-snug"
-                    title={championAd.title}
+                    title={effectiveChampion.title}
                   >
-                    {championAd.title}
+                    {effectiveChampion.title}
                   </h3>
                 </div>
 
                 <div className="flex items-center gap-2 flex-wrap pt-0.5">
-                  {championAd.condition && (
+                  {effectiveChampion.condition && (
                     <Badge
                       variant="outline"
                       className="text-[10px] capitalize bg-white/80 border-slate-300"
                     >
-                      {championAd.condition}
+                      {effectiveChampion.condition}
                     </Badge>
                   )}
-                  {championAd.is_full && (
+                  {effectiveChampion.is_full && (
                     <Badge className="bg-emerald-600 text-white text-[10px] font-bold px-2 py-0.5 h-5 gap-1 shadow-2xs">
                       ⚡ Full
                     </Badge>
                   )}
-                  {championAd.is_free_shipping && (
+                  {effectiveChampion.is_free_shipping && (
                     <Badge className="bg-emerald-100 text-emerald-900 border-emerald-300 text-[10px] font-semibold px-2 py-0.5 h-5">
                       Frete Grátis
                     </Badge>
@@ -197,17 +202,18 @@ export function AnuncioCampeaoSection({
                 </div>
 
                 <div className="flex items-center gap-3 text-xs text-slate-600 font-mono flex-wrap pt-1">
-                  {championAd.seller_name && (
+                  {effectiveChampion.seller_name && (
                     <span className="flex items-center gap-1">
                       <Store className="w-3.5 h-3.5 text-slate-400" />
-                      Vendedor: <strong className="text-slate-900">{championAd.seller_name}</strong>
+                      Vendedor:{' '}
+                      <strong className="text-slate-900">{effectiveChampion.seller_name}</strong>
                     </span>
                   )}
-                  {championAd.mlb_id && (
+                  {effectiveChampion.mlb_id && (
                     <>
                       <span>·</span>
                       <span>
-                        MLB: <strong>{championAd.mlb_id}</strong>
+                        MLB: <strong>{effectiveChampion.mlb_id}</strong>
                       </span>
                     </>
                   )}
@@ -222,8 +228,8 @@ export function AnuncioCampeaoSection({
                   Vendas Auditadas
                 </span>
                 <span className="text-2xl sm:text-3xl font-black font-mono text-emerald-700 block">
-                  {championAd.sold_quantity != null
-                    ? championAd.sold_quantity.toLocaleString('pt-BR')
+                  {effectiveChampion.sold_quantity != null
+                    ? effectiveChampion.sold_quantity.toLocaleString('pt-BR')
                     : '0'}{' '}
                   un.
                 </span>
@@ -237,7 +243,7 @@ export function AnuncioCampeaoSection({
                   Preço no Anúncio
                 </span>
                 <span className="text-2xl sm:text-3xl font-black font-mono text-slate-950 block">
-                  {championAd.price?.toLocaleString('pt-BR', {
+                  {effectiveChampion.price?.toLocaleString('pt-BR', {
                     style: 'currency',
                     currency: 'BRL',
                   }) || 'N/D'}
@@ -251,7 +257,7 @@ export function AnuncioCampeaoSection({
         </div>
 
         {/* SUBSEQUENTES (#2 EM DIANTE): RANKING COMPACTO / EXPANSÍVEL */}
-        {subsequentAds.length > 0 && (
+        {effectiveTopAds.length > 1 && (
           <div className="space-y-3 pt-1">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">

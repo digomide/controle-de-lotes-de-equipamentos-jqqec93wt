@@ -548,6 +548,7 @@ cronAdd('ml_queue_worker', '*/1 * * * *', () => {
             suggested_price_to_win:
               item.suggested_price_to_win != null ? Number(item.suggested_price_to_win) : null,
             competitors_count: item.competitors_count != null ? Number(item.competitors_count) : 0,
+            competitors: Array.isArray(item.competitors) ? item.competitors : [],
             stock_status: item.stock_status || '',
             competition_status: item.competition_status || '',
             condition: item.condition || 'new',
@@ -802,6 +803,185 @@ cronAdd('ml_queue_worker', '*/1 * * * *', () => {
           const bOwn = b.is_own_account ? 1 : 0
           return bOwn - aOwn
         })
+
+        // =========================================================================
+        // ENRIQUECIMENTO DE CONCORRÊNCIA E VENDAS (TOP 20 PRODUTOS)
+        // Para os top 20 produtos, consulta /products/{id}/items para obter
+        // os concorrentes reais disputando a Buy Box e suas vendas (sold_quantity).
+        // =========================================================================
+        const ENRICH_LIMIT = Math.min(itemsFound.length, 20)
+        if (ENRICH_LIMIT > 0) {
+          rec.set(
+            'progress_text',
+            'Enriquecendo concorrência e vendas dos ' + ENRICH_LIMIT + ' principais produtos...',
+          )
+          appId.save(rec)
+
+          let ownSellerId = ''
+          try {
+            if (settings) {
+              ownSellerId = settings.getString('user_id_ml') || ''
+            }
+          } catch (_) {}
+
+          const sellerNickCache = {}
+          const getSellerNickname = function (sId) {
+            if (!sId) return ''
+            const sIdStr = String(sId).trim()
+            if (!sIdStr) return ''
+            if (sellerNickCache[sIdStr]) return sellerNickCache[sIdStr]
+            if (ownSellerId && sIdStr === String(ownSellerId).trim()) {
+              sellerNickCache[sIdStr] = 'INFOPRECOBAIXO'
+              return 'INFOPRECOBAIXO'
+            }
+            try {
+              const uRes = $http.send({
+                url: 'https://api.mercadolibre.com/users/' + sIdStr,
+                method: 'GET',
+                headers: { Accept: 'application/json' },
+                timeout: 3,
+              })
+              if (uRes.statusCode === 200 && uRes.json && uRes.json.nickname) {
+                const nick = String(uRes.json.nickname).trim()
+                sellerNickCache[sIdStr] = nick
+                return nick
+              }
+            } catch (_) {}
+            return ''
+          }
+
+          for (let eIdx = 0; eIdx < ENRICH_LIMIT; eIdx++) {
+            if (isStopRequested()) break
+
+            const itemToEnrich = itemsFound[eIdx]
+            const catId = itemToEnrich.catalog_product_id || itemToEnrich.id
+            if (!catId) continue
+
+            try {
+              const headers = { Accept: 'application/json' }
+              if (token) headers['Authorization'] = 'Bearer ' + token
+
+              const itemsUrl =
+                'https://api.mercadolibre.com/products/' + encodeURIComponent(catId) + '/items'
+              const itRes = $http.send({
+                url: itemsUrl,
+                method: 'GET',
+                headers: headers,
+                timeout: 5,
+              })
+
+              if (itRes.statusCode === 200 && itRes.json) {
+                const rawList = Array.isArray(itRes.json)
+                  ? itRes.json
+                  : Array.isArray(itRes.json.results)
+                    ? itRes.json.results
+                    : []
+
+                const enrichedCompetitors = []
+                let maxSoldFromItems = null
+
+                for (let k = 0; k < rawList.length; k++) {
+                  const it = rawList[k]
+                  if (!it) continue
+                  const itPrice = Number(it.price || it.original_price || 0)
+                  const sId = it.seller_id || (it.seller && it.seller.id) || null
+                  const sNick = (it.seller && it.seller.nickname) || ''
+                  const sIdStr = sId ? String(sId).trim() : ''
+                  const isOwn = Boolean(ownSellerId && sIdStr === String(ownSellerId).trim())
+                  const itSold = extractSoldQuantity(it)
+
+                  if (itSold != null && (maxSoldFromItems == null || itSold > maxSoldFromItems)) {
+                    maxSoldFromItems = itSold
+                  }
+
+                  enrichedCompetitors.push({
+                    item_id: it.id || '',
+                    seller_id: sIdStr,
+                    seller_nickname: sNick,
+                    price: itPrice,
+                    available_quantity:
+                      it.available_quantity != null ? Number(it.available_quantity) : null,
+                    sold_quantity: itSold != null ? Number(itSold) : null,
+                    listing_type_id: it.listing_type_id || '',
+                    listing_type_label:
+                      it.listing_type_id === 'gold_pro' || it.listing_type_id === 'premium'
+                        ? 'Premium'
+                        : 'Clássico',
+                    is_buy_box_winner: Boolean(it.is_buy_box_winner || it.winner || false),
+                    is_own: isOwn,
+                  })
+                }
+
+                // Resolver nicknames dos primeiros 5 concorrentes sem nick
+                for (let c = 0; c < enrichedCompetitors.length && c < 5; c++) {
+                  const comp = enrichedCompetitors[c]
+                  if (comp && comp.seller_id && !comp.seller_nickname) {
+                    comp.seller_nickname = getSellerNickname(comp.seller_id)
+                  }
+                }
+
+                enrichedCompetitors.sort(function (a, b) {
+                  if (a.is_buy_box_winner && !b.is_buy_box_winner) return -1
+                  if (!a.is_buy_box_winner && b.is_buy_box_winner) return 1
+                  return (a.price || 999999) - (b.price || 999999)
+                })
+
+                itemToEnrich.competitors = enrichedCompetitors
+                itemToEnrich.competitors_count = enrichedCompetitors.length
+
+                if (enrichedCompetitors.length > 0) {
+                  itemToEnrich.competition_status = 'Disputa ativa na Buy Box'
+                  const winner =
+                    enrichedCompetitors.find(function (c) {
+                      return c.is_buy_box_winner
+                    }) || enrichedCompetitors[0]
+
+                  if (winner) {
+                    if (
+                      winner.price &&
+                      (!itemToEnrich.buy_box_winner_price ||
+                        itemToEnrich.buy_box_winner_price === 0)
+                    ) {
+                      itemToEnrich.buy_box_winner_price = winner.price
+                      itemToEnrich.min_price = winner.price
+                    }
+                    if (winner.seller_nickname && !itemToEnrich.buy_box_winner_seller_nickname) {
+                      itemToEnrich.buy_box_winner_seller_nickname = winner.seller_nickname
+                    }
+                    if (winner.seller_id && !itemToEnrich.buy_box_winner_seller_id) {
+                      itemToEnrich.buy_box_winner_seller_id = winner.seller_id
+                    }
+                    if (winner.item_id && !itemToEnrich.buy_box_winner_item_id) {
+                      itemToEnrich.buy_box_winner_item_id = winner.item_id
+                    }
+                    if (
+                      winner.available_quantity != null &&
+                      itemToEnrich.buy_box_winner_stock == null
+                    ) {
+                      itemToEnrich.buy_box_winner_stock = winner.available_quantity
+                    }
+                  }
+                }
+
+                if (
+                  maxSoldFromItems != null &&
+                  (itemToEnrich.sold_quantity == null ||
+                    maxSoldFromItems > itemToEnrich.sold_quantity)
+                ) {
+                  itemToEnrich.sold_quantity = maxSoldFromItems
+                }
+              }
+            } catch (errEnrich) {
+              // Se falhar para um item, continua os demais sem quebrar o job
+              debugLog.push('Erro enriquecendo ' + catId + ': ' + String(errEnrich))
+            }
+
+            sleepMs(30)
+          }
+
+          // Salvar streaming com dados enriquecidos
+          saveProgressiveResults(true)
+        }
 
         const finalPayload = sanitizeForDatabase(itemsFound)
         rec.set('status', 'done')

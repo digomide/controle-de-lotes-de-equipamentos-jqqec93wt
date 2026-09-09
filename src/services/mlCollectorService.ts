@@ -279,6 +279,87 @@ export const mlCollectorService = {
   },
 
   /**
+   * Constrói um mapa de fallback de vendas (sold_quantity) indexado por MLB id e por título
+   * normalizado a partir das coletas salvas do navegador.
+   * Permite que produtos de catálogo cuja API omitiu sold_quantity recuperem o número exato
+   * observado na vitrine do Mercado Livre.
+   */
+  async buildSalesFallbackMap(searchTerm?: string): Promise<{
+    byMlbId: Map<string, number>
+    byTitle: Map<string, number>
+  }> {
+    const byMlbId = new Map<string, number>()
+    const byTitle = new Map<string, number>()
+
+    try {
+      const records = searchTerm
+        ? await (async () => {
+            const term = normalizeSearchTerm(searchTerm)
+            const list = await pb
+              .collection('ml_collector_imports')
+              .getList<MLCollectorImportRecord>(1, 20, {
+                filter: `search_term ~ "${term}"`,
+                sort: '-imported_at',
+              })
+            if (list.items.length === 0) {
+              return await pb
+                .collection('ml_collector_imports')
+                .getList<MLCollectorImportRecord>(1, 20, {
+                  sort: '-imported_at',
+                })
+            }
+            return list
+          })()
+        : await pb.collection('ml_collector_imports').getList<MLCollectorImportRecord>(1, 20, {
+            sort: '-imported_at',
+          })
+
+      for (const rec of records.items) {
+        const payload = this.decodePayload(rec.payload)
+        const items = payload && Array.isArray(payload.results) ? payload.results : []
+        for (const it of items) {
+          const sold =
+            it.sold_quantity != null && !isNaN(Number(it.sold_quantity))
+              ? Number(it.sold_quantity)
+              : null
+          if (sold == null || sold <= 0) continue
+
+          // Chaves de ID / MLB
+          const ids = [it.mlb_id, it.id].filter(Boolean) as string[]
+          for (const rawId of ids) {
+            const cleanId = String(rawId)
+              .replace(/[^0-9A-Za-z]/g, '')
+              .toUpperCase()
+            if (cleanId) {
+              const current = byMlbId.get(cleanId) || 0
+              if (sold > current) byMlbId.set(cleanId, sold)
+            }
+          }
+
+          // Chave de Título Normalizado (para casar catálogo com o anúncio minerado correspondente)
+          if (it.title) {
+            const titleKey = String(it.title)
+              .toLowerCase()
+              .normalize('NFD')
+              .replace(/[\u0300-\u036f]/g, '')
+              .replace(/[^a-z0-9]/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim()
+            if (titleKey.length >= 8) {
+              const current = byTitle.get(titleKey) || 0
+              if (sold > current) byTitle.set(titleKey, sold)
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[mlCollectorService] Falha ao construir fallback de vendas das coletas:', err)
+    }
+
+    return { byMlbId, byTitle }
+  },
+
+  /**
    * Helper para verificar se o erro é de autenticação/sessão expirada
    */
   isAuthError(err: any): boolean {
@@ -417,6 +498,75 @@ export const mlCollectorService = {
   /**
    * Extração taxonômica fina de especificações para agrupamento justo (DDR, GB, MHz, Formato, etc)
    */
+  /**
+   * Tenta encontrar uma sold_quantity de fallback para um item de catálogo
+   * comparando MLB IDs ou similaridade de título com as coletas salvas do navegador.
+   */
+  matchFallbackSoldQuantity(
+    item: {
+      id?: string
+      catalog_product_id?: string
+      buy_box_winner_item_id?: string
+      title?: string
+      competitors?: Array<{ item_id?: string }>
+    },
+    fallbackMap: { byMlbId: Map<string, number>; byTitle: Map<string, number> },
+  ): number | null {
+    if (!fallbackMap) return null
+
+    // 1. Verificar por ID do produto ou do vencedor da Buy Box
+    const candidateIds = [
+      item.id,
+      item.catalog_product_id,
+      item.buy_box_winner_item_id,
+      ...(Array.isArray(item.competitors) ? item.competitors.map((c) => c.item_id) : []),
+    ]
+      .filter(Boolean)
+      .map((x) =>
+        String(x)
+          .replace(/[^0-9A-Za-z]/g, '')
+          .toUpperCase(),
+      )
+
+    for (const cand of candidateIds) {
+      if (cand && fallbackMap.byMlbId.has(cand)) {
+        const found = fallbackMap.byMlbId.get(cand)
+        if (found && found > 0) return found
+      }
+    }
+
+    // 2. Verificar por título exato normalizado
+    if (item.title) {
+      const cleanTitle = String(item.title)
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+
+      if (fallbackMap.byTitle.has(cleanTitle)) {
+        return fallbackMap.byTitle.get(cleanTitle) || null
+      }
+
+      // 3. Verificar por contenção mútua de título
+      if (cleanTitle.length >= 10) {
+        let bestSold: number | null = null
+        for (const [collTitle, sQty] of fallbackMap.byTitle.entries()) {
+          if (collTitle.length < 10) continue
+          if (collTitle.includes(cleanTitle) || cleanTitle.includes(collTitle)) {
+            if (bestSold == null || sQty > bestSold) {
+              bestSold = sQty
+            }
+          }
+        }
+        if (bestSold != null) return bestSold
+      }
+    }
+
+    return null
+  },
+
   extractFineSpec(title: string): string {
     const cleanTitle = (title || '').trim()
     if (!cleanTitle) return 'Outros'

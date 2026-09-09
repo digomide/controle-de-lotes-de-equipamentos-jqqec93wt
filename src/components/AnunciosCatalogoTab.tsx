@@ -40,6 +40,7 @@ import {
 } from '@/components/ui/select'
 import { toast } from '@/hooks/use-toast'
 import { productsService } from '@/services/products'
+import { mlCollectorService } from '@/services/mlCollectorService'
 import { Product } from '@/types/inventory'
 import {
   mlCatalogService,
@@ -268,17 +269,65 @@ export function AnunciosCatalogoTab() {
     }
   }
 
+  // Mapa de vendas do coletor para enriquecer posições com sold_quantity nulo
+  const [collectorFallbackMap, setCollectorFallbackMap] = useState<{
+    byMlbId: Map<string, number>
+    byTitle: Map<string, number>
+  }>({ byMlbId: new Map(), byTitle: new Map() })
+
+  // Carregar mapa de fallback do coletor quando a query mudar
+  useEffect(() => {
+    let isMounted = true
+    async function loadFallback() {
+      try {
+        const map = await mlCollectorService.buildSalesFallbackMap(activeSearchTerm || query)
+        if (isMounted) {
+          setCollectorFallbackMap(map)
+        }
+      } catch (err) {
+        console.warn('Erro ao carregar mapa de fallback do coletor:', err)
+      }
+    }
+    loadFallback()
+    return () => {
+      isMounted = false
+    }
+  }, [activeSearchTerm, query])
+
   // Helper para formatar os resultados do catálogo para exibição na grade
   function processCatalogResults(
     results: MLCatalogProduct[],
     q: string,
     condToUse: 'all' | 'new' | 'used' | 'refurbished' | 'open_box',
+    fallbackMapParam?: { byMlbId: Map<string, number>; byTitle: Map<string, number> },
   ) {
     const isDirectCode = isDirectCatalogCodeQuery(q)
     const tokens = isDirectCode ? [] : extractCatalogSearchTokens(q)
+    const fbMap = fallbackMapParam || collectorFallbackMap
 
     return results.map((catProd) => {
-      const matchInfo = mlCatalogService.matchCatalogWithInventory(catProd, inventoryProducts)
+      // Se não tiver sold_quantity informado pela API do ML, busca no fallback inteligente do coletor
+      let enrichedCatProd = catProd
+      if (
+        (catProd.sold_quantity == null || isNaN(catProd.sold_quantity)) &&
+        fbMap &&
+        (fbMap.byMlbId.size > 0 || fbMap.byTitle.size > 0)
+      ) {
+        const fallbackSold = mlCollectorService.matchFallbackSoldQuantity(catProd, fbMap)
+        if (fallbackSold != null && fallbackSold > 0) {
+          enrichedCatProd = {
+            ...catProd,
+            sold_quantity: fallbackSold,
+            // Marca como vindo do coletor para transparência
+            is_fallback_sales: true,
+          } as MLCatalogProduct & { is_fallback_sales?: boolean }
+        }
+      }
+
+      const matchInfo = mlCatalogService.matchCatalogWithInventory(
+        enrichedCatProd,
+        inventoryProducts,
+      )
       const primaryProduct = matchInfo.matchedProducts[0]
       const fallbackPrice =
         catProd.buy_box_winner_price || catProd.min_price || matchInfo.suggestedPrice || 1200
@@ -434,7 +483,18 @@ export function AnunciosCatalogoTab() {
         return
       }
 
-      const formatted = processCatalogResults(results, q, condToUse)
+      // Atualiza fallback do coletor se ainda não estava carregado
+      let activeFallback = collectorFallbackMap
+      if (activeFallback.byMlbId.size === 0 && activeFallback.byTitle.size === 0) {
+        try {
+          activeFallback = await mlCollectorService.buildSalesFallbackMap(q)
+          setCollectorFallbackMap(activeFallback)
+        } catch {
+          /* intentionally ignored */
+        }
+      }
+
+      const formatted = processCatalogResults(results, q, condToUse, activeFallback)
       setCatalogItems(formatted)
 
       const isDirectCode = isDirectCodeQuery
@@ -874,8 +934,8 @@ export function AnunciosCatalogoTab() {
   const currentTokens = isDirectCode ? [] : extractCatalogSearchTokens(activeSearchTerm)
   const isFilterActive = !isDirectCode && currentTokens.length > 0
 
-  // Helper para renderizar badge de vendas
-  function renderSoldBadge(sold?: number | null) {
+  // Helper para renderizar badge de vendas com fallback inteligente de vendas
+  function renderSoldBadge(sold?: number | null, isFallback: boolean = false) {
     if (sold === null || sold === undefined || isNaN(sold)) {
       return (
         <Badge
@@ -900,10 +960,22 @@ export function AnunciosCatalogoTab() {
               ? 'bg-blue-50 text-blue-800 border-blue-200'
               : 'bg-slate-50 text-slate-500 border-slate-200'
         }`}
-        title={`Histórico no Mercado Livre: ${label}`}
+        title={
+          isFallback
+            ? `Histórico de vendas registrado no Coletor do Navegador: ${label}`
+            : `Histórico no Mercado Livre: ${label}`
+        }
       >
         <span>🛒</span>
         <span>{label}</span>
+        {isFallback && (
+          <span
+            className="text-[9px] px-1 py-0 rounded bg-emerald-100 text-emerald-800 font-mono"
+            title="Vendas recuperadas da coleta real do navegador"
+          >
+            Coletor
+          </span>
+        )}
       </Badge>
     )
   }
@@ -2147,7 +2219,10 @@ export function AnunciosCatalogoTab() {
                             {renderConditionBadge(cat)}
 
                             {/* Badge discreto de vendas */}
-                            {renderSoldBadge(cat.sold_quantity)}
+                            {renderSoldBadge(
+                              cat.sold_quantity,
+                              Boolean((cat as any).is_fallback_sales),
+                            )}
 
                             {/* Badge de correspondência com a busca */}
                             {isFilterActive && (
@@ -2803,7 +2878,10 @@ export function AnunciosCatalogoTab() {
                                   {cat.catalog_product_id}
                                 </Badge>
                                 {renderConditionBadge(cat)}
-                                {renderSoldBadge(cat.sold_quantity)}
+                                {renderSoldBadge(
+                                  cat.sold_quantity,
+                                  Boolean((cat as any).is_fallback_sales),
+                                )}
                                 <Badge
                                   variant="outline"
                                   className="bg-amber-50 text-amber-800 border-amber-200 text-[10px]"

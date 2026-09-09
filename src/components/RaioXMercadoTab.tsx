@@ -825,45 +825,58 @@ export function RaioXMercadoTab({ onOpenCollector }: RaioXMercadoTabProps = {}) 
             onOpenFullRanking={scrollToRanking}
           />
 
-          {/* 2. "ANÚNCIO CAMPEÃO" (Card Destaque Real) */}
+          {/* 2. "ANÚNCIO CAMPEÃO" (Card Destaque Real: Coletor PREVALECE sobre catálogo) */}
           <AnuncioCampeaoSection
             championAd={
               selectedSpec
                 ? selectedSpec.championAd
                 : collectorReport?.champion_ad ||
-                  (summary.allAds.length > 0 && summary.allAds[0].soldQuantity
-                    ? {
-                        id: summary.allAds[0].id,
-                        mlb_id: summary.allAds[0].id,
-                        title: summary.allAds[0].title,
-                        price: summary.allAds[0].price,
-                        sold_quantity: summary.allAds[0].soldQuantity || 0,
-                        thumbnail: summary.allAds[0].thumbnail,
-                        seller_name: summary.allAds[0].sellerNickname,
-                        permalink: summary.allAds[0].permalink,
-                        condition: summary.allAds[0].listingTypeLabel,
-                        is_full: false,
-                        is_free_shipping: false,
-                      }
+                  (summary.allAds.length > 0 &&
+                  summary.allAds.some((a) => a.soldQuantity != null && a.soldQuantity > 0)
+                    ? (() => {
+                        const sortedBySales = [...summary.allAds]
+                          .filter((a) => a.soldQuantity != null && a.soldQuantity > 0)
+                          .sort((a, b) => (b.soldQuantity || 0) - (a.soldQuantity || 0))
+                        const lead = sortedBySales[0]
+                        if (!lead) return null
+                        return {
+                          id: lead.id,
+                          mlb_id: lead.id,
+                          title: lead.title,
+                          price: lead.price,
+                          sold_quantity: lead.soldQuantity || 0,
+                          thumbnail: lead.thumbnail,
+                          seller_name: lead.sellerNickname,
+                          permalink: lead.permalink,
+                          condition: lead.listingTypeLabel,
+                          is_full: false,
+                          is_free_shipping: false,
+                        }
+                      })()
                     : null)
             }
             topAds={
               selectedSpec
                 ? selectedSpec.ads.filter((a) => a.sold_quantity != null && a.sold_quantity > 0)
-                : collectorReport?.top_ads ||
-                  summary.allAds.slice(0, 5).map((ad) => ({
-                    id: ad.id,
-                    mlb_id: ad.id,
-                    title: ad.title,
-                    price: ad.price,
-                    sold_quantity: ad.soldQuantity || 0,
-                    thumbnail: ad.thumbnail,
-                    seller_name: ad.sellerNickname,
-                    permalink: ad.permalink,
-                    condition: ad.listingTypeLabel,
-                    is_full: false,
-                    is_free_shipping: false,
-                  }))
+                : collectorReport?.top_ads && collectorReport.top_ads.length > 0
+                  ? collectorReport.top_ads
+                  : summary.allAds
+                      .filter((a) => a.soldQuantity != null && a.soldQuantity > 0)
+                      .sort((a, b) => (b.soldQuantity || 0) - (a.soldQuantity || 0))
+                      .slice(0, 10)
+                      .map((ad) => ({
+                        id: ad.id,
+                        mlb_id: ad.id,
+                        title: ad.title,
+                        price: ad.price,
+                        sold_quantity: ad.soldQuantity || 0,
+                        thumbnail: ad.thumbnail,
+                        seller_name: ad.sellerNickname,
+                        permalink: ad.permalink,
+                        condition: ad.listingTypeLabel,
+                        is_full: false,
+                        is_free_shipping: false,
+                      }))
             }
             searchTerm={summary.searchTerm}
             onOpenCollector={() => onOpenCollector && onOpenCollector(activeQuery || searchTerm)}
