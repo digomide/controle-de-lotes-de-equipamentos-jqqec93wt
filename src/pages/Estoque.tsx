@@ -54,6 +54,7 @@ import { useRealtime } from '@/hooks/use-realtime'
 import { batchesService } from '@/services/batches'
 import { productsService } from '@/services/products'
 import { adjustmentsService } from '@/services/adjustments'
+import { Checkbox } from '@/components/ui/checkbox'
 import { EtiquetaModal, type EtiquetaData } from '@/components/EtiquetaModal'
 import type { Batch, Product, ProductStatus } from '@/types/inventory'
 
@@ -103,6 +104,7 @@ export default function Estoque() {
   // Etiqueta Modal State
   const [etiquetaModalOpen, setEtiquetaModalOpen] = useState(false)
   const [etiquetaData, setEtiquetaData] = useState<EtiquetaData | null>(null)
+  const [selectedBatchIds, setSelectedBatchIds] = useState<string[]>([])
 
   const { toast } = useToast()
   const { isAdmin } = useAuth()
@@ -353,6 +355,51 @@ export default function Estoque() {
     setEtiquetaModalOpen(true)
   }
 
+  // Multi-selection handlers for Batches in Estoque
+  const toggleSelectAllBatches = () => {
+    if (selectedBatchIds.length === filteredBatches.length && filteredBatches.length > 0) {
+      setSelectedBatchIds([])
+    } else {
+      setSelectedBatchIds(filteredBatches.map((b) => b.id))
+    }
+  }
+
+  const toggleSelectOneBatch = (batchId: string) => {
+    if (selectedBatchIds.includes(batchId)) {
+      setSelectedBatchIds(selectedBatchIds.filter((id) => id !== batchId))
+    } else {
+      setSelectedBatchIds([...selectedBatchIds, batchId])
+    }
+  }
+
+  const selectedBatchesList = useMemo(() => {
+    return batches.filter((b) => selectedBatchIds.includes(b.id))
+  }, [batches, selectedBatchIds])
+
+  const selectedBatchesEtiquetasData = useMemo<EtiquetaData[]>(() => {
+    return selectedBatchesList.map((b) => {
+      const prod = b.expand?.product_id || products.find((p) => p.id === b.product_id) || null
+      return {
+        batch: b,
+        product: prod,
+        batchNumber: b.batch_number,
+        location: b.location || 'Depósito Central',
+        status: prod?.status || 'Disponível',
+        price: Number(prod?.unit_price) || 0,
+        serialNumber: prod?.serial_number || prod?.sku || prod?.code || b.batch_number,
+        sku: prod?.sku,
+        productName: prod?.name || 'Equipamento',
+        brand: prod?.brand,
+        model: prod?.model,
+      }
+    })
+  }, [selectedBatchesList, products])
+
+  const handleOpenBulkEtiquetas = () => {
+    setEtiquetaData(null)
+    setEtiquetaModalOpen(true)
+  }
+
   // Quick Counting Flow
   const handleOpenQuickCount = (b: Batch) => {
     setTargetBatch(b)
@@ -509,12 +556,57 @@ export default function Estoque() {
         </CardContent>
       </Card>
 
+      {/* Barra de Ações em Massa quando houver seleção */}
+      {selectedBatchIds.length > 0 && (
+        <div className="bg-[#f5ede4] border border-[#edd5c3] rounded-xl p-3 px-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-xs animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <span className="font-bold text-[#d9532f] bg-white px-2 py-0.5 rounded-md border border-[#edd5c3]">
+              {selectedBatchIds.length} selecionado(s)
+            </span>
+            <span className="text-slate-600">
+              Ações em massa para os lotes/equipamentos marcados:
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              size="sm"
+              onClick={handleOpenBulkEtiquetas}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold h-8 gap-1.5 shadow-xs"
+              title="Imprimir etiquetas identificadoras dos equipamentos selecionados"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              Imprimir etiquetas ({selectedBatchIds.length})
+            </Button>
+
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setSelectedBatchIds([])}
+              className="text-slate-500 hover:text-slate-800 text-xs h-8"
+            >
+              Desmarcar todos
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* High-density Batches Table com acesso individual para abrir, editar, precificar e gerenciar fotos */}
       <Card className="border-slate-200 shadow-sm overflow-hidden">
         <CardContent className="p-0 overflow-x-auto">
           <table className="w-full text-left text-sm border-collapse">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                <th className="py-3 px-3 w-10 text-center">
+                  <Checkbox
+                    checked={
+                      selectedBatchIds.length === filteredBatches.length &&
+                      filteredBatches.length > 0
+                    }
+                    onCheckedChange={toggleSelectAllBatches}
+                    aria-label="Selecionar todos os lotes"
+                  />
+                </th>
                 <th className="py-3 px-4">Serial / Part Number</th>
                 <th className="py-3 px-4">Lote Físico</th>
                 <th className="py-3 px-4">Notebook Vinculado</th>
@@ -528,12 +620,13 @@ export default function Estoque() {
             <tbody className="divide-y divide-slate-100 font-sans">
               {filteredBatches.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400">
+                  <td colSpan={9} className="py-12 text-center text-slate-400">
                     Nenhum lote físico encontrado com os filtros selecionados.
                   </td>
                 </tr>
               ) : (
                 filteredBatches.map((b) => {
+                  const isSelected = selectedBatchIds.includes(b.id)
                   const isLow = b.quantity <= 5 && b.quantity > 0
                   const isZero = b.quantity === 0
                   const prod = b.expand?.product_id || products.find((p) => p.id === b.product_id)
@@ -547,10 +640,23 @@ export default function Estoque() {
                   return (
                     <tr
                       key={b.id}
-                      className={`hover:bg-slate-50/80 transition-colors ${
-                        isLow ? 'bg-rose-50/20' : ''
+                      className={`transition-colors ${
+                        isSelected
+                          ? 'bg-orange-50/50 hover:bg-orange-50/80'
+                          : isLow
+                            ? 'bg-rose-50/20 hover:bg-slate-50/80'
+                            : 'hover:bg-slate-50/80'
                       }`}
                     >
+                      {/* Checkbox de seleção da linha */}
+                      <td className="py-3.5 px-3 text-center">
+                        <Checkbox
+                          checked={isSelected}
+                          onCheckedChange={() => toggleSelectOneBatch(b.id)}
+                          aria-label={`Selecionar ${b.batch_number}`}
+                        />
+                      </td>
+
                       {/* 1ª COLUNA: Serial / Part Number (SKU) do Equipamento */}
                       <td className="py-3 px-4 whitespace-nowrap">
                         <Link
@@ -1116,8 +1222,14 @@ export default function Estoque() {
       {/* ETIQUETA COM QR CODE MODAL */}
       <EtiquetaModal
         open={etiquetaModalOpen}
-        onOpenChange={setEtiquetaModalOpen}
+        onOpenChange={(open) => {
+          setEtiquetaModalOpen(open)
+          if (!open) {
+            setEtiquetaData(null)
+          }
+        }}
         data={etiquetaData}
+        items={etiquetaData ? [etiquetaData] : selectedBatchesEtiquetasData}
       />
     </div>
   )

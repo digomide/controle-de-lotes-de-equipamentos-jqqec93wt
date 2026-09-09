@@ -28,8 +28,10 @@ import {
   Laptop,
   Boxes,
   ShoppingBag,
+  Printer,
 } from 'lucide-react'
 import { BatchMLPublishModal } from '@/components/BatchMLPublishModal'
+import { EtiquetaModal, type EtiquetaData } from '@/components/EtiquetaModal'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -97,6 +99,7 @@ export default function Catalogo() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [proposalModalOpen, setProposalModalOpen] = useState(false)
   const [mlBatchModalOpen, setMlBatchModalOpen] = useState(false)
+  const [etiquetaModalOpen, setEtiquetaModalOpen] = useState(false)
   const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false)
   const [deletingBulk, setDeletingBulk] = useState(false)
 
@@ -252,6 +255,21 @@ export default function Catalogo() {
   const selectedProducts = useMemo(() => {
     return products.filter((p) => selectedIds.has(p.id))
   }, [products, selectedIds])
+
+  const selectedEtiquetasData = useMemo<EtiquetaData[]>(() => {
+    return selectedProducts.map((p) => ({
+      product: p,
+      batchNumber: p.batch_id || 'CATALOGO',
+      location: 'Estoque / Catálogo',
+      status: p.status,
+      price: Number(p.unit_price) || 0,
+      serialNumber: p.serial_number || p.part_number || p.sku || p.code,
+      sku: p.sku,
+      productName: p.name,
+      brand: p.brand,
+      model: p.model,
+    }))
+  }, [selectedProducts])
 
   const totalSelectedPrice = useMemo(() => {
     return selectedProducts.reduce((sum, p) => sum + (Number(p.unit_price) || 0), 0)
@@ -572,6 +590,15 @@ export default function Catalogo() {
               className="text-slate-300 hover:text-white hover:bg-slate-800 text-xs"
             >
               Limpar seleção
+            </Button>
+            <Button
+              type="button"
+              onClick={() => setEtiquetaModalOpen(true)}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs gap-1.5 shadow-sm"
+              title="Imprimir etiquetas identificadoras dos equipamentos selecionados"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              Imprimir etiquetas ({selectedIds.size})
             </Button>
             <Button
               type="button"
@@ -1294,6 +1321,13 @@ export default function Catalogo() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* MODAL DE IMPRESSÃO DE ETIQUETAS EM MASSA */}
+      <EtiquetaModal
+        open={etiquetaModalOpen}
+        onOpenChange={setEtiquetaModalOpen}
+        items={selectedEtiquetasData}
+      />
 
       {/* MODAL DE PUBLICAÇÃO EM MASSA NO MERCADO LIVRE */}
       <BatchMLPublishModal

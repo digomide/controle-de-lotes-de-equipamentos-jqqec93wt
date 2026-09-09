@@ -26,11 +26,13 @@ import {
   ArrowRightLeft,
   Copy,
   MapPin,
+  Printer,
 } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { EditBatchModal } from '@/components/EditBatchModal'
 import { TransferEquipmentModal } from '@/components/TransferEquipmentModal'
 import { CloneEquipmentModal } from '@/components/CloneEquipmentModal'
+import { EtiquetaModal, type EtiquetaData } from '@/components/EtiquetaModal'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -124,6 +126,9 @@ export default function LoteEntradaDetalhe() {
   const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false)
   const [deletingBulk, setDeletingBulk] = useState(false)
 
+  // 7. Impressão de Etiquetas em Massa
+  const [etiquetaModalOpen, setEtiquetaModalOpen] = useState(false)
+
   const loadData = async () => {
     if (!id) return
     try {
@@ -202,6 +207,23 @@ export default function LoteEntradaDetalhe() {
   const selectedProductsList = useMemo(() => {
     return products.filter((p) => selectedProductIds.includes(p.id))
   }, [products, selectedProductIds])
+
+  const selectedEtiquetasData = useMemo<EtiquetaData[]>(() => {
+    return selectedProductsList.map((p) => ({
+      product: p,
+      batchNumber: batch?.supplier
+        ? `${batch.supplier}${batch.invoice_number ? ` - NF ${batch.invoice_number}` : ''}`
+        : undefined,
+      location: batch?.location || undefined,
+      status: p.status,
+      price: Number(p.unit_price) || 0,
+      serialNumber: p.serial_number || p.part_number || p.sku,
+      sku: p.sku,
+      productName: p.name,
+      brand: p.brand,
+      model: p.model,
+    }))
+  }, [selectedProductsList, batch])
 
   const handleOpenCloneSingle = (p: Product) => {
     setProductToClone(p)
@@ -943,6 +965,17 @@ export default function LoteEntradaDetalhe() {
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
+              {/* Botão Imprimir Etiquetas em Massa */}
+              <Button
+                size="sm"
+                onClick={() => setEtiquetaModalOpen(true)}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold h-8 gap-1.5 shadow-xs"
+                title="Imprimir etiquetas identificadoras dos equipamentos selecionados"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                Imprimir etiquetas ({selectedProductIds.length})
+              </Button>
+
               {/* Botão Transferir para Lote (Qualquer quantidade selecionada >= 1) */}
               <Button
                 size="sm"
@@ -1464,7 +1497,14 @@ export default function LoteEntradaDetalhe() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* 4. MODAL: ATIVAÇÃO RÁPIDA (Inserir Part Number e ativar como Disponível) */}
+      {/* 4. MODAL: IMPRESSÃO DE ETIQUETAS EM MASSA */}
+      <EtiquetaModal
+        open={etiquetaModalOpen}
+        onOpenChange={setEtiquetaModalOpen}
+        items={selectedEtiquetasData}
+      />
+
+      {/* 5. MODAL: ATIVAÇÃO RÁPIDA (Inserir Part Number e ativar como Disponível) */}
       <Dialog open={activateModalOpen} onOpenChange={setActivateModalOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
