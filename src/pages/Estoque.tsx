@@ -339,6 +339,10 @@ export default function Estoque() {
 
   const handleOpenEtiqueta = (b: Batch) => {
     const prod = b.expand?.product_id || products.find((p) => p.id === b.product_id) || null
+    const fullNotebookName =
+      prod?.name ||
+      [prod?.brand, prod?.model, prod?.processor].filter(Boolean).join(' ') ||
+      'Equipamento'
     setEtiquetaData({
       batch: b,
       product: prod,
@@ -348,7 +352,7 @@ export default function Estoque() {
       price: Number(prod?.unit_price) || 0,
       serialNumber: prod?.serial_number || prod?.sku,
       sku: prod?.sku,
-      productName: prod?.name,
+      productName: fullNotebookName,
       brand: prod?.brand,
       model: prod?.model,
     })
@@ -379,6 +383,10 @@ export default function Estoque() {
   const selectedBatchesEtiquetasData = useMemo<EtiquetaData[]>(() => {
     return selectedBatchesList.map((b) => {
       const prod = b.expand?.product_id || products.find((p) => p.id === b.product_id) || null
+      const fullNotebookName =
+        prod?.name ||
+        [prod?.brand, prod?.model, prod?.processor].filter(Boolean).join(' ') ||
+        'Equipamento'
       return {
         batch: b,
         product: prod,
@@ -388,7 +396,7 @@ export default function Estoque() {
         price: Number(prod?.unit_price) || 0,
         serialNumber: prod?.serial_number || prod?.sku || prod?.code || b.batch_number,
         sku: prod?.sku,
-        productName: prod?.name || 'Equipamento',
+        productName: fullNotebookName,
         brand: prod?.brand,
         model: prod?.model,
       }

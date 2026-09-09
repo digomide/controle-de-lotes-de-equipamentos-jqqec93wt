@@ -265,7 +265,8 @@ export default function Catalogo() {
       price: Number(p.unit_price) || 0,
       serialNumber: p.serial_number || p.part_number || p.sku || p.code,
       sku: p.sku,
-      productName: p.name,
+      productName:
+        p.name || [p.brand, p.model, p.processor].filter(Boolean).join(' ') || 'Equipamento',
       brand: p.brand,
       model: p.model,
     }))

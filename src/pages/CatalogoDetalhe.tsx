@@ -3079,7 +3079,10 @@ export default function CatalogoDetalhe() {
           price: Number(product?.unit_price) || 0,
           serialNumber: product?.serial_number || product?.sku,
           sku: product?.sku,
-          productName: product?.name,
+          productName:
+            product?.name ||
+            [product?.brand, product?.model, product?.processor].filter(Boolean).join(' ') ||
+            'Equipamento',
           brand: product?.brand,
           model: product?.model,
         }}
