@@ -104,7 +104,7 @@ export const PublicStoreFooter: React.FC = () => {
             </p>
             <div className="flex items-center gap-2 text-xs text-emerald-400 font-medium">
               <ShieldCheck className="w-4 h-4" />
-              Checklist completo de 16 itens inspecionado
+              Checklist completo de inspeção técnica
             </div>
           </div>
 

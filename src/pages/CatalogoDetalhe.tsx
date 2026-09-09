@@ -819,7 +819,7 @@ export default function CatalogoDetalhe() {
     }
   }
 
-  // Checklist canônico de 16 itens
+  // Checklist canônico com itens padronizados
   const rawChecklist = product?.technical_checklist || []
   const checklist = useMemo(() => {
     if (!rawChecklist || rawChecklist.length === 0) {
@@ -937,7 +937,7 @@ export default function CatalogoDetalhe() {
       setChecklistModalOpen(false)
       toast({
         title: 'Checklist atualizado com sucesso!',
-        description: `Todos os 16 itens técnicos foram salvos para ${product.name}.`,
+        description: `Todos os ${checklist.length} itens técnicos foram salvos para ${product.name}.`,
       })
     } catch (err: any) {
       console.error(err)
@@ -2369,7 +2369,7 @@ export default function CatalogoDetalhe() {
                   size="sm"
                   onClick={handleOpenChecklistModal}
                   className="h-8 text-xs font-semibold gap-1.5 border-[#d9532f]/40 text-[#d9532f] hover:bg-[#d9532f]/10"
-                  title="Editar todos os 16 itens do checklist"
+                  title={`Editar todos os ${checklist.length} itens do checklist`}
                 >
                   <Edit2 className="w-3.5 h-3.5" />
                   Editar Checklist
@@ -2405,7 +2405,7 @@ export default function CatalogoDetalhe() {
             </CardHeader>
 
             <CardContent className="space-y-4">
-              {/* Lista dos 16 itens com dropdown editável */}
+              {/* Lista dos itens com dropdown editável */}
               <div className="divide-y divide-slate-100 text-xs max-h-96 overflow-y-auto pr-1">
                 {checklist.map((c, i) => {
                   const normStatus = normalizeChecklistStatus(c.status)
@@ -2528,7 +2528,7 @@ export default function CatalogoDetalhe() {
         </div>
       </div>
 
-      {/* MODAL: EDITAR CHECKLIST DE INSPEÇÃO (16 ITENS COM OPÇÕES E CORES) */}
+      {/* MODAL: EDITAR CHECKLIST DE INSPEÇÃO (ITENS COM OPÇÕES E CORES) */}
       <Dialog open={checklistModalOpen} onOpenChange={setChecklistModalOpen}>
         <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto p-6 sm:p-7 bg-[#faf8f5]">
           <DialogHeader className="pb-3 border-b border-orange-100">
@@ -2539,8 +2539,9 @@ export default function CatalogoDetalhe() {
                   Checklist de Inspeção Técnica
                 </DialogTitle>
                 <DialogDescription className="text-xs text-slate-500 mt-0.5">
-                  Edite os 16 itens técnicos de bancada, defina o status e observações detalhadas
-                  para <strong className="text-slate-700">{product?.name}</strong>.
+                  Edite os {editChecklistItems.length} itens técnicos de bancada, defina o status e
+                  observações detalhadas para{' '}
+                  <strong className="text-slate-700">{product?.name}</strong>.
                 </DialogDescription>
               </div>
 
@@ -2567,7 +2568,9 @@ export default function CatalogoDetalhe() {
 
             {/* Ações Rápidas (Todos Ok / Limpar) */}
             <div className="flex items-center justify-between pt-3 gap-2 flex-wrap">
-              <span className="text-xs text-slate-500">16 itens verificados em bancada:</span>
+              <span className="text-xs text-slate-500">
+                {editChecklistItems.length} itens verificados em bancada:
+              </span>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -2587,7 +2590,7 @@ export default function CatalogoDetalhe() {
             </div>
           </DialogHeader>
 
-          {/* Cards dos 16 Itens Técnicos */}
+          {/* Cards dos Itens Técnicos */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 py-4">
             {editChecklistItems.map((item, idx) => {
               const normStatus = normalizeChecklistStatus(item.status)

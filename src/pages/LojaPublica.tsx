@@ -273,7 +273,7 @@ export default function LojaPublica() {
             </h1>
             <p className="text-sm sm:text-base text-slate-300 leading-relaxed max-w-2xl">
               Equipamentos de alta performance (Dell, Lenovo, HP), testados peça por peça, com
-              checklist técnico de 16 itens aprovado e garantia de procedência.
+              checklist técnico completo aprovado e garantia de procedência.
             </p>
 
             {/* Badges de Destaque */}

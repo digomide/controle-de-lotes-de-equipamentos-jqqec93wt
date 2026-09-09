@@ -34,7 +34,7 @@ import { resolveCondition, getConditionBadgeStyles } from '@/lib/condition'
 import { PublicStoreHeader, PublicStoreFooter } from '@/components/PublicStoreLayout'
 import { STORE_CONFIG, buildWhatsAppLink, buildGeneralWhatsAppLink } from '@/lib/storeConfig'
 import { productsService } from '@/services/products'
-import { normalizeChecklistStatus } from '@/lib/checklist'
+import { normalizeChecklistStatus, CHECKLIST_CANONICAL_ITEMS } from '@/lib/checklist'
 import { mercadoPagoService } from '@/services/storeOrders'
 import { StoreCheckoutModal } from '@/components/StoreCheckoutModal'
 import { CreditCard, QrCode } from 'lucide-react'
@@ -241,8 +241,10 @@ export default function LojaDetalhe() {
   }, [product])
 
   const totalInspectedItems = useMemo(() => {
-    if (!product?.technical_checklist || !Array.isArray(product.technical_checklist)) return 16
-    return product.technical_checklist.length || 16
+    if (!product?.technical_checklist || !Array.isArray(product.technical_checklist)) {
+      return CHECKLIST_CANONICAL_ITEMS.length
+    }
+    return product.technical_checklist.length || CHECKLIST_CANONICAL_ITEMS.length
   }, [product])
 
   // WhatsApp Link pré-preenchido

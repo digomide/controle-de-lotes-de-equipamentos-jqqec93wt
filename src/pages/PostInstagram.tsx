@@ -477,7 +477,7 @@ export default function PostInstagram() {
                             captionFormat === 'tecnico' ? 'text-slate-300' : 'text-slate-500'
                           }`}
                         >
-                          Specs detalhadas, checklist de 16 itens, condição e garantia.
+                          Specs detalhadas, checklist completo, condição e garantia.
                         </p>
                       </button>
 

@@ -224,22 +224,21 @@ export default function LojaCorporativo() {
                 </CardContent>
               </Card>
 
-              {/* Card 2: 16 Itens Testados */}
+              {/* Card 2: Checklist Rigoroso */}
               <Card className="border-slate-200/90 shadow-xs hover:shadow-md transition-shadow">
                 <CardHeader className="pb-3">
-                  <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center mb-2">
-                    <FileCheck2 className="w-5 h-5" />
+                  <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center mb-2">
+                    <CheckCircle2 className="w-5 h-5" />
                   </div>
                   <CardTitle className="text-base font-bold text-slate-900">
-                    Checklist de 16 Itens
+                    Checklist de {CHECKLIST_CANONICAL_ITEMS.length} Itens
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="text-xs text-slate-600 leading-relaxed">
-                  Cada notebook é testado individualmente em bancada: BIOS, tela, portas, bateria,
-                  teclado, webcam e estresse de componentes. Zero surpresas.
+                  Bateria, teclado, tela, portas, conectividade, memória e vídeo passam por
+                  protocolo rigoroso de testes antes do envio.
                 </CardContent>
               </Card>
-
               {/* Card 3: Nota Fiscal & Garantia */}
               <Card className="border-slate-200/90 shadow-xs hover:shadow-md transition-shadow">
                 <CardHeader className="pb-3">
@@ -273,13 +272,13 @@ export default function LojaCorporativo() {
               </Card>
             </div>
 
-            {/* Checklist de 16 itens — Demonstração */}
+            {/* Checklist de itens — Demonstração */}
             <div className="bg-slate-50 rounded-2xl p-6 sm:p-8 border border-slate-200 space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
                     <ShieldCheck className="w-5 h-5 text-emerald-600" />
-                    Protocolo de Inspeção em 16 Etapas
+                    Protocolo de Inspeção em {CHECKLIST_CANONICAL_ITEMS.length} Etapas
                   </h3>
                   <p className="text-xs text-slate-500">
                     Todos os equipamentos do lote saem pré-testados com o seguinte checklist:

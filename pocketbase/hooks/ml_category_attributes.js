@@ -1,11 +1,11 @@
 // Endpoint para obter atributos da categoria do Mercado Livre com cache no servidor (>24h)
 // Route: GET /api/ml/category-attributes/{id}
 
-routerAdd('GET', '/api/ml/category-attributes/{id}', (e) => {
+routerAdd('GET', '/backend/v1/ml/category-attributes/{id}', (e) => {
   let catId = (e.request.pathValue('id') || '').trim()
   if (!catId) {
     const rawUrl = e.request.url ? e.request.url.path || '' : ''
-    const match = rawUrl.match(/\/api\/ml\/category-attributes\/([^/?#]+)/)
+    const match = rawUrl.match(/\/backend\/v1\/ml\/category-attributes\/([^/?#]+)/)
     if (match && match[1]) {
       catId = match[1].trim()
     }

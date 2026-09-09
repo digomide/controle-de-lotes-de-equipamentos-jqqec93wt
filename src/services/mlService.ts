@@ -928,9 +928,12 @@ export const mlService = {
 
     // 2. Tenta chamar o endpoint customizado do backend
     try {
-      const res = await pb.send(`/api/ml/category-attributes/${encodeURIComponent(cleanId)}`, {
-        method: 'GET',
-      })
+      const res = await pb.send(
+        `/backend/v1/ml/category-attributes/${encodeURIComponent(cleanId)}`,
+        {
+          method: 'GET',
+        },
+      )
       if (res && Array.isArray(res.attributes) && res.attributes.length > 0) {
         return res.attributes
       }

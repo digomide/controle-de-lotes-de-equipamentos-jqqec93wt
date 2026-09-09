@@ -17,6 +17,7 @@ export const CHECKLIST_CANONICAL_ITEMS = [
   'Carcaça/Chassi',
   'Memória RAM',
   'Armazenamento',
+  'Revisão de VGA Dedicada',
 ] as const
 
 export const CHECKLIST_OPTIONS: {

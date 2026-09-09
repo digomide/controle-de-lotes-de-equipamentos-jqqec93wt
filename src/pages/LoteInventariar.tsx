@@ -84,7 +84,7 @@ export default function LoteInventariar() {
   const [aestheticGrade, setAestheticGrade] = useState('B - Bom')
   const [includesCharger, setIncludesCharger] = useState(true)
 
-  // Checklist of 16 items
+  // Checklist de itens canonicos
   const [checklist, setChecklist] = useState<ChecklistStateItem[]>(() =>
     CHECKLIST_CANONICAL_ITEMS.map((item) => ({
       item,
@@ -676,14 +676,15 @@ export default function LoteInventariar() {
 
           <hr className="border-slate-200" />
 
-          {/* Section: Checklist de Inspeção (16 Itens em grade responsiva idêntica ao print do Replit) */}
+          {/* Section: Checklist de Inspeção (Itens em grade responsiva) */}
           <div className="space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-1 border-b border-orange-100/70">
               <div className="flex items-center gap-3">
                 <div>
                   <h2 className="text-base font-bold text-slate-900">Checklist de Inspeção</h2>
                   <p className="text-xs text-slate-500">
-                    16 itens de bancada com dropdown de status colorido e observação opcional.
+                    {checklist.length} itens de bancada com dropdown de status colorido e observação
+                    opcional.
                   </p>
                 </div>
               </div>
@@ -725,7 +726,7 @@ export default function LoteInventariar() {
               </div>
             </div>
 
-            {/* Grid of 16 inspection cards - exatamente como na imagem do Replit:
+            {/* Grid of inspection cards:
                 Caixa com cantos arredondados, título do item em cima, dropdown colorido e input "Observação opcional" abaixo */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
               {checklist.map((item, idx) => {

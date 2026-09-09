@@ -205,7 +205,7 @@ export default function LojaPedidoConcluido() {
                   Garantia de Bancada
                 </div>
                 <p className="text-slate-600 leading-relaxed">
-                  O equipamento segue com laudo técnico dos 16 itens do checklist e garantia
+                  O equipamento segue com laudo técnico completo do checklist de revisão e garantia
                   completa de funcionamento.
                 </p>
               </div>

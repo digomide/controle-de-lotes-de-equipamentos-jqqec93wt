@@ -204,7 +204,7 @@ Procurando máquina corporativa robusta e com custo-benefício imbatível? Confi
 • Armazenamento: ${product.storage || 'SSD ultrarrápido'}
 • Tela: ${product.screen_size || '14" Antirreflexo'}
 • Condição: Recondicionado · Excelente (Revisado em bancada)
-• Checklist técnico de 16 itens inspecionado e aprovado ✅
+• Checklist técnico completo inspecionado e aprovado ✅
 • Bateria testada: ${product.battery_health || 'Ótima autonomia'}
 ${product.includes_charger ? '• Acompanha carregador original' : ''}
 
@@ -259,7 +259,7 @@ Ideal para:
 Vantagens para compras em volume:
 ✅ Desconto progressivo por quantidade
 ✅ Nota fiscal e garantia inclusa
-✅ Checklist rigoroso de 16 itens já realizado
+✅ Checklist rigoroso já realizado
 ✅ Configuração padronizada: ${product.processor || 'Intel Core'}, ${product.ram || '16GB'}, ${product.storage || 'SSD'}
 
 Fale direto com nosso setor corporativo para tabela especial de atacado:
