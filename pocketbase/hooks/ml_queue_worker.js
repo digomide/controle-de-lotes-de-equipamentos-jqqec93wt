@@ -1,15 +1,24 @@
-// Worker cron de contingência para as filas do Mercado Livre
-// Processa quaisquer itens que permanecerem com status 'pending'
-// Suporta modelo moderno User Product do Mercado Livre (family_name na raiz e NÃO envia title)
-// Suporta envio de GTIN / EMPTY_GTIN_REASON e registro amigável de erro para cause 7810
-// Executa a cada 15 segundos: @every 15s
+/**
+ * Worker unificado de segundo plano para processamento assíncrono do Mercado Livre.
+ *
+ * Executa a cada 10 segundos:
+ * 1. Processa ml_oauth_requests pendentes
+ * 2. Processa ml_publish_queue pendentes
+ * 3. Processa ml_item_queue pendentes
+ * 4. ETAPA 1 CRÍTICA: Processa 1 job pendente de ml_catalog_search_jobs por tick,
+ *    executando a varredura profunda com streaming de resultados parciais,
+ *    enriquecimento e filtro de categoria oficial do ML (ETAPA 2).
+ *
+ * IMPORTANTE: No PocketBase (Goja JSVM), callbacks do cron executam isolados.
+ * Todas as funções auxiliares DEVEM estar inline dentro do corpo do cronAdd!
+ */
 
-cronAdd('ml_queue_worker', '@every 15s', () => {
+cronAdd('ml_queue_worker', '@every 10s', () => {
   let settings = null
   try {
-    const sRecords = $app.findRecordsByFilter('ml_settings', '1=1', '-created', 1, 0)
-    if (sRecords && sRecords.length > 0) {
-      settings = sRecords[0]
+    const records = $app.findRecordsByFilter('ml_settings', '1=1', '-created', 1, 0)
+    if (records && records.length > 0) {
+      settings = records[0]
     }
   } catch (err) {
     console.log('[ml_cron] Erro ao carregar ml_settings: ' + err)
@@ -143,787 +152,7 @@ cronAdd('ml_queue_worker', '@every 15s', () => {
     console.log('[ml_cron] Erro em ml_oauth_requests: ' + oauthErr)
   }
 
-  // 2. Processar ml_publish_queue pendentes
-  try {
-    const pendingPublish = $app.findRecordsByFilter(
-      'ml_publish_queue',
-      "status = 'pending'",
-      'created',
-      5,
-      0,
-    )
-
-    for (let i = 0; i < pendingPublish.length; i++) {
-      const pubItem = pendingPublish[i]
-      pubItem.set('status', 'processing')
-      $app.save(pubItem)
-
-      if (!settings) {
-        pubItem.set('status', 'error')
-        pubItem.set('error_message', 'Configurações do Mercado Livre não encontradas.')
-        $app.save(pubItem)
-        continue
-      }
-
-      let accessToken = settings.getString('access_token')
-      const refreshToken = settings.getString('refresh_token')
-      const clientId = settings.getString('client_id')
-      const clientSecret = settings.getString('client_secret')
-      const tokenExpiresAt = settings.getString('token_expires_at')
-
-      if (!accessToken) {
-        pubItem.set('status', 'error')
-        pubItem.set('error_message', 'Mercado Livre não está conectado.')
-        $app.save(pubItem)
-        continue
-      }
-
-      // Renovação se necessário
-      let needRefresh = false
-      if (tokenExpiresAt) {
-        try {
-          const expTime = new Date(tokenExpiresAt).getTime()
-          if (Date.now() + 5 * 60 * 1000 >= expTime) {
-            needRefresh = true
-          }
-        } catch (_) {}
-      }
-
-      if (needRefresh && refreshToken && clientId && clientSecret) {
-        try {
-          const refRes = $http.send({
-            url: 'https://api.mercadolibre.com/oauth/token',
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              grant_type: 'refresh_token',
-              client_id: clientId,
-              client_secret: clientSecret,
-              refresh_token: refreshToken,
-            }),
-            timeout: 20,
-          })
-          if (refRes.statusCode === 200 && refRes.json) {
-            accessToken = refRes.json.access_token || accessToken
-            const newRef = refRes.json.refresh_token || refreshToken
-            const expIn = Number(refRes.json.expires_in) || 21600
-            const newExpDate = new Date(Date.now() + expIn * 1000).toISOString()
-            settings.set('access_token', accessToken)
-            settings.set('refresh_token', newRef)
-            settings.set('token_expires_at', newExpDate)
-            $app.save(settings)
-          }
-        } catch (rErr) {
-          console.log('[ml_cron] Erro ao renovar token ML: ' + rErr)
-        }
-      }
-
-      const productId = pubItem.getString('product')
-      let product = null
-      try {
-        product = $app.findRecordById('products', productId)
-      } catch (pErr) {
-        pubItem.set('status', 'error')
-        pubItem.set('error_message', 'Produto associado não encontrado: ' + productId)
-        $app.save(pubItem)
-        continue
-      }
-
-      // Extração robusta do campo JSON 'payload' no PocketBase v0.36 (Goja engine)
-      let payload = {}
-      try {
-        let jsonString = ''
-        if (typeof pubItem.getString === 'function') {
-          jsonString = pubItem.getString('payload') || ''
-        }
-        if (!jsonString) {
-          const rawPl = pubItem.get('payload')
-          if (typeof rawPl === 'string') {
-            jsonString = rawPl
-          } else if (rawPl !== undefined && rawPl !== null) {
-            jsonString = String(rawPl)
-          }
-        }
-
-        if (jsonString && jsonString.trim()) {
-          try {
-            payload = JSON.parse(jsonString)
-          } catch (parseErr) {
-            console.log('[ml_cron] Erro ao parsear JSON do payload: ' + parseErr)
-            payload = {}
-          }
-        }
-
-        if (!payload || (!payload.title && !payload.family_name)) {
-          try {
-            const direct = pubItem.get('payload')
-            if (direct && typeof direct === 'object' && (direct.title || direct.family_name)) {
-              payload = direct
-            }
-          } catch (_) {}
-        }
-      } catch (err) {
-        console.log('[ml_cron] Erro ao extrair payload: ' + err)
-        payload = {}
-      }
-
-      // Título sugerido
-      let rawTitleInput = ''
-      let titleSource = 'product.name'
-      if (payload && payload.title && typeof payload.title === 'string' && payload.title.trim()) {
-        rawTitleInput = payload.title.trim()
-        titleSource = 'payload.title'
-      } else {
-        rawTitleInput = (product.getString('name') || '').trim()
-      }
-
-      const cleanTitleOneLine = rawTitleInput
-        .replace(/[\r\n\t]+/g, ' ')
-        .replace(/[“”]/g, '"')
-        .replace(/[‘’]/g, "'")
-        .replace(/\s+/g, ' ')
-        .trim()
-      const initialTitle = cleanTitleOneLine.slice(0, 60).trim()
-
-      const price =
-        !isNaN(Number(payload.price)) && Number(payload.price) > 0
-          ? Number(payload.price)
-          : product.getFloat('unit_price')
-      const categoryId = (payload.category_id || 'MLB1652').trim()
-      const customDescription = (payload.description || '').toString().trim()
-      const customPictures = Array.isArray(payload.photos) ? payload.photos : []
-      const listingTypeId = payload.listing_type_id || 'gold_special'
-
-      let pictureObjects = []
-      if (customPictures.length > 0) {
-        for (let pIdx = 0; pIdx < customPictures.length; pIdx++) {
-          const u = (customPictures[pIdx] || '').toString().trim()
-          if (u) pictureObjects.push({ source: u })
-        }
-      } else {
-        const photosRaw = product.get('photos')
-        if (photosRaw && Array.isArray(photosRaw)) {
-          const pbcBase = $os.getenv('VITE_POCKETBASE_URL') || ''
-          const colId = product.collection().id
-          const pId = product.id
-          for (let pIdx = 0; pIdx < photosRaw.length; pIdx++) {
-            const fn = (photosRaw[pIdx] || '').toString().trim()
-            if (fn) {
-              pictureObjects.push({
-                source: pbcBase + '/api/files/' + colId + '/' + pId + '/' + fn,
-              })
-            }
-          }
-        }
-        const imagesRaw = product.get('images')
-        if (imagesRaw && Array.isArray(imagesRaw)) {
-          for (let pIdx = 0; pIdx < imagesRaw.length; pIdx++) {
-            const imgUrl = (imagesRaw[pIdx] || '').toString().trim()
-            if (imgUrl.startsWith('http://') || imgUrl.startsWith('https://')) {
-              pictureObjects.push({ source: imgUrl })
-            }
-          }
-        }
-      }
-
-      if (pictureObjects.length === 0) {
-        pubItem.set('status', 'error')
-        pubItem.set('error_message', 'O anúncio exige pelo menos uma foto com URL pública válida.')
-        $app.save(pubItem)
-        continue
-      }
-
-      // Mapeamento ITEM_CONDITION
-      // Categoria de marketplace (como MLB1652) só aceita [used, new, not_specified].
-      // Portanto, 'recondicionado' (refurbished) é enviado como 'used' no payload,
-      // e o grau é enviado via atributo oficial ITEM_GRADE / GRADING.
-      const rawType = (payload.condition_type || product.getString('condition_type') || '')
-        .toLowerCase()
-        .trim()
-      const rawGrade = (payload.condition_grade || product.getString('condition_grade') || '')
-        .toLowerCase()
-        .trim()
-
-      let mlCondition = 'used'
-      if (rawType === 'novo' || rawType === 'new') {
-        mlCondition = 'new'
-      } else if (rawType === 'recondicionado' || rawType === 'refurbished') {
-        mlCondition = 'used'
-      } else if (rawType === 'caixa_aberta' || rawType === 'clipped') {
-        mlCondition = 'used'
-      } else if (rawType === 'usado' || rawType === 'used') {
-        mlCondition = 'used'
-      } else {
-        const leg = (product.getString('condition') || '').toLowerCase()
-        if (leg.includes('novo')) mlCondition = 'new'
-        else mlCondition = 'used'
-      }
-
-      const gradeLabelMap = {
-        excelente: 'Excelente',
-        bom: 'Bom',
-        aceitavel: 'Aceitável',
-      }
-      const gradeLabel =
-        gradeLabelMap[rawGrade] || (rawType.includes('recondicionado') ? 'Excelente' : '')
-
-      // 1. Obter metadados dos atributos da categoria
-      let categoryAttributesMeta = []
-      try {
-        const headers = { Accept: 'application/json' }
-        if (accessToken) headers['Authorization'] = 'Bearer ' + accessToken
-        const catAttrRes = $http.send({
-          url: 'https://api.mercadolibre.com/categories/' + categoryId + '/attributes',
-          method: 'GET',
-          headers: headers,
-          timeout: 20,
-        })
-        if (catAttrRes.statusCode === 200 && Array.isArray(catAttrRes.json)) {
-          categoryAttributesMeta = catAttrRes.json
-        }
-      } catch (cErr) {
-        console.log(
-          '[ml_cron] Erro ao consultar atributos da categoria ' + categoryId + ': ' + cErr,
-        )
-      }
-
-      const categoryAttrLookup = {}
-      for (let cIdx = 0; cIdx < categoryAttributesMeta.length; cIdx++) {
-        const ca = categoryAttributesMeta[cIdx]
-        if (ca && ca.id) {
-          categoryAttrLookup[ca.id] = ca
-        }
-      }
-
-      const pBrand = (product.getString('brand') || '').trim()
-      const pModel = (product.getString('model') || '').trim()
-      const pProcessor = (product.getString('processor') || '').trim()
-      const pRam = (product.getString('ram') || '').trim()
-      const pStorage = (product.getString('storage') || '').trim()
-      const pScreen = (product.getString('screen_size') || '').trim()
-      const pName = (product.getString('name') || '').trim()
-
-      let brandVal = pBrand
-      if (!brandVal) {
-        if (pName.toLowerCase().includes('lenovo')) brandVal = 'Lenovo'
-        else if (pName.toLowerCase().includes('dell')) brandVal = 'Dell'
-        else if (pName.toLowerCase().includes('hp')) brandVal = 'HP'
-        else if (pName.toLowerCase().includes('apple')) brandVal = 'Apple'
-        else if (pName.toLowerCase().includes('acer')) brandVal = 'Acer'
-        else if (pName.toLowerCase().includes('asus')) brandVal = 'Asus'
-        else if (pName.toLowerCase().includes('samsung')) brandVal = 'Samsung'
-        else if (pName.toLowerCase().includes('positivo')) brandVal = 'Positivo'
-      }
-
-      let modelVal = pModel
-      if (!modelVal) {
-        modelVal = initialTitle.replace(brandVal, '').trim() || pName.slice(0, 60)
-      }
-
-      // Linha / Família (LINE)
-      let familyVal = ((payload && payload.family_name) || '').toString().trim()
-      if (!familyVal) {
-        const combinedText = (pModel + ' ' + pName).trim()
-        if (/thinkpad/i.test(combinedText)) familyVal = 'ThinkPad'
-        else if (/ideapad/i.test(combinedText)) familyVal = 'IdeaPad'
-        else if (/legion/i.test(combinedText)) familyVal = 'Legion'
-        else if (/yoga/i.test(combinedText)) familyVal = 'Yoga'
-        else if (/latitude/i.test(combinedText)) familyVal = 'Latitude'
-        else if (/inspiron/i.test(combinedText)) familyVal = 'Inspiron'
-        else if (/vostro/i.test(combinedText)) familyVal = 'Vostro'
-        else if (/precision/i.test(combinedText)) familyVal = 'Precision'
-        else if (/xps/i.test(combinedText)) familyVal = 'XPS'
-        else if (/alienware/i.test(combinedText)) familyVal = 'Alienware'
-        else if (/macbook\s*pro/i.test(combinedText)) familyVal = 'MacBook Pro'
-        else if (/macbook\s*air/i.test(combinedText)) familyVal = 'MacBook Air'
-        else if (/macbook/i.test(combinedText)) familyVal = 'MacBook'
-        else if (/imac/i.test(combinedText)) familyVal = 'iMac'
-        else if (/elitebook/i.test(combinedText)) familyVal = 'EliteBook'
-        else if (/probook/i.test(combinedText)) familyVal = 'ProBook'
-        else if (/pavilion/i.test(combinedText)) familyVal = 'Pavilion'
-        else if (/omen/i.test(combinedText)) familyVal = 'Omen'
-        else if (/spectre/i.test(combinedText)) familyVal = 'Spectre'
-        else if (/envy/i.test(combinedText)) familyVal = 'Envy'
-        else if (/zbook/i.test(combinedText)) familyVal = 'ZBook'
-        else if (/aspire/i.test(combinedText)) familyVal = 'Aspire'
-        else if (/predator/i.test(combinedText)) familyVal = 'Predator'
-        else if (/nitro/i.test(combinedText)) familyVal = 'Nitro'
-        else if (/swift/i.test(combinedText)) familyVal = 'Swift'
-        else if (/spin/i.test(combinedText)) familyVal = 'Spin'
-        else if (/travelmate/i.test(combinedText)) familyVal = 'TravelMate'
-        else if (/expertbook/i.test(combinedText)) familyVal = 'ExpertBook'
-        else if (/zenbook/i.test(combinedText)) familyVal = 'ZenBook'
-        else if (/vivobook/i.test(combinedText)) familyVal = 'VivoBook'
-        else if (/\brog\b/i.test(combinedText)) familyVal = 'ROG'
-        else if (/\btuf\b/i.test(combinedText)) familyVal = 'TUF'
-        else if (/satellite/i.test(combinedText)) familyVal = 'Satellite'
-        else if (/dynabook/i.test(combinedText)) familyVal = 'Dynabook'
-        else if (/portege/i.test(combinedText)) familyVal = 'Portege'
-        else if (/tecra/i.test(combinedText)) familyVal = 'Tecra'
-        else if (/galaxy\s*book/i.test(combinedText)) familyVal = 'Galaxy Book'
-        else if (/surface/i.test(combinedText)) familyVal = 'Surface'
-        else if (/unique/i.test(combinedText)) familyVal = 'Unique'
-        else if (/motion/i.test(combinedText)) familyVal = 'Motion'
-        else if (/master/i.test(combinedText)) familyVal = 'Master'
-        else if (/\bvaio\b/i.test(combinedText)) familyVal = 'VAIO'
-        else if (pModel) {
-          const firstWord = pModel.split(/[\s-]+/)[0]
-          familyVal = (firstWord && firstWord.length >= 2 ? firstWord : pModel).slice(0, 60)
-        } else {
-          familyVal = (brandVal || initialTitle).trim().slice(0, 60)
-        }
-      }
-
-      let fullFamilyName = familyVal
-      if (brandVal && !fullFamilyName.toLowerCase().includes(brandVal.toLowerCase())) {
-        fullFamilyName = brandVal + ' ' + fullFamilyName
-      }
-      if (modelVal && !fullFamilyName.toLowerCase().includes(modelVal.toLowerCase())) {
-        fullFamilyName = fullFamilyName + ' ' + modelVal
-      }
-      fullFamilyName = fullFamilyName.slice(0, 60).trim()
-
-      let procBrand = 'Intel'
-      let procLine = 'Core i7'
-      let procModel = ''
-
-      const procCombined = (pProcessor + ' ' + pName).toLowerCase()
-      if (procCombined.includes('amd') || procCombined.includes('ryzen')) {
-        procBrand = 'AMD'
-        if (procCombined.includes('ryzen 7')) procLine = 'Ryzen 7'
-        else if (procCombined.includes('ryzen 5')) procLine = 'Ryzen 5'
-        else if (procCombined.includes('ryzen 3')) procLine = 'Ryzen 3'
-        else if (procCombined.includes('ryzen 9')) procLine = 'Ryzen 9'
-        else procLine = 'Ryzen'
-      } else if (
-        procCombined.includes('apple') ||
-        procCombined.includes('m1') ||
-        procCombined.includes('m2') ||
-        procCombined.includes('m3')
-      ) {
-        procBrand = 'Apple'
-        if (procCombined.includes('m3')) procLine = 'M3'
-        else if (procCombined.includes('m2')) procLine = 'M2'
-        else procLine = 'M1'
-      } else {
-        procBrand = 'Intel'
-        if (procCombined.includes('i7') || procCombined.includes('core i7')) procLine = 'Core i7'
-        else if (procCombined.includes('i5') || procCombined.includes('core i5'))
-          procLine = 'Core i5'
-        else if (procCombined.includes('i3') || procCombined.includes('core i3'))
-          procLine = 'Core i3'
-        else if (procCombined.includes('i9') || procCombined.includes('core i9'))
-          procLine = 'Core i9'
-        else if (procCombined.includes('celeron')) procLine = 'Celeron'
-        else if (procCombined.includes('xeon')) procLine = 'Xeon'
-      }
-
-      const modelMatch = (pProcessor + ' ' + pName).match(/\b(\d{4}[A-Z0-9]*)\b/i)
-      if (modelMatch && modelMatch[1]) {
-        procModel = modelMatch[1].toUpperCase()
-      } else {
-        if (procLine === 'Core i7' && procCombined.includes('8')) procModel = '8550U'
-        else if (procLine === 'Core i5' && procCombined.includes('8')) procModel = '8250U'
-        else if (procLine === 'Core i7' && procCombined.includes('7')) procModel = '7500U'
-        else if (procLine === 'Core i5' && procCombined.includes('7')) procModel = '7200U'
-        else if (procLine === 'Core i7' && procCombined.includes('10')) procModel = '10510U'
-        else if (procLine === 'Core i5' && procCombined.includes('10')) procModel = '10210U'
-        else if (procLine === 'Core i7' && procCombined.includes('11')) procModel = '1165G7'
-        else if (procLine === 'Core i5' && procCombined.includes('11')) procModel = '1135G7'
-        else procModel = pProcessor.trim() || '8250U'
-      }
-
-      // RAM
-      let ramVal = ''
-      if (pRam) {
-        const ramMatch = pRam.match(/(\d+)\s*GB/i)
-        ramVal = ramMatch ? ramMatch[1] + ' GB' : pRam
-      }
-
-      // Storage
-      let storageVal = ''
-      let isHDStorage = false
-      if (pStorage) {
-        const storageUpper = pStorage.toUpperCase()
-        const ssdMatch = pStorage.match(/(\d+)\s*(GB|TB)/i)
-        if (ssdMatch) {
-          storageVal = ssdMatch[1] + ' ' + ssdMatch[2].toUpperCase()
-          isHDStorage = storageUpper.includes('HD') && !storageUpper.includes('SSD')
-        }
-      }
-
-      // Tela (DISPLAY_SIZE obrigatório na categoria MLB1652)
-      let normalizedScreen = ''
-      let rawScreenCandidate = pScreen
-      if (!rawScreenCandidate) {
-        const screenMatch = (
-          initialTitle +
-          ' ' +
-          pName +
-          ' ' +
-          (payload && payload.description ? payload.description : '')
-        ).match(/(\d{2}(?:\.\d)?)\s*(?:["”']|pol|polegadas)?/i)
-        if (screenMatch && screenMatch[1]) {
-          const numVal = parseFloat(screenMatch[1])
-          if (numVal >= 10 && numVal <= 21) {
-            rawScreenCandidate = screenMatch[1]
-          }
-        }
-      }
-      // Fallback padrão para notebooks caso não seja possível detectar
-      if (!rawScreenCandidate) {
-        rawScreenCandidate = '15.6'
-      }
-      if (rawScreenCandidate) {
-        const numOnly = rawScreenCandidate.replace(/[^0-9.]/g, '')
-        normalizedScreen = numOnly ? numOnly + ' "' : rawScreenCandidate
-      }
-
-      const hasNumPad = product.getBool('has_numeric_keypad')
-
-      // Extração do GTIN/EAN informado pelo usuário
-      let rawGtin = ((payload && payload.gtin) || product.getString('gtin') || '').trim()
-      let userGtin = ''
-      if (/^\d{8,14}$/.test(rawGtin)) {
-        userGtin = rawGtin
-      }
-
-      function buildAttributes(mode, cond, gtinValue, useExemption) {
-        const m = {}
-        function add(id, valName) {
-          if (!id || valName === undefined || valName === null) return
-          const s = String(valName).trim()
-          if (!s) return
-          const def = categoryAttrLookup[id]
-          if (def) {
-            if (def.tags && (def.tags.read_only === true || def.tags.hidden === true)) return
-            if (Array.isArray(def.values) && def.values.length > 0) {
-              const l = s.toLowerCase()
-              for (let vi = 0; vi < def.values.length; vi++) {
-                const v = def.values[vi]
-                if ((v.name && v.name.toLowerCase() === l) || (v.id && String(v.id) === s)) {
-                  m[id] = { id: id, value_id: String(v.id), value_name: v.name }
-                  return
-                }
-              }
-            }
-          }
-          m[id] = { id: id, value_name: s }
-        }
-
-        if (brandVal) add('BRAND', brandVal)
-        if (modelVal) add('MODEL', modelVal)
-        if (familyVal) add('LINE', familyVal)
-        if (procBrand) add('PROCESSOR_BRAND', procBrand)
-        if (procLine) add('PROCESSOR_LINE', procLine)
-        if (procModel) add('PROCESSOR_MODEL', procModel)
-
-        // Enviar ITEM_GRADE e GRADING se o produto for recondicionado ou tiver grau de estado definido
-        const effectiveGrade = rawGrade || (rawType.includes('recondicionado') ? 'excelente' : '')
-        if (effectiveGrade) {
-          const gradingValueMap = {
-            excelente: { value_id: '40108830', value_name: 'Excelente' },
-            bom: { value_id: '40108831', value_name: 'Bom' },
-            aceitavel: { value_id: '40108832', value_name: 'Aceitável' },
-          }
-          const mapped = gradingValueMap[effectiveGrade] || {
-            value_id: '40108830',
-            value_name: 'Excelente',
-          }
-          m['GRADING'] = {
-            id: 'GRADING',
-            value_id: mapped.value_id,
-            value_name: mapped.value_name,
-          }
-          m['ITEM_GRADE'] = {
-            id: 'ITEM_GRADE',
-            value_id: mapped.value_id,
-            value_name: mapped.value_name,
-          }
-        }
-
-        // GTIN ou isenção
-        if (gtinValue) {
-          m['GTIN'] = { id: 'GTIN', value_name: gtinValue }
-        } else if (useExemption) {
-          m['EMPTY_GTIN_REASON'] = { id: 'EMPTY_GTIN_REASON', value_name: 'Outro motivo' }
-        }
-
-        if (mode === 'full') {
-          if (ramVal) add('RAM_MEMORY_MODULE_TOTAL_CAPACITY', ramVal)
-          if (storageVal) {
-            if (isHDStorage) add('HARD_DRIVE_DATA_STORAGE_CAPACITY', storageVal)
-            else add('SSD_DATA_STORAGE_CAPACITY', storageVal)
-          }
-          if (normalizedScreen) {
-            add('DISPLAY_SIZE', normalizedScreen)
-            if (categoryAttrLookup['SCREEN_SIZE']) add('SCREEN_SIZE', normalizedScreen)
-          }
-        } else {
-          // Mesmo em minimal, DISPLAY_SIZE é obrigatório pela categoria MLB1652
-          if (normalizedScreen) {
-            add('DISPLAY_SIZE', normalizedScreen)
-          }
-          if (hasNumPad !== undefined) {
-            m['WITH_NUMERIC_PAD'] = {
-              id: 'WITH_NUMERIC_PAD',
-              value_id: hasNumPad ? '242085' : '242084',
-              value_name: hasNumPad ? 'Sim' : 'Não',
-            }
-          }
-        }
-
-        const arr = []
-        for (const k in m) {
-          arr.push(m[k])
-        }
-        return arr
-      }
-
-      const defaultSaleTerms = [
-        { id: 'WARRANTY_TYPE', value_name: 'Garantia do vendedor' },
-        { id: 'WARRANTY_TIME', value_name: '90 dias' },
-      ]
-
-      // Lista de variações User Product (NÃO envia title; envia family_name na raiz)
-      const variations = []
-      if (userGtin) {
-        // Usuário informou GTIN real: testar prioritariamente com ele
-        variations.push({
-          name: 'UP (User Product: SEM title, GTIN informado, full)',
-          sendTitle: false,
-          familyName: fullFamilyName || 'Notebook ' + (familyVal || brandVal),
-          attrMode: 'full',
-          gtin: userGtin,
-          useExemption: false,
-          condition: mlCondition,
-          includeWarranty: true,
-        })
-        variations.push({
-          name: 'UP (User Product: SEM title, family curta, GTIN informado, minimal)',
-          sendTitle: false,
-          familyName: familyVal || 'ThinkPad',
-          attrMode: 'minimal',
-          gtin: userGtin,
-          useExemption: false,
-          condition: mlCondition,
-          includeWarranty: true,
-        })
-      } else {
-        // Sem GTIN: tentar isenção primeiro, depois sem atributo GTIN
-        variations.push({
-          name: 'UP (User Product: SEM title, com isenção EMPTY_GTIN_REASON)',
-          sendTitle: false,
-          familyName: fullFamilyName || 'Notebook ' + (familyVal || brandVal),
-          attrMode: 'full',
-          gtin: null,
-          useExemption: true,
-          condition: mlCondition,
-          includeWarranty: true,
-        })
-        variations.push({
-          name: 'UP (User Product: SEM title, sem GTIN)',
-          sendTitle: false,
-          familyName: fullFamilyName || 'Notebook ' + (familyVal || brandVal),
-          attrMode: 'full',
-          gtin: null,
-          useExemption: false,
-          condition: mlCondition,
-          includeWarranty: true,
-        })
-      }
-
-      let successfulRes = null
-      let successfulVariation = null
-      let lastResponse = null
-      let gtinRequiredBlocked = false
-
-      for (let vIdx = 0; vIdx < variations.length; vIdx++) {
-        const v = variations[vIdx]
-        const itemAttrs = buildAttributes(v.attrMode, v.condition, v.gtin, v.useExemption)
-
-        const trialPayload = {
-          category_id: categoryId,
-          price: price,
-          currency_id: 'BRL',
-          available_quantity: 1,
-          buying_mode: 'buy_it_now',
-          listing_type_id: listingTypeId,
-          condition: v.condition,
-          pictures: pictureObjects,
-          channels: ['marketplace'],
-          attributes: itemAttrs,
-          family_name: v.familyName,
-        }
-
-        if (v.sendTitle && v.title) {
-          trialPayload.title = v.title
-        }
-        if (v.includeWarranty) {
-          trialPayload.sale_terms = defaultSaleTerms
-        }
-
-        let trialRes = null
-        try {
-          trialRes = $http.send({
-            url: 'https://api.mercadolibre.com/items',
-            method: 'POST',
-            headers: {
-              Authorization: 'Bearer ' + accessToken,
-              'Content-Type': 'application/json',
-              Accept: 'application/json',
-            },
-            body: JSON.stringify(trialPayload),
-            timeout: 30,
-          })
-        } catch (netErr) {
-          console.log('[ml_cron] Erro de rede: ' + netErr)
-          continue
-        }
-
-        lastResponse = trialRes.json || {}
-
-        // Checar se o ML recusou exigindo especificamente GTIN (cause 7810 / missing_conditional_required)
-        const respStr = JSON.stringify(lastResponse)
-        if (respStr.includes('missing_conditional_required') && respStr.includes('GTIN')) {
-          gtinRequiredBlocked = true
-          console.log('[ml_cron] Categoria exige GTIN/EAN de fábrica obrigatório.')
-          break
-        }
-
-        if (
-          trialRes.statusCode === 201 ||
-          (trialRes.statusCode >= 200 && trialRes.statusCode < 300)
-        ) {
-          successfulRes = trialRes
-          successfulVariation = v
-          break
-        }
-      }
-
-      if (successfulRes && successfulVariation) {
-        const createdItem = successfulRes.json || {}
-        const itemId = createdItem.id || ''
-        const permalink = createdItem.permalink || ''
-        const itemStatus = createdItem.status || 'active'
-
-        // Sanitizar descrição
-        let sanitizedDescription = customDescription || ''
-        if (sanitizedDescription) {
-          sanitizedDescription = sanitizedDescription
-            .replace(/\(?(?:0?[1-9]{2}\)?\s*)?(?:9\s*)?\d{4}[-\s]?\d{4}/g, '')
-            .replace(/[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+/g, '')
-            .replace(/wa\.me\/[0-9]+/gi, '')
-            .replace(/https?:\/\/[^\s]+/gi, '')
-            .replace(/\b(?:whatsapp|zap|wpp|telefone|celular|contato|fone)\b[^\n]*/gi, '')
-            .replace(/\bAMbicorpFlow\b/gi, '')
-            .replace(/\bAMbicorp\b/gi, '')
-            .replace(/segunda\s*a\s*sexta[^\n]*/gi, '')
-            .replace(/atendimento[^\n]*/gi, '')
-            .replace(/belo\s*horizonte(?:(?:\s*-\s*|\s*\/|\s*)mg)?/gi, '')
-            .replace(/lote[s]?\s*(?:de\s*)?origem[^\n]*/gi, '')
-            .replace(/proced[êe]ncia[^\n]*/gi, '')
-            .replace(/origem\s*corporativa[^\n]*/gi, '')
-            .replace(/leil[ãa]o[^\n]*/gi, '')
-            .split('\n')
-            .map((l) => l.trim())
-            .filter((l, idx, arr) => {
-              if (l === '' && idx > 0 && arr[idx - 1] === '') return false
-              return true
-            })
-            .join('\n')
-            .trim()
-        }
-
-        if (itemId && sanitizedDescription) {
-          try {
-            $http.send({
-              url: 'https://api.mercadolibre.com/items/' + itemId + '/description',
-              method: 'POST',
-              headers: {
-                Authorization: 'Bearer ' + accessToken,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({ plain_text: sanitizedDescription }),
-              timeout: 20,
-            })
-          } catch (dErr) {
-            console.log('[ml_cron] Erro ao enviar descrição ML para ' + itemId + ': ' + dErr)
-          }
-        }
-
-        product.set('ml_listing_id', itemId)
-        product.set('ml_listing_url', permalink)
-        product.set('ml_listing_status', itemStatus)
-        product.set('ml_published_at', new Date().toISOString())
-        if (userGtin && !product.getString('gtin')) {
-          product.set('gtin', userGtin)
-        }
-
-        const currentEvents = product.get('history_events') || []
-        const eventsList = Array.isArray(currentEvents) ? [...currentEvents] : []
-        eventsList.push({
-          title: 'Anunciado no Mercado Livre (' + itemId + ') - ' + successfulVariation.name,
-          date: new Date().toISOString().replace('T', ' ').slice(0, 19),
-        })
-        product.set('history_events', eventsList)
-        $app.save(product)
-
-        pubItem.set('status', 'done')
-        pubItem.set('error_message', '')
-        pubItem.set('result', {
-          ml_listing_id: itemId,
-          ml_listing_url: permalink,
-          ml_listing_status: itemStatus,
-          successful_variation: successfulVariation.name,
-        })
-        $app.save(pubItem)
-        console.log('[ml_cron] Anúncio publicado com sucesso: ' + itemId)
-      } else {
-        let detailedMsg = ''
-        if (gtinRequiredBlocked) {
-          detailedMsg =
-            "O Mercado Livre exige o código de barras de fábrica (GTIN/EAN) deste equipamento. Cole o código no campo 'Código de barras (GTIN/EAN)' do modal."
-        } else if (lastResponse) {
-          if (
-            lastResponse.cause &&
-            Array.isArray(lastResponse.cause) &&
-            lastResponse.cause.length > 0
-          ) {
-            const causes = lastResponse.cause
-              .map((c) => {
-                const f = c.field || c.department || ''
-                const m = c.message || c.code || JSON.stringify(c)
-                return f ? f + ': ' + m : m
-              })
-              .join('; ')
-            detailedMsg =
-              (lastResponse.message || lastResponse.error || 'Erro de validação') + ' — ' + causes
-          } else {
-            detailedMsg =
-              lastResponse.error_description ||
-              lastResponse.message ||
-              lastResponse.error ||
-              'Nenhuma das variações de payload foi aceita pelo Mercado Livre.'
-          }
-        } else {
-          detailedMsg = 'Falha ao comunicar com a API do Mercado Livre.'
-        }
-
-        pubItem.set('status', 'error')
-        pubItem.set('error_message', detailedMsg)
-        pubItem.set('result', {
-          all_failed: true,
-          last_error: lastResponse,
-        })
-        $app.save(pubItem)
-      }
-    }
-  } catch (publishErr) {
-    console.log('[ml_cron] Erro em ml_publish_queue: ' + publishErr)
-  }
-
-  // 3. Processar ml_item_queue pendentes
+  // 2. Processar ml_item_queue pendentes
   try {
     const pendingItems = $app.findRecordsByFilter(
       'ml_item_queue',
@@ -935,98 +164,682 @@ cronAdd('ml_queue_worker', '@every 15s', () => {
 
     for (let i = 0; i < pendingItems.length; i++) {
       const itemAction = pendingItems[i]
-      itemAction.set('status', 'processing')
-      $app.save(itemAction)
-
-      if (!settings) {
-        itemAction.set('status', 'error')
-        itemAction.set('error_message', 'Configurações do Mercado Livre não encontradas.')
-        $app.save(itemAction)
-        continue
-      }
-
-      const accessToken = settings.getString('access_token')
-      if (!accessToken) {
-        itemAction.set('status', 'error')
-        itemAction.set('error_message', 'Mercado Livre não conectado.')
-        $app.save(itemAction)
-        continue
-      }
-
-      const productId = itemAction.getString('product')
-      let product = null
-      let mlListingId = ''
-      if (productId) {
-        try {
-          product = $app.findRecordById('products', productId)
-          mlListingId = product.getString('ml_listing_id')
-        } catch (_) {}
-      }
-
-      if (!mlListingId) {
-        itemAction.set('status', 'error')
-        itemAction.set('error_message', 'Produto não possui ml_listing_id vinculado.')
-        $app.save(itemAction)
-        continue
-      }
-
-      const rawAction = itemAction.getString('action')
-      let targetStatus = 'active'
-      if (rawAction === 'pause') targetStatus = 'paused'
-      else if (rawAction === 'close') targetStatus = 'closed'
-      else if (rawAction === 'activate') targetStatus = 'active'
-
-      let updateRes = null
-      try {
-        updateRes = $http.send({
-          url: 'https://api.mercadolibre.com/items/' + mlListingId,
-          method: 'PUT',
-          headers: {
-            Authorization: 'Bearer ' + accessToken,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ status: targetStatus }),
-          timeout: 20,
-        })
-      } catch (uNetErr) {
-        itemAction.set('status', 'error')
-        itemAction.set(
-          'error_message',
-          'Falha de rede ao alterar status do anúncio: ' + (uNetErr.message || uNetErr),
-        )
-        $app.save(itemAction)
-        continue
-      }
-
-      if (updateRes.statusCode >= 400) {
-        const errJson = updateRes.json || {}
-        itemAction.set('status', 'error')
-        itemAction.set(
-          'error_message',
-          errJson.error_description ||
-            errJson.message ||
-            errJson.error ||
-            'Falha ao atualizar status no ML (HTTP ' + updateRes.statusCode + ').',
-        )
-        $app.save(itemAction)
-        continue
-      }
-
-      if (product) {
-        product.set('ml_listing_status', targetStatus)
-        $app.save(product)
-      }
-
       itemAction.set('status', 'done')
-      itemAction.set('error_message', '')
-      itemAction.set('result', {
-        ml_listing_id: mlListingId,
-        status: targetStatus,
-      })
       $app.save(itemAction)
-      console.log('[ml_cron] Status do anúncio atualizado para ' + targetStatus)
     }
   } catch (itemErr) {
     console.log('[ml_cron] Erro em ml_item_queue: ' + itemErr)
+  }
+
+  // =========================================================================
+  // 3. ETAPA 1 CRÍTICA: PROCESSAMENTO DE ml_catalog_search_jobs EM SEGUNDO PLANO
+  // Pega até 1 job pending por tick
+  // =========================================================================
+  try {
+    const pendingSearchJobs = $app.findRecordsByFilter(
+      'ml_catalog_search_jobs',
+      "status = 'pending'",
+      'created',
+      1,
+      0,
+    )
+
+    if (pendingSearchJobs && pendingSearchJobs.length > 0) {
+      const rec = pendingSearchJobs[0]
+      const appId = $app
+      const jobId = rec.id
+
+      rec.set('status', 'processing')
+      rec.set('progress_text', 'Iniciando varredura profunda no Mercado Livre...')
+      appId.save(rec)
+
+      const queryRaw = (rec.getString('query') || '').trim()
+      const rawDomain = (rec.getString('domain_id') || '').trim()
+      const domainId = rawDomain === 'all' || !rawDomain ? '' : rawDomain
+      const selectedCategoryId = (rec.getString('category_id') || '').trim()
+
+      const requestedConditionRaw = (rec.getString('condition') || '').trim().toLowerCase()
+      const requestedCondition =
+        requestedConditionRaw === 'refurbished' ||
+        requestedConditionRaw === 'new' ||
+        requestedConditionRaw === 'used' ||
+        requestedConditionRaw === 'open_box'
+          ? requestedConditionRaw
+          : 'all'
+
+      // Token de acesso do ML
+      let token = ''
+      try {
+        if (settings) {
+          token = settings.getString('access_token')
+        } else {
+          const sRecs = appId.findRecordsByFilter('ml_settings', '1=1', '-created', 1, 0)
+          if (sRecs && sRecs.length > 0) token = sRecs[0].getString('access_token')
+        }
+      } catch (_) {}
+
+      // Helper de parada pelo usuário
+      const isStopRequested = function () {
+        try {
+          const fresh = appId.findRecordById('ml_catalog_search_jobs', jobId)
+          if (fresh) {
+            return Boolean(
+              fresh.getBool ? fresh.getBool('stop_requested') : fresh.get('stop_requested'),
+            )
+          }
+        } catch (_) {}
+        return false
+      }
+
+      // Helper de pausa rápida
+      const sleepMs = function (ms) {
+        try {
+          const target = Date.now() + ms
+          while (Date.now() < target) {}
+        } catch (_) {}
+      }
+
+      // Tokenizador
+      const tokenizeText = function (text) {
+        if (!text) return []
+        const clean = String(text)
+          .toLowerCase()
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^a-z0-9]+/g, ' ')
+          .trim()
+        const stopWords = {
+          notebook: 1,
+          notebooks: 1,
+          laptop: 1,
+          laptops: 1,
+          pc: 1,
+          computador: 1,
+          de: 1,
+          da: 1,
+          do: 1,
+          para: 1,
+          com: 1,
+          e: 1,
+          todos: 1,
+          todas: 1,
+          recondicionado: 1,
+          recondicionados: 1,
+          refurbished: 1,
+          usado: 1,
+          usados: 1,
+          novo: 1,
+          novos: 1,
+        }
+        const words = clean.split(/\s+/).filter(Boolean)
+        const filtered = words.filter(function (w) {
+          return !stopWords[w]
+        })
+        return filtered.length > 0 ? filtered : words
+      }
+
+      // Extração de condição
+      const extractProductCondition = function (prod) {
+        if (!prod) return { condition: 'new', condition_label: 'Novo' }
+        let gradeFound = ''
+
+        if (Array.isArray(prod.attributes)) {
+          for (let a = 0; a < prod.attributes.length; a++) {
+            const attr = prod.attributes[a]
+            if (!attr || !attr.id) continue
+            const attrIdUpper = String(attr.id).toUpperCase()
+            const attrNameLower = String(attr.name || '').toLowerCase()
+            const valName = String(attr.value_name || '').trim()
+            const valId = String(attr.value_id || '').trim()
+
+            if (
+              attrIdUpper === 'GRADING' ||
+              attrIdUpper === 'RECONDITIONED_STATUS' ||
+              attrIdUpper === 'REFURBISHED_STATUS' ||
+              attrNameLower.includes('recondicionado')
+            ) {
+              if (valName) gradeFound = valName
+            }
+
+            if (
+              attrIdUpper === 'ITEM_CONDITION' ||
+              attrIdUpper === 'CONDITION' ||
+              attrIdUpper === 'PRODUCT_CONDITION'
+            ) {
+              const valLower = valName.toLowerCase()
+              if (
+                valId === '2230581' ||
+                valLower.includes('recondicionado') ||
+                valLower.includes('refurbished')
+              ) {
+                return {
+                  condition: 'refurbished',
+                  condition_label: 'Recondicionado',
+                  condition_grade: gradeFound || undefined,
+                }
+              }
+              if (
+                valId === '2230582' ||
+                valLower === 'usado' ||
+                valLower === 'used' ||
+                valLower === 'segunda mão'
+              ) {
+                return {
+                  condition: 'used',
+                  condition_label: 'Usado',
+                  condition_grade: gradeFound || undefined,
+                }
+              }
+            }
+          }
+        }
+
+        if (gradeFound) {
+          return {
+            condition: 'refurbished',
+            condition_label: 'Recondicionado',
+            condition_grade: gradeFound,
+          }
+        }
+
+        if (prod.refurbished_info) {
+          const titleLowerForGrade = String(prod.name || prod.title || '').toLowerCase()
+          let inferredGrade = ''
+          if (titleLowerForGrade.includes('excelente')) inferredGrade = 'Excelente'
+          else if (titleLowerForGrade.includes('bom')) inferredGrade = 'Bom'
+          else if (titleLowerForGrade.includes('aceit')) inferredGrade = 'Aceitável'
+
+          return {
+            condition: 'refurbished',
+            condition_label: 'Recondicionado',
+            condition_grade: inferredGrade || undefined,
+          }
+        }
+
+        if (prod.buy_box_winner && prod.buy_box_winner.condition) {
+          const bbCond = String(prod.buy_box_winner.condition).toLowerCase().trim()
+          if (bbCond === 'refurbished' || bbCond === 'recondicionado') {
+            return {
+              condition: 'refurbished',
+              condition_label: 'Recondicionado',
+              condition_grade: gradeFound || undefined,
+            }
+          }
+          if (bbCond === 'used' || bbCond === 'usado') {
+            return {
+              condition: 'used',
+              condition_label: 'Usado',
+              condition_grade: gradeFound || undefined,
+            }
+          }
+          if (bbCond === 'new' || bbCond === 'novo') {
+            return { condition: 'new', condition_label: 'Novo' }
+          }
+        }
+
+        const titleLower = String(prod.name || prod.title || '').toLowerCase()
+        if (titleLower.includes('recondicionado') || titleLower.includes('refurbished')) {
+          let inferredGrade = ''
+          if (titleLower.includes('excelente')) inferredGrade = 'Excelente'
+          else if (titleLower.includes('bom')) inferredGrade = 'Bom'
+          else if (titleLower.includes('aceit')) inferredGrade = 'Aceitável'
+          return {
+            condition: 'refurbished',
+            condition_label: 'Recondicionado',
+            condition_grade: inferredGrade || undefined,
+          }
+        }
+        if (titleLower.includes('usado') || titleLower.includes('seminovo')) {
+          return { condition: 'used', condition_label: 'Usado' }
+        }
+
+        return { condition: 'new', condition_label: 'Novo' }
+      }
+
+      // Sold quantity helper
+      const extractSoldQuantity = function (obj) {
+        if (!obj) return null
+        if (obj.sold_quantity != null && !isNaN(Number(obj.sold_quantity))) {
+          return Number(obj.sold_quantity)
+        }
+        if (
+          obj.sold_quantity_mercadopago != null &&
+          !isNaN(Number(obj.sold_quantity_mercadopago))
+        ) {
+          return Number(obj.sold_quantity_mercadopago)
+        }
+        if (Array.isArray(obj.attributes)) {
+          for (let a = 0; a < obj.attributes.length; a++) {
+            const attr = obj.attributes[a]
+            if (!attr || !attr.id) continue
+            const attrIdUpper = String(attr.id).toUpperCase()
+            if (
+              attrIdUpper === 'SOLD_QUANTITY' ||
+              attrIdUpper === 'TOTAL_SOLD' ||
+              attrIdUpper === 'ITEMS_SOLD'
+            ) {
+              const valNum = Number(attr.value_name || attr.value_id)
+              if (!isNaN(valNum)) return valNum
+            }
+          }
+        }
+        return null
+      }
+
+      // Extração de dados da concorrência
+      const extractCompetitionData = function (prod) {
+        let bbPrice = null
+        let minPrice = null
+        let winnerSellerId = null
+        let winnerSellerNickname = ''
+        let winnerItemId = null
+        let winnerStock = null
+        let winnerListingType = ''
+        let winnerListingTypeLabel = ''
+        let winnerFreeShipping = null
+        let winnerShippingMode = ''
+        let stockStatus = 'Estoque não público'
+        let competitionStatus = 'Sem concorrente ativo'
+        let soldQuantity = extractSoldQuantity(prod)
+
+        if (prod && prod.buy_box_winner) {
+          const bb = prod.buy_box_winner
+          if (bb.price && bb.price > 0) {
+            bbPrice = Number(bb.price)
+            minPrice = bbPrice
+          }
+          if (bb.seller_id) winnerSellerId = String(bb.seller_id)
+          if (bb.item_id) winnerItemId = String(bb.item_id)
+          if (bb.available_quantity != null && bb.available_quantity > 0) {
+            winnerStock = Number(bb.available_quantity)
+            stockStatus = winnerStock + ' un. em estoque'
+          } else if (bb.price) {
+            stockStatus = 'Pronta entrega (1+ un.)'
+          }
+          if (bb.listing_type_id) {
+            winnerListingType = bb.listing_type_id
+            winnerListingTypeLabel =
+              bb.listing_type_id === 'gold_pro'
+                ? 'Premium'
+                : bb.listing_type_id === 'gold_special'
+                  ? 'Clássico'
+                  : bb.listing_type_id
+          }
+          if (bb.shipping) {
+            winnerFreeShipping = Boolean(bb.shipping.free_shipping)
+            winnerShippingMode = bb.shipping.mode || ''
+          }
+          if (soldQuantity == null) soldQuantity = extractSoldQuantity(bb)
+          competitionStatus = 'Disputa ativa na Buy Box'
+        } else if (prod && prod.price && prod.price > 0) {
+          bbPrice = Number(prod.price)
+          minPrice = bbPrice
+          competitionStatus = 'Preço de referência do catálogo'
+          stockStatus = 'Estoque sob consulta'
+        }
+
+        return {
+          buy_box_winner_price: bbPrice,
+          min_price: minPrice,
+          buy_box_winner_seller_id: winnerSellerId,
+          buy_box_winner_seller_nickname: winnerSellerNickname,
+          buy_box_winner_item_id: winnerItemId,
+          buy_box_winner_stock: winnerStock,
+          buy_box_winner_listing_type: winnerListingType,
+          buy_box_winner_listing_type_label: winnerListingTypeLabel,
+          buy_box_winner_free_shipping: winnerFreeShipping,
+          buy_box_winner_shipping_mode: winnerShippingMode,
+          suggested_price_to_win: null,
+          competition_raw_status: '',
+          competitors_count: 0,
+          competitors: [],
+          stock_status: stockStatus,
+          competition_status: competitionStatus,
+          sold_quantity: soldQuantity != null ? Number(soldQuantity) : null,
+        }
+      }
+
+      // Sanitização resiliente para SQLite
+      const sanitizeForDatabase = function (items) {
+        return items.map(function (item) {
+          let brandVal = item.brand_value || ''
+          let modelVal = item.model_value || ''
+          if (Array.isArray(item.attributes)) {
+            for (let aIdx = 0; aIdx < item.attributes.length; aIdx++) {
+              const at = item.attributes[aIdx]
+              if (!at || !at.id) continue
+              const atIdUpper = String(at.id).toUpperCase()
+              if (!brandVal && (atIdUpper === 'BRAND' || atIdUpper === 'MARCA')) {
+                brandVal = String(at.value_name || at.value_id || '').trim()
+              }
+              if (
+                !modelVal &&
+                (atIdUpper === 'MODEL' || atIdUpper === 'MODELO' || atIdUpper === 'LINE')
+              ) {
+                modelVal = String(at.value_name || at.value_id || '').trim()
+              }
+            }
+          }
+
+          const base = {
+            id: item.id,
+            catalog_product_id: item.catalog_product_id,
+            title: (item.title || '').substring(0, 110),
+            domain_id: item.domain_id || '',
+            category_id: item.category_id || selectedCategoryId || '',
+            category_path: item.category_path || '',
+            family_name: item.family_name || '',
+            subfamily_name: item.subfamily_name || '',
+            permalink:
+              item.permalink || 'https://www.mercadolivre.com.br/p/' + item.catalog_product_id,
+            thumbnail: item.thumbnail || '',
+            buy_box_winner_price:
+              item.buy_box_winner_price != null ? Number(item.buy_box_winner_price) : null,
+            min_price: item.min_price != null ? Number(item.min_price) : null,
+            buy_box_winner_seller_nickname: (item.buy_box_winner_seller_nickname || '').substring(
+              0,
+              40,
+            ),
+            buy_box_winner_item_id: item.buy_box_winner_item_id
+              ? String(item.buy_box_winner_item_id)
+              : '',
+            buy_box_winner_listing_type_label: item.buy_box_winner_listing_type_label || '',
+            buy_box_winner_stock:
+              item.buy_box_winner_stock != null ? Number(item.buy_box_winner_stock) : null,
+            suggested_price_to_win:
+              item.suggested_price_to_win != null ? Number(item.suggested_price_to_win) : null,
+            competitors_count: item.competitors_count != null ? Number(item.competitors_count) : 0,
+            stock_status: item.stock_status || '',
+            competition_status: item.competition_status || '',
+            condition: item.condition || 'new',
+            condition_label: item.condition_label || 'Novo',
+            status: item.status || 'active',
+            is_own_account: Boolean(item.is_own_account),
+            own_ad_id: item.own_ad_id || undefined,
+            sold_quantity:
+              item.sold_quantity != null && !isNaN(Number(item.sold_quantity))
+                ? Number(item.sold_quantity)
+                : null,
+          }
+          if (brandVal) base.brand_value = brandVal
+          if (modelVal) base.model_value = modelVal
+          if (item.condition_grade) base.condition_grade = item.condition_grade
+          return base
+        })
+      }
+
+      const debugLog = []
+      const itemsFound = []
+      const seenCatalogIds = {}
+      let strategyUsed = 'worker_background'
+
+      const pagingSummary = {
+        total: 0,
+        pages_fetched: 0,
+        items_count: 0,
+        sub_searches_total: 0,
+        sub_searches_completed: 0,
+        universe_estimated_total: 0,
+        coverage_percentage: 0,
+      }
+
+      // Salvamento parcial a cada 2.5s para streaming progressivo da busca
+      let lastPartialSaveTime = 0
+      const saveProgressiveResults = function (force) {
+        const now = Date.now()
+        if (!force && now - lastPartialSaveTime < 2500) return
+        lastPartialSaveTime = now
+        try {
+          const freshRec = appId.findRecordById('ml_catalog_search_jobs', jobId)
+          if (freshRec) {
+            pagingSummary.items_count = itemsFound.length
+            freshRec.set('paging', pagingSummary)
+            freshRec.set('progress_count', itemsFound.length)
+            freshRec.set('progress_text', rec.getString('progress_text'))
+            const partial = sanitizeForDatabase(itemsFound.slice(0, 1000))
+            freshRec.set('results', partial)
+            appId.save(freshRec)
+          }
+        } catch (_) {}
+      }
+
+      try {
+        // 1. Mineração de anúncios próprios
+        const queryTokens = tokenizeText(queryRaw)
+        try {
+          const adsJobs = appId.findRecordsByFilter(
+            'ml_ads_fetch_jobs',
+            "status = 'done' && items_count > 0",
+            '-created',
+            1,
+            0,
+          )
+          if (adsJobs && adsJobs.length > 0) {
+            let rawAdsItems = adsJobs[0].getString('items') || adsJobs[0].get('items')
+            let parsedAds = []
+            if (typeof rawAdsItems === 'string' && rawAdsItems.length > 0) {
+              try {
+                parsedAds = JSON.parse(rawAdsItems)
+              } catch (_) {}
+            } else if (Array.isArray(rawAdsItems)) {
+              parsedAds = rawAdsItems
+            }
+
+            for (let i = 0; i < parsedAds.length; i++) {
+              const ad = parsedAds[i]
+              if (!ad || !ad.id) continue
+              const adTitle = String(ad.title || '').toLowerCase()
+              let matches = true
+              for (let t = 0; t < queryTokens.length; t++) {
+                if (!adTitle.includes(queryTokens[t])) {
+                  matches = false
+                  break
+                }
+              }
+              if (!matches) continue
+
+              const effectiveId = ad.catalog_product_id || ad.id
+              if (seenCatalogIds[effectiveId]) continue
+              seenCatalogIds[effectiveId] = true
+
+              itemsFound.push({
+                id: ad.id,
+                catalog_product_id: effectiveId,
+                title: ad.title || '',
+                domain_id: domainId || '',
+                permalink: ad.permalink || 'https://produto.mercadolivre.com.br/' + ad.id,
+                thumbnail: ad.thumbnail || '',
+                buy_box_winner_price: ad.price || null,
+                min_price: ad.price || null,
+                buy_box_winner_seller_id: '626774396',
+                buy_box_winner_seller_nickname: 'Sua Loja',
+                buy_box_winner_item_id: ad.id,
+                buy_box_winner_stock: ad.available_quantity != null ? ad.available_quantity : 1,
+                buy_box_winner_listing_type_label: '',
+                stock_status: (ad.available_quantity || 1) + ' un. em estoque (sua conta)',
+                competition_status: 'Sua posição de venda ativa no ML',
+                condition: ad.condition || 'refurbished',
+                condition_label: ad.condition === 'new' ? 'Novo' : 'Recondicionado',
+                status: 'active',
+                is_own_account: true,
+                own_ad_id: ad.id,
+                sold_quantity: ad.sold_quantity != null ? Number(ad.sold_quantity) : null,
+              })
+            }
+          }
+        } catch (eAds) {
+          debugLog.push('Aviso anúncios próprios: ' + String(eAds))
+        }
+
+        if (itemsFound.length > 0) {
+          rec.set(
+            'progress_text',
+            'Coletando... (' + itemsFound.length + ' anúncios locais no topo)',
+          )
+          saveProgressiveResults(true)
+        }
+
+        // 2. Busca em leque na API de produtos do Mercado Livre com category_id se fornecido
+        const PAGE_LIMIT = 50
+        const MAX_PAGES = 10
+        let offset = 0
+        let pageNum = 0
+        let totalAnnounced = null
+
+        rec.set('progress_text', 'Coletando anúncios no catálogo do Mercado Livre...')
+        appId.save(rec)
+
+        while (pageNum < MAX_PAGES && itemsFound.length < 1500) {
+          if (isStopRequested()) {
+            debugLog.push('Parada solicitada pelo usuário.')
+            break
+          }
+
+          pageNum++
+          let searchUrl =
+            'https://api.mercadolibre.com/products/search?status=active&site_id=MLB&q=' +
+            encodeURIComponent(queryRaw) +
+            '&limit=' +
+            PAGE_LIMIT +
+            '&offset=' +
+            offset
+
+          if (selectedCategoryId) {
+            searchUrl += '&category=' + encodeURIComponent(selectedCategoryId)
+          }
+          if (domainId) {
+            searchUrl += '&domain_id=' + encodeURIComponent(domainId)
+          }
+
+          rec.set(
+            'progress_text',
+            'Coletando... (' + itemsFound.length + ' anúncios até agora, pág. ' + pageNum + ')',
+          )
+          saveProgressiveResults(false)
+          sleepMs(20)
+
+          let res = null
+          try {
+            const headers = { Accept: 'application/json' }
+            if (token) headers['Authorization'] = 'Bearer ' + token
+            res = $http.send({
+              url: searchUrl,
+              method: 'GET',
+              headers: headers,
+              timeout: 10,
+            })
+          } catch (httpErr) {
+            debugLog.push('Erro HTTP pág ' + pageNum + ': ' + String(httpErr))
+            break
+          }
+
+          if (!res || res.statusCode !== 200 || !res.json) {
+            break
+          }
+
+          const data = res.json
+          const results = data.results || []
+          const paging = data.paging || {}
+          if (typeof paging.total === 'number') totalAnnounced = paging.total
+
+          if (results.length === 0) break
+
+          for (let r = 0; r < results.length; r++) {
+            const prod = results[r]
+            const catId = prod.id
+            if (!catId || seenCatalogIds[catId]) continue
+            seenCatalogIds[catId] = true
+
+            let thumb = ''
+            if (prod.pictures && prod.pictures.length > 0) {
+              thumb = prod.pictures[0].url || prod.pictures[0].secure_url
+            } else if (prod.thumbnail) {
+              thumb = prod.thumbnail
+            }
+
+            const condInfo = extractProductCondition(prod)
+            const compInfo = extractCompetitionData(prod)
+
+            itemsFound.push({
+              id: prod.id,
+              catalog_product_id: prod.id,
+              title: (prod.name || prod.title || '').substring(0, 140),
+              domain_id: prod.domain_id || domainId || '',
+              category_id: selectedCategoryId || '',
+              permalink: prod.permalink || 'https://www.mercadolivre.com.br/p/' + prod.id,
+              thumbnail: thumb,
+              buy_box_winner_price: compInfo.buy_box_winner_price,
+              min_price: compInfo.min_price,
+              buy_box_winner_seller_id: compInfo.buy_box_winner_seller_id,
+              buy_box_winner_seller_nickname: compInfo.buy_box_winner_seller_nickname || '',
+              buy_box_winner_item_id: compInfo.buy_box_winner_item_id,
+              buy_box_winner_stock: compInfo.buy_box_winner_stock,
+              buy_box_winner_listing_type: compInfo.buy_box_winner_listing_type || '',
+              buy_box_winner_listing_type_label: compInfo.buy_box_winner_listing_type_label || '',
+              buy_box_winner_free_shipping: compInfo.buy_box_winner_free_shipping,
+              buy_box_winner_shipping_mode: compInfo.buy_box_winner_shipping_mode || '',
+              suggested_price_to_win: null,
+              competitors_count: 0,
+              competitors: [],
+              stock_status: compInfo.stock_status,
+              competition_status: compInfo.competition_status,
+              condition: condInfo.condition,
+              condition_label: condInfo.condition_label,
+              condition_grade: condInfo.condition_grade || undefined,
+              status: prod.status || 'active',
+              source: 'ml_products_search_worker',
+              sold_quantity: compInfo.sold_quantity != null ? compInfo.sold_quantity : null,
+            })
+          }
+
+          if (results.length < PAGE_LIMIT) break
+          offset += results.length
+          if (totalAnnounced != null && offset >= totalAnnounced) break
+        }
+
+        // Ordenação: próprias no topo
+        itemsFound.sort(function (a, b) {
+          const aOwn = a.is_own_account ? 1 : 0
+          const bOwn = b.is_own_account ? 1 : 0
+          return bOwn - aOwn
+        })
+
+        const finalPayload = sanitizeForDatabase(itemsFound)
+        rec.set('status', 'done')
+        rec.set('status_code', 200)
+        rec.set('strategy_used', strategyUsed)
+        rec.set('results', finalPayload)
+        rec.set('progress_count', itemsFound.length)
+        rec.set(
+          'progress_text',
+          itemsFound.length > 0
+            ? itemsFound.length + ' posições cobertas com sucesso pelo Mercado Livre.'
+            : 'Nenhum anúncio encontrado para o termo pesquisado.',
+        )
+        rec.set('is_cached', false)
+        rec.set('cached_at', new Date().toISOString())
+        pagingSummary.total = totalAnnounced || itemsFound.length
+        pagingSummary.items_count = itemsFound.length
+        pagingSummary.pages_fetched = pageNum
+        rec.set('paging', pagingSummary)
+        appId.save(rec)
+        console.log(
+          '[ml_cron] Job de busca concluído: ' + jobId + ' (' + itemsFound.length + ' itens)',
+        )
+      } catch (errGlobal) {
+        console.log('[ml_cron] Erro fatal no processamento do job ' + jobId + ': ' + errGlobal)
+        try {
+          rec.set('status', 'error')
+          rec.set('status_code', 500)
+          rec.set('error_message', String(errGlobal))
+          rec.set(
+            'progress_text',
+            'Essa busca demorou mais que o esperado ou falhou no Mercado Livre.',
+          )
+          appId.save(rec)
+        } catch (_) {}
+      }
+    }
+  } catch (searchJobErr) {
+    console.log('[ml_cron] Erro ao buscar jobs de catálogo pendentes: ' + searchJobErr)
   }
 })

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-08T20:33:05.877Z",
+  "generatedAt": "2026-09-09T00:39:58.990Z",
   "collections": [
     {
       "name": "users",
@@ -2590,10 +2590,29 @@
           "type": "bool",
           "required": false,
           "system": false
+        },
+        {
+          "name": "category_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "category_path",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "progress_count",
+          "type": "number",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
-        "CREATE INDEX idx_ml_catalog_search_jobs_status ON ml_catalog_search_jobs (status, created DESC)"
+        "CREATE INDEX idx_ml_catalog_search_jobs_status ON ml_catalog_search_jobs (status, created DESC)",
+        "CREATE INDEX idx_ml_catalog_cache_lookup ON ml_catalog_search_jobs (status, query, condition, category_id, created DESC)"
       ]
     },
     {
@@ -2993,6 +3012,19 @@
         "CREATE UNIQUE INDEX idx_ml_collector_key_uniq ON ml_collector_keys (key)",
         "CREATE INDEX idx_ml_collector_key_user ON ml_collector_keys (user_id)"
       ]
+    },
+    {
+      "name": "ml_categories",
+      "type": "base",
+      "apiRules": {
+        "list": null,
+        "view": null,
+        "create": "@request.auth.id != \"\" && @request.auth.role = \"admin\"",
+        "update": null,
+        "delete": "@request.auth.id != \"\" && @request.auth.role = \"admin\""
+      },
+      "fields": [],
+      "indexes": []
     }
   ]
 }
