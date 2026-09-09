@@ -34,6 +34,19 @@ export interface MLCategoryNode {
  */
 let cachedCategories: MLCategoryRecord[] | null = null
 
+/**
+ * Lista estática das principais famílias do Mercado Livre Brasil com IDs canônicos MLB
+ * Serve de fallback imediato caso a tabela ainda esteja populando ou offline.
+ */
+export const TOP_ML_FAMILIES: MLCategoryRecord[] = [
+  { id: 'MLB1648', category_id: 'MLB1648', name: 'Informática', level: 1 },
+  { id: 'MLB1051', category_id: 'MLB1051', name: 'Celulares e Telefones', level: 1 },
+  { id: 'MLB1000', category_id: 'MLB1000', name: 'Eletrônicos, Áudio e Vídeo', level: 1 },
+  { id: 'MLB1499', category_id: 'MLB1499', name: 'Indústria e Comércio', level: 1 },
+  { id: 'MLB5726', category_id: 'MLB5726', name: 'Eletrodomésticos', level: 1 },
+  { id: 'MLB1144', category_id: 'MLB1144', name: 'Games', level: 1 },
+]
+
 export const mlCategoriesService = {
   /**
    * Obtém todas as categorias do banco PocketBase
@@ -86,6 +99,57 @@ export const mlCategoriesService = {
       families,
       allRecords: all,
     }
+  },
+
+  /**
+   * Obtém as famílias principais (nível 1)
+   */
+  async getTopFamilies(): Promise<MLCategoryRecord[]> {
+    const all = await this.getAll()
+    const top = all.filter((c) => !c.level || c.level === 1 || !c.parent_id)
+    return top.length > 0 ? top : TOP_ML_FAMILIES
+  },
+
+  /**
+   * Obtém sub-famílias (nível 2) de uma família pai
+   */
+  async getSubfamilies(parentCategoryId: string): Promise<MLCategoryRecord[]> {
+    if (!parentCategoryId) return []
+    const all = await this.getAll()
+    return all.filter(
+      (c) =>
+        (c.family_id === parentCategoryId || c.parent_id === parentCategoryId) &&
+        c.category_id !== parentCategoryId,
+    )
+  },
+
+  /**
+   * Obtém categorias folhas ou filhas de uma subfamília
+   */
+  async getLeafCategories(subfamilyCategoryId: string): Promise<MLCategoryRecord[]> {
+    if (!subfamilyCategoryId) return []
+    const all = await this.getAll()
+    return all.filter(
+      (c) =>
+        (c.parent_id === subfamilyCategoryId || c.subfamily_id === subfamilyCategoryId) &&
+        c.category_id !== subfamilyCategoryId,
+    )
+  },
+
+  /**
+   * Busca categorias por texto no nome ou full_path
+   */
+  async searchCategories(query: string, limit = 20): Promise<MLCategoryRecord[]> {
+    if (!query || !query.trim()) return []
+    const clean = query.trim().toLowerCase()
+    const all = await this.getAll()
+    const matches = all.filter(
+      (c) =>
+        (c.name && c.name.toLowerCase().includes(clean)) ||
+        (c.full_path && c.full_path.toLowerCase().includes(clean)) ||
+        c.category_id.toLowerCase().includes(clean),
+    )
+    return matches.slice(0, limit)
   },
 
   /**

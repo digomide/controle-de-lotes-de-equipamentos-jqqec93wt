@@ -447,7 +447,7 @@ export const mlCatalogService = {
   }> {
     try {
       const res = await pb.send(
-        `/api/ml/catalog-competition/${encodeURIComponent(catalogProductId)}`,
+        `/backend/v1/ml/catalog-competition/${encodeURIComponent(catalogProductId)}`,
         {
           method: 'GET',
         },

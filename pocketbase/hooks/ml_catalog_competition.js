@@ -3,11 +3,13 @@
 // Permite que o frontend consulte ou atualize sob demanda a lista de concorrentes,
 // com nicknames dos vendedores, preços, estoques e status de Buy Box.
 
-routerAdd('GET', '/api/ml/catalog-competition/{catalog_product_id}', (e) => {
+routerAdd('GET', '/backend/v1/ml/catalog-competition/{catalog_product_id}', (e) => {
   let catId = (e.request.pathValue('catalog_product_id') || '').trim()
   if (!catId) {
     const rawUrl = e.request.url ? e.request.url.path || '' : ''
-    const match = rawUrl.match(/\/api\/ml\/catalog-competition\/([^/?#]+)/)
+    const match = rawUrl.match(
+      /(?:\/backend\/v1\/ml\/catalog-competition|\/api\/ml\/catalog-competition)\/([^/?#]+)/,
+    )
     if (match && match[1]) {
       catId = match[1].trim()
     }
