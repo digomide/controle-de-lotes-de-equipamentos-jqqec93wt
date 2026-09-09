@@ -110,6 +110,16 @@ export default function LoteEntradaDetalhe() {
   const [cloneModalOpen, setCloneModalOpen] = useState(false)
   const [productToClone, setProductToClone] = useState<Product | null>(null)
 
+  // 4. Ativação Rápida de Equipamento (Pendente de ativação -> Disponível com PN)
+  const [activateModalOpen, setActivateModalOpen] = useState(false)
+  const [productToActivate, setProductToActivate] = useState<Product | null>(null)
+  const [activatePartNumber, setActivatePartNumber] = useState('')
+  const [activateSerialNumber, setActivateSerialNumber] = useState('')
+  const [activatingProduct, setActivatingProduct] = useState(false)
+
+  // 5. Filtro de pendentes de ativação
+  const [filterOnlyPending, setFilterOnlyPending] = useState(false)
+
   const loadData = async () => {
     if (!id) return
     try {
@@ -200,6 +210,65 @@ export default function LoteEntradaDetalhe() {
       setCloneModalOpen(true)
     }
   }
+
+  // Handlers para Ativação Rápida
+  const handleOpenActivateModal = (p: Product) => {
+    setProductToActivate(p)
+    setActivatePartNumber(p.part_number || '')
+    setActivateSerialNumber(p.serial_number || '')
+    setActivateModalOpen(true)
+  }
+
+  const handleConfirmActivation = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!productToActivate) return
+    if (!activatePartNumber.trim()) {
+      toast({
+        title: 'Part Number obrigatório',
+        description: 'Informe o Part Number para ativar o equipamento.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setActivatingProduct(true)
+    try {
+      await productsService.update(productToActivate.id, {
+        part_number: activatePartNumber.trim(),
+        serial_number: activateSerialNumber.trim() || undefined,
+        status: 'Disponível',
+      })
+      toast({
+        title: 'Equipamento ativado com sucesso!',
+        description: `${productToActivate.name} agora está Disponível com o Part Number ${activatePartNumber.trim()}.`,
+      })
+      setActivateModalOpen(false)
+      setProductToActivate(null)
+      await loadData()
+    } catch (err: any) {
+      console.error(err)
+      toast({
+        title: 'Erro ao ativar equipamento',
+        description: err?.message || 'Não foi possível salvar o Part Number.',
+        variant: 'destructive',
+      })
+    } finally {
+      setActivatingProduct(false)
+    }
+  }
+
+  // Contagem de pendentes de ativação
+  const pendingActivationCount = useMemo(() => {
+    return products.filter((p) => p.status === 'Pendente de ativação').length
+  }, [products])
+
+  // Produtos filtrados se o filtro de pendentes estiver ativo
+  const displayedProducts = useMemo(() => {
+    if (filterOnlyPending) {
+      return products.filter((p) => p.status === 'Pendente de ativação')
+    }
+    return products
+  }, [products, filterOnlyPending])
 
   // Estimated sales revenue and profit/deficit
   const totalTargetSales = products.reduce((acc, p) => acc + (Number(p.unit_price) || 0), 0)
@@ -758,16 +827,55 @@ export default function LoteEntradaDetalhe() {
       {/* Tabela de Equipamentos Já Inventariados Neste Lote com Seleção Múltipla, Transferência e Clonagem */}
       <div className="space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <h2 className="text-lg font-bold text-slate-900">
               Equipamentos no Lote ({inventoriedCount})
             </h2>
             <Badge variant="outline" className="text-xs">
               {inventoriedCount} / {expectedQty}
             </Badge>
+
+            {/* Chip clicável de pendentes de ativação */}
+            {pendingActivationCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setFilterOnlyPending((prev) => !prev)}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold transition-all border cursor-pointer ${
+                  filterOnlyPending
+                    ? 'bg-amber-500 text-white border-amber-600 shadow-sm ring-2 ring-amber-300'
+                    : 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100'
+                }`}
+                title={
+                  filterOnlyPending
+                    ? 'Clique para ver todos os equipamentos'
+                    : 'Clique para filtrar apenas os equipamentos que aguardam Part Number'
+                }
+              >
+                <span>⚠️</span>
+                <span>
+                  {pendingActivationCount} pendente{pendingActivationCount > 1 ? 's' : ''} de
+                  ativação
+                </span>
+                {filterOnlyPending && (
+                  <span className="ml-1 text-[10px] bg-amber-700 text-white rounded-full px-1.5">
+                    filtro ativo ✕
+                  </span>
+                )}
+              </button>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
+            {filterOnlyPending && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setFilterOnlyPending(false)}
+                className="text-xs text-slate-600 hover:text-slate-900"
+              >
+                Limpar filtro
+              </Button>
+            )}
             <Link to={`/lotes-entrada/${batch.id}/inventariar`}>
               <Button
                 size="sm"
@@ -870,15 +978,18 @@ export default function LoteEntradaDetalhe() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {products.map((p) => {
+                  {displayedProducts.map((p) => {
                     const isSelected = selectedProductIds.includes(p.id)
+                    const isPendingActivation = p.status === 'Pendente de ativação'
                     return (
                       <tr
                         key={p.id}
                         className={`transition-colors ${
                           isSelected
                             ? 'bg-orange-50/50 hover:bg-orange-50/80'
-                            : 'hover:bg-slate-50/80'
+                            : isPendingActivation
+                              ? 'bg-amber-50/40 hover:bg-amber-50/70'
+                              : 'hover:bg-slate-50/80'
                         }`}
                       >
                         <td className="py-3.5 px-3 text-center">
@@ -897,8 +1008,18 @@ export default function LoteEntradaDetalhe() {
                         </td>
 
                         <td className="py-3.5 px-4 font-mono text-xs">
+                          {p.part_number && (
+                            <div className="text-emerald-700 font-semibold flex items-center gap-1">
+                              <span className="text-[10px] text-slate-400 font-sans">PN:</span>
+                              {p.part_number}
+                            </div>
+                          )}
                           <div className="text-slate-800 font-semibold">
-                            {p.serial_number || p.sku}
+                            {p.serial_number ? (
+                              <span>SN: {p.serial_number}</span>
+                            ) : (
+                              <span className="text-slate-500">{p.sku}</span>
+                            )}
                           </div>
                           {p.code && <div className="text-[11px] text-slate-400">{p.code}</div>}
                         </td>
@@ -945,22 +1066,45 @@ export default function LoteEntradaDetalhe() {
                         </td>
 
                         <td className="py-3.5 px-4">
-                          <Badge
-                            variant="outline"
-                            className={`text-xs font-normal border-none ${
-                              p.status === 'Disponível'
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : p.status === 'Reservado'
-                                  ? 'bg-amber-100 text-amber-800'
-                                  : 'bg-slate-200 text-slate-700'
-                            }`}
-                          >
-                            {p.status || 'Disponível'}
-                          </Badge>
+                          {isPendingActivation ? (
+                            <Badge
+                              variant="outline"
+                              className="text-xs font-semibold bg-amber-100 text-amber-900 border-amber-300 gap-1 flex items-center w-fit"
+                            >
+                              <span>⚠️</span>
+                              Pendente de ativação
+                            </Badge>
+                          ) : (
+                            <Badge
+                              variant="outline"
+                              className={`text-xs font-normal border-none ${
+                                p.status === 'Disponível'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : p.status === 'Reservado'
+                                    ? 'bg-amber-100 text-amber-800'
+                                    : 'bg-slate-200 text-slate-700'
+                              }`}
+                            >
+                              {p.status || 'Disponível'}
+                            </Badge>
+                          )}
                         </td>
 
                         <td className="py-3.5 px-4 text-right">
                           <div className="flex items-center justify-end gap-1.5">
+                            {/* Botão de Destaque: Ativar / Inserir PN para pendentes */}
+                            {isPendingActivation && (
+                              <Button
+                                size="sm"
+                                onClick={() => handleOpenActivateModal(p)}
+                                className="h-7 px-2.5 text-xs bg-amber-500 hover:bg-amber-600 text-white font-semibold gap-1 shadow-xs"
+                                title="Inserir Part Number e ativar este notebook"
+                              >
+                                <Sparkles className="w-3 h-3" />
+                                Ativar / Inserir PN
+                              </Button>
+                            )}
+
                             {/* Botão de Clonar Rápido Linha */}
                             <Button
                               variant="ghost"
@@ -984,7 +1128,7 @@ export default function LoteEntradaDetalhe() {
                         </td>
                       </tr>
                     )
-                  })}
+                  })}{' '}
                 </tbody>
               </table>
             </div>
@@ -1193,6 +1337,98 @@ export default function LoteEntradaDetalhe() {
           loadData()
         }}
       />
+
+      {/* 4. MODAL: ATIVAÇÃO RÁPIDA (Inserir Part Number e ativar como Disponível) */}
+      <Dialog open={activateModalOpen} onOpenChange={setActivateModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-slate-900">
+              <span className="text-amber-500 text-lg">⚠️</span>
+              Ativar Equipamento do Lote
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Informe o Part Number exclusivo desta peça física para tirá-la de &quot;Pendente de
+              ativação&quot; e disponibilizá-la para venda.
+            </DialogDescription>
+          </DialogHeader>
+
+          {productToActivate && (
+            <form onSubmit={handleConfirmActivation} className="space-y-4 py-2">
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-1">
+                <div className="font-semibold text-slate-900">{productToActivate.name}</div>
+                <div className="text-slate-500 font-mono">
+                  SKU: <strong>{productToActivate.sku}</strong>
+                  {productToActivate.brand && ` • ${productToActivate.brand}`}
+                  {productToActivate.model && ` ${productToActivate.model}`}
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-slate-700">Part Number (P/N) *</Label>
+                <Input
+                  required
+                  autoFocus
+                  placeholder="Ex: PN-DELL-5320-01"
+                  value={activatePartNumber}
+                  onChange={(e) => setActivatePartNumber(e.target.value.toUpperCase())}
+                  className="font-mono text-xs uppercase"
+                />
+                <p className="text-[11px] text-slate-400">
+                  Identificador de peça do equipamento físico montado/pintado.
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-slate-700">
+                  Número de Série (S/N) (Opcional)
+                </Label>
+                <Input
+                  placeholder="Ex: 8BRXYZ1"
+                  value={activateSerialNumber}
+                  onChange={(e) => setActivateSerialNumber(e.target.value.toUpperCase())}
+                  className="font-mono text-xs uppercase"
+                />
+              </div>
+
+              <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded text-[11px] text-emerald-800 flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>
+                  Ao salvar, o status do notebook mudará automaticamente para{' '}
+                  <strong>Disponível</strong>.
+                </span>
+              </div>
+
+              <DialogFooter className="pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setActivateModalOpen(false)}
+                  disabled={activatingProduct}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={activatingProduct || !activatePartNumber.trim()}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold gap-1.5"
+                >
+                  {activatingProduct ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Ativando...
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      Ativar Equipamento
+                    </>
+                  )}
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

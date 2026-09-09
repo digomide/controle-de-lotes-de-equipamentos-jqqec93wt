@@ -148,6 +148,8 @@ export default function CatalogoDetalhe() {
   const [editName, setEditName] = useState('')
   const [editSku, setEditSku] = useState('')
   const [editCode, setEditCode] = useState('')
+  const [editPartNumber, setEditPartNumber] = useState('')
+  const [editSerialNumber, setEditSerialNumber] = useState('')
   const [editBrand, setEditBrand] = useState('')
   const [editModel, setEditModel] = useState('')
   const [editCategory, setEditCategory] = useState('Notebooks')
@@ -387,6 +389,8 @@ export default function CatalogoDetalhe() {
     setEditName(product.name || '')
     setEditSku(product.sku || '')
     setEditCode(product.code || '')
+    setEditPartNumber(product.part_number || '')
+    setEditSerialNumber(product.serial_number || '')
     setEditBrand(product.brand || 'Dell')
     setEditModel(product.model || '')
     setEditCategory(product.category || 'Notebooks')
@@ -434,10 +438,23 @@ export default function CatalogoDetalhe() {
 
     setSavingEdit(true)
     try {
+      // Se estava 'Pendente de ativação' e recebeu Part Number, ativar automaticamente para 'Disponível'
+      // a menos que o usuário tenha explicitamente escolhido outro status
+      let finalStatus = editStatus
+      if (
+        product.status === 'Pendente de ativação' &&
+        editPartNumber.trim() &&
+        editStatus === 'Pendente de ativação'
+      ) {
+        finalStatus = 'Disponível'
+      }
+
       const updatedProd = await productsService.update(product.id, {
         name: editName,
         sku: editSku,
         code: editCode || editSku,
+        part_number: editPartNumber.trim() || undefined,
+        serial_number: editSerialNumber.trim() || undefined,
         brand: editBrand,
         model: editModel,
         category: editCategory,
@@ -455,7 +472,7 @@ export default function CatalogoDetalhe() {
         gtin: editGtin.trim() || '',
         unit_price: Number(editUnitPrice) || 0,
         cost_price: Number(editCostPrice) || 0,
-        status: editStatus,
+        status: finalStatus,
         description: editDescription,
       })
 
@@ -2107,7 +2124,9 @@ export default function CatalogoDetalhe() {
                 <p className="text-[11px] text-center text-slate-400">
                   {statusVal === 'Disponível'
                     ? 'A Venda Rápida dá baixa imediata no lote físico e atualiza o status para Vendido.'
-                    : 'Este equipamento já não está disponível em estoque físico.'}
+                    : statusVal === 'Pendente de ativação'
+                      ? 'Equipamento pendente de ativação: insira o Part Number antes de vender.'
+                      : 'Este equipamento já não está disponível em estoque físico.'}
                 </p>
               </div>
 
@@ -2277,6 +2296,21 @@ export default function CatalogoDetalhe() {
                     <span className="font-medium text-slate-800 block">
                       {product.includes_charger ? 'Sim (Acompanha)' : 'Não acompanha'}
                     </span>
+                  </div>
+
+                  <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                    <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-semibold">
+                      Part Number (P/N)
+                    </span>
+                    {product.part_number ? (
+                      <span className="font-medium font-mono text-emerald-800 block truncate">
+                        {product.part_number}
+                      </span>
+                    ) : (
+                      <span className="text-amber-600 italic text-[11px] block">
+                        Não cadastrado
+                      </span>
+                    )}
                   </div>
 
                   {product.serial_number && (
@@ -2922,6 +2956,35 @@ export default function CatalogoDetalhe() {
               </div>
 
               <div className="space-y-1">
+                <Label className="text-xs font-semibold text-slate-700">Part Number (P/N)</Label>
+                <Input
+                  placeholder="Ex: PN-DELL-5320-01"
+                  value={editPartNumber}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    setEditPartNumber(val)
+                    // Se o item estava pendente e ganha PN, sugerir Disponível
+                    if (editStatus === 'Pendente de ativação' && val.trim().length > 0) {
+                      setEditStatus('Disponível')
+                    }
+                  }}
+                  className="font-mono text-xs uppercase"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-slate-700">
+                  Número de Série (S/N)
+                </Label>
+                <Input
+                  placeholder="Ex: 8BRXYZ1"
+                  value={editSerialNumber}
+                  onChange={(e) => setEditSerialNumber(e.target.value.toUpperCase())}
+                  className="font-mono text-xs uppercase"
+                />
+              </div>
+
+              <div className="space-y-1">
                 <Label className="text-xs font-semibold text-slate-700">Status</Label>
                 <Select
                   value={editStatus}
@@ -2932,6 +2995,7 @@ export default function CatalogoDetalhe() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Disponível">Disponível</SelectItem>
+                    <SelectItem value="Pendente de ativação">Pendente de ativação</SelectItem>
                     <SelectItem value="Reservado">Reservado</SelectItem>
                     <SelectItem value="Vendido">Vendido</SelectItem>
                   </SelectContent>

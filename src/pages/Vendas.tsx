@@ -706,11 +706,15 @@ export default function Vendas() {
                         <SelectValue placeholder="Selecione o equipamento" />
                       </SelectTrigger>
                       <SelectContent>
-                        {products.map((p) => (
-                          <SelectItem key={p.id} value={p.id}>
-                            {p.name} ({p.sku})
-                          </SelectItem>
-                        ))}
+                        {products.map((p) => {
+                          const isPending = p.status === 'Pendente de ativação'
+                          return (
+                            <SelectItem key={p.id} value={p.id} disabled={isPending}>
+                              {p.name} ({p.sku})
+                              {isPending ? ' — Pendente de ativação — insira o PN' : ''}
+                            </SelectItem>
+                          )
+                        })}
                       </SelectContent>
                     </Select>
                   </div>
