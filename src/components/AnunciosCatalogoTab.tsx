@@ -62,6 +62,12 @@ import {
   isDirectCatalogCodeQuery,
 } from '@/lib/catalogFilter'
 import { CategorySelector } from '@/components/CategorySelector'
+import {
+  formatSellerDisplayName,
+  resolveMissingSellerNames,
+  getCachedSellerNames,
+  isOwnSeller,
+} from '@/utils/sellerNameResolver'
 
 export function AnunciosCatalogoTab() {
   const [query, setQuery] = useState('dell latitude 3420')
@@ -93,6 +99,43 @@ export function AnunciosCatalogoTab() {
   } | null>(null)
   const [currentJobId, setCurrentJobId] = useState<string | null>(null)
   const [stoppingJob, setStoppingJob] = useState(false)
+  const [resolvedSellers, setResolvedSellers] = useState<Record<string, string>>(() =>
+    getCachedSellerNames(),
+  )
+
+  // Efeito para resolver em lote nomes de vendedores faltantes das posições e concorrentes em segundo plano
+  useEffect(() => {
+    if (!catalogItems || catalogItems.length === 0) return
+
+    const sellerIdsToResolve: string[] = []
+    catalogItems.forEach((item) => {
+      const cat = item.catalogProduct
+      if (
+        cat.buy_box_winner_seller_id &&
+        !cat.buy_box_winner_seller_nickname &&
+        !cat.is_own_account
+      ) {
+        sellerIdsToResolve.push(String(cat.buy_box_winner_seller_id))
+      }
+      if (Array.isArray(cat.competitors)) {
+        cat.competitors.forEach((c) => {
+          if (c.seller_id && !c.seller_nickname && !c.is_own) {
+            sellerIdsToResolve.push(String(c.seller_id))
+          }
+        })
+      }
+    })
+
+    if (sellerIdsToResolve.length > 0) {
+      resolveMissingSellerNames(sellerIdsToResolve)
+        .then((updatedMap) => {
+          setResolvedSellers((prev) => ({ ...prev, ...updatedMap }))
+        })
+        .catch(() => {
+          /* fail-safe */
+        })
+    }
+  }, [catalogItems])
 
   // Controle de expansão da lista de concorrentes por item (chave: catalog_product_id ou id)
   const [expandedCompetitors, setExpandedCompetitors] = useState<Record<string, boolean>>({})
@@ -116,6 +159,20 @@ export function AnunciosCatalogoTab() {
       try {
         const compData = await mlCatalogService.getCatalogCompetition(cat.catalog_product_id)
         if (compData) {
+          // Coletar IDs de concorrentes para resolução em segundo plano
+          if (Array.isArray(compData.competitors)) {
+            const compIds = compData.competitors
+              .map((c) => c.seller_id)
+              .filter((id): id is string => Boolean(id))
+            if (compIds.length > 0) {
+              resolveMissingSellerNames(compIds)
+                .then((updatedMap) => {
+                  setResolvedSellers((prev) => ({ ...prev, ...updatedMap }))
+                })
+                .catch(() => {})
+            }
+          }
+
           setCatalogItems((prev) => {
             const next = [...prev]
             if (next[originalIndex]) {
@@ -2268,37 +2325,78 @@ export function AnunciosCatalogoTab() {
                           <div className="flex flex-col gap-2 pt-1 text-xs">
                             <div className="flex items-center gap-2 flex-wrap">
                               {/* Vendedor Líder da Buy Box / Identificação */}
-                              {cat.is_own_account ? (
-                                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-purple-50 border border-purple-200 text-purple-900 font-semibold text-[11px]">
-                                  <ShieldCheck className="w-3.5 h-3.5 text-purple-600 shrink-0" />
-                                  <span>
-                                    Líder Buy Box: <strong>Você</strong>
-                                  </span>
-                                </div>
-                              ) : cat.buy_box_winner_seller_nickname ? (
-                                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-100 border border-slate-200 text-slate-800 text-[11px]">
-                                  <User className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                                  <span>
-                                    Líder: <strong>{cat.buy_box_winner_seller_nickname}</strong>
-                                  </span>
-                                </div>
-                              ) : cat.buy_box_winner_price ? (
-                                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-100 border border-slate-200 text-slate-700 text-[11px]">
-                                  <User className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                                  <span>
-                                    Líder:{' '}
-                                    <strong className="font-mono">
-                                      {cat.buy_box_winner_seller_id
-                                        ? `Seller #${cat.buy_box_winner_seller_id}`
-                                        : 'Concorrente'}
-                                    </strong>
-                                  </span>
-                                </div>
-                              ) : (
-                                <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[11px]">
-                                  <span>Sem disputa ativa</span>
-                                </div>
-                              )}
+                              {(() => {
+                                const ownCheck =
+                                  cat.is_own_account ||
+                                  isOwnSeller(
+                                    cat.buy_box_winner_seller_id,
+                                    cat.buy_box_winner_seller_nickname,
+                                  )
+                                if (ownCheck) {
+                                  return (
+                                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-purple-50 border border-purple-200 text-purple-900 font-semibold text-[11px]">
+                                      <ShieldCheck className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                                      <span>
+                                        Líder Buy Box: <strong>Sua conta (Você)</strong>
+                                      </span>
+                                    </div>
+                                  )
+                                }
+
+                                const displayInfo = formatSellerDisplayName(
+                                  cat.buy_box_winner_seller_id,
+                                  cat.buy_box_winner_seller_nickname,
+                                  resolvedSellers,
+                                  'Concorrente',
+                                )
+
+                                if (displayInfo.isOwn) {
+                                  return (
+                                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-purple-50 border border-purple-200 text-purple-900 font-semibold text-[11px]">
+                                      <ShieldCheck className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                                      <span>
+                                        Líder Buy Box: <strong>Sua conta</strong>
+                                      </span>
+                                    </div>
+                                  )
+                                }
+
+                                if (
+                                  cat.buy_box_winner_seller_nickname ||
+                                  displayInfo.displayName !== 'Concorrente'
+                                ) {
+                                  return (
+                                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-100 border border-slate-200 text-slate-800 text-[11px]">
+                                      <User className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                                      <span>
+                                        Líder: <strong>{displayInfo.displayName}</strong>
+                                      </span>
+                                    </div>
+                                  )
+                                }
+
+                                if (cat.buy_box_winner_price) {
+                                  return (
+                                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-100 border border-slate-200 text-slate-700 text-[11px]">
+                                      <User className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                                      <span>
+                                        Líder:{' '}
+                                        <strong className="font-mono">
+                                          {cat.buy_box_winner_seller_id
+                                            ? `Seller #${cat.buy_box_winner_seller_id}`
+                                            : 'Concorrente'}
+                                        </strong>
+                                      </span>
+                                    </div>
+                                  )
+                                }
+
+                                return (
+                                  <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[11px]">
+                                    <span>Sem disputa ativa</span>
+                                  </div>
+                                )
+                              })()}
 
                               {/* Tipo de Anúncio do Concorrente (Premium / Clássico) */}
                               {cat.buy_box_winner_listing_type && (
@@ -2464,10 +2562,16 @@ export function AnunciosCatalogoTab() {
                                   ) : competitors.length > 0 ? (
                                     <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
                                       {competitors.map((comp, cIdx) => {
+                                        const sellerDisplay = formatSellerDisplayName(
+                                          comp.seller_id,
+                                          comp.seller_nickname,
+                                          resolvedSellers,
+                                          `Concorrente ${cIdx + 1}`,
+                                        )
                                         const isOwn =
                                           Boolean(comp.is_own) ||
-                                          (comp.seller_nickname &&
-                                            comp.seller_nickname.toUpperCase() === 'INFOPRECOBAIXO')
+                                          sellerDisplay.isOwn ||
+                                          isOwnSeller(comp.seller_id, comp.seller_nickname)
                                         const isLeader =
                                           Boolean(comp.is_buy_box_winner) ||
                                           (cIdx === 0 &&
@@ -2482,10 +2586,7 @@ export function AnunciosCatalogoTab() {
 
                                         const sellerName = isOwn
                                           ? 'INFOPRECOBAIXO (Sua conta)'
-                                          : comp.seller_nickname ||
-                                            (comp.seller_id
-                                              ? `Seller #${comp.seller_id}`
-                                              : `Concorrente ${cIdx + 1}`)
+                                          : sellerDisplay.displayName
 
                                         return (
                                           <div
@@ -2899,17 +3000,51 @@ export function AnunciosCatalogoTab() {
 
                               {/* Painel de Disputa nos Parciais */}
                               <div className="flex items-center gap-2 text-[11px] pt-1 text-slate-600 flex-wrap">
-                                {cat.buy_box_winner_seller_nickname ? (
-                                  <span className="inline-flex items-center gap-1 text-slate-700 font-medium">
-                                    <User className="w-3 h-3 text-slate-400" />
-                                    Líder: <strong>{cat.buy_box_winner_seller_nickname}</strong>
-                                  </span>
-                                ) : cat.is_own_account ? (
-                                  <span className="inline-flex items-center gap-1 text-purple-700 font-bold">
-                                    <ShieldCheck className="w-3 h-3 text-purple-600" />
-                                    Líder: Você
-                                  </span>
-                                ) : null}
+                                {(() => {
+                                  const ownCheck =
+                                    cat.is_own_account ||
+                                    isOwnSeller(
+                                      cat.buy_box_winner_seller_id,
+                                      cat.buy_box_winner_seller_nickname,
+                                    )
+                                  if (ownCheck) {
+                                    return (
+                                      <span className="inline-flex items-center gap-1 text-purple-700 font-bold">
+                                        <ShieldCheck className="w-3 h-3 text-purple-600" />
+                                        Líder: Sua conta (Você)
+                                      </span>
+                                    )
+                                  }
+
+                                  const displayInfo = formatSellerDisplayName(
+                                    cat.buy_box_winner_seller_id,
+                                    cat.buy_box_winner_seller_nickname,
+                                    resolvedSellers,
+                                    cat.buy_box_winner_seller_id
+                                      ? `Seller #${cat.buy_box_winner_seller_id}`
+                                      : '',
+                                  )
+
+                                  if (displayInfo.isOwn) {
+                                    return (
+                                      <span className="inline-flex items-center gap-1 text-purple-700 font-bold">
+                                        <ShieldCheck className="w-3 h-3 text-purple-600" />
+                                        Líder: Sua conta
+                                      </span>
+                                    )
+                                  }
+
+                                  if (displayInfo.displayName) {
+                                    return (
+                                      <span className="inline-flex items-center gap-1 text-slate-700 font-medium">
+                                        <User className="w-3 h-3 text-slate-400" />
+                                        Líder: <strong>{displayInfo.displayName}</strong>
+                                      </span>
+                                    )
+                                  }
+
+                                  return null
+                                })()}
 
                                 {cat.buy_box_winner_listing_type && (
                                   <Badge
@@ -3024,11 +3159,16 @@ export function AnunciosCatalogoTab() {
                                     ) : competitors.length > 0 ? (
                                       <div className="space-y-1 max-h-48 overflow-y-auto">
                                         {competitors.map((comp, cIdx) => {
+                                          const sellerDisplay = formatSellerDisplayName(
+                                            comp.seller_id,
+                                            comp.seller_nickname,
+                                            resolvedSellers,
+                                            `Concorrente ${cIdx + 1}`,
+                                          )
                                           const isOwn =
                                             Boolean(comp.is_own) ||
-                                            (comp.seller_nickname &&
-                                              comp.seller_nickname.toUpperCase() ===
-                                                'INFOPRECOBAIXO')
+                                            sellerDisplay.isOwn ||
+                                            isOwnSeller(comp.seller_id, comp.seller_nickname)
                                           const isLeader =
                                             Boolean(comp.is_buy_box_winner) ||
                                             (cIdx === 0 &&
@@ -3044,10 +3184,7 @@ export function AnunciosCatalogoTab() {
 
                                           const sellerName = isOwn
                                             ? 'INFOPRECOBAIXO (Sua conta)'
-                                            : comp.seller_nickname ||
-                                              (comp.seller_id
-                                                ? `Seller #${comp.seller_id}`
-                                                : `Concorrente ${cIdx + 1}`)
+                                            : sellerDisplay.displayName
 
                                           return (
                                             <div

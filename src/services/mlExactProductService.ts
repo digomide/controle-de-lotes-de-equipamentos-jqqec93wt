@@ -1,5 +1,6 @@
 import pb from '@/lib/pocketbase/client'
 import { type MLCatalogProduct, type MLCatalogCompetitor } from '@/services/mlCatalogService'
+import { getCachedSellerNames, isOwnSeller } from '@/utils/sellerNameResolver'
 import {
   evaluateExactProductMatch,
   detectSearchMode,
@@ -316,11 +317,32 @@ export function aggregateSellersByExactProduct(
       return existing
     }
 
+    // Se o apelido não foi informado, tenta ler do cache em memória de sellers
+    let resolvedNick = nickname
+    if (
+      !resolvedNick &&
+      effectiveId &&
+      !effectiveId.startsWith('nick_') &&
+      effectiveId !== 'unknown_seller'
+    ) {
+      const cached = getCachedSellerNames()[effectiveId]
+      if (cached) {
+        resolvedNick = cached
+      }
+    }
+
+    const isEffectivelyOwn = isOwn || isOwnSeller(effectiveId, resolvedNick)
+
     const newSeller: SellerPerformanceAggregate = {
       sellerId: effectiveId,
       sellerNickname:
-        nickname || (isOwn ? 'INFOPRECOBAIXO (Sua Conta)' : `Vendedor ${effectiveId}`),
-      isOwnAccount: isOwn,
+        resolvedNick ||
+        (isEffectivelyOwn
+          ? 'INFOPRECOBAIXO (Sua Conta)'
+          : effectiveId.startsWith('nick_') || effectiveId === 'unknown_seller'
+            ? 'Vendedor Concorrente'
+            : `Seller #${effectiveId}`),
+      isOwnAccount: isEffectivelyOwn,
       totalAdsCount: 0,
       totalAvailableStock: 0,
       minPrice: 0,

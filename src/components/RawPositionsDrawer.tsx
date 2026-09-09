@@ -33,6 +33,12 @@ import {
   type PositionOverrideAction,
 } from '@/services/positionOverridesService'
 import pb from '@/lib/pocketbase/client'
+import {
+  formatSellerDisplayName,
+  resolveMissingSellerNames,
+  getCachedSellerNames,
+  isOwnSeller,
+} from '@/utils/sellerNameResolver'
 
 interface RawPositionsDrawerProps {
   searchTerm: string
@@ -57,6 +63,31 @@ export function RawPositionsDrawer({
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
   const [savingKey, setSavingKey] = useState<string | null>(null)
+  const [resolvedSellers, setResolvedSellers] = useState<Record<string, string>>(() =>
+    getCachedSellerNames(),
+  )
+
+  // Resolução em lote de sellers da gaveta de posições brutas em segundo plano
+  React.useEffect(() => {
+    if (!rawProducts || rawProducts.length === 0) return
+
+    const sellerIdsToResolve: string[] = []
+    rawProducts.forEach((p) => {
+      const sId = p.buy_box_winner_seller_id
+      const nick = p.buy_box_winner_seller_nickname
+      if (sId && (!nick || nick === 'Não informado') && !p.is_own_account) {
+        sellerIdsToResolve.push(String(sId))
+      }
+    })
+
+    if (sellerIdsToResolve.length > 0) {
+      resolveMissingSellerNames(sellerIdsToResolve)
+        .then((updatedMap) => {
+          setResolvedSellers((prev) => ({ ...prev, ...updatedMap }))
+        })
+        .catch(() => {})
+    }
+  }, [rawProducts])
 
   // Auditoria de vendas ao vivo server-side
   const [auditingSales, setAuditingSales] = useState(false)
@@ -164,9 +195,13 @@ export function RawPositionsDrawer({
 
       const titleMatch = (row.product.title || '').toLowerCase().includes(q)
       const idMatch = (row.prodId || '').toLowerCase().includes(q)
+      const resolvedNick = row.product.buy_box_winner_seller_id
+        ? (resolvedSellers[String(row.product.buy_box_winner_seller_id)] || '').toLowerCase()
+        : ''
       const sellerMatch =
         (row.product.buy_box_winner_seller_nickname || '').toLowerCase().includes(q) ||
-        (row.product.buy_box_winner_seller_id || '').toLowerCase().includes(q)
+        (row.product.buy_box_winner_seller_id || '').toLowerCase().includes(q) ||
+        resolvedNick.includes(q)
       const brandMatch = (row.product.brand_value || '').toLowerCase().includes(q)
       const modelMatch = (row.product.model_value || '').toLowerCase().includes(q)
       const reasonMatch = row.rejectionReason.toLowerCase().includes(q)
@@ -525,10 +560,17 @@ export function RawPositionsDrawer({
                     const prod = row.product
                     const pPrice = prod.buy_box_winner_price || prod.min_price || 0
                     const pCondition = prod.condition || 'not_specified'
-                    const sellerNick =
-                      prod.buy_box_winner_seller_nickname ||
-                      (prod.is_own_account ? 'INFOPRECOBAIXO' : 'Não informado')
                     const sellerId = prod.buy_box_winner_seller_id || ''
+                    const isOwn =
+                      Boolean(prod.is_own_account) ||
+                      isOwnSeller(sellerId, prod.buy_box_winner_seller_nickname)
+                    const sellerDisplay = formatSellerDisplayName(
+                      sellerId,
+                      prod.buy_box_winner_seller_nickname,
+                      resolvedSellers,
+                      sellerId ? `Seller #${sellerId}` : 'Não informado',
+                    )
+                    const sellerNick = isOwn ? 'Sua conta' : sellerDisplay.displayName
                     const permalink = prod.permalink
                     const isSaving = savingKey === row.prodId
 
@@ -630,12 +672,22 @@ export function RawPositionsDrawer({
                         {/* Seller */}
                         <td className="py-3 px-3">
                           <div className="space-y-0.5">
-                            <span
-                              className="font-bold text-slate-800 block truncate max-w-[130px]"
-                              title={sellerNick}
-                            >
-                              {sellerNick}
-                            </span>
+                            {isOwn ? (
+                              <span
+                                className="font-bold text-purple-700 flex items-center gap-1 text-xs"
+                                title="Sua conta (INFOPRECOBAIXO)"
+                              >
+                                <ShieldCheck className="w-3 h-3 text-purple-600 shrink-0" />
+                                Sua conta
+                              </span>
+                            ) : (
+                              <span
+                                className="font-bold text-slate-800 block truncate max-w-[130px]"
+                                title={sellerNick}
+                              >
+                                {sellerNick}
+                              </span>
+                            )}
                             {sellerId && (
                               <span className="text-[10px] text-slate-400 font-mono block">
                                 ID: {sellerId}

@@ -49,6 +49,12 @@ import {
   type SellerPerformanceAggregate,
   type RaioXScopeMode,
 } from '@/services/mlExactProductService'
+import {
+  formatSellerDisplayName,
+  resolveMissingSellerNames,
+  getCachedSellerNames,
+  isOwnSeller,
+} from '@/utils/sellerNameResolver'
 import { type ExactProductSearchMode } from '@/lib/catalogFilter'
 import {
   positionOverridesService,
@@ -82,6 +88,43 @@ export function RaioXMercadoTab({ onOpenCollector }: RaioXMercadoTabProps = {}) 
   const [showHowItWorks, setShowHowItWorks] = useState(false)
   const [snapshotSaved, setSnapshotSaved] = useState(false)
   const [savingSnapshot, setSavingSnapshot] = useState(false)
+  const [resolvedSellers, setResolvedSellers] = useState<Record<string, string>>(() =>
+    getCachedSellerNames(),
+  )
+
+  // Efeito para resolver em lote os vendedores identificados na aba Raio-X
+  useEffect(() => {
+    if (!rawProducts || rawProducts.length === 0) return
+
+    const sellerIdsToResolve: string[] = []
+    rawProducts.forEach((p) => {
+      const sId = p.buy_box_winner_seller_id
+      const nick = p.buy_box_winner_seller_nickname
+      if (sId && (!nick || nick === 'Não informado') && !p.is_own_account) {
+        sellerIdsToResolve.push(String(sId))
+      }
+      if (Array.isArray(p.competitors)) {
+        p.competitors.forEach((c) => {
+          if (
+            c.seller_id &&
+            (!c.seller_nickname || c.seller_nickname === 'Não informado') &&
+            !c.is_own
+          ) {
+            sellerIdsToResolve.push(String(c.seller_id))
+          }
+        })
+      }
+    })
+
+    if (sellerIdsToResolve.length > 0) {
+      resolveMissingSellerNames(sellerIdsToResolve)
+        .then((updatedMap) => {
+          setResolvedSellers((prev) => ({ ...prev, ...updatedMap }))
+        })
+        .catch(() => {})
+    }
+  }, [rawProducts])
+
   const [selectedSellerDetail, setSelectedSellerDetail] =
     useState<SellerPerformanceAggregate | null>(null)
   const [showSellersDrawer, setShowSellersDrawer] = useState(false)
@@ -1475,7 +1518,19 @@ export function RaioXMercadoTab({ onOpenCollector }: RaioXMercadoTabProps = {}) 
                 <div className="divide-y divide-slate-100">
                   {summary.sellersRanked.map((seller, sIdx) => {
                     const isTopSeller = sIdx === 0
-                    const isOwn = seller.isOwnAccount
+                    const sellerDisplay = formatSellerDisplayName(
+                      seller.sellerId,
+                      seller.sellerNickname,
+                      resolvedSellers,
+                      `Vendedor ${seller.sellerId}`,
+                    )
+                    const isOwn =
+                      seller.isOwnAccount ||
+                      sellerDisplay.isOwn ||
+                      isOwnSeller(seller.sellerId, seller.sellerNickname)
+                    const displayNickname = isOwn
+                      ? 'Sua Conta (INFOPRECOBAIXO)'
+                      : sellerDisplay.displayName
                     const hasSales = seller.hasRealSalesData && seller.totalConfirmedSales > 0
 
                     return (
@@ -1507,7 +1562,7 @@ export function RaioXMercadoTab({ onOpenCollector }: RaioXMercadoTabProps = {}) 
                               <div className="flex items-center gap-2 flex-wrap">
                                 <h4 className="text-sm font-bold text-slate-900 truncate flex items-center gap-1.5">
                                   <Store className="w-3.5 h-3.5 text-slate-400" />
-                                  {seller.sellerNickname}
+                                  {displayNickname}
                                 </h4>
 
                                 {isOwn && (
