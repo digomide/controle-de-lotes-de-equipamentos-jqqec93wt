@@ -62,61 +62,67 @@ function EtiquetaCard({ item }: { item: EtiquetaData }) {
     : `SKU:${sku || serial}|LOTE:${batchNum}`
 
   return (
-    <div className="printable-etiqueta-item w-full max-w-md bg-white text-black p-4 rounded-lg border-2 border-dashed border-slate-400 shadow-sm print:border-2 print:border-solid print:border-black print:shadow-none print:p-3 print:m-0 print:w-full print:max-w-none">
+    <div className="printable-etiqueta-item w-full max-w-md bg-white text-black p-4 rounded-lg border-2 border-dashed border-slate-400 shadow-sm print:border print:border-solid print:border-black print:shadow-none print:p-2 print:m-0 print:w-full print:h-full print:max-w-none print:flex print:flex-col print:justify-between print:rounded-sm">
       {/* Top header row */}
-      <div className="flex items-center justify-between border-b-2 border-black pb-2 mb-2.5">
-        <div className="flex items-center gap-1.5">
-          <Laptop className="w-4 h-4 text-black print:text-black" />
-          <span className="font-extrabold text-xs tracking-tight uppercase">
-            AmbicorpFlow · Controle de Ativos
+      <div className="flex items-center justify-between border-b-2 print:border-b border-black pb-2 print:pb-1 mb-2.5 print:mb-1">
+        <div className="flex items-center gap-1.5 print:gap-1 min-w-0">
+          <Laptop className="w-4 h-4 print:w-3.5 print:h-3.5 text-black shrink-0" />
+          <span className="font-extrabold text-xs print:text-[10px] tracking-tight uppercase truncate">
+            AmbicorpFlow · Ativos
           </span>
         </div>
-        <span className="font-mono text-[11px] font-black border border-black px-1.5 py-0.2 rounded">
+        <span className="font-mono text-[11px] print:text-[9.5px] font-black border border-black px-1.5 print:px-1 py-0.2 rounded shrink-0">
           {batchNum}
         </span>
       </div>
 
       {/* Core Label Content: QR Code Left + Info Right */}
-      <div className="grid grid-cols-12 gap-3 items-center">
+      <div className="grid grid-cols-12 gap-3 print:gap-2 items-center flex-1 min-h-0">
         {/* QR Code Container */}
-        <div className="col-span-4 flex flex-col items-center justify-center p-1 bg-white border border-slate-300 rounded print:border-black">
-          <QRCodeSVG value={qrValue} size={105} className="w-full h-auto aspect-square" />
-          <span className="text-[9px] font-mono font-bold text-slate-600 text-center mt-1 truncate max-w-full print:text-black">
+        <div className="col-span-4 flex flex-col items-center justify-center p-1 bg-white border border-slate-300 rounded print:border-black print:p-0.5">
+          <QRCodeSVG
+            value={qrValue}
+            size={105}
+            className="w-full h-auto aspect-square max-h-[22mm]"
+          />
+          <span className="text-[9px] print:text-[8px] font-mono font-bold text-slate-600 text-center mt-1 print:mt-0.5 truncate max-w-full print:text-black">
             {sku || serial}
           </span>
         </div>
 
         {/* Data Specifications */}
-        <div className="col-span-8 space-y-1 text-left">
+        <div className="col-span-8 space-y-1 print:space-y-0.5 text-left min-w-0">
           {/* Equipment Model Name */}
-          <h3 className="font-bold text-sm leading-tight text-black line-clamp-2">{productName}</h3>
+          <h3 className="font-bold text-sm print:text-[11px] print:leading-tight text-black line-clamp-1">
+            {productName}
+          </h3>
 
           {/* Brand / Model subtitle */}
-          <p className="text-[11px] text-slate-700 font-medium print:text-black">
+          <p className="text-[11px] print:text-[9px] print:leading-tight text-slate-700 font-medium print:text-black truncate">
             {brand} {model && `· ${model}`}
           </p>
 
           {/* Condição / Grau do Produto */}
-          <div className="flex items-center gap-1.5 pt-0.5 print:text-black">
-            <span className="font-bold text-[10px] uppercase tracking-wide bg-slate-100 print:bg-transparent px-1.5 py-0.2 rounded border border-slate-300 print:border-black">
+          <div className="flex items-center gap-1.5 print:gap-1 pt-0.5 print:pt-0 print:text-black">
+            <span className="font-bold text-[10px] print:text-[8px] uppercase tracking-wide bg-slate-100 print:bg-transparent px-1.5 print:px-1 py-0.2 rounded border border-slate-300 print:border-black leading-tight">
               {badgeInfo.label}
               {badgeInfo.gradeLabel && ` · Grau ${badgeInfo.gradeLabel}`}
             </span>
           </div>
 
           {/* Serial / Part Number Box */}
-          <div className="bg-slate-100 print:bg-slate-50 border border-slate-300 print:border-black rounded px-2 py-1 mt-1">
-            <div className="text-[9px] uppercase tracking-wider font-bold text-slate-600 print:text-black">
+          <div className="bg-slate-100 print:bg-slate-50 border border-slate-300 print:border-black rounded px-2 print:px-1 py-1 print:py-0.5 mt-1 print:mt-0.5">
+            <div className="text-[9px] print:text-[7.5px] uppercase tracking-wider font-bold text-slate-600 print:text-black leading-none">
               Serial / Part Number:
             </div>
-            <div className="font-mono text-xs font-black text-black tracking-wider break-all">
+            <div className="font-mono text-xs print:text-[9.5px] print:leading-tight font-black text-black tracking-wider break-all">
               {serial}
             </div>
           </div>
 
           {/* Specs badges (RAM / SSD / CPU) */}
           {(processor || ram || storage) && (
-            <div className="text-[10px] text-slate-800 font-mono flex flex-wrap gap-x-2 gap-y-0.5 pt-0.5 print:text-black">
+            <div className="text-[10px] print:text-[8px] print:leading-none text-slate-800 font-mono flex flex-wrap gap-x-2 print:gap-x-1 gap-y-0.5 pt-0.5 print:pt-0 print:text-black truncate">
               {processor && <span>{processor}</span>}
               {ram && <span>• {ram}</span>}
               {storage && <span>• {storage}</span>}
@@ -124,13 +130,13 @@ function EtiquetaCard({ item }: { item: EtiquetaData }) {
           )}
 
           {/* Location and Status footer */}
-          <div className="flex items-center justify-between pt-1 border-t border-slate-200 print:border-black text-[10px] font-semibold text-slate-700 print:text-black">
-            <span className="flex items-center gap-1">
-              <MapPin className="w-3 h-3 text-slate-600 print:text-black" />
-              {location}
+          <div className="flex items-center justify-between pt-1 print:pt-0.5 border-t border-slate-200 print:border-black text-[10px] print:text-[8.5px] font-semibold text-slate-700 print:text-black">
+            <span className="flex items-center gap-1 print:gap-0.5 truncate max-w-[60%]">
+              <MapPin className="w-3 h-3 print:w-2.5 print:h-2.5 text-slate-600 print:text-black shrink-0" />
+              <span className="truncate">{location}</span>
             </span>
             {price > 0 && (
-              <span className="font-mono font-bold text-black">
+              <span className="font-mono font-bold text-black shrink-0">
                 R$ {price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
               </span>
             )}
@@ -139,9 +145,9 @@ function EtiquetaCard({ item }: { item: EtiquetaData }) {
       </div>
 
       {/* Micro barcode lines decoration for visual scanning standard */}
-      <div className="mt-3 pt-1.5 border-t border-dashed border-slate-300 print:border-black flex items-center justify-between text-[9px] text-slate-500 font-mono print:text-black">
-        <span>Rastreabilidade: {qrValue.slice(0, 32)}</span>
-        <span>{new Date().toLocaleDateString('pt-BR')}</span>
+      <div className="mt-3 print:mt-1 pt-1.5 print:pt-0.5 border-t border-dashed border-slate-300 print:border-black flex items-center justify-between text-[9px] print:text-[7.5px] text-slate-500 font-mono print:text-black">
+        <span className="truncate">Rastreabilidade: {qrValue.slice(0, 28)}</span>
+        <span className="shrink-0">{new Date().toLocaleDateString('pt-BR')}</span>
       </div>
     </div>
   )
@@ -157,6 +163,15 @@ export function EtiquetaModal({ open, onOpenChange, data, items }: EtiquetaModal
     if (data) return [data]
     return []
   }, [items, data])
+
+  // Agrupa as etiquetas em páginas/folhas de exatamente 8 por página (padrão 8-up: 2 colunas x 4 linhas A4)
+  const labelSheets: EtiquetaData[][] = React.useMemo(() => {
+    const sheets: EtiquetaData[][] = []
+    for (let i = 0; i < labelItems.length; i += 8) {
+      sheets.push(labelItems.slice(i, i + 8))
+    }
+    return sheets
+  }, [labelItems])
 
   if (labelItems.length === 0) return null
 
@@ -244,21 +259,36 @@ export function EtiquetaModal({ open, onOpenChange, data, items }: EtiquetaModal
         {/* Preview Container (Scrollable if many labels) */}
         <div className="p-6 flex-1 overflow-y-auto">
           {/* Printable Container wrapper */}
-          <div
-            id="printable-etiqueta"
-            ref={printContainerRef}
-            className="flex flex-col items-center gap-6 w-full"
-          >
-            {labelItems.map((item, idx) => (
-              <EtiquetaCard key={item.product?.id || item.serialNumber || idx} item={item} />
-            ))}
+          <div id="printable-etiqueta" ref={printContainerRef} className="w-full">
+            {/* Visualização em tela: lista simples e amigável */}
+            <div className="flex flex-col items-center gap-6 w-full print:hidden">
+              {labelItems.map((item, idx) => (
+                <EtiquetaCard key={item.product?.id || item.serialNumber || idx} item={item} />
+              ))}
+            </div>
+
+            {/* Layout de Impressão: Folhas A4 exatas com 8 etiquetas por folha (2 colunas x 4 linhas) */}
+            <div className="hidden print:block w-full">
+              {labelSheets.map((sheet, sheetIdx) => (
+                <div key={`sheet-${sheetIdx}`} className="printable-etiqueta-sheet">
+                  {sheet.map((item, itemIdx) => (
+                    <div
+                      key={`cell-${sheetIdx}-${item.product?.id || item.serialNumber || itemIdx}`}
+                      className="printable-etiqueta-cell"
+                    >
+                      <EtiquetaCard item={item} />
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
           </div>
 
           <p className="text-[11px] text-slate-400 mt-4 text-center print:hidden">
             Pressione{' '}
             <strong>Imprimir {isBulk ? `${labelItems.length} Etiquetas` : 'Etiqueta'}</strong> para
-            abrir o diálogo de impressão do navegador. A folha ocultará menus e exibirá apenas as
-            etiquetas.
+            abrir o diálogo de impressão do navegador. A saída está configurada para folhas A4 com
+            grade padrão de <strong>8 etiquetas por folha</strong> (2 colunas × 4 linhas).
           </p>
         </div>
 
