@@ -29,6 +29,7 @@ import PostInstagram from './pages/PostInstagram'
 import PostTikTok from './pages/PostTikTok'
 import CotacoesCorporativas from './pages/CotacoesCorporativas'
 import Marketing from './pages/Marketing'
+import Pedido6849 from './pages/Pedido6849'
 import { AuthProvider } from './contexts/AuthContext'
 import { ProtectedRoute } from './components/ProtectedRoute'
 
@@ -47,6 +48,16 @@ const App = () => (
           <Route path="/loja/corporativo" element={<LojaCorporativo />} />
           <Route path="/loja/pedido-concluido" element={<LojaPedidoConcluido />} />
           <Route path="/loja/:id" element={<LojaDetalhe />} />
+
+          {/* Rota Utilitária de Impressão do Pedido de Venda Bling (apenas autenticado, fora do layout/menu) */}
+          <Route
+            path="/pedido-6849"
+            element={
+              <ProtectedRoute>
+                <Pedido6849 />
+              </ProtectedRoute>
+            }
+          />
 
           <Route path="/login" element={<Login />} />
 
