@@ -93,6 +93,7 @@ import {
   CHECKLIST_CANONICAL_ITEMS,
   CHECKLIST_OPTIONS,
   normalizeChecklistStatus,
+  normalizeChecklistItemName,
   getChecklistStatusStyles,
 } from '@/lib/checklist'
 import {
@@ -831,7 +832,11 @@ export default function CatalogoDetalhe() {
     }
     const map = new Map<string, TechnicalChecklistItem>()
     for (const c of rawChecklist) {
-      map.set(c.item.toLowerCase().trim(), c)
+      const normalizedName = normalizeChecklistItemName(c.item)
+      map.set(normalizedName.toLowerCase().trim(), {
+        ...c,
+        item: normalizedName,
+      })
     }
     const result: TechnicalChecklistItem[] = []
     for (const canon of CHECKLIST_CANONICAL_ITEMS) {

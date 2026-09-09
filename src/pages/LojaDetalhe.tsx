@@ -225,7 +225,7 @@ export default function LojaDetalhe() {
     // Filtrar apenas itens que foram revisados
     return product.technical_checklist
       .map((item) => ({
-        item: item.item,
+        item: item.item === 'Revisão de VGA Dedicada' ? 'VGA Dedicada' : item.item,
         status: normalizeChecklistStatus(item.status),
         // Se houver observação técnica pública simples sobre funcionamento, mantém; se não, vazio
         observation: item.observation || '',

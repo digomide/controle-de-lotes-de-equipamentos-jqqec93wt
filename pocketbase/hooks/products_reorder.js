@@ -8,7 +8,7 @@
 
 routerAdd(
   'POST',
-  '/api/products/{id}/reorder-photos',
+  '/backend/v1/products/{id}/reorder-photos',
   (e) => {
     // 1. Extrair ID do produto do path
     let productId = ''
@@ -18,7 +18,7 @@ routerAdd(
 
     if (!productId) {
       const rawUrl = e.request && e.request.url ? e.request.url.path || '' : ''
-      const match = rawUrl.match(/\/api\/products\/([^/?#]+)\/reorder-photos/)
+      const match = rawUrl.match(/\/backend\/v1\/products\/([^/?#]+)\/reorder-photos/)
       if (match && match[1]) {
         productId = match[1].trim()
       }

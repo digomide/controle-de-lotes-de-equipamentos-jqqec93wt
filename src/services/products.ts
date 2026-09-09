@@ -80,14 +80,17 @@ export const productsService = {
 
     try {
       // Primeiro tenta o endpoint customizado se estiver disponível
-      const raw = await pb.send<any>(`/api/products/${encodeURIComponent(id)}/reorder-photos`, {
-        method: 'POST',
-        body: {
-          photos,
-          images,
-          photo_order: orderPayload,
+      const raw = await pb.send<any>(
+        `/backend/v1/products/${encodeURIComponent(id)}/reorder-photos`,
+        {
+          method: 'POST',
+          body: {
+            photos,
+            images,
+            photo_order: orderPayload,
+          },
         },
-      })
+      )
       if (raw && raw.id) {
         return raw as Product
       }
@@ -108,5 +111,116 @@ export const productsService = {
 
   async delete(id: string): Promise<boolean> {
     return await pb.collection('products').delete(id)
+  },
+
+  /**
+   * Exclusão em lote com verificação de impedimentos (vendas vinculadas ou status Vendido)
+   */
+  async deleteBulk(ids: string[]): Promise<{
+    deletedCount: number
+    failedCount: number
+    blockedNames: string[]
+    errors: string[]
+  }> {
+    let deletedCount = 0
+    let failedCount = 0
+    const blockedNames: string[] = []
+    const errors: string[] = []
+
+    for (const id of ids) {
+      try {
+        // Verificar registro atual para conferir se está vendido ou se tem vínculos
+        const prod = await pb
+          .collection('products')
+          .getOne<Product>(id)
+          .catch(() => null)
+        if (!prod) {
+          // Já não existe
+          continue
+        }
+
+        // Se estiver com status Vendido, impedir exclusão direta para preservar histórico
+        if (prod.status === 'Vendido') {
+          failedCount++
+          blockedNames.push(
+            `${prod.name} (${prod.sku || prod.serial_number || 'Sem serial'}) - Status Vendido`,
+          )
+          continue
+        }
+
+        // Verificar se há itens de venda vinculados a este produto
+        try {
+          const salesLinks = await pb.collection('sale_items').getList(1, 1, {
+            filter: `product_id = "${id}"`,
+          })
+          if (salesLinks.totalItems > 0) {
+            failedCount++
+            blockedNames.push(
+              `${prod.name} (${prod.sku || prod.serial_number || 'Sem serial'}) - Possui venda vinculada`,
+            )
+            continue
+          }
+        } catch {
+          // Prossegue se der erro ao consultar sale_items
+        }
+
+        // Excluir lotes de estoque (batches) vinculados a este equipamento específico para garantir limpeza completa
+        try {
+          const relatedBatches = await pb.collection('batches').getFullList({
+            filter: `product_id = "${id}"`,
+          })
+          for (const rb of relatedBatches) {
+            await pb
+              .collection('batches')
+              .delete(rb.id)
+              .catch(() => {})
+          }
+        } catch {
+          // ignora
+        }
+
+        // Excluir peças e entregas vinculadas
+        try {
+          const parts = await pb.collection('equipment_parts').getFullList({
+            filter: `product_id = "${id}"`,
+          })
+          for (const part of parts) {
+            await pb
+              .collection('equipment_parts')
+              .delete(part.id)
+              .catch(() => {})
+          }
+        } catch {
+          // ignora
+        }
+
+        try {
+          const dels = await pb.collection('equipment_deliverables').getFullList({
+            filter: `product_id = "${id}"`,
+          })
+          for (const d of dels) {
+            await pb
+              .collection('equipment_deliverables')
+              .delete(d.id)
+              .catch(() => {})
+          }
+        } catch {
+          // ignora
+        }
+
+        await pb.collection('products').delete(id)
+        deletedCount++
+      } catch (err: any) {
+        failedCount++
+        errors.push(err?.message || `Erro ao excluir equipamento ${id}`)
+      }
+    }
+
+    return {
+      deletedCount,
+      failedCount,
+      blockedNames,
+      errors,
+    }
   },
 }

@@ -45,6 +45,16 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -87,6 +97,8 @@ export default function Catalogo() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [proposalModalOpen, setProposalModalOpen] = useState(false)
   const [mlBatchModalOpen, setMlBatchModalOpen] = useState(false)
+  const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false)
+  const [deletingBulk, setDeletingBulk] = useState(false)
 
   // Modal Novo / Editar Equipamento
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -406,6 +418,47 @@ export default function Catalogo() {
     }
   }
 
+  const handleConfirmBulkDelete = async () => {
+    if (selectedIds.size === 0) return
+    setDeletingBulk(true)
+    try {
+      const idsToDelete = Array.from(selectedIds)
+      const result = await productsService.deleteBulk(idsToDelete)
+
+      if (result.deletedCount > 0) {
+        toast({
+          title: 'Equipamentos excluídos com sucesso!',
+          description: `${result.deletedCount} equipamento(s) foram removidos permanentemente.`,
+        })
+      }
+
+      if (result.failedCount > 0) {
+        const detailMsg = result.blockedNames.slice(0, 3).join(', ')
+        toast({
+          title: `${result.failedCount} equipamento(s) não puderam ser excluídos`,
+          description:
+            result.blockedNames.length > 0
+              ? `Motivo: ${detailMsg}${result.blockedNames.length > 3 ? ` (+${result.blockedNames.length - 3})` : ''}`
+              : 'Verifique se há vendas vinculadas ou status que impede a exclusão.',
+          variant: 'destructive',
+        })
+      }
+
+      setBulkDeleteModalOpen(false)
+      setSelectedIds(new Set())
+      await loadData()
+    } catch (err: any) {
+      console.error(err)
+      toast({
+        title: 'Erro na exclusão em lote',
+        description: err?.message || 'Falha ao processar a exclusão.',
+        variant: 'destructive',
+      })
+    } finally {
+      setDeletingBulk(false)
+    }
+  }
+
   // Enviar para Vendas / Proposta
   const handleProceedToSale = () => {
     setProposalModalOpen(false)
@@ -536,6 +589,18 @@ export default function Catalogo() {
               <Send className="w-3.5 h-3.5" />
               Revise antes de enviar
             </Button>
+            {isAdmin && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setBulkDeleteModalOpen(true)}
+                className="bg-rose-950/40 hover:bg-rose-900 border-rose-500/50 text-rose-300 hover:text-white font-semibold text-xs gap-1.5"
+                title="Excluir permanentemente os equipamentos selecionados"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                Excluir selecionados ({selectedIds.size})
+              </Button>
+            )}
           </div>
         </div>
       )}
@@ -1163,6 +1228,72 @@ export default function Catalogo() {
           </CardContent>
         </Card>
       )}
+
+      {/* MODAL DE CONFIRMAÇÃO DE EXCLUSÃO EM MASSA */}
+      <AlertDialog
+        open={bulkDeleteModalOpen}
+        onOpenChange={(open) => !deletingBulk && setBulkDeleteModalOpen(open)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-rose-700">
+              <Trash2 className="w-5 h-5 text-rose-600" />
+              Excluir {selectedIds.size} {selectedIds.size === 1 ? 'equipamento' : 'equipamentos'}{' '}
+              em lote?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-slate-600 space-y-2 pt-1 text-xs sm:text-sm">
+              <p>
+                Você está prestes a excluir permanentemente{' '}
+                <strong className="text-slate-900">{selectedIds.size}</strong> equipamento(s)
+                selecionado(s) do catálogo.
+              </p>
+              <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-rose-800 text-xs">
+                ⚠️ <strong>Aviso permanente:</strong> Esta ação não pode ser desfeita. Todos os
+                dados técnicos, histórico, fotos e registros vinculados serão excluídos.
+                Equipamentos já vendidos ou com faturamento registrado serão preservados para manter
+                a integridade fiscal e financeira.
+              </div>
+              <div className="max-h-32 overflow-y-auto border border-slate-200 rounded p-2 bg-slate-50 text-xs text-slate-700">
+                <ul className="list-disc pl-4 space-y-0.5">
+                  {selectedProducts.slice(0, 8).map((p) => (
+                    <li key={p.id} className="truncate">
+                      {p.name} ({p.sku || p.code || 'Sem SKU'})
+                    </li>
+                  ))}
+                  {selectedProducts.length > 8 && (
+                    <li className="text-slate-400 italic">
+                      + {selectedProducts.length - 8} outro(s)...
+                    </li>
+                  )}
+                </ul>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingBulk}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                handleConfirmBulkDelete()
+              }}
+              className="bg-rose-600 hover:bg-rose-700 text-white font-semibold gap-1.5"
+              disabled={deletingBulk}
+            >
+              {deletingBulk ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin mr-1" />
+                  Excluindo...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="w-4 h-4 mr-1" />
+                  Sim, excluir {selectedIds.size} equipamento(s)
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* MODAL DE PUBLICAÇÃO EM MASSA NO MERCADO LIVRE */}
       <BatchMLPublishModal

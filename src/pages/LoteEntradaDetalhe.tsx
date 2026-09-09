@@ -120,6 +120,10 @@ export default function LoteEntradaDetalhe() {
   // 5. Filtro de pendentes de ativação
   const [filterOnlyPending, setFilterOnlyPending] = useState(false)
 
+  // 6. Exclusão em Massa de Equipamentos
+  const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false)
+  const [deletingBulk, setDeletingBulk] = useState(false)
+
   const loadData = async () => {
     if (!id) return
     try {
@@ -180,10 +184,10 @@ export default function LoteEntradaDetalhe() {
 
   // Selection handlers
   const toggleSelectAll = () => {
-    if (selectedProductIds.length === products.length) {
+    if (selectedProductIds.length === displayedProducts.length && displayedProducts.length > 0) {
       setSelectedProductIds([])
     } else {
-      setSelectedProductIds(products.map((p) => p.id))
+      setSelectedProductIds(displayedProducts.map((p) => p.id))
     }
   }
 
@@ -269,6 +273,47 @@ export default function LoteEntradaDetalhe() {
     }
     return products
   }, [products, filterOnlyPending])
+
+  // Handler de exclusão em massa
+  const handleConfirmBulkDelete = async () => {
+    if (selectedProductIds.length === 0) return
+    setDeletingBulk(true)
+    try {
+      const result = await productsService.deleteBulk(selectedProductIds)
+
+      if (result.deletedCount > 0) {
+        toast({
+          title: 'Equipamentos excluídos com sucesso!',
+          description: `${result.deletedCount} equipamento(s) foram removidos permanentemente.`,
+        })
+      }
+
+      if (result.failedCount > 0) {
+        const detailMsg = result.blockedNames.slice(0, 3).join(', ')
+        toast({
+          title: `${result.failedCount} equipamento(s) não puderam ser excluídos`,
+          description:
+            result.blockedNames.length > 0
+              ? `Motivo: ${detailMsg}${result.blockedNames.length > 3 ? ` (+${result.blockedNames.length - 3})` : ''}`
+              : 'Verifique se há vendas vinculadas ou status que impede a exclusão.',
+          variant: 'destructive',
+        })
+      }
+
+      setBulkDeleteModalOpen(false)
+      setSelectedProductIds([])
+      await loadData()
+    } catch (err: any) {
+      console.error(err)
+      toast({
+        title: 'Erro na exclusão em lote',
+        description: err?.message || 'Falha ao processar a exclusão.',
+        variant: 'destructive',
+      })
+    } finally {
+      setDeletingBulk(false)
+    }
+  }
 
   // Estimated sales revenue and profit/deficit
   const totalTargetSales = products.reduce((acc, p) => acc + (Number(p.unit_price) || 0), 0)
@@ -921,6 +966,20 @@ export default function LoteEntradaDetalhe() {
                 </Button>
               )}
 
+              {/* Botão Excluir Selecionados em Massa (apenas admin) */}
+              {isAdmin && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setBulkDeleteModalOpen(true)}
+                  className="bg-white hover:bg-rose-50 border-rose-300 text-rose-600 hover:text-rose-700 text-xs font-semibold h-8 gap-1.5"
+                  title="Excluir permanentemente os equipamentos selecionados"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                  Excluir selecionados ({selectedProductIds.length})
+                </Button>
+              )}
+
               <Button
                 size="sm"
                 variant="ghost"
@@ -960,10 +1019,11 @@ export default function LoteEntradaDetalhe() {
                     <th className="py-3 px-3 w-10 text-center">
                       <Checkbox
                         checked={
-                          selectedProductIds.length === products.length && products.length > 0
+                          selectedProductIds.length === displayedProducts.length &&
+                          displayedProducts.length > 0
                         }
                         onCheckedChange={toggleSelectAll}
-                        aria-label="Selecionar todos os equipamentos"
+                        aria-label="Selecionar todos os equipamentos visíveis"
                       />
                     </th>
                     <th className="py-3 px-4">Equipamento</th>
@@ -1337,6 +1397,72 @@ export default function LoteEntradaDetalhe() {
           loadData()
         }}
       />
+
+      {/* MODAL DE CONFIRMAÇÃO DE EXCLUSÃO EM MASSA */}
+      <AlertDialog
+        open={bulkDeleteModalOpen}
+        onOpenChange={(open) => !deletingBulk && setBulkDeleteModalOpen(open)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-rose-700">
+              <Trash2 className="w-5 h-5 text-rose-600" />
+              Excluir {selectedProductIds.length}{' '}
+              {selectedProductIds.length === 1 ? 'equipamento' : 'equipamentos'} em lote?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-slate-600 space-y-2 pt-1 text-xs sm:text-sm">
+              <p>
+                Você está prestes a excluir permanentemente{' '}
+                <strong className="text-slate-900">{selectedProductIds.length}</strong>{' '}
+                equipamento(s) selecionado(s) deste lote.
+              </p>
+              <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-rose-800 text-xs">
+                ⚠️ <strong>Aviso permanente:</strong> Esta ação não pode ser desfeita. Todos os
+                dados técnicos, histórico, fotos e registros vinculados serão excluídos.
+                Equipamentos já vendidos ou com faturamento registrado serão preservados para manter
+                a integridade fiscal e financeira.
+              </div>
+              <div className="max-h-32 overflow-y-auto border border-slate-200 rounded p-2 bg-slate-50 text-xs text-slate-700">
+                <ul className="list-disc pl-4 space-y-0.5">
+                  {selectedProductsList.slice(0, 8).map((p) => (
+                    <li key={p.id} className="truncate">
+                      {p.name} ({p.sku || p.serial_number || 'Sem serial'})
+                    </li>
+                  ))}
+                  {selectedProductsList.length > 8 && (
+                    <li className="text-slate-400 italic">
+                      + {selectedProductsList.length - 8} outro(s)...
+                    </li>
+                  )}
+                </ul>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingBulk}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                handleConfirmBulkDelete()
+              }}
+              className="bg-rose-600 hover:bg-rose-700 text-white font-semibold gap-1.5"
+              disabled={deletingBulk}
+            >
+              {deletingBulk ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin mr-1" />
+                  Excluindo...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="w-4 h-4 mr-1" />
+                  Sim, excluir {selectedProductIds.length} equipamento(s)
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* 4. MODAL: ATIVAÇÃO RÁPIDA (Inserir Part Number e ativar como Disponível) */}
       <Dialog open={activateModalOpen} onOpenChange={setActivateModalOpen}>

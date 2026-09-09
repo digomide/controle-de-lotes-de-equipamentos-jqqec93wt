@@ -17,8 +17,23 @@ export const CHECKLIST_CANONICAL_ITEMS = [
   'Carcaça/Chassi',
   'Memória RAM',
   'Armazenamento',
-  'Revisão de VGA Dedicada',
+  'VGA Dedicada',
 ] as const
+
+/**
+ * Normaliza o nome do item caso venha com o formato legado "Revisão de VGA Dedicada"
+ */
+export function normalizeChecklistItemName(name: string): string {
+  if (!name) return ''
+  const trimmed = name.trim()
+  if (
+    trimmed.toLowerCase() === 'revisão de vga dedicada' ||
+    trimmed.toLowerCase() === 'revisao de vga dedicada'
+  ) {
+    return 'VGA Dedicada'
+  }
+  return trimmed
+}
 
 export const CHECKLIST_OPTIONS: {
   label: string
