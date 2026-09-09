@@ -498,7 +498,7 @@ cronAdd('ml_queue_worker', '*/1 * * * *', () => {
         }
       }
 
-      // Sanitização resiliente para SQLite
+      // Sanitização resiliente para SQLite e PocketBase (enxugando campos para caber com folga sob o limite)
       const sanitizeForDatabase = function (items) {
         return items.map(function (item) {
           let brandVal = item.brand_value || ''
@@ -518,6 +518,26 @@ cronAdd('ml_queue_worker', '*/1 * * * *', () => {
                 modelVal = String(at.value_name || at.value_id || '').trim()
               }
             }
+          }
+
+          // Sanitizar e compactar lista de concorrentes (preservando até 15 concorrentes com campos estritamente essenciais)
+          let cleanCompetitors = []
+          if (Array.isArray(item.competitors) && item.competitors.length > 0) {
+            cleanCompetitors = item.competitors.slice(0, 15).map(function (c) {
+              return {
+                item_id: String(c.item_id || ''),
+                seller_id: String(c.seller_id || ''),
+                seller_nickname: String(c.seller_nickname || '').substring(0, 40),
+                price: c.price != null ? Number(c.price) : 0,
+                available_quantity:
+                  c.available_quantity != null ? Number(c.available_quantity) : null,
+                sold_quantity: c.sold_quantity != null ? Number(c.sold_quantity) : null,
+                listing_type_id: String(c.listing_type_id || ''),
+                listing_type_label: String(c.listing_type_label || ''),
+                is_buy_box_winner: Boolean(c.is_buy_box_winner),
+                is_own: Boolean(c.is_own),
+              }
+            })
           }
 
           const base = {
@@ -547,8 +567,11 @@ cronAdd('ml_queue_worker', '*/1 * * * *', () => {
               item.buy_box_winner_stock != null ? Number(item.buy_box_winner_stock) : null,
             suggested_price_to_win:
               item.suggested_price_to_win != null ? Number(item.suggested_price_to_win) : null,
-            competitors_count: item.competitors_count != null ? Number(item.competitors_count) : 0,
-            competitors: Array.isArray(item.competitors) ? item.competitors : [],
+            competitors_count:
+              item.competitors_count != null
+                ? Number(item.competitors_count)
+                : cleanCompetitors.length,
+            competitors: cleanCompetitors,
             stock_status: item.stock_status || '',
             competition_status: item.competition_status || '',
             condition: item.condition || 'new',
@@ -568,6 +591,107 @@ cronAdd('ml_queue_worker', '*/1 * * * *', () => {
         })
       }
 
+      // Função de gravação particionada em chunks na coleção filha ml_catalog_search_results:
+      // - Chunks de no MÁXIMO 25 itens ou ~300KB
+      // - No record principal ml_catalog_search_jobs, persistir APENAS metadados e amostra dos 3 primeiros itens
+      //   (ou [] se vazio) para NUNCA trafegar megabytes nem estourar o limite de 1MB (1048576 bytes) do SQLite/PB
+      const CHUNK_MAX_ITEMS = 25
+      const CHUNK_MAX_BYTES = 300 * 1024 // 300KB
+
+      const partitionIntoChunks = function (items) {
+        if (!Array.isArray(items)) return []
+        const chunks = []
+        let currentChunk = []
+        let currentEstimatedBytes = 2
+
+        for (let idx = 0; idx < items.length; idx++) {
+          const it = items[idx]
+          let itStr = ''
+          try {
+            itStr = JSON.stringify(it)
+          } catch (_) {
+            continue
+          }
+          const itBytes = itStr.length + 1
+
+          const wouldExceedBytes =
+            currentChunk.length > 0 && currentEstimatedBytes + itBytes > CHUNK_MAX_BYTES
+          const wouldExceedItems = currentChunk.length >= CHUNK_MAX_ITEMS
+
+          if (wouldExceedBytes || wouldExceedItems) {
+            chunks.push(currentChunk)
+            currentChunk = [it]
+            currentEstimatedBytes = 2 + itBytes
+          } else {
+            currentChunk.push(it)
+            currentEstimatedBytes += itBytes
+          }
+        }
+        if (currentChunk.length > 0) {
+          chunks.push(currentChunk)
+        }
+        return chunks
+      }
+
+      const saveResultsInChunks = function (targetRec, sanitizedItems) {
+        if (!Array.isArray(sanitizedItems)) sanitizedItems = []
+
+        let resultsCol = null
+        try {
+          resultsCol = appId.findCollectionByNameOrId('ml_catalog_search_results')
+        } catch (_) {}
+
+        if (!resultsCol) {
+          throw new Error('Coleção ml_catalog_search_results não encontrada no banco.')
+        }
+
+        const chunks = partitionIntoChunks(sanitizedItems)
+
+        // Limpar chunks anteriores deste job_id se existirem
+        try {
+          appId
+            .db()
+            .newQuery('DELETE FROM ml_catalog_search_results WHERE job_id = {:jid}')
+            .bind({ jid: jobId })
+            .execute()
+        } catch (eDel) {
+          console.warn('[ml_catalog_search] Aviso ao limpar chunks anteriores:', eDel)
+        }
+
+        // Gravar cada chunk com limite estrito de 25 itens ou ~300KB
+        for (let cIdx = 0; cIdx < chunks.length; cIdx++) {
+          const chunkData = chunks[cIdx]
+          const chunkRec = new Record(resultsCol)
+          chunkRec.set('job_id', jobId)
+          chunkRec.set('chunk_index', cIdx)
+          chunkRec.set('items_count', chunkData.length)
+          chunkRec.set('payload_json', chunkData)
+
+          // Validar tamanho antes de salvar
+          const chunkStr = JSON.stringify(chunkData)
+          if (chunkStr.length > 900000) {
+            throw new Error(
+              'maximum allowed JSON size is 1048576 bytes: chunk ' +
+                cIdx +
+                ' com ' +
+                chunkStr.length +
+                ' bytes',
+            )
+          }
+
+          appId.save(chunkRec)
+        }
+
+        targetRec.set('has_chunks', true)
+        targetRec.set('chunk_count', chunks.length)
+        targetRec.set('results_count', sanitizedItems.length)
+
+        // No record principal ml_catalog_search_jobs:
+        // Persistir APENAS amostra dos 3 primeiros itens (ou []) para metadados leves
+        const previewSample = sanitizedItems.slice(0, 3)
+        targetRec.set('results', previewSample)
+      }
+
       const debugLog = []
       const itemsFound = []
       const seenCatalogIds = {}
@@ -583,11 +707,11 @@ cronAdd('ml_queue_worker', '*/1 * * * *', () => {
         coverage_percentage: 0,
       }
 
-      // Salvamento parcial a cada 2.5s para streaming progressivo da busca
+      // Salvamento parcial a cada 2.5s para streaming progressivo da busca (com proteção de tamanho)
       let lastPartialSaveTime = 0
       const saveProgressiveResults = function (force) {
         const now = Date.now()
-        if (!force && now - lastPartialSaveTime < 2500) return
+        if (!force && now - lastPartialSaveTime < 3000) return
         lastPartialSaveTime = now
         try {
           const freshRec = appId.findRecordById('ml_catalog_search_jobs', jobId)
@@ -596,8 +720,10 @@ cronAdd('ml_queue_worker', '*/1 * * * *', () => {
             freshRec.set('paging', pagingSummary)
             freshRec.set('progress_count', itemsFound.length)
             freshRec.set('progress_text', rec.getString('progress_text'))
-            const partial = sanitizeForDatabase(itemsFound.slice(0, 1000))
-            freshRec.set('results', partial)
+            freshRec.set('results_count', itemsFound.length)
+            // Durante o streaming, não gravamos megabytes no banco: apenas atualizamos metadados e amostra dos 3 itens
+            const previewSample = sanitizeForDatabase(itemsFound.slice(0, 3))
+            freshRec.set('results', previewSample)
             appId.save(freshRec)
           }
         } catch (_) {}
@@ -1025,7 +1151,6 @@ cronAdd('ml_queue_worker', '*/1 * * * *', () => {
         rec.set('status', 'done')
         rec.set('status_code', 200)
         rec.set('strategy_used', strategyUsed)
-        rec.set('results', finalPayload)
         rec.set('progress_count', itemsFound.length)
         rec.set(
           'progress_text',
@@ -1039,20 +1164,104 @@ cronAdd('ml_queue_worker', '*/1 * * * *', () => {
         pagingSummary.items_count = itemsFound.length
         pagingSummary.pages_fetched = pageNum
         rec.set('paging', pagingSummary)
-        appId.save(rec)
-        console.log(
-          '[ml_cron] Job de busca concluído: ' + jobId + ' (' + itemsFound.length + ' itens)',
-        )
-      } catch (errGlobal) {
-        console.log('[ml_cron] Erro fatal no processamento do job ' + jobId + ': ' + errGlobal)
-        try {
+
+        // Gravação segura particionada em ml_catalog_search_results com limite estrito de 3 tentativas com backoff
+        let saveAttempts = 0
+        let saveSuccess = false
+        let currentPayloadToSave = finalPayload
+        let lastSaveError = null
+
+        while (saveAttempts < 3 && !saveSuccess) {
+          saveAttempts++
+          try {
+            saveResultsInChunks(rec, currentPayloadToSave)
+            appId.save(rec)
+            saveSuccess = true
+          } catch (errSave) {
+            lastSaveError = errSave
+            const errSaveMsg = String(errSave.message || errSave)
+            console.warn(
+              '[ml_catalog_search] Falha na gravação do resultado (tentativa ' +
+                saveAttempts +
+                '/3): ' +
+                errSaveMsg,
+            )
+
+            // Backoff simples entre tentativas
+            if (saveAttempts < 3) {
+              sleepMs(150 * saveAttempts)
+            }
+
+            if (saveAttempts === 1) {
+              // Tentativa 2: Reduzir concorrentes para até 3 por produto para enxugar payload
+              currentPayloadToSave = currentPayloadToSave.map(function (p) {
+                const copy = Object.assign({}, p)
+                if (Array.isArray(copy.competitors)) {
+                  copy.competitors = copy.competitors.slice(0, 3)
+                }
+                return copy
+              })
+            } else if (saveAttempts === 2) {
+              // Tentativa 3: Manter concorrentes vazios (apenas líder da Buy Box)
+              currentPayloadToSave = currentPayloadToSave.map(function (p) {
+                const copy = Object.assign({}, p)
+                copy.competitors = []
+                return copy
+              })
+            }
+          }
+        }
+
+        if (!saveSuccess) {
+          // Requisito A2: Falha definitiva após 3 tentativas ou estouro de tamanho:
+          // marcar job como status: 'error' com mensagem amigável ("Resultados excederam o limite máximo permitido"),
+          // SEM recolocar na fila.
           rec.set('status', 'error')
-          rec.set('status_code', 500)
-          rec.set('error_message', String(errGlobal))
+          rec.set('status_code', 413)
+          rec.set('error_message', 'Resultados excederam o limite máximo permitido')
           rec.set(
             'progress_text',
-            'Essa busca demorou mais que o esperado ou falhou no Mercado Livre.',
+            'Resultados excederam o limite máximo permitido. Tente restringir a categoria ou termo.',
           )
+          rec.set('results', [])
+          appId.save(rec)
+          console.warn(
+            '[ml_cron] Job ' +
+              jobId +
+              ' marcado como error definitivamente após 3 tentativas de gravação.',
+          )
+        } else {
+          console.log(
+            '[ml_cron] Job de busca concluído: ' + jobId + ' (' + itemsFound.length + ' itens)',
+          )
+        }
+      } catch (errGlobal) {
+        const errGlobalMsg = String(errGlobal.message || errGlobal)
+        console.log('[ml_cron] Erro fatal no processamento do job ' + jobId + ': ' + errGlobalMsg)
+        try {
+          // Requisito A2: Falha de gravação ou estouro de tamanho: marcar job como status: 'error'
+          // com error_message amigável ("Resultados excederam o limite máximo permitido"), SEM recolocar na fila.
+          const isSizeError =
+            errGlobalMsg.includes('1048576') ||
+            errGlobalMsg.includes('maximum allowed JSON') ||
+            errGlobalMsg.includes('too large') ||
+            errGlobalMsg.includes('excederam')
+
+          rec.set('status', 'error')
+          rec.set('status_code', isSizeError ? 413 : 500)
+          rec.set(
+            'error_message',
+            isSizeError
+              ? 'Resultados excederam o limite máximo permitido'
+              : 'Falha no processamento: ' + errGlobalMsg,
+          )
+          rec.set(
+            'progress_text',
+            isSizeError
+              ? 'Resultados excederam o limite máximo permitido. Tente filtrar por categoria.'
+              : 'Essa busca demorou mais que o esperado ou falhou no Mercado Livre.',
+          )
+          rec.set('results', [])
           appId.save(rec)
         } catch (_) {}
       }

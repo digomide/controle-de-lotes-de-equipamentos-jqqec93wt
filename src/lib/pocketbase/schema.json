@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-09T15:55:40.192Z",
+  "generatedAt": "2026-09-09T20:33:16.763Z",
   "collections": [
     {
       "name": "users",
@@ -2614,6 +2614,18 @@
           "type": "number",
           "required": false,
           "system": false
+        },
+        {
+          "name": "has_chunks",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "chunk_count",
+          "type": "number",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
@@ -3360,6 +3372,60 @@
         }
       ],
       "indexes": []
+    },
+    {
+      "name": "ml_catalog_search_results",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\"",
+        "view": "@request.auth.id != \"\"",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\"",
+        "delete": "@request.auth.id != \"\""
+      },
+      "fields": [
+        {
+          "name": "job_id",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "chunk_index",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "items_count",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "payload_json",
+          "type": "json",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_ml_catalog_search_results_job ON ml_catalog_search_results (job_id, chunk_index ASC)"
+      ]
     }
   ]
 }

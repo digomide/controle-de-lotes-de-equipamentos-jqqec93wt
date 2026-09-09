@@ -499,11 +499,11 @@ export function AnunciosCatalogoTab() {
         if (j.paging) setSearchPagingInfo(j.paging)
 
         // STREAMING / RESULTADOS PROGRESSIVOS:
-        // Conforme as varreduras avançam, preenche a grade com os resultados que já foram acumulados!
+        // Conforme as varreduras avançam ou ao término do job com chunks consolidados,
+        // preenche a grade com os resultados recebidos!
         if (Array.isArray(j.results) && j.results.length > 0) {
           setCatalogItems((prev) => {
-            // Só substitui se o novo lote tiver mais posições ou se a grade estiver vazia
-            if (prev.length === 0 || (j.results && j.results.length > prev.length)) {
+            if (prev.length === 0 || (j.results && j.results.length >= prev.length)) {
               return processCatalogResults(j.results, q, condToUse)
             }
             return prev

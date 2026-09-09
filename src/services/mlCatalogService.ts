@@ -355,16 +355,22 @@ export const mlCatalogService = {
   ): Promise<MLCatalogSearchJob> {
     const userId = pb.authStore.model?.id || null
     try {
-      const job = await pb.collection('ml_catalog_search_jobs').create({
-        query: query.trim(),
-        domain_id: (domainId || '').trim(),
-        category_id: (categoryId || '').trim(),
-        condition: condition || 'all',
-        status: 'pending',
-        progress_text: 'Na fila... Aguardando início do processamento em segundo plano.',
-        force_refresh: forceRefresh,
-        requested_by: userId,
-      })
+      const job = await pb.collection('ml_catalog_search_jobs').create(
+        {
+          query: query.trim(),
+          domain_id: (domainId || '').trim(),
+          category_id: (categoryId || '').trim(),
+          condition: condition || 'all',
+          status: 'pending',
+          progress_text: 'Na fila... Aguardando início do processamento em segundo plano.',
+          force_refresh: forceRefresh,
+          requested_by: userId,
+        },
+        {
+          fields:
+            'id,status,query,progress_text,strategy_used,error_message,paging,created,updated,has_chunks,chunk_count,is_cached,cached_at',
+        },
+      )
       return job as unknown as MLCatalogSearchJob
     } catch (err: any) {
       const errMsg = err?.message || String(err)
@@ -378,16 +384,85 @@ export const mlCatalogService = {
   },
 
   /**
-   * Consulta o estado atual do job de busca
+   * Consulta apenas os metadados do job de busca com projeção de campos
+   * (exclui o payload gigante para evitar tráfego de megabytes e timeouts de 23-395s).
    */
-  async getSearchJob(jobId: string): Promise<MLCatalogSearchJob> {
-    const job = await pb.collection('ml_catalog_search_jobs').getOne(jobId)
-    return job as unknown as MLCatalogSearchJob
+  async getSearchJobMeta(jobId: string): Promise<MLCatalogSearchJob> {
+    const job = (await pb.collection('ml_catalog_search_jobs').getOne(jobId, {
+      fields:
+        'id,status,query,progress_text,strategy_used,error_message,paging,created,updated,has_chunks,chunk_count,is_cached,cached_at',
+    })) as unknown as MLCatalogSearchJob
+    return job
   },
 
   /**
-   * Aguarda término do job de busca com polling
+   * Lê todos os resultados consolidados da coleção filha ml_catalog_search_results
+   * filtrando job_id = "{id}", ordenados por chunk_index ASC.
+   * Concatena os itens localmente de forma transparente — as telas recebem exatamente a mesma lista.
    */
+  async fetchJobResultsFromChunks(jobId: string): Promise<MLCatalogProduct[]> {
+    try {
+      const chunkRecords = await pb.collection('ml_catalog_search_results').getFullList({
+        filter: `job_id = "${jobId}"`,
+        sort: 'chunk_index',
+      })
+
+      if (!chunkRecords || chunkRecords.length === 0) {
+        return []
+      }
+
+      const combinedItems: MLCatalogProduct[] = []
+      for (const chunk of chunkRecords) {
+        const payload = (chunk as any).payload_json
+        if (Array.isArray(payload)) {
+          combinedItems.push(...payload)
+        } else if (typeof payload === 'string') {
+          try {
+            const parsed = JSON.parse(payload)
+            if (Array.isArray(parsed)) {
+              combinedItems.push(...parsed)
+            }
+          } catch {
+            /* intentionally ignored */
+          }
+        }
+      }
+      return combinedItems
+    } catch (err) {
+      console.warn('[mlCatalogService] Falha ao recuperar chunks do job ' + jobId + ':', err)
+      return []
+    }
+  },
+
+  /**
+   * Consulta o estado atual do job de busca.
+   * Se concluído com sucesso, lê os chunks de ml_catalog_search_results e remonta a lista completa.
+   */
+  async getSearchJob(jobId: string): Promise<MLCatalogSearchJob> {
+    const job = await this.getSearchJobMeta(jobId)
+
+    if (job.status === 'done') {
+      const items = await this.fetchJobResultsFromChunks(jobId)
+      if (items.length > 0) {
+        job.results = items
+      } else {
+        // Fallback para caso o job seja legado e tenha sido gravado direto no campo results
+        try {
+          const fullJob = await pb.collection('ml_catalog_search_jobs').getOne(jobId, {
+            fields: 'id,results',
+          })
+          job.results = (fullJob as any).results || []
+        } catch {
+          job.results = []
+        }
+      }
+    } else {
+      job.results = []
+    }
+
+    return job
+  },
+
   /**
    * Solicita parada amigável de uma busca em andamento mantendo o que já foi acumulado
    */
@@ -402,7 +477,9 @@ export const mlCatalogService = {
   },
 
   /**
-   * Aguarda término do job de busca com polling e streaming progressivo de resultados
+   * Aguarda término do job de busca com polling leve por projeção de campos
+   * (`fields: 'id,status,query,progress_text,strategy_used,error_message,paging,created,updated'`).
+   * Ao concluir com sucesso, busca os chunks em ml_catalog_search_results e consolida a lista.
    */
   async pollSearchJob(
     jobId: string,
@@ -411,18 +488,46 @@ export const mlCatalogService = {
   ): Promise<MLCatalogSearchJob> {
     const start = Date.now()
     while (Date.now() - start < maxWaitSecs * 1000) {
-      const job = await this.getSearchJob(jobId)
-      if (onProgress) onProgress(job)
-      if (job.status === 'done' || job.status === 'error') {
-        return job
+      // 1. Polling leve apenas dos metadados (sem payload gigante)
+      const jobMeta = await this.getSearchJobMeta(jobId)
+      if (onProgress) onProgress(jobMeta)
+
+      if (jobMeta.status === 'done') {
+        // 2. Concluído com sucesso: ler os chunks e concatenar localmente
+        const items = await this.fetchJobResultsFromChunks(jobId)
+        if (items.length > 0) {
+          jobMeta.results = items
+        } else {
+          // Fallback para jobs legados
+          try {
+            const full = await pb.collection('ml_catalog_search_jobs').getOne(jobId, {
+              fields: 'id,results',
+            })
+            jobMeta.results = (full as any).results || []
+          } catch {
+            jobMeta.results = []
+          }
+        }
+        // Notificar callback final com os itens completos consolidados
+        if (onProgress) onProgress(jobMeta)
+        return jobMeta
       }
+
+      if (jobMeta.status === 'error') {
+        jobMeta.results = []
+        return jobMeta
+      }
+
       await new Promise((r) => setTimeout(r, 600))
     }
-    // Ao estourar tempo limite, verificar se há resultados parciais salvos
+
+    // Ao estourar tempo limite, verificar se há chunks já disponíveis
     try {
-      const lastJob = await this.getSearchJob(jobId)
-      if (lastJob && lastJob.results && lastJob.results.length > 0) {
-        return lastJob
+      const items = await this.fetchJobResultsFromChunks(jobId)
+      if (items.length > 0) {
+        const lastMeta = await this.getSearchJobMeta(jobId)
+        lastMeta.results = items
+        return lastMeta
       }
     } catch {
       /* intentionally ignored */

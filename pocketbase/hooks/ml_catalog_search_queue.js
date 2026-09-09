@@ -59,21 +59,78 @@ onRecordAfterCreateSuccess((e) => {
 
       if (cachedJobs && cachedJobs.length > 0) {
         const cached = cachedJobs[0]
-        const cachedResults = cached.get('results')
         let parsedResults = []
-        if (Array.isArray(cachedResults)) {
-          parsedResults = cachedResults
-        } else if (typeof cachedResults === 'string' && cachedResults.length > 2) {
+
+        // 1. Tentar carregar a partir dos chunks se o job foi particionado
+        const hasChunks = cached.getBool
+          ? cached.getBool('has_chunks')
+          : Boolean(cached.get('has_chunks'))
+        if (hasChunks) {
           try {
-            parsedResults = JSON.parse(cachedResults)
-          } catch (_) {}
+            const chunkRecs = appId.findRecordsByFilter(
+              'ml_catalog_search_results',
+              `job_id = '${cached.id}'`,
+              'chunk_index',
+              50,
+              0,
+            )
+            if (chunkRecs && chunkRecs.length > 0) {
+              for (let ci = 0; ci < chunkRecs.length; ci++) {
+                const cPayload = chunkRecs[ci].get('payload_json')
+                if (Array.isArray(cPayload)) {
+                  parsedResults = parsedResults.concat(cPayload)
+                } else if (typeof cPayload === 'string') {
+                  try {
+                    const parsedP = JSON.parse(cPayload)
+                    if (Array.isArray(parsedP)) parsedResults = parsedResults.concat(parsedP)
+                  } catch (_) {}
+                }
+              }
+
+              // Duplicar chunks para o novo registro para que ele também responda via chunks
+              try {
+                const resultsCol = appId.findCollectionByNameOrId('ml_catalog_search_results')
+                if (resultsCol) {
+                  for (let ci = 0; ci < chunkRecs.length; ci++) {
+                    const newChunk = new Record(resultsCol)
+                    newChunk.set('job_id', rec.id)
+                    newChunk.set('chunk_index', ci)
+                    newChunk.set(
+                      'items_count',
+                      chunkRecs[ci].getInt ? chunkRecs[ci].getInt('items_count') : 0,
+                    )
+                    newChunk.set('payload_json', chunkRecs[ci].get('payload_json'))
+                    appId.save(newChunk)
+                  }
+                  rec.set('has_chunks', true)
+                  rec.set('chunk_count', chunkRecs.length)
+                }
+              } catch (_) {}
+            }
+          } catch (eChunks) {
+            console.warn('[ml_catalog_search_queue] Falha ao carregar chunks do cache:', eChunks)
+          }
+        }
+
+        // 2. Fallback para campo results clássico se chunks não trouxeram dados
+        if (parsedResults.length === 0) {
+          const cachedResults = cached.get('results')
+          if (Array.isArray(cachedResults)) {
+            parsedResults = cachedResults
+          } else if (typeof cachedResults === 'string' && cachedResults.length > 2) {
+            try {
+              parsedResults = JSON.parse(cachedResults)
+            } catch (_) {}
+          }
         }
 
         if (parsedResults && parsedResults.length > 0) {
           rec.set('status', 'done')
           rec.set('status_code', 200)
           rec.set('strategy_used', (cached.getString('strategy_used') || 'cached') + '_cached')
-          rec.set('results', parsedResults)
+          // No record principal: persistir só metadados e amostra dos 3 primeiros itens (sem megabytes)
+          rec.set('results', parsedResults.slice(0, 3))
+          rec.set('results_count', parsedResults.length)
           rec.set('is_cached', true)
           const cachedCreated = cached.getString('created') || new Date().toISOString()
           rec.set('cached_at', cachedCreated)

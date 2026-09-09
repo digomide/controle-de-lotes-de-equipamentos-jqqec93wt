@@ -458,7 +458,7 @@ routerAdd('GET', '/backend/v1/custom/ml-collector/summary', function (e) {
       'ml_collector_imports',
       "search_term ~ '" + term.replace(/'/g, "\\'") + "'",
       '-imported_at',
-      50,
+      15,
       0,
     )
 

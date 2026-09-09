@@ -97,7 +97,25 @@ export interface MLCollectorKeyRecord {
   updated?: string
 }
 
+// Gerenciador de requisições em trânsito e AbortController para deduplicação e cancelamento
+const inFlightRequests = new Map<string, Promise<any>>()
+let activeSearchAbortController: AbortController | null = null
+
 export const mlCollectorService = {
+  /**
+   * Cancela requisições anteriores ativas de coleta caso o termo tenha mudado
+   */
+  abortActiveRequests(): void {
+    if (activeSearchAbortController) {
+      try {
+        activeSearchAbortController.abort()
+      } catch {
+        /* intentionally ignored */
+      }
+      activeSearchAbortController = null
+    }
+  },
+
   /**
    * Valida e normaliza o JSON antes de salvar
    */
@@ -222,47 +240,21 @@ export const mlCollectorService = {
     const term = normalizeSearchTerm(searchTerm)
     if (!term) return null
 
-    try {
-      // 1. Tentar correspondência exata
-      let records = await pb
-        .collection('ml_collector_imports')
-        .getList<MLCollectorImportRecord>(1, 1, {
-          filter: `search_term = "${term}"`,
-          sort: '-imported_at',
-        })
+    const cacheKey = `latest_import:${term}`
+    if (inFlightRequests.has(cacheKey)) {
+      return inFlightRequests.get(cacheKey)!
+    }
 
-      if (records && records.items && records.items.length > 0) {
-        const item = records.items[0]
-        if (item.payload) {
-          item.payload = this.decodePayload(item.payload) || item.payload
-        }
-        return item
-      }
-
-      // 2. Tentar busca ampla por contém (ex: "memoria smart" casa com "memoria smartt")
-      records = await pb.collection('ml_collector_imports').getList<MLCollectorImportRecord>(1, 1, {
-        filter: `search_term ~ "${term}"`,
-        sort: '-imported_at',
-      })
-
-      if (records && records.items && records.items.length > 0) {
-        const item = records.items[0]
-        if (item.payload) {
-          item.payload = this.decodePayload(item.payload) || item.payload
-        }
-        return item
-      }
-
-      // 3. Tentar pelo primeiro token significativo (ex: "memoria") caso termo tenha mais de uma palavra
-      const tokens = term.split(/\s+/).filter((t) => t.length >= 3)
-      if (tokens.length > 1) {
-        const tokenFilter = tokens.map((t) => `search_term ~ "${t}"`).join(' || ')
-        records = await pb
+    const promise = (async () => {
+      try {
+        // 1. Tentar correspondência exata
+        let records = await pb
           .collection('ml_collector_imports')
           .getList<MLCollectorImportRecord>(1, 1, {
-            filter: tokenFilter,
+            filter: `search_term = "${term}"`,
             sort: '-imported_at',
           })
+
         if (records && records.items && records.items.length > 0) {
           const item = records.items[0]
           if (item.payload) {
@@ -270,12 +262,52 @@ export const mlCollectorService = {
           }
           return item
         }
-      }
-    } catch (err) {
-      console.warn('[mlCollectorService] Erro ao buscar coleta por termo:', err)
-    }
 
-    return null
+        // 2. Tentar busca ampla por contém (ex: "memoria smart" casa com "memoria smartt")
+        records = await pb
+          .collection('ml_collector_imports')
+          .getList<MLCollectorImportRecord>(1, 1, {
+            filter: `search_term ~ "${term}"`,
+            sort: '-imported_at',
+          })
+
+        if (records && records.items && records.items.length > 0) {
+          const item = records.items[0]
+          if (item.payload) {
+            item.payload = this.decodePayload(item.payload) || item.payload
+          }
+          return item
+        }
+
+        // 3. Tentar pelo primeiro token significativo (ex: "memoria") caso termo tenha mais de uma palavra
+        const tokens = term.split(/\s+/).filter((t) => t.length >= 3)
+        if (tokens.length > 1) {
+          const tokenFilter = tokens.map((t) => `search_term ~ "${t}"`).join(' || ')
+          records = await pb
+            .collection('ml_collector_imports')
+            .getList<MLCollectorImportRecord>(1, 1, {
+              filter: tokenFilter,
+              sort: '-imported_at',
+            })
+          if (records && records.items && records.items.length > 0) {
+            const item = records.items[0]
+            if (item.payload) {
+              item.payload = this.decodePayload(item.payload) || item.payload
+            }
+            return item
+          }
+        }
+      } catch (err) {
+        console.warn('[mlCollectorService] Erro ao buscar coleta por termo:', err)
+      }
+
+      return null
+    })().finally(() => {
+      inFlightRequests.delete(cacheKey)
+    })
+
+    inFlightRequests.set(cacheKey, promise)
+    return promise
   },
 
   /**
@@ -701,331 +733,380 @@ export const mlCollectorService = {
     const term = normalizeSearchTerm(searchTerm)
     if (!term) return null
 
-    // 1. Obter overrides do usuário para o termo (caso não fornecidos)
-    let overrides = overridesParam
-    if (!overrides) {
+    // Deduplicação de requisições em trânsito: mesmo termo = mesma Promise reaproveitada
+    const cacheKey = `summary_report:${term}`
+    if (inFlightRequests.has(cacheKey)) {
+      return inFlightRequests.get(cacheKey)!
+    }
+
+    // AbortController para cancelar requisição anterior quando o termo muda
+    if (activeSearchAbortController) {
       try {
-        overrides = await positionOverridesService.getOverridesForTerm(term)
+        activeSearchAbortController.abort()
       } catch {
-        overrides = {}
+        /* intentionally ignored */
       }
     }
+    const abortCtrl = new AbortController()
+    activeSearchAbortController = abortCtrl
+    const currentSignal = abortCtrl.signal
 
-    // 2. Tentar endpoint dedicado no backend com passagem de overrides se possível
-    try {
-      const resp = await pb.send<CollectorSummaryReport>(
-        `/backend/v1/custom/ml-collector/summary?term=${encodeURIComponent(term)}`,
-        { method: 'GET' },
-      )
-      // Se a rota backend retornou, aplicamos ainda a sanitização de ruído e overrides no cliente
-      // para garantir sincronia instantânea e precisa mesmo se o backend estiver em versão anterior
-      if (resp && resp.ok && resp.all_deduplicated_ads && resp.all_deduplicated_ads.length > 0) {
-        return this.filterAndRecalculateReport(resp, term, overrides)
-      }
-      if (resp && resp.ok && resp.total_deduplicated_ads > 0) {
-        return resp
-      }
-    } catch (err) {
-      console.warn(
-        '[mlCollectorService] Falha ao consultar endpoint de resumo, rodando agregação local:',
-        err,
-      )
-    }
-
-    // 3. Fallback de agregação client-side completa
-    try {
-      // Buscar até 50 registros que contenham o termo ou tokens significativos
-      let records = await pb
-        .collection('ml_collector_imports')
-        .getList<MLCollectorImportRecord>(1, 50, {
-          filter: `search_term ~ "${term}"`,
-          sort: '-imported_at',
-        })
-
-      if (!records || !records.items || records.items.length === 0) {
-        // Tentar por tokens caso o termo composto não tenha retorno direto
-        const tokens = term.split(/\s+/).filter((t) => t.length >= 3)
-        if (tokens.length > 0) {
-          const tokenFilter = tokens.map((t) => `search_term ~ "${t}"`).join(' || ')
-          records = await pb
-            .collection('ml_collector_imports')
-            .getList<MLCollectorImportRecord>(1, 50, {
-              filter: tokenFilter,
-              sort: '-imported_at',
-            })
+    const promise = (async (): Promise<CollectorSummaryReport | null> => {
+      // 1. Obter overrides do usuário para o termo (caso não fornecidos)
+      let overrides = overridesParam
+      if (!overrides) {
+        try {
+          overrides = await positionOverridesService.getOverridesForTerm(term)
+        } catch {
+          overrides = {}
         }
       }
 
-      if (!records || !records.items || records.items.length === 0) {
-        return null
+      if (currentSignal.aborted) return null
+
+      // 2. Tentar endpoint dedicado no backend com passagem de overrides se possível
+      try {
+        const resp = await pb.send<CollectorSummaryReport>(
+          `/backend/v1/custom/ml-collector/summary?term=${encodeURIComponent(term)}`,
+          {
+            method: 'GET',
+            signal: currentSignal,
+          },
+        )
+        if (currentSignal.aborted) return null
+
+        // Se a rota backend retornou, aplicamos ainda a sanitização de ruído e overrides no cliente
+        // para garantir sincronia instantânea e precisa mesmo se o backend estiver em versão anterior
+        if (resp && resp.ok && resp.all_deduplicated_ads && resp.all_deduplicated_ads.length > 0) {
+          return this.filterAndRecalculateReport(resp, term, overrides)
+        }
+        if (resp && resp.ok && resp.total_deduplicated_ads > 0) {
+          return resp
+        }
+      } catch (err: any) {
+        if (err?.name === 'AbortError' || currentSignal.aborted) {
+          return null
+        }
+        console.warn(
+          '[mlCollectorService] Falha ao consultar endpoint de resumo, rodando agregação local:',
+          err,
+        )
       }
 
-      const deduplicatedAds = new Map<string, CollectorDeduplicatedAd>()
-      const importsList: Array<{
-        id: string
-        created: string
-        source_url?: string
-        results_count: number
-        with_sales_count: number
-      }> = []
+      if (currentSignal.aborted) return null
 
-      for (const rec of records.items) {
-        const payload = this.decodePayload(rec.payload)
-        const items = payload && Array.isArray(payload.results) ? payload.results : []
+      // 3. Fallback de agregação client-side completa
+      // perPage reduzido de 50 para 15 conforme plano de mitigação
+      const COLLECTOR_PAGE_SIZE = 15
 
-        importsList.push({
-          id: rec.id,
-          created: rec.created || rec.imported_at || '',
-          source_url: rec.source_url,
-          results_count: items.length,
-          with_sales_count: rec.with_sales_count || 0,
-        })
-
-        for (let i = 0; i < items.length; i++) {
-          const it = items[i]
-          const adId = (it.mlb_id || it.id || `ITEM_${i}`).trim()
-          // Regra de Ouro da Tarefa: nunca inventar números; sem sold_quantity explícito (> 0 e número) não entra como vendido
-          const soldQty =
-            it.sold_quantity != null && !isNaN(Number(it.sold_quantity))
-              ? Number(it.sold_quantity)
-              : null
-          const price = it.price != null && !isNaN(Number(it.price)) ? Number(it.price) : undefined
-          const title = (it.title || '').trim()
-          const seller = (it.seller_name || '').trim()
-          const permalink = (it.permalink || '').trim()
-          const thumbnail = (it.thumbnail || '').trim()
-          const isFreeShipping = Boolean(it.is_free_shipping)
-          const isFull = Boolean(it.is_full)
-          const condition = (it.condition || '').trim()
-
-          const detectedSubfamily = (it as any).subfamily || (it as any).subfamily_name || ''
-          if (!deduplicatedAds.has(adId)) {
-            deduplicatedAds.set(adId, {
-              id: adId,
-              mlb_id: it.mlb_id || adId,
-              title,
-              price,
-              sold_quantity: soldQty,
-              seller_name: seller,
-              permalink,
-              thumbnail,
-              is_free_shipping: isFreeShipping,
-              is_full: isFull,
-              condition,
-              subfamily: detectedSubfamily,
-            })
-          } else {
-            // Deduplicação por mlb_id mantendo SEMPRE a MAIOR sold_quantity observada
-            const exist = deduplicatedAds.get(adId)!
-            if (soldQty != null) {
-              if (exist.sold_quantity == null || soldQty > exist.sold_quantity) {
-                exist.sold_quantity = soldQty
-              }
-            }
-            if ((!exist.price || exist.price <= 0) && price && price > 0) exist.price = price
-            if (!exist.seller_name && seller) exist.seller_name = seller
-            if (!exist.permalink && permalink) exist.permalink = permalink
-            if (!exist.title && title) exist.title = title
-            if (!exist.thumbnail && thumbnail) exist.thumbnail = thumbnail
-          }
-        }
-      }
-
-      const rawAllAds = Array.from(deduplicatedAds.values())
-      const noiseAdsList: CollectorDeduplicatedAd[] = []
-      let manuallyExcludedCount = 0
-      let manuallyIncludedCount = 0
-
-      // Aplicar filtro de relevância (heurística + overrides manuais do usuário)
-      const filteredAds: CollectorDeduplicatedAd[] = []
-      for (const ad of rawAllAds) {
-        const adId = ad.id || ad.mlb_id
-        const override = overrides ? overrides[adId] : undefined
-
-        if (override === 'exclude') {
-          manuallyExcludedCount++
-          noiseAdsList.push(ad)
-          continue
-        }
-
-        if (override === 'include') {
-          manuallyIncludedCount++
-          filteredAds.push(ad)
-          continue
-        }
-
-        // Heurística de ruído automático
-        const noiseCheck = detectCollectorNoiseAd(ad.title, term)
-        if (noiseCheck.isNoise) {
-          noiseAdsList.push(ad)
-          continue
-        }
-
-        filteredAds.push(ad)
-      }
-
-      const allAds = filteredAds
-      const adsWithSales = allAds.filter((a) => a.sold_quantity != null && a.sold_quantity > 0)
-      adsWithSales.sort((a, b) => (b.sold_quantity || 0) - (a.sold_quantity || 0))
-
-      let totalSoldUnits = 0
-      let totalSalesRevenue = 0
-      const pricesWithSales: number[] = []
-
-      for (const adItem of adsWithSales) {
-        const qty = adItem.sold_quantity || 0
-        totalSoldUnits += qty
-        if (adItem.price && adItem.price > 0) {
-          totalSalesRevenue += adItem.price * qty
-          pricesWithSales.push(adItem.price)
-        }
-      }
-
-      pricesWithSales.sort((a, b) => a - b)
-      const simpleAvgPrice =
-        pricesWithSales.length > 0
-          ? pricesWithSales.reduce((s, p) => s + p, 0) / pricesWithSales.length
-          : 0
-      const weightedAvgPrice = totalSoldUnits > 0 ? totalSalesRevenue / totalSoldUnits : 0
-      const medianPrice =
-        pricesWithSales.length > 0
-          ? pricesWithSales.length % 2 === 0
-            ? (pricesWithSales[pricesWithSales.length / 2 - 1] +
-                pricesWithSales[pricesWithSales.length / 2]) /
-              2
-            : pricesWithSales[Math.floor(pricesWithSales.length / 2)]
-          : 0
-
-      const minPriceWithSales = pricesWithSales.length > 0 ? pricesWithSales[0] : 0
-      const maxPriceWithSales =
-        pricesWithSales.length > 0 ? pricesWithSales[pricesWithSales.length - 1] : 0
-
-      // Agrupamento por especificação fina cobrindo TODOS os anúncios (com vendas E sem vendas)
-      const specMap = new Map<
-        string,
-        {
-          spec: string
-          totalUnits: number
-          totalRevenue: number
-          adCount: number
-          adsWithSalesCount: number
-          adsWithoutSalesCount: number
-          pricesWithSales: number[]
-          ads: CollectorDeduplicatedAd[]
-        }
-      >()
-
-      for (const ad of allAds) {
-        const specKey = this.extractFineSpec(ad.title)
-
-        if (!specMap.has(specKey)) {
-          specMap.set(specKey, {
-            spec: specKey,
-            totalUnits: 0,
-            totalRevenue: 0,
-            adCount: 0,
-            adsWithSalesCount: 0,
-            adsWithoutSalesCount: 0,
-            pricesWithSales: [],
-            ads: [],
+      try {
+        // Buscar até 15 registros que contenham o termo ou tokens significativos
+        let records = await pb
+          .collection('ml_collector_imports')
+          .getList<MLCollectorImportRecord>(1, COLLECTOR_PAGE_SIZE, {
+            filter: `search_term ~ "${term}"`,
+            sort: '-imported_at',
+            signal: currentSignal,
           })
-        }
 
-        const sp = specMap.get(specKey)!
-        sp.adCount += 1
-        sp.ads.push(ad)
-
-        const soldQty = ad.sold_quantity != null && ad.sold_quantity > 0 ? ad.sold_quantity : 0
-        if (soldQty > 0) {
-          sp.adsWithSalesCount += 1
-          sp.totalUnits += soldQty
-          if (ad.price && ad.price > 0) {
-            sp.totalRevenue += ad.price * soldQty
-            sp.pricesWithSales.push(ad.price)
+        if (!records || !records.items || records.items.length === 0) {
+          // Tentar por tokens caso o termo composto não tenha retorno direto
+          const tokens = term.split(/\s+/).filter((t) => t.length >= 3)
+          if (tokens.length > 0) {
+            const tokenFilter = tokens.map((t) => `search_term ~ "${t}"`).join(' || ')
+            records = await pb
+              .collection('ml_collector_imports')
+              .getList<MLCollectorImportRecord>(1, COLLECTOR_PAGE_SIZE, {
+                filter: tokenFilter,
+                sort: '-imported_at',
+                signal: currentSignal,
+              })
           }
-        } else {
-          sp.adsWithoutSalesCount += 1
         }
-      }
 
-      const allSpecsRanked: CollectorSpecMetrics[] = Array.from(specMap.values()).map((sp) => {
-        sp.pricesWithSales.sort((a, b) => a - b)
-        const count = sp.pricesWithSales.length
-        const simpleAvg = count > 0 ? sp.pricesWithSales.reduce((s, p) => s + p, 0) / count : 0
-        const weightedAvg = sp.totalUnits > 0 ? sp.totalRevenue / sp.totalUnits : 0
-        const median =
-          count > 0
-            ? count % 2 === 0
-              ? (sp.pricesWithSales[count / 2 - 1] + sp.pricesWithSales[count / 2]) / 2
-              : sp.pricesWithSales[Math.floor(count / 2)]
+        if (!records || !records.items || records.items.length === 0) {
+          return null
+        }
+
+        const deduplicatedAds = new Map<string, CollectorDeduplicatedAd>()
+        const importsList: Array<{
+          id: string
+          created: string
+          source_url?: string
+          results_count: number
+          with_sales_count: number
+        }> = []
+
+        for (const rec of records.items) {
+          const payload = this.decodePayload(rec.payload)
+          const items = payload && Array.isArray(payload.results) ? payload.results : []
+
+          importsList.push({
+            id: rec.id,
+            created: rec.created || rec.imported_at || '',
+            source_url: rec.source_url,
+            results_count: items.length,
+            with_sales_count: rec.with_sales_count || 0,
+          })
+
+          for (let i = 0; i < items.length; i++) {
+            const it = items[i]
+            const adId = (it.mlb_id || it.id || `ITEM_${i}`).trim()
+            // Regra de Ouro da Tarefa: nunca inventar números; sem sold_quantity explícito (> 0 e número) não entra como vendido
+            const soldQty =
+              it.sold_quantity != null && !isNaN(Number(it.sold_quantity))
+                ? Number(it.sold_quantity)
+                : null
+            const price =
+              it.price != null && !isNaN(Number(it.price)) ? Number(it.price) : undefined
+            const title = (it.title || '').trim()
+            const seller = (it.seller_name || '').trim()
+            const permalink = (it.permalink || '').trim()
+            const thumbnail = (it.thumbnail || '').trim()
+            const isFreeShipping = Boolean(it.is_free_shipping)
+            const isFull = Boolean(it.is_full)
+            const condition = (it.condition || '').trim()
+
+            const detectedSubfamily = (it as any).subfamily || (it as any).subfamily_name || ''
+            if (!deduplicatedAds.has(adId)) {
+              deduplicatedAds.set(adId, {
+                id: adId,
+                mlb_id: it.mlb_id || adId,
+                title,
+                price,
+                sold_quantity: soldQty,
+                seller_name: seller,
+                permalink,
+                thumbnail,
+                is_free_shipping: isFreeShipping,
+                is_full: isFull,
+                condition,
+                subfamily: detectedSubfamily,
+              })
+            } else {
+              // Deduplicação por mlb_id mantendo SEMPRE a MAIOR sold_quantity observada
+              const exist = deduplicatedAds.get(adId)!
+              if (soldQty != null) {
+                if (exist.sold_quantity == null || soldQty > exist.sold_quantity) {
+                  exist.sold_quantity = soldQty
+                }
+              }
+              if ((!exist.price || exist.price <= 0) && price && price > 0) exist.price = price
+              if (!exist.seller_name && seller) exist.seller_name = seller
+              if (!exist.permalink && permalink) exist.permalink = permalink
+              if (!exist.title && title) exist.title = title
+              if (!exist.thumbnail && thumbnail) exist.thumbnail = thumbnail
+            }
+          }
+        }
+
+        const rawAllAds = Array.from(deduplicatedAds.values())
+        const noiseAdsList: CollectorDeduplicatedAd[] = []
+        let manuallyExcludedCount = 0
+        let manuallyIncludedCount = 0
+
+        // Aplicar filtro de relevância (heurística + overrides manuais do usuário)
+        const filteredAds: CollectorDeduplicatedAd[] = []
+        for (const ad of rawAllAds) {
+          const adId = ad.id || ad.mlb_id
+          const override = overrides ? overrides[adId] : undefined
+
+          if (override === 'exclude') {
+            manuallyExcludedCount++
+            noiseAdsList.push(ad)
+            continue
+          }
+
+          if (override === 'include') {
+            manuallyIncludedCount++
+            filteredAds.push(ad)
+            continue
+          }
+
+          // Heurística de ruído automático
+          const noiseCheck = detectCollectorNoiseAd(ad.title, term)
+          if (noiseCheck.isNoise) {
+            noiseAdsList.push(ad)
+            continue
+          }
+
+          filteredAds.push(ad)
+        }
+
+        const allAds = filteredAds
+        const adsWithSales = allAds.filter((a) => a.sold_quantity != null && a.sold_quantity > 0)
+        adsWithSales.sort((a, b) => (b.sold_quantity || 0) - (a.sold_quantity || 0))
+
+        let totalSoldUnits = 0
+        let totalSalesRevenue = 0
+        const pricesWithSales: number[] = []
+
+        for (const adItem of adsWithSales) {
+          const qty = adItem.sold_quantity || 0
+          totalSoldUnits += qty
+          if (adItem.price && adItem.price > 0) {
+            totalSalesRevenue += adItem.price * qty
+            pricesWithSales.push(adItem.price)
+          }
+        }
+
+        pricesWithSales.sort((a, b) => a - b)
+        const simpleAvgPrice =
+          pricesWithSales.length > 0
+            ? pricesWithSales.reduce((s, p) => s + p, 0) / pricesWithSales.length
+            : 0
+        const weightedAvgPrice = totalSoldUnits > 0 ? totalSalesRevenue / totalSoldUnits : 0
+        const medianPrice =
+          pricesWithSales.length > 0
+            ? pricesWithSales.length % 2 === 0
+              ? (pricesWithSales[pricesWithSales.length / 2 - 1] +
+                  pricesWithSales[pricesWithSales.length / 2]) /
+                2
+              : pricesWithSales[Math.floor(pricesWithSales.length / 2)]
             : 0
 
-        const min = count > 0 ? sp.pricesWithSales[0] : 0
-        const max = count > 0 ? sp.pricesWithSales[count - 1] : 0
+        const minPriceWithSales = pricesWithSales.length > 0 ? pricesWithSales[0] : 0
+        const maxPriceWithSales =
+          pricesWithSales.length > 0 ? pricesWithSales[pricesWithSales.length - 1] : 0
 
-        const share =
-          totalSoldUnits > 0 ? Math.round((sp.totalUnits / totalSoldUnits) * 1000) / 10 : 0
+        // Agrupamento por especificação fina cobrindo TODOS os anúncios (com vendas E sem vendas)
+        const specMap = new Map<
+          string,
+          {
+            spec: string
+            totalUnits: number
+            totalRevenue: number
+            adCount: number
+            adsWithSalesCount: number
+            adsWithoutSalesCount: number
+            pricesWithSales: number[]
+            ads: CollectorDeduplicatedAd[]
+          }
+        >()
 
-        // Anúncio campeão da especificação
-        const specAdsWithSales = sp.ads.filter(
-          (a) => a.sold_quantity != null && a.sold_quantity > 0,
-        )
-        specAdsWithSales.sort((a, b) => (b.sold_quantity || 0) - (a.sold_quantity || 0))
-        const champion =
-          specAdsWithSales.length > 0 ? specAdsWithSales[0] : sp.ads.length > 0 ? sp.ads[0] : null
+        for (const ad of allAds) {
+          const specKey = this.extractFineSpec(ad.title)
+
+          if (!specMap.has(specKey)) {
+            specMap.set(specKey, {
+              spec: specKey,
+              totalUnits: 0,
+              totalRevenue: 0,
+              adCount: 0,
+              adsWithSalesCount: 0,
+              adsWithoutSalesCount: 0,
+              pricesWithSales: [],
+              ads: [],
+            })
+          }
+
+          const sp = specMap.get(specKey)!
+          sp.adCount += 1
+          sp.ads.push(ad)
+
+          const soldQty = ad.sold_quantity != null && ad.sold_quantity > 0 ? ad.sold_quantity : 0
+          if (soldQty > 0) {
+            sp.adsWithSalesCount += 1
+            sp.totalUnits += soldQty
+            if (ad.price && ad.price > 0) {
+              sp.totalRevenue += ad.price * soldQty
+              sp.pricesWithSales.push(ad.price)
+            }
+          } else {
+            sp.adsWithoutSalesCount += 1
+          }
+        }
+
+        const allSpecsRanked: CollectorSpecMetrics[] = Array.from(specMap.values()).map((sp) => {
+          sp.pricesWithSales.sort((a, b) => a - b)
+          const count = sp.pricesWithSales.length
+          const simpleAvg = count > 0 ? sp.pricesWithSales.reduce((s, p) => s + p, 0) / count : 0
+          const weightedAvg = sp.totalUnits > 0 ? sp.totalRevenue / sp.totalUnits : 0
+          const median =
+            count > 0
+              ? count % 2 === 0
+                ? (sp.pricesWithSales[count / 2 - 1] + sp.pricesWithSales[count / 2]) / 2
+                : sp.pricesWithSales[Math.floor(count / 2)]
+              : 0
+
+          const min = count > 0 ? sp.pricesWithSales[0] : 0
+          const max = count > 0 ? sp.pricesWithSales[count - 1] : 0
+
+          const share =
+            totalSoldUnits > 0 ? Math.round((sp.totalUnits / totalSoldUnits) * 1000) / 10 : 0
+
+          // Anúncio campeão da especificação
+          const specAdsWithSales = sp.ads.filter(
+            (a) => a.sold_quantity != null && a.sold_quantity > 0,
+          )
+          specAdsWithSales.sort((a, b) => (b.sold_quantity || 0) - (a.sold_quantity || 0))
+          const champion =
+            specAdsWithSales.length > 0 ? specAdsWithSales[0] : sp.ads.length > 0 ? sp.ads[0] : null
+
+          return {
+            spec: sp.spec,
+            totalUnits: sp.totalUnits,
+            totalRevenue: Math.round(sp.totalRevenue * 100) / 100,
+            adCount: sp.adCount,
+            adsWithSalesCount: sp.adsWithSalesCount,
+            adsWithoutSalesCount: sp.adsWithoutSalesCount,
+            weightedAvgPrice: Math.round(weightedAvg * 100) / 100,
+            simpleAvgPrice: Math.round(simpleAvg * 100) / 100,
+            medianPrice: Math.round(median * 100) / 100,
+            minPrice: min,
+            maxPrice: max,
+            sharePercent: share,
+            championAd: champion,
+            ads: sp.ads,
+          }
+        })
+
+        // Ordenar por volume de unidades vendidas decrescente; desempate por contagem de anúncios
+        allSpecsRanked.sort((a, b) => {
+          if (b.totalUnits !== a.totalUnits) return b.totalUnits - a.totalUnits
+          return b.adCount - a.adCount
+        })
 
         return {
-          spec: sp.spec,
-          totalUnits: sp.totalUnits,
-          totalRevenue: Math.round(sp.totalRevenue * 100) / 100,
-          adCount: sp.adCount,
-          adsWithSalesCount: sp.adsWithSalesCount,
-          adsWithoutSalesCount: sp.adsWithoutSalesCount,
-          weightedAvgPrice: Math.round(weightedAvg * 100) / 100,
-          simpleAvgPrice: Math.round(simpleAvg * 100) / 100,
-          medianPrice: Math.round(median * 100) / 100,
-          minPrice: min,
-          maxPrice: max,
-          sharePercent: share,
-          championAd: champion,
-          ads: sp.ads,
+          ok: true,
+          term,
+          imports_count: records.items.length,
+          imports: importsList,
+          total_deduplicated_ads: allAds.length,
+          ads_with_sales_count: adsWithSales.length,
+          total_sold_units: totalSoldUnits,
+          weighted_avg_price: Math.round(weightedAvgPrice * 100) / 100,
+          simple_avg_price: Math.round(simpleAvgPrice * 100) / 100,
+          median_price: Math.round(medianPrice * 100) / 100,
+          min_price: minPriceWithSales,
+          max_price: maxPriceWithSales,
+          champion_ad: adsWithSales.length > 0 ? adsWithSales[0] : null,
+          top_ads: adsWithSales.slice(0, 10),
+          top_specs: allSpecsRanked.slice(0, 8),
+          all_specs: allSpecsRanked,
+          all_deduplicated_ads: allAds,
+          noise_ads_count: noiseAdsList.length,
+          noise_ads: noiseAdsList,
+          manually_excluded_count: manuallyExcludedCount,
+          manually_included_count: manuallyIncludedCount,
+          raw_total_ads_count: rawAllAds.length,
         }
-      })
-
-      // Ordenar por volume de unidades vendidas decrescente; desempate por contagem de anúncios
-      allSpecsRanked.sort((a, b) => {
-        if (b.totalUnits !== a.totalUnits) return b.totalUnits - a.totalUnits
-        return b.adCount - a.adCount
-      })
-
-      return {
-        ok: true,
-        term,
-        imports_count: records.items.length,
-        imports: importsList,
-        total_deduplicated_ads: allAds.length,
-        ads_with_sales_count: adsWithSales.length,
-        total_sold_units: totalSoldUnits,
-        weighted_avg_price: Math.round(weightedAvgPrice * 100) / 100,
-        simple_avg_price: Math.round(simpleAvgPrice * 100) / 100,
-        median_price: Math.round(medianPrice * 100) / 100,
-        min_price: minPriceWithSales,
-        max_price: maxPriceWithSales,
-        champion_ad: adsWithSales.length > 0 ? adsWithSales[0] : null,
-        top_ads: adsWithSales.slice(0, 10),
-        top_specs: allSpecsRanked.slice(0, 8),
-        all_specs: allSpecsRanked,
-        all_deduplicated_ads: allAds,
-        noise_ads_count: noiseAdsList.length,
-        noise_ads: noiseAdsList,
-        manually_excluded_count: manuallyExcludedCount,
-        manually_included_count: manuallyIncludedCount,
-        raw_total_ads_count: rawAllAds.length,
+      } catch (err: any) {
+        if (err?.name === 'AbortError' || currentSignal.aborted) {
+          return null
+        }
+        console.warn('[mlCollectorService] Erro na agregação local:', err)
+        return null
       }
-    } catch (err) {
-      console.warn('[mlCollectorService] Erro na agregação local:', err)
-      return null
-    }
+    })().finally(() => {
+      inFlightRequests.delete(cacheKey)
+      if (activeSearchAbortController === abortCtrl) {
+        activeSearchAbortController = null
+      }
+    })
+
+    inFlightRequests.set(cacheKey, promise)
+    return promise
   },
 
   /**

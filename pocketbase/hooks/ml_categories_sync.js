@@ -48,38 +48,6 @@ cronAdd('ml_categories_sync_weekly', '0 3 * * 0', () => {
   }
 })
 
-// Endpoint HTTP para executar o processamento de busca em background sob demanda / imediato
-routerAdd('POST', '/backend/v1/ml/catalog/process-queue', (e) => {
-  const auth = e.auth
-  if (!auth) {
-    return e.json(401, { error: 'Autenticação necessária' })
-  }
-
-  try {
-    const pendingSearchJobs = $app.findRecordsByFilter(
-      'ml_catalog_search_jobs',
-      "status = 'pending'",
-      'created',
-      1,
-      0,
-    )
-
-    if (!pendingSearchJobs || pendingSearchJobs.length === 0) {
-      return e.json(200, { message: 'Nenhum job pendente', processed: false })
-    }
-
-    const rec = pendingSearchJobs[0]
-    return e.json(200, {
-      message: 'Job localizado para processamento',
-      job_id: rec.id,
-      query: rec.getString('query'),
-      processed: true,
-    })
-  } catch (err) {
-    return e.json(500, { error: String(err) })
-  }
-})
-
 // Endpoint HTTP para disparar sincronização sob demanda
 routerAdd('POST', '/backend/v1/ml/categories/sync', (e) => {
   const auth = e.auth
