@@ -297,6 +297,7 @@ export interface MLCatalogSearchJob {
   id: string
   query: string
   domain_id: string
+  category_id?: string
   condition?: string
   status: 'pending' | 'processing' | 'done' | 'error'
   status_code?: number
@@ -350,14 +351,17 @@ export const mlCatalogService = {
     domainId: string = '',
     condition: string = 'all',
     forceRefresh: boolean = false,
+    categoryId: string = '',
   ): Promise<MLCatalogSearchJob> {
     const userId = pb.authStore.model?.id || null
     try {
       const job = await pb.collection('ml_catalog_search_jobs').create({
         query: query.trim(),
         domain_id: (domainId || '').trim(),
+        category_id: (categoryId || '').trim(),
         condition: condition || 'all',
         status: 'pending',
+        progress_text: 'Na fila... Aguardando início do processamento em segundo plano.',
         force_refresh: forceRefresh,
         requested_by: userId,
       })

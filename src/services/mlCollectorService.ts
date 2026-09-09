@@ -32,6 +32,7 @@ export interface CollectorDeduplicatedAd {
   is_free_shipping?: boolean
   is_full?: boolean
   condition?: string
+  subfamily?: string
 }
 
 export interface CollectorSpecMetrics {
@@ -647,6 +648,7 @@ export const mlCollectorService = {
           const isFull = Boolean(it.is_full)
           const condition = (it.condition || '').trim()
 
+          const detectedSubfamily = (it as any).subfamily || (it as any).subfamily_name || ''
           if (!deduplicatedAds.has(adId)) {
             deduplicatedAds.set(adId, {
               id: adId,
@@ -660,6 +662,7 @@ export const mlCollectorService = {
               is_free_shipping: isFreeShipping,
               is_full: isFull,
               condition,
+              subfamily: detectedSubfamily,
             })
           } else {
             // Deduplicação por mlb_id mantendo SEMPRE a MAIOR sold_quantity observada

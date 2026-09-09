@@ -55,6 +55,7 @@ import {
   type PositionOverrideAction,
 } from '@/services/positionOverridesService'
 import { mlCollectorService, type CollectorSummaryReport } from '@/services/mlCollectorService'
+import { mlCategoriesService } from '@/services/mlCategoriesService'
 import { QualMaisVendeHero } from '@/components/QualMaisVendeHero'
 import { AnuncioCampeaoSection } from '@/components/AnuncioCampeaoSection'
 import { NumerosDoMercado } from '@/components/NumerosDoMercado'
@@ -106,14 +107,16 @@ export function RaioXMercadoTab({ onOpenCollector }: RaioXMercadoTabProps = {}) 
   const [collectorReport, setCollectorReport] = useState<CollectorSummaryReport | null>(null)
   const [loadingCollectorReport, setLoadingCollectorReport] = useState(false)
   const [selectedSpec, setSelectedSpec] = useState<CollectorSpecMetrics | null>(null)
+  const [selectedSubfamily, setSelectedSubfamily] = useState<string | null>(null)
 
   // Controle de Escopo do Raio-X
   const [scopeMode, setScopeMode] = useState<RaioXScopeMode>('exact')
   const [manualBrain, setManualBrain] = useState<ExactProductSearchMode | null>(null)
 
-  // Resetar seleção de especificação sempre que o termo pesquisado mudar
+  // Resetar seleção de especificação e sub-família sempre que o termo pesquisado mudar
   useEffect(() => {
     setSelectedSpec(null)
+    setSelectedSubfamily(null)
   }, [activeQuery, searchTerm])
 
   // Função para rolar suavemente até o Ranking Completo

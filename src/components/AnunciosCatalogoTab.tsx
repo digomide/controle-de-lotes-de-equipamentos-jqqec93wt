@@ -60,9 +60,12 @@ import {
   highlightMatchedTitle,
   isDirectCatalogCodeQuery,
 } from '@/lib/catalogFilter'
+import { CategorySelector } from '@/components/CategorySelector'
 
 export function AnunciosCatalogoTab() {
   const [query, setQuery] = useState('dell latitude 3420')
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>('')
+  const [selectedCategoryName, setSelectedCategoryName] = useState<string>('')
   const [activeSearchTerm, setActiveSearchTerm] = useState('dell latitude 3420')
   const [searching, setSearching] = useState(false)
   const [searchProgressText, setSearchProgressText] = useState('')
@@ -324,6 +327,7 @@ export function AnunciosCatalogoTab() {
     overrideQuery?: string,
     overrideCondition?: 'all' | 'new' | 'used' | 'refurbished' | 'open_box',
     forceRefresh: boolean = false,
+    overrideCategoryId?: string,
   ) {
     const q = (overrideQuery ?? query).trim()
     if (!q) {
@@ -336,6 +340,7 @@ export function AnunciosCatalogoTab() {
     }
 
     const condToUse = overrideCondition ?? searchCondition
+    const catToUse = overrideCategoryId !== undefined ? overrideCategoryId : selectedCategoryId
 
     try {
       setSearching(true)
@@ -347,8 +352,8 @@ export function AnunciosCatalogoTab() {
       setCurrentJobId(null)
       setSearchProgressText(
         forceRefresh
-          ? 'Atualizando busca completa no Mercado Livre...'
-          : 'Iniciando busca inteligente no Mercado Livre...',
+          ? 'Na fila... Atualizando busca completa no Mercado Livre...'
+          : 'Na fila... Iniciando busca inteligente no Mercado Livre...',
       )
       setSearchPagingInfo(null)
 
@@ -360,11 +365,12 @@ export function AnunciosCatalogoTab() {
         open_box: 'Caixa aberta',
       }
       const condFeedback = condToUse !== 'all' ? ` (${condLabelMap[condToUse]})` : ''
+      const catFeedback = catToUse && selectedCategoryName ? ` em ${selectedCategoryName}` : ''
 
       toast({
         title: forceRefresh
-          ? `Atualizando busca profunda no ML${condFeedback}...`
-          : `Iniciando busca no ML${condFeedback}...`,
+          ? `Atualizando busca profunda no ML${condFeedback}${catFeedback}...`
+          : `Iniciando busca no ML${condFeedback}${catFeedback}...`,
         description: forceRefresh
           ? 'Ignorando cache e buscando dados mais recentes diretamente na API do ML.'
           : 'Vasculhando posições com resultados progressivos em tempo real.',
@@ -372,7 +378,13 @@ export function AnunciosCatalogoTab() {
 
       const isDirectCodeQuery = isDirectCatalogCodeQuery(q)
       const condParamForApi = isDirectCodeQuery ? 'all' : condToUse
-      const jobInit = await mlCatalogService.searchCatalog(q, '', condParamForApi, forceRefresh)
+      const jobInit = await mlCatalogService.searchCatalog(
+        q,
+        '',
+        condParamForApi,
+        forceRefresh,
+        catToUse,
+      )
       setCurrentJobId(jobInit.id)
 
       const jobDone = await mlCatalogService.pollSearchJob(jobInit.id, (j) => {
@@ -461,11 +473,16 @@ export function AnunciosCatalogoTab() {
     } catch (err: any) {
       console.error('Erro na busca de catálogo:', err)
       const rawMsg = err?.message || ''
-      let friendlyMsg = 'Não foi possível consultar as posições do Mercado Livre.'
+      let friendlyMsg =
+        'Essa busca demorou mais que o esperado — os resultados ficam disponíveis no histórico quando ficarem prontos.'
       if (rawMsg.includes('Failed to create record')) {
         friendlyMsg =
           'Erro temporário de comunicação ao registrar a busca profunda. Tente novamente em alguns segundos.'
-      } else if (rawMsg) {
+      } else if (
+        rawMsg &&
+        !rawMsg.includes('Something went wrong') &&
+        !rawMsg.includes('failed to fetch')
+      ) {
         friendlyMsg = rawMsg
       }
 
@@ -1256,15 +1273,28 @@ export function AnunciosCatalogoTab() {
         </CardContent>
       </Card>
 
-      {/* Caixa de Busca com Exemplos Rápidos e Seletor de Condição */}
+      {/* Caixa de Busca com Seletor de Família em Cascata, Exemplos Rápidos e Seletor de Condição */}
       <Card className="border-slate-200 shadow-xs">
         <CardContent className="p-5 space-y-4">
-          <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
+          <div className="flex flex-col lg:flex-row gap-3 items-stretch lg:items-center">
+            {/* Seletor de Família em Cascata (Opcional - Árvore ML) */}
+            <div className="w-full lg:w-auto shrink-0">
+              <CategorySelector
+                selectedCategoryId={selectedCategoryId}
+                selectedCategoryName={selectedCategoryName}
+                onSelectCategory={(id, name) => {
+                  setSelectedCategoryId(id)
+                  setSelectedCategoryName(name)
+                }}
+                disabled={searching}
+              />
+            </div>
+
             {/* Campo de Busca por Título ou Link */}
             <div className="relative flex-1">
               <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <Input
-                placeholder="Ex: dell latitude 3420, lenovo t480, ou link direto /p/MLB..."
+                placeholder="Ex: dell latitude 3420, memoria smart, lenovo t480, ou link direto /p/MLB..."
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
