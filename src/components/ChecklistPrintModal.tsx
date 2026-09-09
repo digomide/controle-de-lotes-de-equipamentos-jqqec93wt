@@ -172,108 +172,108 @@ export function ChecklistSheet({ item }: { item: ChecklistPrintData }) {
     `${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
 
   return (
-    <div className="printable-checklist-page w-full bg-white text-slate-900 p-5 sm:p-6 rounded-xl border border-slate-300 shadow-sm print:border-none print:shadow-none print:p-0 print:m-0 print:w-full print:rounded-none">
+    <div className="printable-checklist-page w-full bg-white text-slate-900 p-4 sm:p-5 rounded-xl border border-slate-300 shadow-sm print:border-none print:shadow-none print:p-0 print:m-0 print:w-full print:rounded-none">
       {/* 1. CABEÇALHO DO LAUDO / CHECKLIST */}
-      <div className="border-b-2 border-slate-900 pb-2 flex items-center justify-between gap-3 shrink-0 print:pb-1.5">
-        <div>
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-slate-900 text-white flex items-center justify-center font-bold text-xs sm:text-sm shrink-0 print:w-7 print:h-7 print:border print:border-black">
-              AF
-            </div>
-            <div>
-              <h1 className="text-sm sm:text-base font-black tracking-tight text-slate-900 uppercase leading-none print:text-sm">
-                AmbicorpFlow · Laudo de Revisão Técnica
-              </h1>
-              <p className="text-[10px] sm:text-[11px] text-slate-600 font-medium leading-tight mt-0.5 print:text-[9.5px]">
-                Checklist Completo de Inspeção e Conferência de Equipamentos Recondicionados
-              </p>
-            </div>
+      <div className="border-b border-slate-900 pb-1.5 flex items-center justify-between gap-2 shrink-0 print:pb-1">
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 sm:w-7 sm:h-7 rounded bg-slate-900 text-white flex items-center justify-center font-black text-xs shrink-0 print:w-6 print:h-6 print:border print:border-black">
+            AF
+          </div>
+          <div>
+            <h1 className="text-xs sm:text-sm font-black tracking-tight text-slate-900 uppercase leading-none print:text-[11.5px]">
+              AmbicorpFlow · Laudo de Revisão Técnica
+            </h1>
+            <p className="text-[9px] sm:text-[10px] text-slate-600 font-medium leading-tight mt-0.5 print:text-[8.5px]">
+              Checklist Completo de Inspeção e Conferência de Equipamentos Recondicionados
+            </p>
           </div>
         </div>
 
         <div className="text-right shrink-0">
-          <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-slate-100 border border-slate-300 text-[11px] font-mono font-bold text-slate-900 print:text-[10px]">
-            <Layers className="w-3 h-3 text-slate-600" />
+          <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 border border-slate-300 text-[10px] font-mono font-bold text-slate-900 print:text-[9px] print:py-0">
+            <Layers className="w-2.5 h-2.5 text-slate-600" />
             LOTE: {batchNumber || 'LOTE-PADRÃO'}
           </div>
-          <div className="text-[9px] text-slate-500 font-mono mt-0.5">Emissão: {nowFormatted}</div>
+          <div className="text-[8.5px] text-slate-500 font-mono mt-0.2 print:text-[8px]">
+            Emissão: {nowFormatted}
+          </div>
         </div>
       </div>
 
       {/* 2. IDENTIFICAÇÃO DO EQUIPAMENTO + FOTOS + QR CODE */}
-      <div className="grid grid-cols-12 gap-3.5 pt-3.5 pb-3 border-b border-slate-200">
-        {/* Bloco de Dados Principais (7 colunas) */}
-        <div className="col-span-8 space-y-2">
+      <div className="grid grid-cols-12 gap-2.5 pt-2 pb-1.5 border-b border-slate-200 print:gap-2 print:pt-1.5 print:pb-1">
+        {/* Bloco de Dados Principais (8 colunas em tela, 9 em impressão) */}
+        <div className="col-span-8 sm:col-span-9 space-y-1 print:col-span-9">
           <div>
-            <div className="flex items-center gap-2 flex-wrap mb-1">
-              <span className="font-mono font-bold text-xs bg-slate-900 text-white px-2 py-0.5 rounded uppercase">
+            <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+              <span className="font-mono font-bold text-[10.5px] bg-slate-900 text-white px-1.5 py-0.2 rounded uppercase print:text-[9.5px]">
                 SKU: {sku}
               </span>
-              <span className="font-mono text-xs font-bold bg-slate-100 text-slate-800 border border-slate-300 px-2 py-0.5 rounded">
+              <span className="font-mono text-[10.5px] font-bold bg-slate-100 text-slate-800 border border-slate-300 px-1.5 py-0.2 rounded print:text-[9.5px]">
                 Serial/PN: {serial}
               </span>
               <span
-                className={`text-[11px] font-bold px-2 py-0.5 rounded border ${condBadge.classes}`}
+                className={`text-[10px] font-bold px-1.5 py-0.2 rounded border print:text-[9px] ${condBadge.classes}`}
               >
                 {condBadge.label} {condBadge.gradeLabel ? `· Grau ${condBadge.gradeLabel}` : ''}
               </span>
-              <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-300">
+              <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-800 border border-emerald-300 print:text-[9px]">
                 {product.status || 'Disponível'}
               </span>
             </div>
 
-            <h2 className="text-sm sm:text-base font-extrabold text-slate-900 leading-tight">
+            <h2 className="text-xs sm:text-sm font-extrabold text-slate-900 leading-tight truncate print:text-[11px]">
               {product.name}
             </h2>
-            <p className="text-xs text-slate-600 font-medium mt-0.5">
+            <p className="text-[10.5px] text-slate-600 font-medium leading-tight print:text-[9px] truncate">
               {product.brand} {product.model ? `· ${product.model}` : ''}{' '}
               {product.category ? `(${product.category})` : ''}
             </p>
           </div>
 
           {/* Grid de Especificações de Hardware */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-xs">
-            <div className="bg-slate-50 p-1.5 rounded border border-slate-200">
-              <span className="text-[9px] uppercase tracking-wider font-bold text-slate-400 block">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 pt-0.5 text-xs print:gap-1">
+            <div className="bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200 print:py-0.5">
+              <span className="text-[8px] uppercase tracking-wider font-bold text-slate-400 block leading-tight">
                 Processador
               </span>
               <span
-                className="font-semibold text-slate-800 truncate block mt-0.5"
+                className="font-semibold text-slate-800 text-[10px] truncate block leading-tight print:text-[8.5px]"
                 title={product.processor}
               >
                 {product.processor || 'N/A'}
               </span>
             </div>
-            <div className="bg-slate-50 p-1.5 rounded border border-slate-200">
-              <span className="text-[9px] uppercase tracking-wider font-bold text-slate-400 block">
+            <div className="bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200 print:py-0.5">
+              <span className="text-[8px] uppercase tracking-wider font-bold text-slate-400 block leading-tight">
                 Memória RAM
               </span>
-              <span className="font-semibold text-slate-800 truncate block mt-0.5">
+              <span className="font-semibold text-slate-800 text-[10px] truncate block leading-tight print:text-[8.5px]">
                 {product.ram || 'N/A'}
               </span>
             </div>
-            <div className="bg-slate-50 p-1.5 rounded border border-slate-200">
-              <span className="text-[9px] uppercase tracking-wider font-bold text-slate-400 block">
+            <div className="bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200 print:py-0.5">
+              <span className="text-[8px] uppercase tracking-wider font-bold text-slate-400 block leading-tight">
                 Armazenamento
               </span>
-              <span className="font-semibold text-slate-800 truncate block mt-0.5">
+              <span className="font-semibold text-slate-800 text-[10px] truncate block leading-tight print:text-[8.5px]">
                 {product.storage || 'N/A'}
               </span>
             </div>
-            <div className="bg-slate-50 p-1.5 rounded border border-slate-200">
-              <span className="text-[9px] uppercase tracking-wider font-bold text-slate-400 block">
+            <div className="bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200 print:py-0.5">
+              <span className="text-[8px] uppercase tracking-wider font-bold text-slate-400 block leading-tight">
                 Tela / Bateria
               </span>
-              <span className="font-semibold text-slate-800 truncate block mt-0.5">
+              <span className="font-semibold text-slate-800 text-[10px] truncate block leading-tight print:text-[8.5px]">
                 {product.screen_size || '14"'} · {product.battery_health || '100%'}
               </span>
             </div>
           </div>
 
           {/* Localização e Carregador */}
-          <div className="flex items-center gap-4 text-xs text-slate-600 pt-0.5">
+          <div className="flex items-center gap-3 text-[10px] text-slate-600 pt-0.5 print:text-[8.5px] print:gap-2">
             <span className="flex items-center gap-1">
-              <MapPin className="w-3.5 h-3.5 text-slate-400" />
+              <MapPin className="w-3 h-3 text-slate-400" />
               <strong>Local:</strong> {location || 'Depósito Central'}
             </span>
             <span>•</span>
@@ -292,35 +292,35 @@ export function ChecklistSheet({ item }: { item: ChecklistPrintData }) {
           </div>
         </div>
 
-        {/* QR Code de Autenticidade (4 colunas) */}
-        <div className="col-span-4 flex flex-col items-center justify-between p-2 bg-slate-50 border border-slate-200 rounded-lg text-center">
-          <div className="w-full flex items-center justify-center flex-1">
+        {/* QR Code de Autenticidade (4 colunas em tela, 3 em impressão) */}
+        <div className="col-span-4 sm:col-span-3 print:col-span-3 flex flex-col items-center justify-center p-1.5 bg-slate-50 border border-slate-200 rounded text-center print:p-1">
+          <div className="flex items-center justify-center">
             <QRCodeSVG
               value={qrValue}
-              size={84}
-              className="w-full h-auto aspect-square max-h-[22mm]"
+              size={64}
+              className="w-14 h-14 sm:w-16 sm:h-16 aspect-square print:w-14 print:h-14"
             />
           </div>
-          <div className="w-full mt-1 pt-1 border-t border-slate-200">
-            <span className="text-[9px] font-mono font-bold text-slate-800 block truncate leading-tight">
+          <div className="w-full mt-0.5 pt-0.5 border-t border-slate-200">
+            <span className="text-[8.5px] font-mono font-bold text-slate-800 block truncate leading-tight print:text-[8px]">
               {sku}
             </span>
-            <span className="text-[8px] text-slate-500 block leading-tight">
-              Rastreio / Validação Digital
+            <span className="text-[7.5px] text-slate-500 block leading-tight print:text-[7px]">
+              Rastreio Digital
             </span>
           </div>
         </div>
       </div>
 
       {/* 3. GALERIA DE FOTOS DO EQUIPAMENTO (FOTO PRINCIPAL + COMPLEMENTARES) */}
-      <div className="py-2 border-b border-slate-200 shrink-0 print:py-1.5">
-        <div className="flex items-center justify-between mb-1.5 print:mb-1">
-          <span className="text-[11px] sm:text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5 print:text-[9.5px]">
+      <div className="py-1.5 border-b border-slate-200 shrink-0 print:py-1">
+        <div className="flex items-center justify-between mb-1 print:mb-0.5">
+          <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5 print:text-[9px]">
             <Laptop className="w-3 h-3 text-slate-500" />
             Registro Fotográfico do Equipamento ({displayPhotos.length} foto
             {displayPhotos.length > 1 ? 's' : ''})
           </span>
-          <span className="text-[9px] text-slate-400 print:text-[8.5px]">
+          <span className="text-[8.5px] text-slate-400 print:text-[8px]">
             Fotos reais do notebook inspecionado
           </span>
         </div>
@@ -329,7 +329,7 @@ export function ChecklistSheet({ item }: { item: ChecklistPrintData }) {
           {displayPhotos.map((url, idx) => (
             <div
               key={idx}
-              className="checklist-photo-item relative aspect-16/9 bg-slate-100 rounded overflow-hidden border border-slate-300 print:border-black flex items-center justify-center max-h-[28mm] print:max-h-[22mm]"
+              className="checklist-photo-item relative aspect-16/7 bg-slate-100 rounded overflow-hidden border border-slate-300 print:border-black flex items-center justify-center max-h-[22mm] print:max-h-[17mm]"
             >
               <img
                 src={url}
@@ -340,7 +340,7 @@ export function ChecklistSheet({ item }: { item: ChecklistPrintData }) {
                     'https://img.usecurling.com/p/600/400?q=laptop'
                 }}
               />
-              <div className="absolute top-1 left-1 bg-slate-900/80 text-white text-[8px] font-bold px-1 py-0.2 rounded font-mono leading-none print:text-[7.5px]">
+              <div className="absolute top-0.5 left-0.5 bg-slate-900/80 text-white text-[7.5px] font-bold px-1 py-0.2 rounded font-mono leading-none print:text-[7px]">
                 {idx === 0 ? 'Capa Principal' : `Foto #${idx + 1}`}
               </div>
             </div>
@@ -349,14 +349,14 @@ export function ChecklistSheet({ item }: { item: ChecklistPrintData }) {
       </div>
 
       {/* 4. RESUMO DOS INDICADORES DO CHECKLIST */}
-      <div className="py-1.5 px-2.5 flex items-center justify-between flex-wrap gap-1.5 border-b border-slate-200 bg-slate-50/70 rounded my-2 shrink-0 print:my-1.5 print:py-1 print:px-2">
+      <div className="py-1 px-2 flex items-center justify-between flex-wrap gap-1 border-b border-slate-200 bg-slate-50/70 rounded my-1 shrink-0 print:my-0.5 print:py-0.5 print:px-1.5">
         <div className="flex items-center gap-1.5">
           <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-          <span className="text-[11px] sm:text-xs font-bold text-slate-900 print:text-[10px]">
+          <span className="text-[10px] sm:text-[11px] font-bold text-slate-900 print:text-[9.5px]">
             Checklist de Inspeção ({items.length} itens verificados):
           </span>
         </div>
-        <div className="flex items-center gap-1 text-[10.5px] sm:text-xs font-semibold flex-wrap print:text-[9px]">
+        <div className="flex items-center gap-1 text-[9.5px] sm:text-[10px] font-semibold flex-wrap print:text-[8.5px]">
           <span className="px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 border border-emerald-300">
             ✓ {okCount} Ok
           </span>
@@ -384,24 +384,24 @@ export function ChecklistSheet({ item }: { item: ChecklistPrintData }) {
       </div>
 
       {/* 5. GRADE COMPLETA DOS 17 ITENS DO CHECKLIST (4 COLUNAS EM A4 / TELAS MÉDIAS) */}
-      <div className="checklist-grid grid grid-cols-2 sm:grid-cols-4 gap-1.5 pt-0.5 pb-2 shrink-0 print:gap-1 print:pb-1.5">
+      <div className="checklist-grid grid grid-cols-2 sm:grid-cols-4 gap-1 pt-0.5 pb-1 shrink-0 print:gap-1 print:pb-0.5">
         {items.map((checkItem) => {
           const normStatus = normalizeChecklistStatus(checkItem.status)
           const styles = getChecklistStatusStyles(normStatus)
           return (
             <div
               key={checkItem.item}
-              className="p-1.5 rounded border border-slate-200 bg-white flex flex-col justify-between text-xs space-y-0.5 print:p-1 print:border-slate-300"
+              className="p-1 rounded border border-slate-200 bg-white flex flex-col justify-between text-xs space-y-0.5 print:p-1 print:border-slate-300"
             >
               <div className="flex items-start justify-between gap-1">
                 <span
-                  className="font-bold text-slate-900 text-[10px] leading-tight truncate print:text-[9.5px]"
+                  className="font-bold text-slate-900 text-[9.5px] leading-tight truncate print:text-[8.5px]"
                   title={checkItem.item}
                 >
                   {checkItem.item}
                 </span>
                 <span
-                  className={`inline-flex items-center gap-0.5 px-1 py-0.2 rounded text-[9px] font-bold shrink-0 border print:text-[8px] print:px-0.5 ${styles.badgeSolid}`}
+                  className={`inline-flex items-center gap-0.5 px-1 py-0.2 rounded text-[8.5px] font-bold shrink-0 border print:text-[7.5px] print:px-0.5 ${styles.badgeSolid}`}
                 >
                   {getStatusIcon(normStatus)}
                   <span>{normStatus}</span>
@@ -410,13 +410,13 @@ export function ChecklistSheet({ item }: { item: ChecklistPrintData }) {
 
               {checkItem.observation ? (
                 <p
-                  className="text-[9px] text-slate-600 italic leading-tight truncate print:text-[8px]"
+                  className="text-[8.5px] text-slate-600 italic leading-tight truncate print:text-[7.5px]"
                   title={checkItem.observation}
                 >
                   Obs: {checkItem.observation}
                 </p>
               ) : (
-                <span className="text-[8.5px] text-slate-400 italic leading-tight print:text-[7.5px]">
+                <span className="text-[8px] text-slate-400 italic leading-tight print:text-[7px]">
                   Sem ressalvas
                 </span>
               )}
@@ -426,27 +426,27 @@ export function ChecklistSheet({ item }: { item: ChecklistPrintData }) {
       </div>
 
       {/* 6. ASSINATURA TÉCNICA E TERMO DE CONFORMIDADE */}
-      <div className="pt-2 border-t-2 border-slate-900 mt-auto grid grid-cols-12 gap-3 text-xs shrink-0 print:pt-1.5 print:gap-2">
+      <div className="pt-1.5 border-t border-slate-900 mt-auto grid grid-cols-12 gap-2 text-xs shrink-0 print:pt-1 print:gap-2">
         <div className="col-span-7 space-y-0.5">
-          <p className="text-[9.5px] sm:text-[10px] text-slate-600 leading-tight print:text-[8.5px]">
+          <p className="text-[9px] sm:text-[9.5px] text-slate-600 leading-tight print:text-[8px]">
             <strong>Declaração de Conformidade:</strong> Este equipamento passou pelo protocolo de
             testes, higienização, revisão funcional e classificação estética da{' '}
             <strong>AmbicorpFlow</strong>. As condições registradas neste laudo refletem o estado no
             momento da liberação de bancada.
           </p>
           {item.notes && (
-            <p className="text-[9px] text-slate-700 bg-slate-50 p-1 rounded border border-slate-200 font-mono print:text-[8px]">
-              Notas adicionais: {item.notes}
+            <p className="text-[8.5px] text-slate-700 bg-slate-50 px-1 py-0.5 rounded border border-slate-200 font-mono print:text-[7.5px]">
+              Notas: {item.notes}
             </p>
           )}
         </div>
 
         <div className="col-span-5 flex flex-col justify-end text-center">
-          <div className="border-t border-slate-400 pt-1">
-            <span className="text-[10px] sm:text-[11px] font-bold text-slate-900 block print:text-[9.5px]">
+          <div className="border-t border-slate-400 pt-0.5">
+            <span className="text-[9.5px] sm:text-[10px] font-bold text-slate-900 block print:text-[8.5px] leading-tight">
               {inspectorName || 'Técnico Responsável / Bancada'}
             </span>
-            <span className="text-[8.5px] sm:text-[9px] text-slate-500 block print:text-[8px]">
+            <span className="text-[8px] sm:text-[8.5px] text-slate-500 block print:text-[7.5px] leading-tight">
               AmbicorpFlow · Controle de Qualidade & Lotes
             </span>
           </div>
