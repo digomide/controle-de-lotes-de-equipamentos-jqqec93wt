@@ -31,7 +31,9 @@ import {
   Printer,
 } from 'lucide-react'
 import { BatchMLPublishModal } from '@/components/BatchMLPublishModal'
+import { BatchKabumPublishModal } from '@/components/BatchKabumPublishModal'
 import { EtiquetaModal, type EtiquetaData } from '@/components/EtiquetaModal'
+import { kabumService } from '@/services/kabumService'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -99,6 +101,8 @@ export default function Catalogo() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [proposalModalOpen, setProposalModalOpen] = useState(false)
   const [mlBatchModalOpen, setMlBatchModalOpen] = useState(false)
+  const [kabumBatchModalOpen, setKabumBatchModalOpen] = useState(false)
+  const [hasKabumKey, setHasKabumKey] = useState(false)
   const [etiquetaModalOpen, setEtiquetaModalOpen] = useState(false)
   const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false)
   const [deletingBulk, setDeletingBulk] = useState(false)
@@ -137,12 +141,14 @@ export default function Catalogo() {
 
   const loadData = async () => {
     try {
-      const [prodData, batchData] = await Promise.all([
+      const [prodData, batchData, kabumSettings] = await Promise.all([
         productsService.getAll(),
         batchesService.getAll(),
+        kabumService.getSettings().catch(() => null),
       ])
       setProducts(prodData)
       setBatches(batchData)
+      setHasKabumKey(Boolean(kabumSettings?.api_key && kabumSettings.api_key.trim().length > 0))
     } catch (err) {
       console.error(err)
     } finally {
@@ -609,6 +615,37 @@ export default function Catalogo() {
             >
               <ShoppingBag className="w-3.5 h-3.5" />
               Anunciar no ML ({selectedIds.size})
+            </Button>
+            <Button
+              type="button"
+              disabled={!hasKabumKey}
+              onClick={() => {
+                if (!hasKabumKey) {
+                  toast({
+                    title: 'Configure a chave do Kabum',
+                    description:
+                      'Acesse Configurações para colar sua chave de API Mirakl antes de anunciar no Kabum.',
+                    variant: 'destructive',
+                  })
+                  return
+                }
+                setKabumBatchModalOpen(true)
+              }}
+              className={
+                hasKabumKey
+                  ? 'bg-[#ff6500] hover:bg-[#e65c00] text-white font-bold text-xs gap-1.5 shadow-sm'
+                  : 'bg-slate-800 text-slate-400 font-normal text-xs gap-1.5 cursor-not-allowed border border-slate-700/60'
+              }
+              title={
+                hasKabumKey
+                  ? 'Anunciar os notebooks selecionados no Kabum Marketplace'
+                  : 'Configure a chave do Kabum em Configurações'
+              }
+            >
+              <div className="w-3.5 h-3.5 rounded bg-white/20 flex items-center justify-center font-black text-[9px] leading-none">
+                K!
+              </div>
+              Anunciar no Kabum ({selectedIds.size})
             </Button>
             <Button
               onClick={() => setProposalModalOpen(true)}
@@ -1335,6 +1372,17 @@ export default function Catalogo() {
         isOpen={mlBatchModalOpen}
         onClose={() => setMlBatchModalOpen(false)}
         selectedProducts={selectedProducts}
+        onSuccessFinished={() => {
+          loadData()
+        }}
+      />
+
+      {/* MODAL DE PUBLICAÇÃO EM MASSA NO KABUM */}
+      <BatchKabumPublishModal
+        isOpen={kabumBatchModalOpen}
+        onClose={() => setKabumBatchModalOpen(false)}
+        selectedProducts={selectedProducts}
+        hasKabumKey={hasKabumKey}
         onSuccessFinished={() => {
           loadData()
         }}

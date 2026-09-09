@@ -26,6 +26,7 @@ import {
 import { Link } from 'react-router-dom'
 import { MercadoLivreConfigCard } from '@/components/MercadoLivreConfigCard'
 import { MercadoPagoConfigCard } from '@/components/MercadoPagoConfigCard'
+import { KabumConfigCard } from '@/components/KabumConfigCard'
 
 export default function Configuracoes() {
   const { user, isAdmin, logout } = useAuth()
@@ -334,6 +335,9 @@ export default function Configuracoes() {
 
       {/* Integração Mercado Pago Checkout Pro */}
       <MercadoPagoConfigCard />
+
+      {/* Integração Kabum Marketplace (Mirakl) */}
+      <KabumConfigCard />
 
       {/* Integração Mercado Livre */}
       <MercadoLivreConfigCard />

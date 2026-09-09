@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-09T12:39:14.293Z",
+  "generatedAt": "2026-09-09T15:29:31.209Z",
   "collections": [
     {
       "name": "users",
@@ -3139,6 +3139,227 @@
         "CREATE UNIQUE INDEX idx_ml_seller_cache_seller ON ml_seller_cache (seller_id)",
         "CREATE INDEX idx_ml_seller_cache_nick ON ml_seller_cache (nickname)"
       ]
+    },
+    {
+      "name": "kabum_settings",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\"",
+        "view": "@request.auth.id != \"\"",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\"",
+        "delete": "@request.auth.id != \"\""
+      },
+      "fields": [
+        {
+          "name": "api_key",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "api_url",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "environment",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["production", "homologation"]
+        },
+        {
+          "name": "shop_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "shop_name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "currency",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "last_test_status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["success", "error", "pending"]
+        },
+        {
+          "name": "last_test_message",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "last_tested_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "required": false,
+          "system": false
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "kabum_categories",
+      "type": "base",
+      "apiRules": {
+        "list": "",
+        "view": "",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\"",
+        "delete": "@request.auth.id != \"\""
+      },
+      "fields": [
+        {
+          "name": "category_id",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "parent_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "family_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "family_name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "subfamily_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "subfamily_name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "full_path",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "level",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "is_leaf",
+          "type": "bool",
+          "required": false,
+          "system": false
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "kabum_sync_jobs",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\"",
+        "view": "@request.auth.id != \"\"",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\"",
+        "delete": "@request.auth.id != \"\""
+      },
+      "fields": [
+        {
+          "name": "job_type",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": [
+            "price_stock_sync",
+            "product_publish",
+            "order_sync",
+            "category_sync",
+            "test_connection"
+          ]
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["pending", "processing", "done", "error", "dormant"]
+        },
+        {
+          "name": "product_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "payload",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "result",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "error_message",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "mirakl_import_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "requested_by",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        }
+      ],
+      "indexes": []
     }
   ]
 }
