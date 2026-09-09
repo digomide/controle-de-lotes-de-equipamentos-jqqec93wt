@@ -29,10 +29,12 @@ import {
   Boxes,
   ShoppingBag,
   Printer,
+  QrCode,
 } from 'lucide-react'
 import { BatchMLPublishModal } from '@/components/BatchMLPublishModal'
 import { BatchKabumPublishModal } from '@/components/BatchKabumPublishModal'
 import { EtiquetaModal, type EtiquetaData } from '@/components/EtiquetaModal'
+import { ChecklistPrintModal, type ChecklistPrintData } from '@/components/ChecklistPrintModal'
 import { kabumService } from '@/services/kabumService'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -103,6 +105,8 @@ export default function Catalogo() {
   const [mlBatchModalOpen, setMlBatchModalOpen] = useState(false)
   const [kabumBatchModalOpen, setKabumBatchModalOpen] = useState(false)
   const [hasKabumKey, setHasKabumKey] = useState(false)
+  const [checklistPrintModalOpen, setChecklistPrintModalOpen] = useState(false)
+  const [checklistSingleTarget, setChecklistSingleTarget] = useState<Product | null>(null)
   const [etiquetaModalOpen, setEtiquetaModalOpen] = useState(false)
   const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false)
   const [deletingBulk, setDeletingBulk] = useState(false)
@@ -277,6 +281,35 @@ export default function Catalogo() {
       model: p.model,
     }))
   }, [selectedProducts])
+
+  const selectedChecklistData = useMemo<ChecklistPrintData[]>(() => {
+    if (checklistSingleTarget) {
+      const b = batches.find((batch) => batch.product_id === checklistSingleTarget.id)
+      return [
+        {
+          product: checklistSingleTarget,
+          batchNumber: b?.batch_number || `LOTE-${checklistSingleTarget.sku || 'UN'}`,
+          location: b?.location || 'Depósito Central',
+          checklist: checklistSingleTarget.technical_checklist,
+          photos:
+            Array.isArray(checklistSingleTarget.images) && checklistSingleTarget.images.length > 0
+              ? checklistSingleTarget.images
+              : undefined,
+        },
+      ]
+    }
+
+    return selectedProducts.map((p) => {
+      const b = batches.find((batch) => batch.product_id === p.id)
+      return {
+        product: p,
+        batchNumber: b?.batch_number || p.batch_id || `LOTE-${p.sku || 'UN'}`,
+        location: b?.location || 'Depósito Central',
+        checklist: p.technical_checklist,
+        photos: Array.isArray(p.images) && p.images.length > 0 ? p.images : undefined,
+      }
+    })
+  }, [selectedProducts, checklistSingleTarget, batches])
 
   const totalSelectedPrice = useMemo(() => {
     return selectedProducts.reduce((sum, p) => sum + (Number(p.unit_price) || 0), 0)
@@ -600,12 +633,25 @@ export default function Catalogo() {
             </Button>
             <Button
               type="button"
-              onClick={() => setEtiquetaModalOpen(true)}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs gap-1.5 shadow-sm"
-              title="Imprimir etiquetas identificadoras dos equipamentos selecionados"
+              onClick={() => {
+                setChecklistSingleTarget(null)
+                setChecklistPrintModalOpen(true)
+              }}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs gap-1.5 shadow-sm"
+              title="Imprimir laudo e checklist de revisão com fotos dos equipamentos selecionados em A4"
             >
               <Printer className="w-3.5 h-3.5" />
-              Imprimir etiquetas ({selectedIds.size})
+              Imprimir Checklists ({selectedIds.size})
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setEtiquetaModalOpen(true)}
+              className="bg-slate-800 hover:bg-slate-700 text-white border-slate-700 font-semibold text-xs gap-1.5 shadow-sm"
+              title="Imprimir etiquetas identificadoras dos equipamentos selecionados"
+            >
+              <QrCode className="w-3.5 h-3.5 text-emerald-400" />
+              Etiquetas ({selectedIds.size})
             </Button>
             <Button
               type="button"
@@ -1052,6 +1098,18 @@ export default function Catalogo() {
                       </div>
 
                       <div className="flex items-center gap-1.5">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setChecklistSingleTarget(p)
+                            setChecklistPrintModalOpen(true)
+                          }}
+                          className="text-xs h-9 p-2 text-slate-600 hover:text-emerald-700 hover:bg-emerald-50"
+                          title="Imprimir checklist com fotos deste notebook em folha A4"
+                        >
+                          <Printer className="w-4 h-4" />
+                        </Button>
                         <Link to={detailPath}>
                           <Button
                             variant="outline"
@@ -1060,7 +1118,7 @@ export default function Catalogo() {
                             title="Abrir lote e detalhes do notebook"
                           >
                             <Eye className="w-3.5 h-3.5" />
-                            Abrir Lote
+                            Abrir
                           </Button>
                         </Link>
                         <Button
@@ -1250,6 +1308,18 @@ export default function Catalogo() {
                           </td>
                         )}
                         <td className="py-3 px-4 text-right whitespace-nowrap space-x-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setChecklistSingleTarget(p)
+                              setChecklistPrintModalOpen(true)
+                            }}
+                            className="h-8 w-8 p-0 text-slate-600 hover:text-emerald-700 hover:bg-emerald-50"
+                            title="Imprimir checklist com fotos (A4)"
+                          >
+                            <Printer className="w-3.5 h-3.5" />
+                          </Button>
                           <Link to={detailPath}>
                             <Button
                               variant="outline"
@@ -1359,6 +1429,16 @@ export default function Catalogo() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* MODAL DE IMPRESSÃO DE CHECKLIST COM FOTOS EM A4 */}
+      <ChecklistPrintModal
+        open={checklistPrintModalOpen}
+        onOpenChange={(open) => {
+          setChecklistPrintModalOpen(open)
+          if (!open) setChecklistSingleTarget(null)
+        }}
+        items={selectedChecklistData}
+      />
 
       {/* MODAL DE IMPRESSÃO DE ETIQUETAS EM MASSA */}
       <EtiquetaModal

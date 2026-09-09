@@ -76,6 +76,7 @@ import { batchesService } from '@/services/batches'
 import { equipmentService } from '@/services/equipment'
 import { salesService } from '@/services/sales'
 import { EtiquetaModal } from '@/components/EtiquetaModal'
+import { ChecklistPrintModal } from '@/components/ChecklistPrintModal'
 import { CloneEquipmentModal } from '@/components/CloneEquipmentModal'
 import { ZoomableImage } from '@/components/ZoomableImage'
 import { ImageLightboxModal } from '@/components/ImageLightboxModal'
@@ -127,6 +128,7 @@ export default function CatalogoDetalhe() {
   // Modais
   const [zoomModalOpen, setZoomModalOpen] = useState(false)
   const [etiquetaModalOpen, setEtiquetaModalOpen] = useState(false)
+  const [checklistPrintModalOpen, setChecklistPrintModalOpen] = useState(false)
   const [mlPublishModalOpen, setMlPublishModalOpen] = useState(false)
   const [liveMLItem, setLiveMLItem] = useState<MLItemResponse | null>(null)
   const [updatingMLStatus, setUpdatingMLStatus] = useState(false)
@@ -1468,12 +1470,23 @@ export default function CatalogoDetalhe() {
           <Button
             variant="default"
             size="sm"
-            onClick={() => setEtiquetaModalOpen(true)}
+            onClick={() => setChecklistPrintModalOpen(true)}
             className="text-xs h-9 gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs font-semibold"
+            title="Imprimir laudo e checklist de revisão completo com fotos em folha A4"
+          >
+            <Printer className="w-4 h-4" />
+            Imprimir Checklist (A4)
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setEtiquetaModalOpen(true)}
+            className="text-xs h-9 gap-1.5 border-slate-300 text-slate-700 hover:bg-slate-50 font-semibold"
             title="Gerar e imprimir etiqueta com QR Code e Serial do equipamento"
           >
-            <QrCode className="w-4 h-4" />
-            Imprimir Etiqueta
+            <QrCode className="w-4 h-4 text-emerald-600" />
+            Etiqueta QR
           </Button>
 
           <Button
@@ -2468,19 +2481,31 @@ export default function CatalogoDetalhe() {
                 })}
               </div>
 
-              {/* Botões de Ações: Baixar Checklist, Clonar Equipamento, Excluir, Etiqueta */}
+              {/* Botões de Ações: Imprimir Checklist com Fotos, Baixar TXT, Clonar, Etiqueta */}
               <div className="space-y-2 pt-2 border-t border-slate-100">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <Button
+                    variant="default"
+                    onClick={() => setChecklistPrintModalOpen(true)}
+                    className="text-xs font-bold gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs h-9"
+                    title="Imprimir laudo e checklist de revisão completo com fotos em folha A4"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                    Imprimir checklist com fotos (A4)
+                  </Button>
+
                   <Button
                     variant="outline"
                     onClick={handleDownloadChecklist}
                     className="text-xs font-medium gap-1.5 border-slate-300 text-slate-700 hover:bg-slate-50 h-9"
-                    title="Baixar laudo técnico e checklist"
+                    title="Baixar laudo técnico e checklist em arquivo de texto (.txt)"
                   >
                     <Download className="w-3.5 h-3.5" />
-                    Baixar checklist
+                    Baixar laudo (.txt)
                   </Button>
+                </div>
 
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <Button
                     variant="outline"
                     onClick={() => setCloneModalOpen(true)}
@@ -2524,7 +2549,7 @@ export default function CatalogoDetalhe() {
                   onClick={() => setEtiquetaModalOpen(true)}
                   className="w-full text-xs font-semibold gap-2 border-emerald-300 text-emerald-700 hover:bg-emerald-50 h-9"
                 >
-                  <Printer className="w-3.5 h-3.5" />
+                  <QrCode className="w-3.5 h-3.5 text-emerald-600" />
                   Imprimir etiqueta com QR Code
                 </Button>
               </div>
@@ -3065,6 +3090,23 @@ export default function CatalogoDetalhe() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* MODAL: IMPRESSÃO DE CHECKLIST TÉCNICO COM FOTOS EM A4 */}
+      <ChecklistPrintModal
+        open={checklistPrintModalOpen}
+        onOpenChange={setChecklistPrintModalOpen}
+        data={
+          product
+            ? {
+                product,
+                photos,
+                batchNumber: primaryBatch?.batch_number || `LOTE-${product.sku || 'UN'}`,
+                location: primaryBatch?.location || 'Depósito Central',
+                checklist,
+              }
+            : null
+        }
+      />
 
       {/* MODAL: ETIQUETA COM QR CODE */}
       <EtiquetaModal

@@ -312,15 +312,17 @@
     print-color-adjust: exact !important;
   }
 
-  /* Quando o portal de impressão de etiquetas está no DOM */
-  body:has(#printable-etiqueta-root) {
+  /* Quando o portal de impressão de etiquetas ou de checklist está no DOM */
+  body:has(#printable-etiqueta-root),
+  body:has(#printable-checklist-root) {
     background: #ffffff !important;
     overflow: visible !important;
     position: static !important;
   }
 
-  /* Oculta tudo que não for o container raiz da impressão */
-  body:has(#printable-etiqueta-root) > *:not(#printable-etiqueta-root) {
+  /* Oculta tudo que não for o container raiz da impressão correspondente */
+  body:has(#printable-etiqueta-root) > *:not(#printable-etiqueta-root),
+  body:has(#printable-checklist-root) > *:not(#printable-checklist-root) {
     display: none !important;
     visibility: hidden !important;
   }
@@ -339,6 +341,7 @@
 
   /* Exibe o container raiz de impressão */
   #printable-etiqueta-root,
+  #printable-checklist-root,
   .printable-root-hidden {
     display: block !important;
     position: static !important;
@@ -350,7 +353,8 @@
     visibility: visible !important;
   }
 
-  #printable-etiqueta-root * {
+  #printable-etiqueta-root *,
+  #printable-checklist-root * {
     visibility: visible !important;
   }
 
@@ -423,6 +427,42 @@
     display: flex !important;
     flex-direction: column !important;
     justify-content: space-between !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  /*
+   * Estilo de impressão da folha A4 de Checklist de Revisão com Fotos:
+   * Cada página tem exatamente 210mm x 297mm (A4 portrait), com quebra de página automática por equipamento.
+   */
+  .printable-checklist-page-wrapper {
+    width: 210mm !important;
+    min-width: 210mm !important;
+    max-width: 210mm !important;
+    min-height: 297mm !important;
+    box-sizing: border-box !important;
+    padding: 8mm 10mm !important;
+    margin: 0 auto !important;
+    page-break-after: always !important;
+    break-after: page !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  .printable-checklist-page-wrapper:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+
+  .printable-checklist-page {
+    width: 100% !important;
+    height: 100% !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
     background: #ffffff !important;
     color: #000000 !important;
   }
