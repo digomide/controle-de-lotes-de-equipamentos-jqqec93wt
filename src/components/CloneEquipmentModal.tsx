@@ -43,10 +43,12 @@ export function CloneEquipmentModal({
   // Form states
   const [copiesCount, setCopiesCount] = useState<number>(1)
   const [selectedBatchId, setSelectedBatchId] = useState<string>('')
+  const [cloneWithPhotos, setCloneWithPhotos] = useState<boolean>(true)
   const [family, setFamily] = useState<string>('Notebooks')
   const [title, setTitle] = useState<string>('')
   const [brand, setBrand] = useState<string>('')
   const [model, setModel] = useState<string>('')
+  const [partNumber, setPartNumber] = useState<string>('')
   const [serialNumber, setSerialNumber] = useState<string>('')
 
   // Batch listing and additional costs info
@@ -59,11 +61,13 @@ export function CloneEquipmentModal({
     if (open && product) {
       // Pre-fill fields from original product
       setCopiesCount(1)
+      setCloneWithPhotos(true)
       setFamily(product.category || 'Notebooks')
       setTitle(product.name || '')
       setBrand(product.brand || '')
       setModel(product.model || '')
-      setSerialNumber('') // Always starts empty as required ("SN... VAZIO por padrão")
+      setPartNumber('') // Em branco por padrão
+      setSerialNumber('') // Em branco por padrão
       setSelectedBatchId(product.purchase_batch_id || '')
 
       loadData(product)
@@ -126,8 +130,9 @@ export function CloneEquipmentModal({
     const validVal = Math.max(1, Math.min(99, val || 1))
     setCopiesCount(validVal)
     if (validVal > 1) {
-      // "Números de série são deixados em branco ao criar várias peças."
+      // Números de série e part number em branco ao criar várias peças
       setSerialNumber('')
+      setPartNumber('')
     }
   }
 
@@ -160,12 +165,22 @@ export function CloneEquipmentModal({
       // "A operação é única/transactions: ou cria todas as cópias ou nenhuma; nunca deixar estado parcial."
       for (let i = 0; i < copiesCount; i++) {
         const uniqueSuffix = Math.random().toString(36).substring(2, 7).toUpperCase()
-        const skuGenerated =
-          copiesCount === 1 && serialNumber.trim()
-            ? serialNumber.trim()
-            : `${(product.brand || 'EQ').toUpperCase().substring(0, 3)}-${Date.now().toString().slice(-4)}${uniqueSuffix}`
+        const skuGenerated = `${(product.brand || 'EQ').toUpperCase().substring(0, 3)}-${Date.now().toString().slice(-4)}${uniqueSuffix}`
 
         const singleSerial = copiesCount === 1 ? serialNumber.trim() : ''
+        const singlePart = copiesCount === 1 ? partNumber.trim() : ''
+
+        // Regra de ativação: se PN (ou PN/SN) foi preenchido, nasce 'Disponível'; se PN em branco, nasce 'Pendente de ativação'
+        const isActivated = Boolean(singlePart)
+        const initialStatus = isActivated ? 'Disponível' : 'Pendente de ativação'
+
+        // Preparar imagens / fotos de acordo com a opção toggle cloneWithPhotos
+        const imagesList =
+          cloneWithPhotos && Array.isArray(product.images) ? [...product.images] : []
+        const photosList =
+          cloneWithPhotos && Array.isArray(product.photos) ? [...product.photos] : []
+        const photoOrderList =
+          cloneWithPhotos && Array.isArray(product.photo_order) ? [...product.photo_order] : []
 
         // Prepare copy payload with all original product data (specs, photos, images, checklist)
         const newProductPayload: Partial<Product> = {
@@ -176,6 +191,7 @@ export function CloneEquipmentModal({
           sku: skuGenerated,
           code: `EQ-${new Date().getFullYear()}-${uniqueSuffix}`,
           serial_number: singleSerial || undefined,
+          part_number: singlePart || undefined,
           purchase_batch_id: selectedBatchId,
           processor: product.processor,
           ram: product.ram,
@@ -192,14 +208,16 @@ export function CloneEquipmentModal({
           description: product.description,
           unit_price: Number(product.unit_price) || 0,
           cost_price: Number(product.cost_price) || selectedBatch?.costBasePerItem || 0,
-          status: 'Disponível',
-          images: Array.isArray(product.images) ? [...product.images] : [],
+          status: initialStatus,
+          images: imagesList,
+          photos: photosList,
+          photo_order: photoOrderList,
           technical_checklist: Array.isArray(product.technical_checklist)
             ? [...product.technical_checklist]
             : [],
           history_events: [
             {
-              title: `Clonado a partir de ${product.name} (${product.sku || product.serial_number || 'original'})`,
+              title: `Clonado a partir de ${product.name} (${product.sku || product.serial_number || 'original'}) [${initialStatus}]`,
               date: new Date().toISOString().replace('T', ' ').substring(0, 19),
             },
           ],
@@ -273,11 +291,39 @@ export function CloneEquipmentModal({
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Banner 1: Explicativo rosa/pêssego idêntico ao Replit Screenshot 2 */}
+          {/* Banner 1: Explicativo rosa/pêssego */}
           <div className="bg-[#f5ede4] border border-[#edd5c3] rounded-xl px-4 py-3 text-xs text-slate-700">
-            Escolha quantas peças deseja criar. Cada cópia receberá os dados, as fotos e{' '}
+            Escolha quantas peças deseja criar. Cada cópia receberá as configurações e{' '}
             {additionalCostsCount > 0 ? `${additionalCostsCount} ` : 'os '}
-            custo(s) adicional(is) desta ficha.
+            custo(s) adicional(is) desta ficha. Itens sem PN nascem como{' '}
+            <strong>Pendente de ativação</strong> e podem ser preenchidos individualmente depois.
+          </div>
+
+          {/* Toggle / Checkbox: Clonar com fotos */}
+          <div className="bg-white border border-slate-200 rounded-xl p-3.5 flex items-center justify-between gap-3 shadow-xs">
+            <div className="space-y-0.5">
+              <Label
+                htmlFor="clone-photos-toggle"
+                className="text-xs font-bold text-slate-800 cursor-pointer"
+              >
+                Clonar com fotos
+              </Label>
+              <p className="text-[11px] text-slate-500">
+                {cloneWithPhotos
+                  ? 'As imagens e fotos do equipamento original serão duplicadas nos novos itens.'
+                  : 'Os itens serão clonados sem fotos, permitindo fotografar ou anexar depois.'}
+              </p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+              <input
+                id="clone-photos-toggle"
+                type="checkbox"
+                checked={cloneWithPhotos}
+                onChange={(e) => setCloneWithPhotos(e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#d9532f]"></div>
+            </label>
           </div>
 
           {/* Banner 2: Lote de Origem com Chips Financeiros */}
@@ -348,8 +394,9 @@ export function CloneEquipmentModal({
             </div>
             <div className="text-xs text-slate-500 leading-relaxed">
               Capacidade disponível: <strong className="text-slate-800">{availableCapacity}</strong>
-              . A operação é única: se uma cópia falhar, nenhuma será criada. Números de série são
-              deixados em branco ao criar várias peças.
+              . A operação é única: se uma cópia falhar, nenhuma será criada. Os itens nascem com
+              código interno único e status <strong>Pendente de ativação</strong> até o
+              preenchimento do PN.
             </div>
           </div>
 
@@ -407,22 +454,43 @@ export function CloneEquipmentModal({
             </div>
           </div>
 
-          {/* Formulário: Número de série */}
-          <div>
-            <Label className="text-xs font-semibold text-slate-700">Número de série</Label>
-            <Input
-              value={serialNumber}
-              onChange={(e) => setSerialNumber(e.target.value)}
-              placeholder="SN . . ."
-              disabled={copiesCount > 1}
-              className="bg-white border-slate-300 text-sm h-10 mt-1 font-mono disabled:opacity-60 disabled:bg-slate-100"
-            />
-            {copiesCount > 1 && (
-              <p className="text-[11px] text-slate-400 mt-1">
-                Ao clonar mais de 1 peça, os números de série são gerados em branco para
-                preenchimento posterior.
-              </p>
-            )}
+          {/* Formulário: Part Number (PN) e Número de série (opcionais na clonagem) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <Label className="text-xs font-semibold text-slate-700">Part Number (PN)</Label>
+              <Input
+                value={partNumber}
+                onChange={(e) => setPartNumber(e.target.value)}
+                placeholder="PN / Part Number (opcional)..."
+                disabled={copiesCount > 1}
+                className="bg-white border-slate-300 text-sm h-10 mt-1 font-mono disabled:opacity-60 disabled:bg-slate-100"
+              />
+              {copiesCount === 1 ? (
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Preencher o PN ativa o equipamento imediatamente como <strong>Disponível</strong>.
+                </p>
+              ) : (
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Ao clonar em massa, o PN fica em branco para ativação posterior.
+                </p>
+              )}
+            </div>
+
+            <div>
+              <Label className="text-xs font-semibold text-slate-700">Número de série (S/N)</Label>
+              <Input
+                value={serialNumber}
+                onChange={(e) => setSerialNumber(e.target.value)}
+                placeholder="S/N (opcional)..."
+                disabled={copiesCount > 1}
+                className="bg-white border-slate-300 text-sm h-10 mt-1 font-mono disabled:opacity-60 disabled:bg-slate-100"
+              />
+              {copiesCount > 1 && (
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Ao clonar em massa, os números de série ficam vazios para cadastro posterior.
+                </p>
+              )}
+            </div>
           </div>
         </div>
 

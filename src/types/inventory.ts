@@ -8,7 +8,7 @@ export interface User extends RecordModel {
   avatar?: string
 }
 
-export type ProductStatus = 'Disponível' | 'Reservado' | 'Vendido'
+export type ProductStatus = 'Disponível' | 'Reservado' | 'Vendido' | 'Pendente de ativação'
 
 export type ChecklistItemStatus = 'Ok' | 'OK' | 'Atenção' | 'Falha' | 'Não testado' | 'N/A'
 
@@ -67,6 +67,7 @@ export interface Product extends RecordModel {
   history_events?: EquipmentHistoryEvent[]
   purchase_batch_id?: string
   serial_number?: string
+  part_number?: string
   gtin?: string
   includes_charger?: boolean
   bench_notes?: string

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-09T05:43:27.545Z",
+  "generatedAt": "2026-09-09T09:27:32.758Z",
   "collections": [
     {
       "name": "users",
@@ -177,7 +177,7 @@
           "type": "select",
           "required": false,
           "system": false,
-          "selectValues": ["Disponível", "Reservado", "Vendido"]
+          "selectValues": ["Disponível", "Reservado", "Vendido", "Pendente de ativação"]
         },
         {
           "name": "images",
@@ -292,6 +292,12 @@
         },
         {
           "name": "catalog_product_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "part_number",
           "type": "text",
           "required": false,
           "system": false

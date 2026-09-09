@@ -57,7 +57,10 @@ export const productsService = {
     return pb.files.getURL(record, filename)
   },
 
-  async updateStatus(id: string, status: 'Disponível' | 'Reservado' | 'Vendido'): Promise<Product> {
+  async updateStatus(
+    id: string,
+    status: 'Disponível' | 'Reservado' | 'Vendido' | 'Pendente de ativação',
+  ): Promise<Product> {
     return await pb.collection('products').update<Product>(id, { status })
   },
 
