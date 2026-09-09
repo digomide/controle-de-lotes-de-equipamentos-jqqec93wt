@@ -45,6 +45,29 @@ routerAdd('GET', '/backend/v1/ml/catalog-competition/{catalog_product_id}', (e) 
       return 'INFOPRECOBAIXO'
     }
 
+    // 1. Tentar ler do cache persistente do banco
+    try {
+      const cached = $app.findFirstRecordByData('ml_seller_cache', 'seller_id', sIdStr)
+      if (cached && cached.getString('nickname')) {
+        const nick = cached.getString('nickname').trim()
+        if (nick) {
+          sellerNickCache[sIdStr] = nick
+          return nick
+        }
+      }
+    } catch (_) {}
+    try {
+      const compRec = $app.findFirstRecordByData('ml_competitors', 'seller_id', sIdStr)
+      if (compRec && compRec.getString('nickname')) {
+        const nick = compRec.getString('nickname').trim()
+        if (nick) {
+          sellerNickCache[sIdStr] = nick
+          return nick
+        }
+      }
+    } catch (_) {}
+
+    // 2. Se não estiver no cache do banco, consultar API do Mercado Livre /users/{id}
     try {
       const uRes = $http.send({
         url: 'https://api.mercadolibre.com/users/' + sIdStr,
@@ -55,6 +78,21 @@ routerAdd('GET', '/backend/v1/ml/catalog-competition/{catalog_product_id}', (e) 
       if (uRes.statusCode === 200 && uRes.json && uRes.json.nickname) {
         const nick = String(uRes.json.nickname).trim()
         sellerNickCache[sIdStr] = nick
+
+        // Salvar no cache persistente
+        try {
+          const sCacheCol = $app.findCollectionByNameOrId('ml_seller_cache')
+          if (sCacheCol) {
+            const newCacheRec = new Record(sCacheCol)
+            newCacheRec.set('seller_id', sIdStr)
+            newCacheRec.set('nickname', nick)
+            if (uRes.json.permalink) {
+              newCacheRec.set('permalink', String(uRes.json.permalink).trim())
+            }
+            $app.save(newCacheRec)
+          }
+        } catch (_) {}
+
         return nick
       }
     } catch (_) {}

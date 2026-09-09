@@ -834,6 +834,29 @@ cronAdd('ml_queue_worker', '*/1 * * * *', () => {
               sellerNickCache[sIdStr] = 'INFOPRECOBAIXO'
               return 'INFOPRECOBAIXO'
             }
+            // 1. Tentar ler da coleção de cache persistente (ml_seller_cache ou ml_competitors)
+            try {
+              const cached = appId.findFirstRecordByData('ml_seller_cache', 'seller_id', sIdStr)
+              if (cached && cached.getString('nickname')) {
+                const nick = cached.getString('nickname').trim()
+                if (nick) {
+                  sellerNickCache[sIdStr] = nick
+                  return nick
+                }
+              }
+            } catch (_) {}
+            try {
+              const compRec = appId.findFirstRecordByData('ml_competitors', 'seller_id', sIdStr)
+              if (compRec && compRec.getString('nickname')) {
+                const nick = compRec.getString('nickname').trim()
+                if (nick) {
+                  sellerNickCache[sIdStr] = nick
+                  return nick
+                }
+              }
+            } catch (_) {}
+
+            // 2. Se não estiver no cache do banco, consultar API do Mercado Livre /users/{id}
             try {
               const uRes = $http.send({
                 url: 'https://api.mercadolibre.com/users/' + sIdStr,
@@ -844,6 +867,21 @@ cronAdd('ml_queue_worker', '*/1 * * * *', () => {
               if (uRes.statusCode === 200 && uRes.json && uRes.json.nickname) {
                 const nick = String(uRes.json.nickname).trim()
                 sellerNickCache[sIdStr] = nick
+
+                // Persistir no ml_seller_cache de forma segura
+                try {
+                  const sCacheCol = appId.findCollectionByNameOrId('ml_seller_cache')
+                  if (sCacheCol) {
+                    const newCacheRec = new Record(sCacheCol)
+                    newCacheRec.set('seller_id', sIdStr)
+                    newCacheRec.set('nickname', nick)
+                    if (uRes.json.permalink) {
+                      newCacheRec.set('permalink', String(uRes.json.permalink).trim())
+                    }
+                    appId.save(newCacheRec)
+                  }
+                } catch (_) {}
+
                 return nick
               }
             } catch (_) {}

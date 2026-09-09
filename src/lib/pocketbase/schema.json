@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-09T01:22:20.252Z",
+  "generatedAt": "2026-09-09T01:39:18.873Z",
   "collections": [
     {
       "name": "users",
@@ -3098,6 +3098,41 @@
         }
       ],
       "indexes": []
+    },
+    {
+      "name": "ml_seller_cache",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\"",
+        "view": "@request.auth.id != \"\"",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\"",
+        "delete": "@request.auth.id != \"\""
+      },
+      "fields": [
+        {
+          "name": "seller_id",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "nickname",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "permalink",
+          "type": "text",
+          "required": false,
+          "system": false
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_ml_seller_cache_seller ON ml_seller_cache (seller_id)",
+        "CREATE INDEX idx_ml_seller_cache_nick ON ml_seller_cache (nickname)"
+      ]
     }
   ]
 }

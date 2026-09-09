@@ -620,4 +620,34 @@ export const mlCatalogService = {
       suggestedPrice: suggestedPrice || 1200,
     }
   },
+
+  /**
+   * Resolve em lote seller_ids para seus respectivos apelidos (nicknames)
+   * consultando o backend com cache persistente.
+   */
+  async resolveSellerNames(sellerIds: string[]): Promise<Record<string, string>> {
+    if (!Array.isArray(sellerIds) || sellerIds.length === 0) return {}
+    const cleanIds = Array.from(
+      new Set(
+        sellerIds
+          .map((id) => String(id || '').trim())
+          .filter((id) => id && !id.startsWith('nick_') && id !== 'unknown_seller'),
+      ),
+    )
+    if (cleanIds.length === 0) return {}
+
+    try {
+      const res = await pb.send<{ sellers: Record<string, string> }>(
+        '/backend/v1/ml/resolve-sellers',
+        {
+          method: 'POST',
+          body: { seller_ids: cleanIds },
+        },
+      )
+      return res?.sellers || {}
+    } catch (err) {
+      console.warn('[mlCatalogService] Falha ao resolver seller names em lote:', err)
+      return {}
+    }
+  },
 }
