@@ -13,7 +13,7 @@
  * Todas as funções auxiliares DEVEM estar inline dentro do corpo do cronAdd!
  */
 
-cronAdd('ml_queue_worker', '@every 10s', () => {
+cronAdd('ml_queue_worker', '*/1 * * * *', () => {
   let settings = null
   try {
     const records = $app.findRecordsByFilter('ml_settings', '1=1', '-created', 1, 0)
