@@ -60,6 +60,8 @@ import {
   evaluateCatalogItemStrictMatch,
   highlightMatchedTitle,
   isDirectCatalogCodeQuery,
+  matchesExactModelInTitle,
+  extractRequiredModelTokens,
 } from '@/lib/catalogFilter'
 import { CategorySelector } from '@/components/CategorySelector'
 import {
@@ -97,22 +99,23 @@ export function AnunciosCatalogoTab() {
     cachedAt?: string
   } | null>(null)
 
-  // Banner e visualização dos anúncios coletados pelo navegador (fallback para quando a API oficial retornar 0 resultados)
-  const [collectorFallbackAds, setCollectorFallbackAds] = useState<CollectorDeduplicatedAd[]>([])
-  const [collectorWithSalesCount, setCollectorWithSalesCount] = useState<number>(0)
-  const [collectorMatchedTerm, setCollectorMatchedTerm] = useState<string>('')
+  // Banner e visualização de fallback do Coletor quando a API oficial do ML não retorna resultados
+  const [collectorFallbackInfo, setCollectorFallbackInfo] = useState<{
+    ads: CollectorDeduplicatedAd[]
+    matchedSearchTerm: string
+    adsWithSalesCount: number
+    excludedNoiseCount: number
+    hasChecked: boolean
+  } | null>(null)
+  const [showCollectorAds, setShowCollectorAds] = useState(false)
   const [checkingCollectorFallback, setCheckingCollectorFallback] = useState<boolean>(false)
-  const [showingCollectorAds, setShowingCollectorAds] = useState<boolean>(false)
 
   // Função para verificar se há anúncios minerados do coletor caso a API oficial retorne vazia
   const checkCollectorFallback = async (searchTerm: string) => {
     const cleanTerm = (searchTerm || '').trim()
     if (!cleanTerm) {
-      setCollectorFallbackAds([])
-      setCollectorWithSalesCount(0)
-      setCollectorMatchedTerm('')
-      setShowingCollectorAds(false)
       setCollectorFallbackInfo(null)
+      setShowCollectorAds(false)
       return
     }
 
@@ -120,33 +123,37 @@ export function AnunciosCatalogoTab() {
     try {
       const res = await mlCollectorService.getCollectorAdsForTerm(cleanTerm)
       if (res && Array.isArray(res.ads) && res.ads.length > 0) {
-        setCollectorFallbackAds(res.ads)
+        // Aplicação do filtro rigoroso por modelo no título do anúncio:
+        // Apenas anúncios cujo título contém o modelo exato do termo entram na lista e na contagem.
         const matchedT = res.matchedSearchTerm || cleanTerm
-        setCollectorMatchedTerm(matchedT)
-        const withSales = res.ads.filter(
-          (a) => a.sold_quantity != null && Number(a.sold_quantity) > 0,
-        ).length
-        setCollectorWithSalesCount(withSales)
-        setCollectorFallbackInfo({
-          ads: res.ads,
-          matchedSearchTerm: matchedT,
-          adsWithSalesCount: withSales,
-          hasChecked: true,
-        })
+        const strictAds = res.ads.filter(
+          (ad) => matchesExactModelInTitle(ad.title, cleanTerm).matches,
+        )
+        const excludedCount = res.ads.length - strictAds.length
+
+        if (strictAds.length > 0) {
+          const withSales = strictAds.filter(
+            (a) => a.sold_quantity != null && Number(a.sold_quantity) > 0,
+          ).length
+          setCollectorFallbackInfo({
+            ads: strictAds,
+            matchedSearchTerm: matchedT,
+            adsWithSalesCount: withSales,
+            excludedNoiseCount: excludedCount,
+            hasChecked: true,
+          })
+        } else {
+          setCollectorFallbackInfo(null)
+          setShowCollectorAds(false)
+        }
       } else {
-        setCollectorFallbackAds([])
-        setCollectorWithSalesCount(0)
-        setCollectorMatchedTerm('')
-        setShowingCollectorAds(false)
         setCollectorFallbackInfo(null)
+        setShowCollectorAds(false)
       }
     } catch (err) {
       console.warn('[AnunciosCatalogoTab] Erro ao consultar fallback do coletor:', err)
-      setCollectorFallbackAds([])
-      setCollectorWithSalesCount(0)
-      setCollectorMatchedTerm('')
-      setShowingCollectorAds(false)
       setCollectorFallbackInfo(null)
+      setShowCollectorAds(false)
     } finally {
       setCheckingCollectorFallback(false)
     }
@@ -156,15 +163,6 @@ export function AnunciosCatalogoTab() {
   const [resolvedSellers, setResolvedSellers] = useState<Record<string, string>>(() =>
     getCachedSellerNames(),
   )
-
-  // Banner e visualização de fallback do Coletor quando a API oficial do ML não retorna resultados
-  const [collectorFallbackInfo, setCollectorFallbackInfo] = useState<{
-    ads: CollectorDeduplicatedAd[]
-    matchedSearchTerm: string
-    adsWithSalesCount: number
-    hasChecked: boolean
-  } | null>(null)
-  const [showCollectorAds, setShowCollectorAds] = useState(false)
 
   // Efeito para resolver em lote nomes de vendedores faltantes das posições e concorrentes em segundo plano
   useEffect(() => {
@@ -1805,9 +1803,17 @@ export function AnunciosCatalogoTab() {
                           </strong>{' '}
                           ({collectorFallbackInfo.adsWithSalesCount} com vendas).
                         </p>
-                        <p className="text-[11px] text-emerald-700">
-                          Esses anúncios foram capturados diretamente da vitrine aberta do ML e
-                          estão prontos para análise e precificação.
+                        <p className="text-[11px] text-emerald-700 flex items-center gap-1.5 flex-wrap">
+                          <span>
+                            Esses anúncios foram capturados diretamente da vitrine aberta do ML e
+                            estão filtrados rigorosamente pelo modelo pesquisado.
+                          </span>
+                          {collectorFallbackInfo.excludedNoiseCount > 0 && (
+                            <span className="font-semibold text-emerald-800/80">
+                              ({collectorFallbackInfo.excludedNoiseCount} excluídos por não
+                              corresponderem ao modelo).
+                            </span>
+                          )}
                         </p>
                       </div>
                     </div>

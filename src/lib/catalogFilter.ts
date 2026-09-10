@@ -81,6 +81,130 @@ export function softenSearchTerm(query: string): string {
 }
 
 /**
+ * Extrai os tokens de modelo essenciais/obrigatórios de um termo de busca.
+ * Reutiliza a lógica de suavização existente (softenSearchTerm) e os stopwords canônicos.
+ *
+ * Exemplo:
+ * - "notebook lenovo t480" -> suaviza para "lenovo t480" -> identifica modelo "t480"
+ *   (apenas "t480" é o modelo principal, marca "lenovo" é contexto de marca).
+ * - "notebook dell latitude 5420" -> suaviza para "dell latitude 5420" -> identifica "5420"
+ * - "placa mae lenovo" -> suaviza -> tokens essenciais não-stopwords: ["placa", "mae", "lenovo"]
+ * - "memoria smart" -> tokens essenciais: ["memoria", "smart"]
+ *
+ * Retorna lista de tokens que DEVEM estar presentes no título do anúncio para passar no filtro rigoroso.
+ */
+export function extractRequiredModelTokens(query: string): string[] {
+  if (!query || isDirectCatalogCodeQuery(query)) {
+    return []
+  }
+
+  // 1. Suavizar termo removendo categorias genéricas ("notebook", "computador", etc.)
+  const softened = softenSearchTerm(query)
+  const normTerm = removeAccents(softened || query)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+
+  if (!normTerm) return []
+
+  const words = normTerm.split(/\s+/).filter(Boolean)
+
+  // 2. Classificação de palavras:
+  // Tokens de modelo específicos: alfanuméricos com dígitos (t480, e14, g15, e7440, i5, i7)
+  // ou números de modelo de 3 a 5 dígitos (5420, 3020, 7020, 840, 153576).
+  const modelCodeTokens: string[] = []
+  const otherMeaningfulTokens: string[] = []
+
+  for (const w of words) {
+    if (CATALOG_STOPWORDS.has(w) || GENERIC_CATEGORY_WORDS.has(w)) {
+      continue
+    }
+
+    const hasDigitsAndLetters = /[0-9]/.test(w) && /[a-z]/.test(w)
+    const isModelNumber = /^[0-9]{3,5}$/.test(w)
+
+    if (hasDigitsAndLetters || isModelNumber) {
+      modelCodeTokens.push(w)
+    } else {
+      otherMeaningfulTokens.push(w)
+    }
+  }
+
+  // Se houver código(s) de modelo explícito(s) (ex: "t480" em "lenovo t480"),
+  // o modelo principal É o código do modelo que deve obrigatoriamente estar no título!
+  if (modelCodeTokens.length > 0) {
+    return Array.from(new Set(modelCodeTokens))
+  }
+
+  // Se não houver código alfa/numérico evidente (ex: "placa mae lenovo" ou "memoria smart"),
+  // remove marcas populares caso sobre algo mais específico (ex: "lenovo thinkpad" -> "thinkpad")
+  const nonBrandTokens = otherMeaningfulTokens.filter((t) => !POPULAR_BRANDS.has(t))
+  if (nonBrandTokens.length > 0) {
+    return Array.from(new Set(nonBrandTokens))
+  }
+
+  // Fallback: todos os tokens significativos não-stopwords
+  return Array.from(new Set(otherMeaningfulTokens.length > 0 ? otherMeaningfulTokens : words))
+}
+
+/**
+ * Avalia se o título de um anúncio contém o modelo exato do termo de busca.
+ * Aplica casamento rigoroso com boundary de palavra ou variação compacta
+ * (ex: "t480" casa com "t480", "T 480", "ThinkPad T480"; mas "ThinkPad E14" ou "IdeaPad 3" não casam).
+ */
+export function matchesExactModelInTitle(
+  title: string,
+  searchTerm: string,
+): {
+  matches: boolean
+  requiredModelTokens: string[]
+  matchedTokens: string[]
+  missingTokens: string[]
+} {
+  const requiredModelTokens = extractRequiredModelTokens(searchTerm)
+  if (requiredModelTokens.length === 0) {
+    return {
+      matches: true,
+      requiredModelTokens: [],
+      matchedTokens: [],
+      missingTokens: [],
+    }
+  }
+
+  if (!title) {
+    return {
+      matches: false,
+      requiredModelTokens,
+      matchedTokens: [],
+      missingTokens: requiredModelTokens,
+    }
+  }
+
+  const normTitle = normalizeCatalogText(title)
+  const compactTitle = removeAccents(title)
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+
+  const matchedTokens: string[] = []
+  const missingTokens: string[] = []
+
+  for (const token of requiredModelTokens) {
+    if (matchesCatalogToken(normTitle, compactTitle, token)) {
+      matchedTokens.push(token)
+    } else {
+      missingTokens.push(token)
+    }
+  }
+
+  return {
+    matches: missingTokens.length === 0,
+    requiredModelTokens,
+    matchedTokens,
+    missingTokens,
+  }
+}
+
+/**
  * Remove acentos diacríticos
  */
 export function removeAccents(text: string): string {

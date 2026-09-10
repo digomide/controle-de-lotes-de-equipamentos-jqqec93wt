@@ -7,8 +7,7 @@ import {
 import {
   detectCollectorNoiseAd,
   softenSearchTerm,
-  extractCatalogSearchTokens,
-  matchesCatalogToken,
+  matchesExactModelInTitle,
   removeAccents,
 } from '@/lib/catalogFilter'
 import type { MLCollectorPayload, MLCollectorResultItem } from '@/lib/mlBookmarklet'
@@ -342,27 +341,18 @@ export const mlCollectorService = {
     }
 
     // Filtro rigoroso por modelo no título do anúncio coletado:
-    // Um anúncio coletado só entra na lista do banner se o título contiver o termo de busca efetivo
-    // após suavização (ex: "notebook lenovo t480" -> "lenovo t480", exigindo tokens significativos como "t480").
-    const effectiveTerm = softenSearchTerm(searchTerm || importRecord.search_term || '')
-    const effectiveTokens = extractCatalogSearchTokens(effectiveTerm)
+    // Um anúncio coletado só entra na lista do banner e na contagem se o título contiver o modelo
+    // exato do termo buscado (ex: "notebook lenovo t480" -> modelo "t480" -> só anúncios com "t480").
+    const queryForFilter = searchTerm || importRecord.search_term || ''
 
-    const matchesEffectiveModel = (title: string): boolean => {
-      if (!title) return false
-      if (effectiveTokens.length === 0) return true
-      const normTitle = removeAccents(title).toLowerCase()
-      const compactTitle = normTitle.replace(/[^a-z0-9]/g, '')
-      return effectiveTokens.every((tok) => {
-        // Se o token for numérico ou alfanumérico com dígitos (ex: t480, 5420, i5),
-        // deve estar no título normalizado ou compacto
-        return matchesCatalogToken(normTitle, compactTitle, tok)
-      })
+    const isMatchModel = (title: string): boolean => {
+      return matchesExactModelInTitle(title, queryForFilter).matches
     }
 
     try {
-      const summary = await this.buildCollectorSummary(importRecord.search_term, importRecord)
-      const rawAds = summary?.all_deduplicated_ads || []
-      const ads = rawAds.filter((ad) => matchesEffectiveModel(ad.title))
+      const report = await this.getCollectorSummaryReport(importRecord.search_term)
+      const rawAds = report?.all_deduplicated_ads || []
+      const ads = rawAds.filter((ad) => isMatchModel(ad.title))
       return {
         ads,
         matchedSearchTerm: importRecord.search_term,
@@ -374,25 +364,19 @@ export const mlCollectorService = {
       const payload = this.decodePayload(importRecord.payload)
       const rawResults = payload && Array.isArray(payload.results) ? payload.results : []
       const rawAds: CollectorDeduplicatedAd[] = rawResults.map((it: any, idx: number) => ({
-        canonical_id: it.mlb_id || it.id || `COL_${idx + 1}`,
+        id: it.mlb_id || it.id || `COL_${idx + 1}`,
+        mlb_id: it.mlb_id || it.id || `COL_${idx + 1}`,
         title: it.title || '',
         price: it.price || 0,
-        original_price: it.original_price,
         sold_quantity: it.sold_quantity != null ? Number(it.sold_quantity) : null,
-        sold_quantity_text: it.sold_quantity_text,
-        available_quantity: it.available_quantity,
         permalink: it.permalink || it.url || '',
         thumbnail: it.thumbnail || it.image || '',
         seller_name: it.seller_name || it.seller || '',
         condition: it.condition || 'used',
-        condition_label: it.condition === 'new' ? 'Novo' : 'Usado',
         is_free_shipping: Boolean(it.is_free_shipping),
         is_full: Boolean(it.is_full),
-        variants_count: 1,
-        all_mlb_ids: [it.mlb_id || it.id].filter(Boolean),
-        source: 'collector' as const,
       }))
-      const ads = rawAds.filter((ad) => matchesEffectiveModel(ad.title))
+      const ads = rawAds.filter((ad) => isMatchModel(ad.title))
       return {
         ads,
         matchedSearchTerm: importRecord.search_term,
