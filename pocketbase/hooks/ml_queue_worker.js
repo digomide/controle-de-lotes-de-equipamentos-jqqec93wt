@@ -659,11 +659,13 @@ cronAdd('ml_queue_worker', '*/1 * * * *', () => {
         }
 
         // Gravar cada chunk com limite estrito de 25 itens ou ~300KB
+        // chunk_index 1-based (1, 2, 3...) para nunca gravar 0
         for (let cIdx = 0; cIdx < chunks.length; cIdx++) {
           const chunkData = chunks[cIdx]
+          const chunkIndex1Based = cIdx + 1
           const chunkRec = new Record(resultsCol)
           chunkRec.set('job_id', jobId)
-          chunkRec.set('chunk_index', cIdx)
+          chunkRec.set('chunk_index', chunkIndex1Based)
           chunkRec.set('items_count', chunkData.length)
           chunkRec.set('payload_json', chunkData)
 
@@ -672,7 +674,7 @@ cronAdd('ml_queue_worker', '*/1 * * * *', () => {
           if (chunkStr.length > 900000) {
             throw new Error(
               'maximum allowed JSON size is 1048576 bytes: chunk ' +
-                cIdx +
+                chunkIndex1Based +
                 ' com ' +
                 chunkStr.length +
                 ' bytes',
@@ -1213,22 +1215,36 @@ cronAdd('ml_queue_worker', '*/1 * * * *', () => {
         }
 
         if (!saveSuccess) {
-          // Requisito A2: Falha definitiva após 3 tentativas ou estouro de tamanho:
-          // marcar job como status: 'error' com mensagem amigável ("Resultados excederam o limite máximo permitido"),
-          // SEM recolocar na fila.
+          const saveErrMsg = lastSaveError
+            ? String(lastSaveError.message || lastSaveError)
+            : 'Erro desconhecido na gravação'
+          const isPayloadSizeError =
+            saveErrMsg.includes('1048576') ||
+            saveErrMsg.includes('maximum allowed JSON') ||
+            saveErrMsg.includes('too large') ||
+            saveErrMsg.includes('excederam')
+
           rec.set('status', 'error')
-          rec.set('status_code', 413)
-          rec.set('error_message', 'Resultados excederam o limite máximo permitido')
+          rec.set('status_code', isPayloadSizeError ? 413 : 500)
+          rec.set(
+            'error_message',
+            isPayloadSizeError
+              ? 'Resultados excederam o limite máximo permitido'
+              : 'Falha ao gravar resultados: ' + saveErrMsg,
+          )
           rec.set(
             'progress_text',
-            'Resultados excederam o limite máximo permitido. Tente restringir a categoria ou termo.',
+            isPayloadSizeError
+              ? 'Resultados excederam o limite máximo permitido. Tente restringir a categoria ou termo.'
+              : 'Falha ao persistir os resultados no banco: ' + saveErrMsg,
           )
           rec.set('results', [])
           appId.save(rec)
           console.warn(
             '[ml_cron] Job ' +
               jobId +
-              ' marcado como error definitivamente após 3 tentativas de gravação.',
+              ' marcado como error definitivamente após 3 tentativas de gravação: ' +
+              saveErrMsg,
           )
         } else {
           console.log(

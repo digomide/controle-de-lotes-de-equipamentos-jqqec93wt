@@ -92,9 +92,13 @@ onRecordAfterCreateSuccess((e) => {
                 const resultsCol = appId.findCollectionByNameOrId('ml_catalog_search_results')
                 if (resultsCol) {
                   for (let ci = 0; ci < chunkRecs.length; ci++) {
+                    const originalIdx = chunkRecs[ci].getInt
+                      ? chunkRecs[ci].getInt('chunk_index')
+                      : Number(chunkRecs[ci].get('chunk_index')) || ci + 1
+                    const safeChunkIdx = originalIdx > 0 ? originalIdx : ci + 1
                     const newChunk = new Record(resultsCol)
                     newChunk.set('job_id', rec.id)
-                    newChunk.set('chunk_index', ci)
+                    newChunk.set('chunk_index', safeChunkIdx)
                     newChunk.set(
                       'items_count',
                       chunkRecs[ci].getInt ? chunkRecs[ci].getInt('items_count') : 0,

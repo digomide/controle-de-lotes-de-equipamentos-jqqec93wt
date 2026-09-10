@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-09T20:33:16.763Z",
+  "generatedAt": "2026-09-10T00:53:53.785Z",
   "collections": [
     {
       "name": "users",
@@ -3393,7 +3393,7 @@
         {
           "name": "chunk_index",
           "type": "number",
-          "required": true,
+          "required": false,
           "system": false
         },
         {
