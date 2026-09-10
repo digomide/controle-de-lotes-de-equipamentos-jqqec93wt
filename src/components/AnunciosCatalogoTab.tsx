@@ -588,7 +588,8 @@ export function AnunciosCatalogoTab() {
         setCachedJobInfo(null)
       }
 
-      if (results.length === 0) {
+      const hasMarketplaceResults = results.some((it) => !it.is_own_account)
+      if (results.length === 0 || !hasMarketplaceResults) {
         // Fallback inteligente: buscar anúncios minerados pelo Coletor do navegador
         try {
           const collectorResult = await mlCollectorService.getCollectorAdsForTerm(q)
