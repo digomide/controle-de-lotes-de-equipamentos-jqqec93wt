@@ -425,42 +425,178 @@ routerAdd('POST', '/backend/v1/ml-collector/ingest', (e) => {
   }
 })
 
-// Rota auxiliar de leitura e agregação pública/autenticada para o Raio-X
-routerAdd('GET', '/backend/v1/custom/ml-collector/summary', function (e) {
+// ------------------------------------------------------------------------------------------------
+// 3. Rotas públicas/personalizadas para o resumo consolidado do coletor
+//    ATENÇÃO: Toda a lógica é estritamente INLINE dentro de cada callback de rota para evitar erros
+//    de escopo no runtime JSVM do PocketBase (separate VM pool).
+// ------------------------------------------------------------------------------------------------
+routerAdd('OPTIONS', '/backend/v1/custom/ml-collector/summary', (e) => {
+  try {
+    var res = e.response
+    if (res && res.header) {
+      res.header().set('Access-Control-Allow-Origin', '*')
+      res.header().set('Access-Control-Allow-Methods', 'GET, OPTIONS')
+      res
+        .header()
+        .set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Collector-Key')
+    }
+  } catch (_) {}
+  return e.noContent(204)
+})
+
+routerAdd('GET', '/backend/v1/custom/ml-collector/summary', (e) => {
+  try {
+    var res = e.response
+    if (res && res.header) {
+      res.header().set('Access-Control-Allow-Origin', '*')
+      res.header().set('Access-Control-Allow-Methods', 'GET, OPTIONS')
+      res
+        .header()
+        .set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Collector-Key')
+    }
+  } catch (_) {}
+
   try {
     var reqInfo = e.requestInfo ? e.requestInfo() : null
     var query = (reqInfo && reqInfo.query) || {}
-    var term = (query.term || query.search_term || '').toString().toLowerCase().trim()
-    if (!term) {
+    var rawTerm = (query.term || query.search_term || '').toString().trim()
+    if (!rawTerm) {
       return e.json(400, { ok: false, error: 'Termo de busca (term) é obrigatório' })
     }
 
-    function bytesToStr(bytes) {
+    // Helper inline: remoção de acentos NFD
+    var removeAccentsInline = function (text) {
+      return (text || '')
+        .toString()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+    }
+
+    var genericCategoryWords = {
+      notebook: 1,
+      notebooks: 1,
+      computador: 1,
+      computadores: 1,
+      laptop: 1,
+      laptops: 1,
+      pc: 1,
+      desktop: 1,
+      desktops: 1,
+      ultrabook: 1,
+      ultrabooks: 1,
+    }
+
+    var softenSearchTermInline = function (q) {
+      if (!q) return ''
+      var words = q.trim().split(/\s+/).filter(Boolean)
+      if (words.length < 2) return q.trim()
+      var softenedWords = words.filter(function (w) {
+        var clean = removeAccentsInline(w)
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '')
+        return !genericCategoryWords[clean]
+      })
+      var resSoftened = softenedWords.join(' ').trim()
+      return resSoftened && resSoftened.length >= 2 ? resSoftened : q.trim()
+    }
+
+    // Normalização (lowercase, sem acentos, sem pontuações supérfluas)
+    var term = removeAccentsInline(rawTerm).toLowerCase().trim()
+    var softened = removeAccentsInline(softenSearchTermInline(rawTerm)).toLowerCase().trim()
+
+    var bytesToStrInline = function (bytes) {
       if (typeof bytes === 'string') return bytes
       if (!bytes) return ''
       if (Array.isArray(bytes)) {
-        var res = ''
+        var strOut = ''
         var chunk = 8192
-        for (var i = 0; i < bytes.length; i += chunk) {
-          var slice = bytes.slice(i, i + chunk)
-          res += String.fromCharCode.apply(null, slice)
+        for (var idx = 0; idx < bytes.length; idx += chunk) {
+          var slice = bytes.slice(idx, idx + chunk)
+          strOut += String.fromCharCode.apply(null, slice)
         }
         try {
-          return decodeURIComponent(escape(res))
+          return decodeURIComponent(escape(strOut))
         } catch (_) {
-          return res
+          return strOut
         }
       }
       return ''
     }
 
-    var records = $app.findRecordsByFilter(
-      'ml_collector_imports',
-      "search_term ~ '" + term.replace(/'/g, "\\'") + "'",
-      '-imported_at',
-      15,
-      0,
-    )
+    // Busca multi-candidato: termo normalizado, termo suavizado e tokens
+    var candidateTerms = []
+    var addCandidate = function (cand) {
+      var c = (cand || '').trim()
+      if (c && candidateTerms.indexOf(c) === -1) {
+        candidateTerms.push(c)
+      }
+    }
+
+    addCandidate(term)
+    if (softened && softened !== term) {
+      addCandidate(softened)
+    }
+
+    var records = []
+    for (var ct = 0; ct < candidateTerms.length; ct++) {
+      var cand = candidateTerms[ct]
+      // 1. Tentar busca exata no search_term
+      try {
+        var exactRecs = $app.findRecordsByFilter(
+          'ml_collector_imports',
+          "search_term = '" + cand.replace(/'/g, "\\'") + "'",
+          '-imported_at',
+          15,
+          0,
+        )
+        if (exactRecs && exactRecs.length > 0) {
+          records = exactRecs
+          break
+        }
+      } catch (_) {}
+
+      // 2. Tentar busca por contém (LIKE / ~)
+      try {
+        var likeRecs = $app.findRecordsByFilter(
+          'ml_collector_imports',
+          "search_term ~ '" + cand.replace(/'/g, "\\'") + "'",
+          '-imported_at',
+          15,
+          0,
+        )
+        if (likeRecs && likeRecs.length > 0) {
+          records = likeRecs
+          break
+        }
+      } catch (_) {}
+    }
+
+    // 3. Se ainda não encontrou, tentar por tokens significativos (ex.: "notebook lenovo t480" -> tokens "lenovo", "t480")
+    if (records.length === 0) {
+      var tokensSource = softened || term
+      var tokens = tokensSource.split(/\s+/).filter(function (t) {
+        return t.length >= 3 && !genericCategoryWords[t]
+      })
+      if (tokens.length > 0) {
+        var andFilter = tokens
+          .map(function (t) {
+            return "search_term ~ '" + t.replace(/'/g, "\\'") + "'"
+          })
+          .join(' && ')
+        try {
+          var tokenRecs = $app.findRecordsByFilter(
+            'ml_collector_imports',
+            andFilter,
+            '-imported_at',
+            15,
+            0,
+          )
+          if (tokenRecs && tokenRecs.length > 0) {
+            records = tokenRecs
+          }
+        } catch (_) {}
+      }
+    }
 
     // Buscar overrides cadastrados para o termo
     var overridesMap = {}
@@ -533,9 +669,8 @@ routerAdd('GET', '/backend/v1/custom/ml-collector/summary', function (e) {
       'fralda',
     ]
 
-    function checkIsNoise(t) {
+    var checkIsNoise = function (t) {
       var lower = (t || '').toString().toLowerCase()
-      // Se o próprio termo do usuário inclui a palavra, não exclui por ela
       for (var nt = 0; nt < NOISE_TERMS.length; nt++) {
         var word = NOISE_TERMS[nt]
         if (term.indexOf(word) === -1 && lower.indexOf(word) !== -1) {
@@ -557,7 +692,7 @@ routerAdd('GET', '/backend/v1/custom/ml-collector/summary', function (e) {
           parsed = JSON.parse(rawPayload)
         } catch (_) {}
       } else if (Array.isArray(rawPayload)) {
-        var str = bytesToStr(rawPayload)
+        var str = bytesToStrInline(rawPayload)
         try {
           parsed = JSON.parse(str)
         } catch (_) {}
@@ -691,28 +826,28 @@ routerAdd('GET', '/backend/v1/custom/ml-collector/summary', function (e) {
     var maxPriceWithSales =
       pricesWithSales.length > 0 ? pricesWithSales[pricesWithSales.length - 1] : 0
 
-    function extractFineSpec(title) {
+    var extractFineSpecInline = function (title) {
       var cleanTitle = (title || '').toString().trim()
       if (!cleanTitle) return 'Outros'
 
       var ddrMatch = cleanTitle.match(
-        /\\b(ddr\\s*5|ddr\\s*4|ddr\\s*3\\s*l|ddr\\s*3|ddr\\s*2|pc\\s*5|pc\\s*4|pc\\s*3\\s*l|pc\\s*3|pc\\s*2)\\b/i,
+        /\b(ddr\s*5|ddr\s*4|ddr\s*3\s*l|ddr\s*3|ddr\s*2|pc\s*5|pc\s*4|pc\s*3\s*l|pc\s*3|pc\s*2)\b/i,
       )
-      var kitMatch = cleanTitle.match(/\\b(\\d+)\\s*[xX*]\\s*(\\d+)\\s*(?:gb|gigas?)\\b/i)
-      var capMatch = cleanTitle.match(/\\b(\\d+)\\s*(?:gb|gigas?)\\b/i)
+      var kitMatch = cleanTitle.match(/\b(\d+)\s*[xX*]\s*(\d+)\s*(?:gb|gigas?)\b/i)
+      var capMatch = cleanTitle.match(/\b(\d+)\s*(?:gb|gigas?)\b/i)
       var mhzMatch = cleanTitle.match(
-        /\\b(667|800|1066|1333|1600|1866|2133|2400|2666|2933|3000|3200|3600|4800|5200|5600|6000)\\s*(?:mhz)?\\b/i,
+        /\b(667|800|1066|1333|1600|1866|2133|2400|2666|2933|3000|3200|3600|4800|5200|5600|6000)\s*(?:mhz)?\b/i,
       )
 
-      var isNotebook = /\\b(sodimm|so-dimm|notebook|laptop|para\\s+notebook)\\b/i.test(cleanTitle)
-      var isDesktop = /\\b(dimm|udimm|desktop|pc\\s+desktop|para\\s+pc)\\b/i.test(cleanTitle)
+      var isNotebook = /\b(sodimm|so-dimm|notebook|laptop|para\s+notebook)\b/i.test(cleanTitle)
+      var isDesktop = /\b(dimm|udimm|desktop|pc\s+desktop|para\s+pc)\b/i.test(cleanTitle)
 
       var formTag = ''
       if (isNotebook) formTag = ' SODIMM'
       else if (isDesktop) formTag = ' Desktop'
 
       if (ddrMatch || capMatch) {
-        var ddr = ddrMatch ? ddrMatch[0].toUpperCase().replace(/\\s+/g, '') : 'RAM'
+        var ddr = ddrMatch ? ddrMatch[0].toUpperCase().replace(/\s+/g, '') : 'RAM'
         if (ddr === 'PC3L') ddr = 'DDR3L'
         else if (ddr === 'PC3') ddr = 'DDR3'
         else if (ddr === 'PC4') ddr = 'DDR4'
@@ -733,27 +868,27 @@ routerAdd('GET', '/backend/v1/custom/ml-collector/summary', function (e) {
           freq = '(freq. n/d)'
         }
 
-        return (ddr + ' ' + cap + ' ' + freq + formTag).replace(/\\s+/g, ' ').trim()
+        return (ddr + ' ' + cap + ' ' + freq + formTag).replace(/\s+/g, ' ').trim()
       }
 
-      var cpuIntelMatch = cleanTitle.match(/\\b(core\\s+)?(i[3579])[- ]?(\\d{3,5}[a-z]{0,2})\\b/i)
+      var cpuIntelMatch = cleanTitle.match(/\b(core\s+)?(i[3579])[- ]?(\d{3,5}[a-z]{0,2})\b/i)
       if (cpuIntelMatch) {
         return 'Intel ' + cpuIntelMatch[2].toUpperCase() + '-' + cpuIntelMatch[3].toUpperCase()
       }
-      var cpuAmdMatch = cleanTitle.match(/\\b(ryzen\\s+[3579])\\s*(\\d{4}[a-z]{0,2})\\b/i)
+      var cpuAmdMatch = cleanTitle.match(/\b(ryzen\s+[3579])\s*(\d{4}[a-z]{0,2})\b/i)
       if (cpuAmdMatch) {
         return 'AMD ' + cpuAmdMatch[1].toUpperCase() + ' ' + cpuAmdMatch[2].toUpperCase()
       }
 
-      var storageMatch = cleanTitle.match(/\\b(ssd|nvme|m\\.2|hd|disco\\s+rigido)\\b/i)
-      var storageCap = cleanTitle.match(/\\b(\\d+)\\s*(?:gb|tb)\\b/i)
+      var storageMatch = cleanTitle.match(/\b(ssd|nvme|m\.2|hd|disco\s+rigido)\b/i)
+      var storageCap = cleanTitle.match(/\b(\d+)\s*(?:gb|tb)\b/i)
       if (storageMatch && storageCap) {
-        var type = storageMatch[1].toUpperCase().replace(/\\./g, '')
-        var scap = storageCap[0].toUpperCase().replace(/\\s+/g, '')
+        var type = storageMatch[1].toUpperCase().replace(/\./g, '')
+        var scap = storageCap[0].toUpperCase().replace(/\s+/g, '')
         return type + ' ' + scap
       }
 
-      var formMatch = cleanTitle.match(/\\b(sff|tiny|mini|micro|usff|desktop|ultrabook)\\b/i)
+      var formMatch = cleanTitle.match(/\b(sff|tiny|mini|micro|usff|desktop|ultrabook)\b/i)
       if (formMatch) {
         return formMatch[1].toUpperCase()
       }
@@ -765,7 +900,7 @@ routerAdd('GET', '/backend/v1/custom/ml-collector/summary', function (e) {
     var specMap = {}
     for (var n = 0; n < allAds.length; n++) {
       var itm = allAds[n]
-      var sKey = extractFineSpec(itm.title)
+      var sKey = extractFineSpecInline(itm.title)
 
       if (!specMap[sKey]) {
         specMap[sKey] = {

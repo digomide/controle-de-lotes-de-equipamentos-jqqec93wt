@@ -1261,22 +1261,56 @@ export function AnunciosCatalogoTab() {
   const currentTokens = isDirectCode ? [] : extractCatalogSearchTokens(activeSearchTerm)
   const isFilterActive = !isDirectCode && currentTokens.length > 0
 
-  // Helper para renderizar badge de vendas com fallback inteligente de vendas
-  function renderSoldBadge(sold?: number | null, isFallback: boolean = false) {
-    if (sold === null || sold === undefined || isNaN(sold)) {
+  // Helper para renderizar badge de vendas com fallback inteligente de vendas e casamento cruzado
+  function renderSoldBadge(
+    sold?: number | null,
+    isFallback: boolean = false,
+    itemContext?: {
+      id?: string
+      catalog_product_id?: string
+      buy_box_winner_item_id?: string
+      title?: string
+      competitors?: Array<{ item_id?: string }>
+    },
+  ) {
+    let effectiveSold = sold
+    let fromCollectorFallback = isFallback
+
+    // Não esconder vendas zeradas: sold_quantity 0/null = "sem dado" → tentar casamento cruzado por ID MLB
+    // (com e sem prefixo "MLB") contra as coletas do coletor antes de exibir vazio.
+    const isZeroOrEmpty =
+      effectiveSold === null ||
+      effectiveSold === undefined ||
+      isNaN(Number(effectiveSold)) ||
+      Number(effectiveSold) <= 0
+
+    if (isZeroOrEmpty && itemContext && collectorFallbackMap) {
+      const fallbackSold = mlCollectorService.matchFallbackSoldQuantity(
+        itemContext,
+        collectorFallbackMap,
+      )
+      if (fallbackSold != null && fallbackSold > 0) {
+        effectiveSold = fallbackSold
+        fromCollectorFallback = true
+      }
+    }
+
+    if (effectiveSold === null || effectiveSold === undefined || isNaN(Number(effectiveSold))) {
       return (
         <Badge
           variant="outline"
           className="bg-slate-50 text-slate-400 border-slate-200 text-[10px] font-normal"
-          title="Quantidade de vendas não informada pelo Mercado Livre"
+          title="Quantidade de vendas não informada pelo Mercado Livre nem encontrada nas coletas"
         >
           Vendas não informadas
         </Badge>
       )
     }
-    const label = formatMLSoldQuantity(sold)
-    const n = Math.max(0, Math.floor(sold))
+
+    const n = Math.max(0, Math.floor(Number(effectiveSold)))
+    const label = formatMLSoldQuantity(n)
     const isHot = n >= 100
+
     return (
       <Badge
         variant="outline"
@@ -1288,14 +1322,14 @@ export function AnunciosCatalogoTab() {
               : 'bg-slate-50 text-slate-500 border-slate-200'
         }`}
         title={
-          isFallback
+          fromCollectorFallback
             ? `Histórico de vendas registrado no Coletor do Navegador: ${label}`
             : `Histórico no Mercado Livre: ${label}`
         }
       >
         <span>🛒</span>
         <span>{label}</span>
-        {isFallback && (
+        {fromCollectorFallback && (
           <span
             className="text-[9px] px-1 py-0 rounded bg-emerald-100 text-emerald-800 font-mono"
             title="Vendas recuperadas da coleta real do navegador"
@@ -2062,8 +2096,12 @@ export function AnunciosCatalogoTab() {
                                     </Badge>
                                   )}
 
-                                  {/* Badge de Vendas */}
-                                  {renderSoldBadge(ad.sold_quantity, true)}
+                                  {/* Badge de Vendas com casamento cruzado */}
+                                  {renderSoldBadge(ad.sold_quantity, true, {
+                                    id: ad.id,
+                                    title: ad.title,
+                                    buy_box_winner_item_id: ad.mlb_id,
+                                  })}
 
                                   {ad.is_free_shipping && (
                                     <Badge
@@ -2140,10 +2178,153 @@ export function AnunciosCatalogoTab() {
                               )}
                             </div>
                           </div>
+
+                          {/* Accordion "Concorrentes na Disputa" por posição do fallback (excluindo o próprio anúncio) */}
+                          {(() => {
+                            const currentAdId = (ad.id || ad.mlb_id || '').toString().trim()
+                            const otherCompetitors = collectorFallbackInfo.ads
+                              .filter((other) => {
+                                const otherId = (other.id || other.mlb_id || '').toString().trim()
+                                if (currentAdId && otherId && currentAdId === otherId) return false
+                                if (
+                                  other.permalink &&
+                                  ad.permalink &&
+                                  other.permalink === ad.permalink
+                                )
+                                  return false
+                                return true
+                              })
+                              .sort((a, b) => {
+                                const pa = a.price != null && a.price > 0 ? a.price : 9999999
+                                const pb = b.price != null && b.price > 0 ? b.price : 9999999
+                                return pa - pb
+                              })
+
+                            if (otherCompetitors.length === 0) return null
+
+                            const accordionKey = `competitor-fallback-${idx}`
+                            const isOpen = Boolean(expandedCompetitors[accordionKey])
+
+                            return (
+                              <div className="mt-3 pt-3 border-t border-slate-100">
+                                <div className="flex items-center justify-between gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setExpandedCompetitors((prev) => ({
+                                        ...prev,
+                                        [accordionKey]: !prev[accordionKey],
+                                      }))
+                                    }}
+                                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors border cursor-pointer ${
+                                      isOpen
+                                        ? 'bg-blue-100 text-blue-900 border-blue-300 font-semibold'
+                                        : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                                    }`}
+                                    title={
+                                      isOpen
+                                        ? 'Recolher concorrentes coletados'
+                                        : 'Ver outros concorrentes coletados nesta disputa'
+                                    }
+                                  >
+                                    <Users className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                                    <span>Concorrentes na Disputa ({otherCompetitors.length})</span>
+                                    {isOpen ? (
+                                      <ChevronUp className="w-3.5 h-3.5 text-slate-500" />
+                                    ) : (
+                                      <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+                                    )}
+                                  </button>
+                                  <span className="text-[10px] text-slate-400 hidden sm:inline">
+                                    Ordenado por menor preço (excluindo este anúncio)
+                                  </span>
+                                </div>
+
+                                {isOpen && (
+                                  <div className="mt-2.5 p-3 rounded-lg bg-slate-50/90 border border-slate-200 space-y-2 animate-fadeIn">
+                                    <div className="flex items-center justify-between text-[11px] font-bold text-slate-700 border-b border-slate-200 pb-1.5">
+                                      <span>VENDEDOR · ANÚNCIO</span>
+                                      <span>PREÇO · VENDAS</span>
+                                    </div>
+                                    <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                                      {otherCompetitors.map((comp, cIdx) => {
+                                        const compSeller =
+                                          comp.seller_name || `Vendedor #${cIdx + 1}`
+                                        const compSales =
+                                          comp.sold_quantity != null && comp.sold_quantity > 0
+                                            ? formatMLSoldQuantity(comp.sold_quantity)
+                                            : 'sem vendas reg.'
+
+                                        return (
+                                          <div
+                                            key={comp.id || comp.mlb_id || cIdx}
+                                            className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-md text-xs bg-white border border-slate-200 hover:border-blue-200 transition-colors"
+                                          >
+                                            <div className="flex items-center gap-2 min-w-0">
+                                              <span className="w-4 text-center font-mono text-[10px] text-slate-400 font-bold shrink-0">
+                                                #{cIdx + 1}
+                                              </span>
+                                              <div className="min-w-0">
+                                                <span
+                                                  className="font-bold text-slate-900 truncate block uppercase text-[11px]"
+                                                  title={compSeller}
+                                                >
+                                                  {compSeller}
+                                                </span>
+                                                <span
+                                                  className="text-[10px] text-slate-500 truncate block max-w-xs sm:max-w-md"
+                                                  title={comp.title}
+                                                >
+                                                  {comp.title}
+                                                </span>
+                                              </div>
+                                            </div>
+
+                                            <div className="flex items-center gap-2 shrink-0 font-mono text-[11px]">
+                                              <span className="font-bold text-emerald-700">
+                                                {comp.price != null && comp.price > 0
+                                                  ? Number(comp.price).toLocaleString('pt-BR', {
+                                                      style: 'currency',
+                                                      currency: 'BRL',
+                                                    })
+                                                  : 'Sob consulta'}
+                                              </span>
+                                              <span className="text-slate-300">·</span>
+                                              <span
+                                                className={`text-[10px] px-1.5 py-0.5 rounded ${
+                                                  comp.sold_quantity != null &&
+                                                  comp.sold_quantity > 0
+                                                    ? 'bg-blue-50 text-blue-800 font-bold'
+                                                    : 'bg-slate-50 text-slate-400'
+                                                }`}
+                                              >
+                                                {compSales}
+                                              </span>
+                                              {comp.permalink && (
+                                                <a
+                                                  href={comp.permalink}
+                                                  target="_blank"
+                                                  rel="noopener noreferrer"
+                                                  className="text-blue-600 hover:text-blue-800 ml-1 p-0.5 rounded hover:bg-blue-50"
+                                                  title="Abrir anúncio concorrente no Mercado Livre"
+                                                >
+                                                  <ExternalLink className="w-3 h-3" />
+                                                </a>
+                                              )}
+                                            </div>
+                                          </div>
+                                        )
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })()}
                         </CardContent>
                       </Card>
                     )
-                  })}
+                  })}{' '}
                 </div>
               </div>
             )}
@@ -2789,10 +2970,11 @@ export function AnunciosCatalogoTab() {
                             {/* Badge de Classificação / Condição do Mercado Livre */}
                             {renderConditionBadge(cat)}
 
-                            {/* Badge discreto de vendas */}
+                            {/* Badge discreto de vendas com resolução cruzada */}
                             {renderSoldBadge(
                               cat.sold_quantity,
                               Boolean((cat as any).is_fallback_sales),
+                              cat,
                             )}
 
                             {/* Badge de correspondência com a busca */}
@@ -3496,6 +3678,7 @@ export function AnunciosCatalogoTab() {
                                 {renderSoldBadge(
                                   cat.sold_quantity,
                                   Boolean((cat as any).is_fallback_sales),
+                                  cat,
                                 )}
                                 <Badge
                                   variant="outline"
