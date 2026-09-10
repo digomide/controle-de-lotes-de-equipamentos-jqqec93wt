@@ -4,7 +4,7 @@
  */
 
 // Stopwords que não agregam diferenciação nos anúncios de notebook no catálogo
-const CATALOG_STOPWORDS = new Set([
+export const CATALOG_STOPWORDS = new Set([
   'notebook',
   'notebooks',
   'note',
@@ -14,6 +14,10 @@ const CATALOG_STOPWORDS = new Set([
   'pc',
   'computador',
   'computadores',
+  'desktop',
+  'desktops',
+  'ultrabook',
+  'ultrabooks',
   'usado',
   'usados',
   'seminovo',
@@ -37,6 +41,44 @@ const CATALOG_STOPWORDS = new Set([
   'as',
   'os',
 ])
+
+/**
+ * Palavras genéricas de categoria usadas no suavizador de busca (mesmo conjunto do worker backend)
+ */
+export const GENERIC_CATEGORY_WORDS = new Set([
+  'notebook',
+  'notebooks',
+  'computador',
+  'computadores',
+  'laptop',
+  'laptops',
+  'pc',
+  'desktop',
+  'desktops',
+  'ultrabook',
+  'ultrabooks',
+])
+
+/**
+ * Suaviza um termo de busca removendo palavras genéricas de categoria se houver 3+ palavras,
+ * espelhando exatamente a lógica do worker backend ml_queue_worker.js.
+ * Exemplo: "notebook lenovo t480" -> "lenovo t480"
+ */
+export function softenSearchTerm(query: string): string {
+  if (!query) return ''
+  const words = query.trim().split(/\s+/).filter(Boolean)
+  if (words.length < 2) return query.trim()
+
+  const softened = words.filter((w) => {
+    const clean = removeAccents(w)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '')
+    return !GENERIC_CATEGORY_WORDS.has(clean)
+  })
+
+  const result = softened.join(' ').trim()
+  return result && result.length >= 2 ? result : query.trim()
+}
 
 /**
  * Remove acentos diacríticos

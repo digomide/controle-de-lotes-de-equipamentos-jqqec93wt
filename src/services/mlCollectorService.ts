@@ -4,7 +4,7 @@ import {
   positionOverridesService,
   type PositionOverrideAction,
 } from '@/services/positionOverridesService'
-import { detectCollectorNoiseAd } from '@/lib/catalogFilter'
+import { detectCollectorNoiseAd, softenSearchTerm } from '@/lib/catalogFilter'
 import type { MLCollectorPayload, MLCollectorResultItem } from '@/lib/mlBookmarklet'
 
 export interface MLCollectorImportRecord {
@@ -247,43 +247,53 @@ export const mlCollectorService = {
 
     const promise = (async () => {
       try {
-        // 1. Tentar correspondência exata
-        let records = await pb
-          .collection('ml_collector_imports')
-          .getList<MLCollectorImportRecord>(1, 1, {
-            filter: `search_term = "${term}"`,
-            sort: '-imported_at',
-          })
-
-        if (records && records.items && records.items.length > 0) {
-          const item = records.items[0]
-          if (item.payload) {
-            item.payload = this.decodePayload(item.payload) || item.payload
-          }
-          return item
+        // Lista de termos para tentar: original normalizado + termo suavizado (sem stopwords/genéricas)
+        const candidates = [term]
+        const softened = normalizeSearchTerm(softenSearchTerm(term))
+        if (softened && softened !== term) {
+          candidates.push(softened)
         }
 
-        // 2. Tentar busca ampla por contém (ex: "memoria smart" casa com "memoria smartt")
-        records = await pb
-          .collection('ml_collector_imports')
-          .getList<MLCollectorImportRecord>(1, 1, {
-            filter: `search_term ~ "${term}"`,
-            sort: '-imported_at',
-          })
+        for (const candidate of candidates) {
+          // 1. Tentar correspondência exata
+          let records = await pb
+            .collection('ml_collector_imports')
+            .getList<MLCollectorImportRecord>(1, 1, {
+              filter: `search_term = "${candidate}"`,
+              sort: '-imported_at',
+            })
 
-        if (records && records.items && records.items.length > 0) {
-          const item = records.items[0]
-          if (item.payload) {
-            item.payload = this.decodePayload(item.payload) || item.payload
+          if (records && records.items && records.items.length > 0) {
+            const item = records.items[0]
+            if (item.payload) {
+              item.payload = this.decodePayload(item.payload) || item.payload
+            }
+            return item
           }
-          return item
-        }
 
-        // 3. Tentar pelo primeiro token significativo (ex: "memoria") caso termo tenha mais de uma palavra
-        const tokens = term.split(/\s+/).filter((t) => t.length >= 3)
-        if (tokens.length > 1) {
-          const tokenFilter = tokens.map((t) => `search_term ~ "${t}"`).join(' || ')
+          // 2. Tentar busca ampla por contém
           records = await pb
+            .collection('ml_collector_imports')
+            .getList<MLCollectorImportRecord>(1, 1, {
+              filter: `search_term ~ "${candidate}"`,
+              sort: '-imported_at',
+            })
+
+          if (records && records.items && records.items.length > 0) {
+            const item = records.items[0]
+            if (item.payload) {
+              item.payload = this.decodePayload(item.payload) || item.payload
+            }
+            return item
+          }
+        }
+
+        // 3. Tentar pelos tokens significativos individuais do termo suavizado
+        const activeTermForTokens = candidates[candidates.length - 1]
+        const tokens = activeTermForTokens.split(/\s+/).filter((t) => t.length >= 3)
+        if (tokens.length > 0) {
+          const tokenFilter = tokens.map((t) => `search_term ~ "${t}"`).join(' && ')
+          let records = await pb
             .collection('ml_collector_imports')
             .getList<MLCollectorImportRecord>(1, 1, {
               filter: tokenFilter,
@@ -308,6 +318,61 @@ export const mlCollectorService = {
 
     inFlightRequests.set(cacheKey, promise)
     return promise
+  },
+
+  /**
+   * Obtém os anúncios deduplicados do coletor correspondentes a um termo de busca,
+   * aplicando o mesmo suavizador de stopwords/genéricas da API do catálogo.
+   * Retorna os anúncios minerados prontos para mesclagem ou fallback na grade de catálogo.
+   */
+  async getCollectorAdsForTerm(searchTerm: string): Promise<{
+    ads: CollectorDeduplicatedAd[]
+    matchedSearchTerm: string
+    importRecord: MLCollectorImportRecord | null
+  }> {
+    const importRecord = await this.getLatestImportForTerm(searchTerm)
+    if (!importRecord) {
+      return { ads: [], matchedSearchTerm: '', importRecord: null }
+    }
+
+    try {
+      const summary = await this.buildCollectorSummary(importRecord.search_term, importRecord)
+      const ads = summary?.all_deduplicated_ads || []
+      return {
+        ads,
+        matchedSearchTerm: importRecord.search_term,
+        importRecord,
+      }
+    } catch (err) {
+      console.warn('[mlCollectorService] Erro ao extrair anúncios do resumo da coleta:', err)
+      // Fallback: extrair diretamente do payload
+      const payload = this.decodePayload(importRecord.payload)
+      const rawResults = payload && Array.isArray(payload.results) ? payload.results : []
+      const ads: CollectorDeduplicatedAd[] = rawResults.map((it: any, idx: number) => ({
+        canonical_id: it.mlb_id || it.id || `COL_${idx + 1}`,
+        title: it.title || '',
+        price: it.price || 0,
+        original_price: it.original_price,
+        sold_quantity: it.sold_quantity != null ? Number(it.sold_quantity) : null,
+        sold_quantity_text: it.sold_quantity_text,
+        available_quantity: it.available_quantity,
+        permalink: it.permalink || it.url || '',
+        thumbnail: it.thumbnail || it.image || '',
+        seller_name: it.seller_name || it.seller || '',
+        condition: it.condition || 'used',
+        condition_label: it.condition === 'new' ? 'Novo' : 'Usado',
+        is_free_shipping: Boolean(it.is_free_shipping),
+        is_full: Boolean(it.is_full),
+        variants_count: 1,
+        all_mlb_ids: [it.mlb_id || it.id].filter(Boolean),
+        source: 'collector' as const,
+      }))
+      return {
+        ads,
+        matchedSearchTerm: importRecord.search_term,
+        importRecord,
+      }
+    }
   },
 
   /**

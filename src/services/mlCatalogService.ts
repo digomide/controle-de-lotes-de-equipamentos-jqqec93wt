@@ -293,12 +293,16 @@ export interface CatalogMatchResult {
   selectedProductId?: string
 }
 
+export type CatalogSearchDepth = 'fast' | 'deep' | 'complete'
+
 export interface MLCatalogSearchJob {
   id: string
   query: string
   domain_id: string
   category_id?: string
   condition?: string
+  depth?: CatalogSearchDepth
+  max_pages?: number
   status: 'pending' | 'processing' | 'done' | 'error'
   status_code?: number
   error_message?: string
@@ -352,8 +356,16 @@ export const mlCatalogService = {
     condition: string = 'all',
     forceRefresh: boolean = false,
     categoryId: string = '',
+    depth: CatalogSearchDepth = 'fast',
   ): Promise<MLCatalogSearchJob> {
     const userId = pb.authStore.model?.id || null
+    const depthMaxPagesMap: Record<CatalogSearchDepth, number> = {
+      fast: 10,
+      deep: 40,
+      complete: 120,
+    }
+    const maxPages = depthMaxPagesMap[depth] || 10
+
     try {
       const job = await pb.collection('ml_catalog_search_jobs').create(
         {
@@ -361,6 +373,8 @@ export const mlCatalogService = {
           domain_id: (domainId || '').trim(),
           category_id: (categoryId || '').trim(),
           condition: condition || 'all',
+          depth: depth || 'fast',
+          max_pages: maxPages,
           status: 'pending',
           progress_text: 'Na fila... Aguardando início do processamento em segundo plano.',
           force_refresh: forceRefresh,
@@ -368,7 +382,7 @@ export const mlCatalogService = {
         },
         {
           fields:
-            'id,status,query,progress_text,strategy_used,error_message,paging,created,updated,has_chunks,chunk_count,is_cached,cached_at',
+            'id,status,query,depth,max_pages,progress_text,strategy_used,error_message,paging,created,updated,has_chunks,chunk_count,is_cached,cached_at',
         },
       )
       return job as unknown as MLCatalogSearchJob
@@ -390,7 +404,7 @@ export const mlCatalogService = {
   async getSearchJobMeta(jobId: string): Promise<MLCatalogSearchJob> {
     const job = (await pb.collection('ml_catalog_search_jobs').getOne(jobId, {
       fields:
-        'id,status,query,progress_text,strategy_used,error_message,paging,created,updated,has_chunks,chunk_count,is_cached,cached_at',
+        'id,status,query,depth,max_pages,progress_text,strategy_used,error_message,paging,created,updated,has_chunks,chunk_count,is_cached,cached_at',
     })) as unknown as MLCatalogSearchJob
     return job
   },
@@ -502,7 +516,7 @@ export const mlCatalogService = {
       const records = await pb.collection('ml_catalog_search_jobs').getList(1, limit, {
         sort: '-created',
         fields:
-          'id,status,query,progress_text,strategy_used,error_message,paging,created,updated,has_chunks,chunk_count,is_cached,cached_at',
+          'id,status,query,depth,max_pages,progress_text,strategy_used,error_message,paging,created,updated,has_chunks,chunk_count,is_cached,cached_at',
       })
       return (records.items || []) as unknown as MLCatalogSearchJob[]
     } catch (err) {

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-10T10:33:12.919Z",
+  "generatedAt": "2026-09-10T10:51:20.159Z",
   "collections": [
     {
       "name": "users",
@@ -2630,6 +2630,18 @@
         {
           "name": "effective_query",
           "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "depth",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "max_pages",
+          "type": "number",
           "required": false,
           "system": false
         }

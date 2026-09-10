@@ -808,14 +808,47 @@ cronAdd('ml_queue_worker', '*/1 * * * *', () => {
         }
 
         // 2. Busca em leque na API de produtos do Mercado Livre com category_id se fornecido
+        // Suporte a profundidades:
+        // - 'fast' (Rápido): 10 páginas × 50 itens = 500 resultados (padrão)
+        // - 'deep' (Profundo): 40 páginas × 50 itens = 2000 resultados
+        // - 'complete' (Completo): 120 páginas × 50 itens = 6000 resultados
         const PAGE_LIMIT = 50
-        const MAX_PAGES = 10
+        const reqDepth = String(rec.getString('depth') || 'fast').toLowerCase()
+        const customMaxPages = rec.getInt
+          ? rec.getInt('max_pages')
+          : Number(rec.get('max_pages')) || 0
+        let targetMaxPages = 10
+        let targetMaxItems = 500
+
+        if (customMaxPages > 0) {
+          targetMaxPages = customMaxPages
+          targetMaxItems = targetMaxPages * PAGE_LIMIT
+        } else if (reqDepth === 'complete' || reqDepth === 'completo') {
+          targetMaxPages = 120
+          targetMaxItems = 6000
+        } else if (reqDepth === 'deep' || reqDepth === 'profundo') {
+          targetMaxPages = 40
+          targetMaxItems = 2000
+        } else {
+          targetMaxPages = 10
+          targetMaxItems = 500
+        }
+
+        const MAX_PAGES = targetMaxPages
+        const MAX_ITEMS = targetMaxItems
         let offset = 0
         let pageNum = 0
         let totalAnnounced = null
         let effectiveQuery = queryRaw
 
-        rec.set('progress_text', 'Coletando anúncios no catálogo do Mercado Livre...')
+        rec.set(
+          'progress_text',
+          'Coletando anúncios no catálogo do Mercado Livre (profundidade: até ' +
+            MAX_PAGES +
+            ' págs / ' +
+            MAX_ITEMS +
+            ' itens)...',
+        )
         appId.save(rec)
 
         const runCatalogSearchLoop = function (queryToUse) {
@@ -823,7 +856,7 @@ cronAdd('ml_queue_worker', '*/1 * * * *', () => {
           pageNum = 0
           totalAnnounced = null
 
-          while (pageNum < MAX_PAGES && itemsFound.length < 1500) {
+          while (pageNum < MAX_PAGES && itemsFound.length < MAX_ITEMS) {
             if (isStopRequested()) {
               debugLog.push('Parada solicitada pelo usuário.')
               break
@@ -847,10 +880,22 @@ cronAdd('ml_queue_worker', '*/1 * * * *', () => {
 
             rec.set(
               'progress_text',
-              'Coletando... (' + itemsFound.length + ' anúncios até agora, pág. ' + pageNum + ')',
+              'Coletando... (' +
+                itemsFound.length +
+                ' anúncios até agora, pág. ' +
+                pageNum +
+                '/' +
+                MAX_PAGES +
+                ')',
             )
             saveProgressiveResults(false)
-            sleepMs(20)
+
+            // Backoff/pausa entre páginas para evitar rate limit do ML (500ms a 700ms)
+            if (pageNum > 1) {
+              sleepMs(500 + Math.floor(Math.random() * 200))
+            } else {
+              sleepMs(50)
+            }
 
             let res = null
             try {
