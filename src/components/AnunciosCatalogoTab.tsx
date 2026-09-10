@@ -211,37 +211,41 @@ export function AnunciosCatalogoTab() {
     const isCurrentlyOpen = Boolean(expandedCompetitors[key])
 
     // Se vai abrir e não tem a lista ainda, busca sob demanda
-    if (
-      !isCurrentlyOpen &&
-      (!cat.competitors || cat.competitors.length === 0) &&
-      cat.catalog_product_id
-    ) {
+    if (!isCurrentlyOpen && (!cat.competitors || cat.competitors.length === 0)) {
       setLoadingCompetitors((prev) => ({ ...prev, [key]: true }))
       try {
-        const compData = await mlCatalogService.getCatalogCompetition(cat.catalog_product_id)
-        if (compData) {
+        let compData = null
+
+        // 1. Se tem catalog_product_id oficial, mantém o fluxo oficial atual intacto
+        if (cat.catalog_product_id) {
+          try {
+            compData = await mlCatalogService.getCatalogCompetition(cat.catalog_product_id)
+          } catch (officialErr) {
+            console.warn(
+              '[toggleCompetitorsList] Erro na consulta oficial de concorrência:',
+              officialErr,
+            )
+          }
+        }
+
+        // Se a consulta oficial teve sucesso e retornou concorrentes
+        if (compData && Array.isArray(compData.competitors) && compData.competitors.length > 0) {
           // Coletar IDs de concorrentes para resolução em segundo plano
-          if (Array.isArray(compData.competitors)) {
-            const compIds = compData.competitors
-              .map((c) => c.seller_id)
-              .filter((id): id is string => Boolean(id))
-            if (compIds.length > 0) {
-              resolveMissingSellerNames(compIds)
-                .then((updatedMap) => {
-                  setResolvedSellers((prev) => ({ ...prev, ...updatedMap }))
-                })
-                .catch(() => {})
-            }
+          const compIds = compData.competitors
+            .map((c) => c.seller_id)
+            .filter((id): id is string => Boolean(id))
+          if (compIds.length > 0) {
+            resolveMissingSellerNames(compIds)
+              .then((updatedMap) => {
+                setResolvedSellers((prev) => ({ ...prev, ...updatedMap }))
+              })
+              .catch(() => {})
           }
 
           setCatalogItems((prev) => {
             const next = [...prev]
             if (next[originalIndex]) {
               const currentProd = next[originalIndex].catalogProduct
-              const updatedCompetitors =
-                Array.isArray(compData.competitors) && compData.competitors.length > 0
-                  ? compData.competitors
-                  : currentProd.competitors
               const updatedSold =
                 compData.sold_quantity != null ? compData.sold_quantity : currentProd.sold_quantity
 
@@ -249,11 +253,11 @@ export function AnunciosCatalogoTab() {
                 ...next[originalIndex],
                 catalogProduct: {
                   ...currentProd,
-                  competitors: updatedCompetitors,
+                  competitors: compData.competitors,
                   competitors_count:
                     compData.competitors_count != null
                       ? compData.competitors_count
-                      : currentProd.competitors_count,
+                      : compData.competitors.length,
                   sold_quantity: updatedSold,
                   buy_box_winner_seller_nickname:
                     currentProd.buy_box_winner_seller_nickname ||
@@ -268,6 +272,85 @@ export function AnunciosCatalogoTab() {
             }
             return next
           })
+        } else {
+          // 2. Se NÃO tem ficha oficial (ou a consulta oficial retornou 0 concorrentes),
+          // buscar sob demanda no Coletor pelo termo da busca
+          const termToSearch = activeSearchTerm || query
+          if (termToSearch) {
+            try {
+              const collectorReport =
+                await mlCollectorService.getCollectorSummaryReport(termToSearch)
+              const rawCollectorAds = collectorReport?.all_deduplicated_ads || []
+
+              if (rawCollectorAds.length > 0) {
+                // Identificar MLB id da própria posição para excluir da lista de concorrentes
+                const posMlbClean = String(cat.id || cat.catalog_product_id || '')
+                  .replace(/[^0-9A-Za-z]/g, '')
+                  .toUpperCase()
+
+                // Filtrar anúncios coletados excluindo o próprio anúncio
+                const candidateAds = rawCollectorAds.filter((ad) => {
+                  const adMlbClean = String(ad.mlb_id || ad.id || '')
+                    .replace(/[^0-9A-Za-z]/g, '')
+                    .toUpperCase()
+                  if (posMlbClean && adMlbClean && posMlbClean === adMlbClean) {
+                    return false
+                  }
+                  return true
+                })
+
+                // Ordenar por menor preço para definir buy box winner
+                candidateAds.sort((a, b) => (a.price || 0) - (b.price || 0))
+
+                const collectorCompetitors = candidateAds.map((ad, idx) => {
+                  const sellerName = ad.seller_name || 'Vendedor do Mercado Livre'
+                  const isOwn = isOwnSeller('', sellerName)
+                  return {
+                    item_id: ad.mlb_id || ad.id,
+                    seller_id: '',
+                    seller_nickname: sellerName,
+                    price: ad.price || 0,
+                    available_quantity: null,
+                    sold_quantity: ad.sold_quantity || null,
+                    listing_type_label: ad.is_full ? 'Full' : 'Clássico',
+                    is_buy_box_winner: idx === 0,
+                    is_own: isOwn,
+                  }
+                })
+
+                if (collectorCompetitors.length > 0) {
+                  const winner = collectorCompetitors[0]
+                  setCatalogItems((prev) => {
+                    const next = [...prev]
+                    if (next[originalIndex]) {
+                      const currentProd = next[originalIndex].catalogProduct
+                      next[originalIndex] = {
+                        ...next[originalIndex],
+                        catalogProduct: {
+                          ...currentProd,
+                          competitors: collectorCompetitors,
+                          competitors_count: collectorCompetitors.length,
+                          buy_box_winner_seller_nickname:
+                            currentProd.buy_box_winner_seller_nickname || winner.seller_nickname,
+                          buy_box_winner_price:
+                            currentProd.buy_box_winner_price ||
+                            (winner.price > 0 ? winner.price : undefined),
+                          min_price:
+                            currentProd.min_price || (winner.price > 0 ? winner.price : undefined),
+                        },
+                      }
+                    }
+                    return next
+                  })
+                }
+              }
+            } catch (colErr) {
+              console.warn(
+                '[toggleCompetitorsList] Erro ao buscar concorrentes do coletor:',
+                colErr,
+              )
+            }
+          }
         }
       } catch (err) {
         console.warn('Erro ao carregar concorrentes:', err)
@@ -391,7 +474,8 @@ export function AnunciosCatalogoTab() {
   const [collectorFallbackMap, setCollectorFallbackMap] = useState<{
     byMlbId: Map<string, number>
     byTitle: Map<string, number>
-  }>({ byMlbId: new Map(), byTitle: new Map() })
+    adByMlbId?: Map<string, CollectorDeduplicatedAd>
+  }>({ byMlbId: new Map(), byTitle: new Map(), adByMlbId: new Map() })
 
   // Carregar mapa de fallback do coletor quando a query mudar
   useEffect(() => {
@@ -417,24 +501,69 @@ export function AnunciosCatalogoTab() {
     results: MLCatalogProduct[],
     q: string,
     condToUse: 'all' | 'new' | 'used' | 'refurbished' | 'open_box',
-    fallbackMapParam?: { byMlbId: Map<string, number>; byTitle: Map<string, number> },
+    fallbackMapParam?: {
+      byMlbId: Map<string, number>
+      byTitle: Map<string, number>
+      adByMlbId?: Map<string, CollectorDeduplicatedAd>
+    },
   ) {
     const isDirectCode = isDirectCatalogCodeQuery(q)
     const tokens = isDirectCode ? [] : extractCatalogSearchTokens(q)
     const fbMap = fallbackMapParam || collectorFallbackMap
 
     return results.map((catProd) => {
-      // Se não tiver sold_quantity informado pela API do ML, busca no fallback inteligente do coletor
-      let enrichedCatProd = catProd
-      if (
-        (catProd.sold_quantity == null || isNaN(catProd.sold_quantity)) &&
-        fbMap &&
-        (fbMap.byMlbId.size > 0 || fbMap.byTitle.size > 0)
-      ) {
-        const fallbackSold = mlCollectorService.matchFallbackSoldQuantity(catProd, fbMap)
+      let enrichedCatProd = { ...catProd }
+
+      // Plano C: Enriquecimento de linha
+      // Posição sem buy_box_winner_seller_nickname ou com preço nulo/inválido que case por MLB id com anúncio coletado
+      if (fbMap && fbMap.adByMlbId && fbMap.adByMlbId.size > 0) {
+        const matchedCollectorAd = mlCollectorService.matchFallbackAd(catProd, fbMap)
+        if (matchedCollectorAd) {
+          const hasWinnerNickname = Boolean(enrichedCatProd.buy_box_winner_seller_nickname)
+          const hasValidWinnerPrice =
+            enrichedCatProd.buy_box_winner_price != null &&
+            !isNaN(Number(enrichedCatProd.buy_box_winner_price)) &&
+            Number(enrichedCatProd.buy_box_winner_price) > 0
+          const hasValidMinPrice =
+            enrichedCatProd.min_price != null &&
+            !isNaN(Number(enrichedCatProd.min_price)) &&
+            Number(enrichedCatProd.min_price) > 0
+
+          const shouldEnrichLine = !hasWinnerNickname || !hasValidWinnerPrice || !hasValidMinPrice
+
+          if (shouldEnrichLine) {
+            enrichedCatProd = {
+              ...enrichedCatProd,
+              buy_box_winner_seller_nickname:
+                enrichedCatProd.buy_box_winner_seller_nickname ||
+                matchedCollectorAd.seller_name ||
+                undefined,
+              buy_box_winner_price: hasValidWinnerPrice
+                ? enrichedCatProd.buy_box_winner_price
+                : matchedCollectorAd.price && matchedCollectorAd.price > 0
+                  ? matchedCollectorAd.price
+                  : undefined,
+              min_price: hasValidMinPrice
+                ? enrichedCatProd.min_price
+                : matchedCollectorAd.price && matchedCollectorAd.price > 0
+                  ? matchedCollectorAd.price
+                  : undefined,
+            }
+          }
+        }
+      }
+
+      // Se não tiver sold_quantity informado pela API do ML (null, undefined, NaN ou 0), busca no fallback inteligente do coletor
+      const hasRealSalesHistory =
+        enrichedCatProd.sold_quantity != null &&
+        !isNaN(Number(enrichedCatProd.sold_quantity)) &&
+        Number(enrichedCatProd.sold_quantity) > 0
+
+      if (!hasRealSalesHistory && fbMap && (fbMap.byMlbId.size > 0 || fbMap.byTitle.size > 0)) {
+        const fallbackSold = mlCollectorService.matchFallbackSoldQuantity(enrichedCatProd, fbMap)
         if (fallbackSold != null && fallbackSold > 0) {
           enrichedCatProd = {
-            ...catProd,
+            ...enrichedCatProd,
             sold_quantity: fallbackSold,
             // Marca como vindo do coletor para transparência
             is_fallback_sales: true,
@@ -448,7 +577,10 @@ export function AnunciosCatalogoTab() {
       )
       const primaryProduct = matchInfo.matchedProducts[0]
       const fallbackPrice =
-        catProd.buy_box_winner_price || catProd.min_price || matchInfo.suggestedPrice || 1200
+        enrichedCatProd.buy_box_winner_price ||
+        enrichedCatProd.min_price ||
+        matchInfo.suggestedPrice ||
+        1200
 
       const isStrict =
         isDirectCode ||
@@ -475,7 +607,7 @@ export function AnunciosCatalogoTab() {
       const detectedGrade = normalizeRefurbishedGrade(catProd.condition_grade) || 'Excelente'
 
       return {
-        catalogProduct: catProd,
+        catalogProduct: enrichedCatProd,
         matchedProducts: matchInfo.matchedProducts,
         totalAvailableStock: matchInfo.totalAvailableStock,
         suggestedPrice: fallbackPrice,

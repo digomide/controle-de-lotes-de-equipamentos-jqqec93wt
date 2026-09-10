@@ -394,20 +394,42 @@ export const mlCollectorService = {
   async buildSalesFallbackMap(searchTerm?: string): Promise<{
     byMlbId: Map<string, number>
     byTitle: Map<string, number>
+    adByMlbId: Map<string, CollectorDeduplicatedAd>
   }> {
     const byMlbId = new Map<string, number>()
     const byTitle = new Map<string, number>()
+    const adByMlbId = new Map<string, CollectorDeduplicatedAd>()
 
     try {
       const records = searchTerm
         ? await (async () => {
             const term = normalizeSearchTerm(searchTerm)
-            const list = await pb
+            const softened = normalizeSearchTerm(softenSearchTerm(term))
+            const effectiveTerm = softened || term
+
+            // 1. Tentar busca direta pelo termo normalizado ou suavizado
+            let list = await pb
               .collection('ml_collector_imports')
               .getList<MLCollectorImportRecord>(1, 20, {
-                filter: `search_term ~ "${term}"`,
+                filter: `search_term ~ "${effectiveTerm}"`,
                 sort: '-imported_at',
               })
+
+            // 2. Se vazio, buscar OR por tokens significativos (ex: search_term ~ "lenovo" || search_term ~ "t480")
+            if (list.items.length === 0) {
+              const tokens = effectiveTerm.split(/\s+/).filter((t) => t.length >= 3)
+              if (tokens.length > 0) {
+                const tokenFilter = tokens.map((t) => `search_term ~ "${t}"`).join(' || ')
+                list = await pb
+                  .collection('ml_collector_imports')
+                  .getList<MLCollectorImportRecord>(1, 20, {
+                    filter: tokenFilter,
+                    sort: '-imported_at',
+                  })
+              }
+            }
+
+            // 3. Fallback genérico dos mais recentes se ainda vazio
             if (list.items.length === 0) {
               return await pb
                 .collection('ml_collector_imports')
@@ -429,22 +451,57 @@ export const mlCollectorService = {
             it.sold_quantity != null && !isNaN(Number(it.sold_quantity))
               ? Number(it.sold_quantity)
               : null
-          if (sold == null || sold <= 0) continue
+          const price = it.price != null && !isNaN(Number(it.price)) ? Number(it.price) : undefined
 
-          // Chaves de ID / MLB
+          const adObj: CollectorDeduplicatedAd = {
+            id: String(it.mlb_id || it.id || ''),
+            mlb_id: it.mlb_id || it.id,
+            title: String(it.title || ''),
+            price,
+            sold_quantity: sold,
+            seller_name: it.seller_name || '',
+            permalink: it.permalink || '',
+            thumbnail: it.thumbnail || '',
+            is_free_shipping: Boolean(it.is_free_shipping),
+            is_full: Boolean(it.is_full),
+            condition: it.condition || '',
+          }
+
+          // Chaves de ID / MLB com e sem prefixo MLB
           const ids = [it.mlb_id, it.id].filter(Boolean) as string[]
           for (const rawId of ids) {
             const cleanId = String(rawId)
               .replace(/[^0-9A-Za-z]/g, '')
               .toUpperCase()
             if (cleanId) {
-              const current = byMlbId.get(cleanId) || 0
-              if (sold > current) byMlbId.set(cleanId, sold)
+              // Com prefixo MLB (ex: MLB5761444412)
+              const withMlb = cleanId.startsWith('MLB') ? cleanId : `MLB${cleanId}`
+              const curWith = byMlbId.get(withMlb) || 0
+              if (sold != null && sold > 0 && sold > curWith) byMlbId.set(withMlb, sold)
+              if (
+                !adByMlbId.has(withMlb) ||
+                (sold != null && sold > (adByMlbId.get(withMlb)?.sold_quantity || 0))
+              ) {
+                adByMlbId.set(withMlb, adObj)
+              }
+
+              // Sem prefixo MLB (ex: 5761444412)
+              const withoutMlb = cleanId.replace(/^MLB/, '')
+              if (withoutMlb) {
+                const curWithout = byMlbId.get(withoutMlb) || 0
+                if (sold != null && sold > 0 && sold > curWithout) byMlbId.set(withoutMlb, sold)
+                if (
+                  !adByMlbId.has(withoutMlb) ||
+                  (sold != null && sold > (adByMlbId.get(withoutMlb)?.sold_quantity || 0))
+                ) {
+                  adByMlbId.set(withoutMlb, adObj)
+                }
+              }
             }
           }
 
           // Chave de Título Normalizado (para casar catálogo com o anúncio minerado correspondente)
-          if (it.title) {
+          if (it.title && sold != null && sold > 0) {
             const titleKey = String(it.title)
               .toLowerCase()
               .normalize('NFD')
@@ -463,7 +520,7 @@ export const mlCollectorService = {
       console.warn('[mlCollectorService] Falha ao construir fallback de vendas das coletas:', err)
     }
 
-    return { byMlbId, byTitle }
+    return { byMlbId, byTitle, adByMlbId }
   },
 
   /**
@@ -615,25 +672,39 @@ export const mlCollectorService = {
       catalog_product_id?: string
       buy_box_winner_item_id?: string
       title?: string
+      sold_quantity?: number | null
       competitors?: Array<{ item_id?: string }>
     },
-    fallbackMap: { byMlbId: Map<string, number>; byTitle: Map<string, number> },
+    fallbackMap: {
+      byMlbId: Map<string, number>
+      byTitle: Map<string, number>
+      adByMlbId?: Map<string, CollectorDeduplicatedAd>
+    },
   ): number | null {
     if (!fallbackMap) return null
 
-    // 1. Verificar por ID do produto ou do vencedor da Buy Box
-    const candidateIds = [
+    // 1. Verificar por ID do produto ou do vencedor da Buy Box (com e sem prefixo MLB)
+    const rawCandidateIds = [
       item.id,
       item.catalog_product_id,
       item.buy_box_winner_item_id,
       ...(Array.isArray(item.competitors) ? item.competitors.map((c) => c.item_id) : []),
-    ]
-      .filter(Boolean)
-      .map((x) =>
-        String(x)
-          .replace(/[^0-9A-Za-z]/g, '')
-          .toUpperCase(),
-      )
+    ].filter(Boolean) as string[]
+
+    const candidateIds: string[] = []
+    for (const raw of rawCandidateIds) {
+      const clean = String(raw)
+        .replace(/[^0-9A-Za-z]/g, '')
+        .toUpperCase()
+      if (clean) {
+        candidateIds.push(clean)
+        if (clean.startsWith('MLB')) {
+          candidateIds.push(clean.replace(/^MLB/, ''))
+        } else {
+          candidateIds.push(`MLB${clean}`)
+        }
+      }
+    }
 
     for (const cand of candidateIds) {
       if (cand && fallbackMap.byMlbId.has(cand)) {
@@ -657,10 +728,10 @@ export const mlCollectorService = {
       }
 
       // 3. Verificar por contenção mútua de título
-      if (cleanTitle.length >= 10) {
+      if (cleanTitle.length >= 8) {
         let bestSold: number | null = null
         for (const [collTitle, sQty] of fallbackMap.byTitle.entries()) {
-          if (collTitle.length < 10) continue
+          if (collTitle.length < 8) continue
           if (collTitle.includes(cleanTitle) || cleanTitle.includes(collTitle)) {
             if (bestSold == null || sQty > bestSold) {
               bestSold = sQty
@@ -668,6 +739,54 @@ export const mlCollectorService = {
           }
         }
         if (bestSold != null) return bestSold
+      }
+    }
+
+    return null
+  },
+
+  /**
+   * Tenta encontrar o anúncio correspondente completo do coletor por MLB ID
+   */
+  matchFallbackAd(
+    item: {
+      id?: string
+      catalog_product_id?: string
+      buy_box_winner_item_id?: string
+      competitors?: Array<{ item_id?: string }>
+    },
+    fallbackMap: {
+      adByMlbId?: Map<string, CollectorDeduplicatedAd>
+    },
+  ): CollectorDeduplicatedAd | null {
+    if (!fallbackMap || !fallbackMap.adByMlbId) return null
+
+    const rawCandidateIds = [
+      item.id,
+      item.catalog_product_id,
+      item.buy_box_winner_item_id,
+      ...(Array.isArray(item.competitors) ? item.competitors.map((c) => c.item_id) : []),
+    ].filter(Boolean) as string[]
+
+    const candidateIds: string[] = []
+    for (const raw of rawCandidateIds) {
+      const clean = String(raw)
+        .replace(/[^0-9A-Za-z]/g, '')
+        .toUpperCase()
+      if (clean) {
+        candidateIds.push(clean)
+        if (clean.startsWith('MLB')) {
+          candidateIds.push(clean.replace(/^MLB/, ''))
+        } else {
+          candidateIds.push(`MLB${clean}`)
+        }
+      }
+    }
+
+    for (const cand of candidateIds) {
+      if (cand && fallbackMap.adByMlbId.has(cand)) {
+        const found = fallbackMap.adByMlbId.get(cand)
+        if (found) return found
       }
     }
 
