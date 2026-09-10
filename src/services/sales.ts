@@ -94,16 +94,94 @@ export const salesService = {
   },
 
   /**
-   * Finaliza venda mista ou exclusiva por lotes.
-   * Para cada linha 'por lote', seleciona automaticamente os primeiros N equipamentos disponíveis
-   * do lote (ordenados de forma estável por data de entrada `created`), cria/vincula o registro do lote físico
-   * e baixa cada equipamento marcando-o como 'Vendido', associando o histórico da venda.
+   * Finaliza venda mista ou exclusiva por lotes com garantia de atomicidade.
+   * Prioriza o hook transacional de backend (POST /backend/v1/sales/create-with-batches)
+   * que executa a criação da venda, sale_items, batches e baixa de equipamentos dentro de
+   * $app.runInTransaction — se qualquer item falhar, nenhum registro é gravado e o estoque é preservado.
+   * Fallback sequencial inteligente apenas se o endpoint de backend estiver inacessível.
    */
   async createSaleWithBatches(input: CreateSaleWithBatchesInput): Promise<Sale> {
     const equipmentItems = input.equipmentItems || []
     const batchLines = input.batchLines || []
 
-    // 1. Pré-validação de estoque para linhas por lote
+    // 1. Pré-validação estrita de estoque somando linhas repetidas do mesmo lote
+    const aggregatedDemand: Record<string, number> = {}
+    for (const line of batchLines) {
+      if (line.quantity > 0) {
+        aggregatedDemand[line.purchase_batch_id] =
+          (aggregatedDemand[line.purchase_batch_id] || 0) + line.quantity
+      }
+    }
+
+    for (const [pbId, demandedQty] of Object.entries(aggregatedDemand)) {
+      const availableProds = await pb.collection('products').getFullList<any>({
+        filter: `purchase_batch_id = "${pbId}" && status = "Disponível"`,
+        sort: 'created',
+      })
+
+      if (availableProds.length < demandedQty) {
+        let batchLabel = pbId
+        try {
+          const pbRecord = await pb.collection('purchase_batches').getOne<any>(pbId)
+          batchLabel = pbRecord.supplier
+            ? `${pbRecord.supplier} (NF ${pbRecord.invoice_number || 'S/N'})`
+            : pbRecord.id
+        } catch {
+          // fallback
+        }
+        throw new Error(
+          `Estoque insuficiente no lote "${batchLabel}". Solicitado: ${demandedQty} un, Disponível agora: ${availableProds.length} un. Por favor, revise o pedido.`,
+        )
+      }
+    }
+
+    const userId = input.user_id || pb.authStore.record?.id
+
+    // 2. Chamar o hook atômico no backend PocketBase
+    try {
+      const response = await pb.send<{ ok: boolean; saleId?: string; error?: string }>(
+        '/backend/v1/sales/create-with-batches',
+        {
+          method: 'POST',
+          body: {
+            customer_name: input.customer_name,
+            customer_contact: input.customer_contact || '',
+            notes: input.notes || '',
+            user_id: userId,
+            equipmentItems,
+            batchLines,
+          },
+        },
+      )
+
+      if (response && response.ok && response.saleId) {
+        return await pb.collection('sales').getOne<Sale>(response.saleId, {
+          expand: 'user_id',
+        })
+      }
+
+      if (response && response.error) {
+        throw new Error(response.error)
+      }
+    } catch (endpointErr: any) {
+      // Se for erro de validação (status 400 ou mensagem de negócio com estoque), repassar diretamente sem fallback
+      const status = endpointErr?.status
+      const msg = endpointErr?.data?.error || endpointErr?.message || ''
+      if (
+        status === 400 ||
+        (status === 401 && !endpointErr.isAbort) ||
+        msg.includes('Estoque insuficiente')
+      ) {
+        throw new Error(msg || 'Erro na validação do pedido pelo backend.')
+      }
+
+      console.warn(
+        '[salesService.createSaleWithBatches] Endpoint atômico indisponível ou inacessível. Executando fallback seguro:',
+        endpointErr,
+      )
+    }
+
+    // 3. FALLBACK: Execução sequencial caso o endpoint não responda
     const allocatedByBatch: Array<{
       purchaseBatchId: string
       unitPrice: number
@@ -113,30 +191,17 @@ export const salesService = {
     for (const line of batchLines) {
       if (line.quantity <= 0) continue
 
-      // Buscar equipamentos disponíveis do lote ordenados por created (mais antigos primeiro)
       const availableProds = await pb.collection('products').getFullList<any>({
         filter: `purchase_batch_id = "${line.purchase_batch_id}" && status = "Disponível"`,
         sort: 'created',
       })
 
       if (availableProds.length < line.quantity) {
-        let batchLabel = line.purchase_batch_id
-        try {
-          const pbRecord = await pb
-            .collection('purchase_batches')
-            .getOne<any>(line.purchase_batch_id)
-          batchLabel = pbRecord.supplier
-            ? `${pbRecord.supplier} (NF ${pbRecord.invoice_number || 'S/N'})`
-            : pbRecord.id
-        } catch {
-          // fallback
-        }
         throw new Error(
-          `Estoque insuficiente no lote "${batchLabel}". Solicitado: ${line.quantity} un, Disponível agora: ${availableProds.length} un. Por favor, revise o pedido.`,
+          `Estoque insuficiente no lote. Solicitado: ${line.quantity} un, Disponível: ${availableProds.length} un.`,
         )
       }
 
-      // Alocar os primeiros N disponíveis
       const chosen = availableProds.slice(0, line.quantity)
       allocatedByBatch.push({
         purchaseBatchId: line.purchase_batch_id,
@@ -145,7 +210,6 @@ export const salesService = {
       })
     }
 
-    // 2. Calcular montante total somando itens por equipamento e itens alocados por lote
     const equipmentTotal = equipmentItems.reduce(
       (sum, item) => sum + item.quantity * item.unit_price,
       0,
@@ -156,9 +220,6 @@ export const salesService = {
     )
     const totalAmount = equipmentTotal + batchesTotal
 
-    const userId = input.user_id || pb.authStore.record?.id
-
-    // 3. Criar registro principal de Venda (sales)
     const sale = await pb.collection('sales').create<Sale>({
       customer_name: input.customer_name,
       customer_contact: input.customer_contact || '',
@@ -170,7 +231,6 @@ export const salesService = {
 
     const nowIso = new Date().toISOString().replace('T', ' ').substring(0, 19)
 
-    // 4. Processar itens diretos por equipamento (fluxo tradicional)
     for (const item of equipmentItems) {
       await pb.collection('sale_items').create({
         sale_id: sale.id,
@@ -181,7 +241,6 @@ export const salesService = {
         subtotal: item.quantity * item.unit_price,
       })
 
-      // Marcar equipamento como Vendido e registrar histórico
       try {
         const prod = await pb.collection('products').getOne<any>(item.product_id)
         const currentEvents = Array.isArray(prod.history_events) ? [...prod.history_events] : []
@@ -198,10 +257,8 @@ export const salesService = {
       }
     }
 
-    // 5. Processar itens das linhas "Por Lote"
     for (const group of allocatedByBatch) {
       for (const prod of group.products) {
-        // Encontrar ou garantir registro em 'batches' para o produto
         let targetBatchId = ''
         const existingBatches = await pb.collection('batches').getFullList<any>({
           filter: `product_id = "${prod.id}"`,
@@ -211,7 +268,6 @@ export const salesService = {
         if (existingBatches.length > 0) {
           targetBatchId = existingBatches[0].id
         } else {
-          // Criar registro de estoque individual para o equipamento caso ainda não tenha lote em batches
           const newBatch = await pb.collection('batches').create<any>({
             product_id: prod.id,
             batch_number: `LOTE-${prod.sku || prod.id.slice(0, 6)}`,
@@ -221,7 +277,6 @@ export const salesService = {
           targetBatchId = newBatch.id
         }
 
-        // Criar sale_item para este equipamento específico
         await pb.collection('sale_items').create({
           sale_id: sale.id,
           product_id: prod.id,
@@ -231,7 +286,6 @@ export const salesService = {
           subtotal: group.unitPrice,
         })
 
-        // Atualizar status do produto para 'Vendido' com histórico
         try {
           const freshProd = await pb.collection('products').getOne<any>(prod.id)
           const currentEvents = Array.isArray(freshProd.history_events)
