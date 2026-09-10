@@ -933,7 +933,7 @@ export function getTampermonkeyUserscript(options: {
     .map((domain) => `// @connect      ${domain}`)
     .join('\n')
 
-  const SCRIPT_VERSION = '1.4.0'
+  const SCRIPT_VERSION = '1.5.0'
 
   return `// ==UserScript==
 // @name         Coletor Automático Mercado Livre · Lotes & Raio-X
@@ -1253,24 +1253,38 @@ ${connectDirectives}
     ].join(';');
 
     hud.innerHTML = \`
-      <div style="display:flex;align-items:center;gap:6px;">
-        <span id="ml-auto-indicator" style="width:8px;height:8px;border-radius:50%;background:#38bdf8;box-shadow:0 0 8px #38bdf8;display:inline-block;shrink:0;"></span>
-        <div>
-          <div style="font-weight:700;display:flex;align-items:center;gap:6px;">
-            <span>Coletor Lotes</span>
+      <div style="display:flex;flex-direction:column;gap:6px;width:100%;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span id="ml-auto-indicator" style="width:8px;height:8px;border-radius:50%;background:#38bdf8;box-shadow:0 0 8px #38bdf8;display:inline-block;shrink:0;"></span>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <strong style="font-weight:700;color:#ffffff;">Coletor Lotes</strong>
             <span id="ml-auto-version" style="color:#94a3b8;font-size:9px;font-weight:normal;">v\${VERSION}</span>
             <span id="ml-auto-badge" style="background:#1e293b;color:#38bdf8;font-size:9px;padding:1px 5px;border-radius:3px;font-weight:600;">Ativo</span>
           </div>
-          <div id="ml-auto-text" style="color:#cbd5e1;font-size:10px;margin-top:1px;">Ativo nesta página · aguardando resultados...</div>
+          <div style="display:flex;gap:4px;margin-left:auto;align-items:center;">
+            <button id="ml-auto-send-btn" title="Enviar agora para o app" style="background:#0284c7;color:#fff;border:none;border-radius:4px;padding:4px 9px;font-size:10px;font-weight:700;cursor:pointer;transition:background 0.2s;">
+              Enviar
+            </button>
+            <button id="ml-auto-min-btn" title="Minimizar" style="background:transparent;color:#94a3b8;border:none;cursor:pointer;padding:2px 4px;font-size:14px;line-height:1;">
+              &minus;
+            </button>
+          </div>
         </div>
-      </div>
-      <div style="display:flex;gap:4px;margin-left:auto;align-items:center;">
-        <button id="ml-auto-send-btn" title="Enviar agora para o app" style="background:#0284c7;color:#fff;border:none;border-radius:4px;padding:4px 8px;font-size:10px;font-weight:700;cursor:pointer;">
-          Enviar
-        </button>
-        <button id="ml-auto-min-btn" title="Minimizar" style="background:transparent;color:#94a3b8;border:none;cursor:pointer;padding:2px 4px;font-size:14px;line-height:1;">
-          &minus;
-        </button>
+
+        <div id="ml-auto-expand-area" style="display:flex;flex-direction:column;gap:5px;">
+          <div id="ml-auto-text" style="color:#cbd5e1;font-size:10px;line-height:1.3;">Ativo nesta página · aguardando resultados...</div>
+
+          <div id="ml-auto-nav-controls" style="display:flex;align-items:center;gap:6px;background:rgba(255,255,255,0.06);padding:4px 6px;border-radius:6px;border:1px solid rgba(255,255,255,0.08);">
+            <label for="ml-auto-pages-input" style="color:#94a3b8;font-size:10px;white-space:nowrap;">Páginas:</label>
+            <input id="ml-auto-pages-input" type="number" min="1" max="100" value="1" title="Quantidade de páginas a coletar em sequência" style="width:42px;background:#0f172a;color:#ffffff;border:1px solid rgba(255,255,255,0.25);border-radius:4px;padding:2px 4px;font-size:10px;text-align:center;font-weight:bold;" />
+            <button id="ml-auto-collect-multi-btn" type="button" title="Navega e acumula anúncios automaticamente pelas páginas do ML (envio continua manual)" style="background:#059669;color:#ffffff;border:none;border-radius:4px;padding:3px 8px;font-size:10px;font-weight:700;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:3px;">
+              <span>⚡ Coletar N Páginas</span>
+            </button>
+            <button id="ml-auto-stop-nav-btn" type="button" title="Interromper navegação de páginas" style="display:none;background:#dc2626;color:#ffffff;border:none;border-radius:4px;padding:3px 6px;font-size:10px;font-weight:700;cursor:pointer;">
+              Parar
+            </button>
+          </div>
+        </div>
       </div>
     \`;
 
@@ -1293,7 +1307,68 @@ ${connectDirectives}
   let hudText = null;
   let sendBtn = null;
   let minBtn = null;
+  let pagesInput = null;
+  let collectMultiBtn = null;
+  let stopNavBtn = null;
+  let expandArea = null;
   let isMinimized = false;
+
+  // Estado de paginação persistido na sessionStorage para navegação entre páginas reais do ML
+  const SESSION_KEY = 'ml_collector_multi_session';
+
+  function getMultiSession() {
+    try {
+      const raw = sessionStorage.getItem(SESSION_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch { /* ignore */ }
+    return null;
+  }
+
+  function saveMultiSession(data) {
+    try {
+      if (!data) sessionStorage.removeItem(SESSION_KEY);
+      else sessionStorage.setItem(SESSION_KEY, JSON.stringify(data));
+    } catch { /* ignore */ }
+  }
+
+  function clearMultiSession() {
+    try { sessionStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
+  }
+
+  function findNextPageHref() {
+    // 1. Botão "Seguinte" ou próximo padrão do Mercado Livre (.andes-pagination__button--next a)
+    const nextBtn = document.querySelector('.andes-pagination__button--next a') ||
+                    document.querySelector('a.andes-pagination__link--next') ||
+                    document.querySelector('li.andes-pagination__button--next a') ||
+                    document.querySelector('a[title="Seguinte"]') ||
+                    document.querySelector('a[title="Próxima"]');
+    if (nextBtn && nextBtn.href && !nextBtn.hasAttribute('aria-disabled') && !nextBtn.classList.contains('andes-pagination__link--disabled')) {
+      return nextBtn.href;
+    }
+
+    // 2. Links com padrão _Desde_ da paginação clássica do Mercado Livre
+    const allLinks = Array.from(document.querySelectorAll('a[href*="_Desde_"]'));
+    const curMatch = window.location.href.match(/_Desde_(d+)/i);
+    const curDesde = curMatch ? parseInt(curMatch[1], 10) : 1;
+
+    for (const a of allLinks) {
+      const match = a.href.match(/_Desde_(d+)/i);
+      if (match) {
+        const linkDesde = parseInt(match[1], 10);
+        if (linkDesde > curDesde) {
+          return a.href;
+        }
+      }
+    }
+
+    // 3. Fallback de paginação genérica
+    const genericNext = document.querySelector('.ui-search-pagination a:last-child');
+    if (genericNext && genericNext.href && genericNext.href !== window.location.href) {
+      return genericNext.href;
+    }
+
+    return null;
+  }
 
   function bindHudEvents() {
     indicator = document.getElementById('ml-auto-indicator');
@@ -1301,6 +1376,10 @@ ${connectDirectives}
     hudText = document.getElementById('ml-auto-text');
     sendBtn = document.getElementById('ml-auto-send-btn');
     minBtn = document.getElementById('ml-auto-min-btn');
+    pagesInput = document.getElementById('ml-auto-pages-input');
+    collectMultiBtn = document.getElementById('ml-auto-collect-multi-btn');
+    stopNavBtn = document.getElementById('ml-auto-stop-nav-btn');
+    expandArea = document.getElementById('ml-auto-expand-area');
 
     if (minBtn && !minBtn.dataset.bound) {
       minBtn.dataset.bound = 'true';
@@ -1308,13 +1387,11 @@ ${connectDirectives}
         isMinimized = !isMinimized;
         const hudEl = document.getElementById('ml-auto-collector-hud');
         if (isMinimized) {
-          if (hudText) hudText.style.display = 'none';
-          if (sendBtn) sendBtn.style.display = 'none';
+          if (expandArea) expandArea.style.display = 'none';
           minBtn.innerHTML = '&#43;';
           if (hudEl) hudEl.style.padding = '6px 10px';
         } else {
-          if (hudText) hudText.style.display = 'block';
-          if (sendBtn) sendBtn.style.display = 'inline-block';
+          if (expandArea) expandArea.style.display = 'flex';
           minBtn.innerHTML = '&minus;';
           if (hudEl) hudEl.style.padding = '10px 14px';
         }
@@ -1325,6 +1402,26 @@ ${connectDirectives}
       sendBtn.dataset.bound = 'true';
       sendBtn.addEventListener('click', () => {
         sendBatchToApp();
+      });
+    }
+
+    if (collectMultiBtn && !collectMultiBtn.dataset.bound) {
+      collectMultiBtn.dataset.bound = 'true';
+      collectMultiBtn.addEventListener('click', () => {
+        startMultiPageCollection();
+      });
+    }
+
+    if (stopNavBtn && !stopNavBtn.dataset.bound) {
+      stopNavBtn.dataset.bound = 'true';
+      stopNavBtn.addEventListener('click', () => {
+        clearMultiSession();
+        if (stopNavBtn) stopNavBtn.style.display = 'none';
+        if (collectMultiBtn) {
+          collectMultiBtn.disabled = false;
+          collectMultiBtn.innerHTML = '<span>⚡ Coletar N Páginas</span>';
+        }
+        setStatus('collecting', 'Paginação interrompida. ' + accumulatedItems.size + ' itens acumulados no HUD. Clique em Enviar para salvar.');
       });
     }
   }
@@ -1624,8 +1721,134 @@ ${connectDirectives}
     }
   } catch { /* intentionally ignored */ }
 
+  // Iniciar varredura multi-páginas navegando pelo Mercado Livre
+  function startMultiPageCollection() {
+    const rawPages = pagesInput ? parseInt(pagesInput.value, 10) : 1;
+    const targetPages = Math.max(1, Math.min(100, isNaN(rawPages) ? 1 : rawPages));
+
+    // Se pediu 1 página, apenas garante a leitura da página atual
+    if (targetPages <= 1) {
+      collectCurrentPage();
+      setStatus('collecting', 'Página atual minerada (' + accumulatedItems.size + ' itens). Clique em Enviar.');
+      return;
+    }
+
+    // Coleta a página atual primeiro
+    collectCurrentPage();
+
+    const storedItemsObj = {};
+    accumulatedItems.forEach((val, k) => { storedItemsObj[k] = val; });
+
+    const sessionData = {
+      targetPages: targetPages,
+      currentPage: 1,
+      searchTerm: currentSearchTerm || extractSearchTerm(),
+      items: storedItemsObj,
+      startedAt: Date.now()
+    };
+
+    saveMultiSession(sessionData);
+    continueMultiPageSession(sessionData);
+  }
+
+  function continueMultiPageSession(sessionData) {
+    if (!sessionData) return;
+
+    if (stopNavBtn) stopNavBtn.style.display = 'inline-block';
+    if (collectMultiBtn) {
+      collectMultiBtn.disabled = true;
+      collectMultiBtn.innerHTML = '<span>⏳ Pág. ' + sessionData.currentPage + '/' + sessionData.targetPages + '</span>';
+    }
+
+    setStatus('collecting', 'Navegando: pág. ' + sessionData.currentPage + ' de ' + sessionData.targetPages + ' (' + accumulatedItems.size + ' anúncios acumulados)...');
+
+    if (sessionData.currentPage >= sessionData.targetPages) {
+      // Concluído todas as páginas solicitadas!
+      clearMultiSession();
+      if (stopNavBtn) stopNavBtn.style.display = 'none';
+      if (collectMultiBtn) {
+        collectMultiBtn.disabled = false;
+        collectMultiBtn.innerHTML = '<span>⚡ Coletar N Páginas</span>';
+      }
+      let salesCount = 0;
+      accumulatedItems.forEach(i => {
+        if (i.sold_quantity != null && i.sold_quantity > 0) salesCount++;
+      });
+      setStatus('collecting', '✓ ' + sessionData.targetPages + ' páginas coletadas com sucesso (' + accumulatedItems.size + ' anúncios, ' + salesCount + ' com vendas). Envio MANUAL: clique em Enviar!');
+      return;
+    }
+
+    // Procura link da próxima página
+    const nextHref = findNextPageHref();
+    if (!nextHref) {
+      clearMultiSession();
+      if (stopNavBtn) stopNavBtn.style.display = 'none';
+      if (collectMultiBtn) {
+        collectMultiBtn.disabled = false;
+        collectMultiBtn.innerHTML = '<span>⚡ Coletar N Páginas</span>';
+      }
+      setStatus('collecting', 'Fim da paginação do ML alcançado na página ' + sessionData.currentPage + ' (' + accumulatedItems.size + ' itens acumulados). Clique em Enviar.');
+      return;
+    }
+
+    // Avança contador e navega para a próxima página após pausa para garantir DOM estável
+    sessionData.currentPage += 1;
+    const storedItemsObj = {};
+    accumulatedItems.forEach((val, k) => { storedItemsObj[k] = val; });
+    sessionData.items = storedItemsObj;
+    saveMultiSession(sessionData);
+
+    setStatus('collecting', 'Aguardando 1.5s para navegar para a página ' + sessionData.currentPage + '/' + sessionData.targetPages + '...');
+
+    setTimeout(() => {
+      window.location.href = nextHref;
+    }, 1500);
+  }
+
+  // Restaura sessão de multi-páginas se estiver no meio de uma navegação
+  function checkAndResumeMultiSession() {
+    const session = getMultiSession();
+    if (!session) return false;
+
+    // Se a sessão expirou (> 15 minutos), limpa
+    if (session.startedAt && Date.now() - session.startedAt > 15 * 60 * 1000) {
+      clearMultiSession();
+      return false;
+    }
+
+    // Restaura itens acumulados da sessão anterior
+    if (session.items && typeof session.items === 'object') {
+      Object.keys(session.items).forEach(k => {
+        accumulatedItems.set(k, session.items[k]);
+      });
+    }
+
+    if (session.searchTerm) {
+      currentSearchTerm = session.searchTerm;
+    }
+
+    if (pagesInput) {
+      pagesInput.value = session.targetPages || 1;
+    }
+
+    // Coleta a página recém-carregada
+    collectCurrentPage();
+
+    // Continua a navegação
+    setTimeout(() => {
+      continueMultiPageSession(session);
+    }, 1200);
+
+    return true;
+  }
+
   // Primeira coleta após carga inicial
-  setTimeout(collectCurrentPage, 800);
+  setTimeout(() => {
+    const resumed = checkAndResumeMultiSession();
+    if (!resumed) {
+      collectCurrentPage();
+    }
+  }, 800);
 })();
 `
 }
