@@ -40,7 +40,7 @@ import {
 } from '@/components/ui/select'
 import { toast } from '@/hooks/use-toast'
 import { productsService } from '@/services/products'
-import { mlCollectorService } from '@/services/mlCollectorService'
+import { mlCollectorService, CollectorDeduplicatedAd } from '@/services/mlCollectorService'
 import { Product } from '@/types/inventory'
 import {
   mlCatalogService,
@@ -68,7 +68,6 @@ import {
   getCachedSellerNames,
   isOwnSeller,
 } from '@/utils/sellerNameResolver'
-
 export function AnunciosCatalogoTab() {
   const [query, setQuery] = useState('dell latitude 3420')
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('')
@@ -97,11 +96,65 @@ export function AnunciosCatalogoTab() {
     isCached: boolean
     cachedAt?: string
   } | null>(null)
+
+  // Banner e visualização dos anúncios coletados pelo navegador (fallback para quando a API oficial retornar 0 resultados)
+  const [collectorFallbackAds, setCollectorFallbackAds] = useState<CollectorDeduplicatedAd[]>([])
+  const [collectorWithSalesCount, setCollectorWithSalesCount] = useState<number>(0)
+  const [collectorMatchedTerm, setCollectorMatchedTerm] = useState<string>('')
+  const [checkingCollectorFallback, setCheckingCollectorFallback] = useState<boolean>(false)
+  const [showingCollectorAds, setShowingCollectorAds] = useState<boolean>(false)
+
+  // Função para verificar se há anúncios minerados do coletor caso a API oficial retorne vazia
+  const checkCollectorFallback = async (searchTerm: string) => {
+    const cleanTerm = (searchTerm || '').trim()
+    if (!cleanTerm) {
+      setCollectorFallbackAds([])
+      setCollectorWithSalesCount(0)
+      setCollectorMatchedTerm('')
+      setShowingCollectorAds(false)
+      return
+    }
+
+    setCheckingCollectorFallback(true)
+    try {
+      const res = await mlCollectorService.getCollectorAdsForTerm(cleanTerm)
+      if (res && Array.isArray(res.ads) && res.ads.length > 0) {
+        setCollectorFallbackAds(res.ads)
+        setCollectorMatchedTerm(res.matchedSearchTerm || cleanTerm)
+        const withSales = res.ads.filter(
+          (a) => a.sold_quantity != null && Number(a.sold_quantity) > 0,
+        ).length
+        setCollectorWithSalesCount(withSales)
+      } else {
+        setCollectorFallbackAds([])
+        setCollectorWithSalesCount(0)
+        setCollectorMatchedTerm('')
+        setShowingCollectorAds(false)
+      }
+    } catch (err) {
+      console.warn('[AnunciosCatalogoTab] Erro ao consultar fallback do coletor:', err)
+      setCollectorFallbackAds([])
+      setCollectorWithSalesCount(0)
+      setCollectorMatchedTerm('')
+      setShowingCollectorAds(false)
+    } finally {
+      setCheckingCollectorFallback(false)
+    }
+  }
   const [currentJobId, setCurrentJobId] = useState<string | null>(null)
   const [stoppingJob, setStoppingJob] = useState(false)
   const [resolvedSellers, setResolvedSellers] = useState<Record<string, string>>(() =>
     getCachedSellerNames(),
   )
+
+  // Banner e visualização de fallback do Coletor quando a API oficial do ML não retorna resultados
+  const [collectorFallbackInfo, setCollectorFallbackInfo] = useState<{
+    ads: CollectorDeduplicatedAd[]
+    matchedSearchTerm: string
+    adsWithSalesCount: number
+    hasChecked: boolean
+  } | null>(null)
+  const [showCollectorAds, setShowCollectorAds] = useState(false)
 
   // Efeito para resolver em lote nomes de vendedores faltantes das posições e concorrentes em segundo plano
   useEffect(() => {
@@ -457,6 +510,8 @@ export function AnunciosCatalogoTab() {
       setSearchJobDebug([])
       setCachedJobInfo(null)
       setCurrentJobId(null)
+      setCollectorFallbackInfo(null)
+      setShowCollectorAds(false)
       setSearchProgressText(
         forceRefresh
           ? 'Na fila... Atualizando busca completa no Mercado Livre...'
@@ -534,9 +589,47 @@ export function AnunciosCatalogoTab() {
       }
 
       if (results.length === 0) {
+        // Fallback inteligente: buscar anúncios minerados pelo Coletor do navegador
+        try {
+          const collectorResult = await mlCollectorService.getCollectorAdsForTerm(q)
+          if (
+            collectorResult &&
+            Array.isArray(collectorResult.ads) &&
+            collectorResult.ads.length > 0
+          ) {
+            const withSalesCount = collectorResult.ads.filter(
+              (a) => a.sold_quantity != null && a.sold_quantity > 0,
+            ).length
+            setCollectorFallbackInfo({
+              ads: collectorResult.ads,
+              matchedSearchTerm: collectorResult.matchedSearchTerm || q,
+              adsWithSalesCount: withSalesCount,
+              hasChecked: true,
+            })
+          } else {
+            setCollectorFallbackInfo({
+              ads: [],
+              matchedSearchTerm: q,
+              adsWithSalesCount: 0,
+              hasChecked: true,
+            })
+          }
+        } catch (collectorErr) {
+          console.warn(
+            '[AnunciosCatalogoTab] Falha ao consultar fallback do coletor:',
+            collectorErr,
+          )
+          setCollectorFallbackInfo({
+            ads: [],
+            matchedSearchTerm: q,
+            adsWithSalesCount: 0,
+            hasChecked: true,
+          })
+        }
+
         toast({
           title: 'Nenhum produto de catálogo encontrado',
-          description: 'Tente outro termo ou cole o link direto do produto (/p/MLB...).',
+          description: 'A API oficial do Mercado Livre não retornou posições para este termo.',
         })
         setCatalogItems([])
         return
@@ -1701,6 +1794,242 @@ export function AnunciosCatalogoTab() {
               </button>
             ))}
           </div>
+
+          {/* Banner de Fallback do Coletor quando a API oficial do ML retorna zero resultados */}
+          {!searching &&
+            catalogItems.length === 0 &&
+            collectorFallbackInfo &&
+            collectorFallbackInfo.ads.length > 0 && (
+              <Card className="border-emerald-300 bg-gradient-to-r from-emerald-50/90 via-teal-50/70 to-emerald-50/90 shadow-sm animate-fadeIn">
+                <CardContent className="p-4 sm:p-5">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div className="flex items-start gap-3.5">
+                      <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                        <Sparkles className="w-5 h-5" />
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge className="bg-emerald-600 text-white hover:bg-emerald-700 text-[10px] font-mono">
+                            Coletor do Navegador
+                          </Badge>
+                          <span className="text-xs font-semibold text-emerald-900">
+                            Termo correspondente:{' '}
+                            <strong className="font-mono">
+                              "{collectorFallbackInfo.matchedSearchTerm}"
+                            </strong>
+                          </span>
+                        </div>
+                        <p className="text-xs sm:text-sm font-medium text-emerald-950 leading-relaxed">
+                          A API oficial do Mercado Livre não retornou resultados, mas encontramos{' '}
+                          <strong className="text-emerald-800 font-bold font-mono">
+                            {collectorFallbackInfo.ads.length} anúncios coletados pelo navegador
+                          </strong>{' '}
+                          ({collectorFallbackInfo.adsWithSalesCount} com vendas).
+                        </p>
+                        <p className="text-[11px] text-emerald-700">
+                          Esses anúncios foram capturados diretamente da vitrine aberta do ML e
+                          estão prontos para análise e precificação.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="shrink-0 w-full sm:w-auto flex items-center gap-2">
+                      <Button
+                        type="button"
+                        onClick={() => setShowCollectorAds(!showCollectorAds)}
+                        className={`w-full sm:w-auto h-10 px-5 text-xs font-bold shadow-xs transition-all flex items-center justify-center gap-2 ${
+                          showCollectorAds
+                            ? 'bg-emerald-800 hover:bg-emerald-900 text-white'
+                            : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                        }`}
+                      >
+                        <Eye className="w-4 h-4" />
+                        {showCollectorAds
+                          ? 'Ocultar anúncios do Coletor'
+                          : 'Visualizar anúncios coletados'}
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+          {/* Grade de Anúncios do Coletor (quando ativada pelo botão do banner) */}
+          {!searching &&
+            catalogItems.length === 0 &&
+            showCollectorAds &&
+            collectorFallbackInfo &&
+            collectorFallbackInfo.ads.length > 0 && (
+              <div className="space-y-3 pt-2">
+                <div className="flex items-center justify-between gap-2 px-1">
+                  <div className="flex items-center gap-2">
+                    <Badge className="bg-emerald-600 text-white font-mono text-[10px]">
+                      Coletor
+                    </Badge>
+                    <span className="text-xs font-bold text-slate-800">
+                      {collectorFallbackInfo.ads.length} anúncio(s) coletado(s) do Mercado Livre
+                    </span>
+                    <span className="text-[11px] text-slate-500 font-mono">
+                      ({collectorFallbackInfo.adsWithSalesCount} com histórico de vendas)
+                    </span>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowCollectorAds(false)}
+                    className="h-7 text-xs text-slate-500 hover:text-slate-800"
+                  >
+                    <EyeOff className="w-3.5 h-3.5 mr-1" />
+                    Fechar visualização
+                  </Button>
+                </div>
+
+                <div className="space-y-3">
+                  {collectorFallbackInfo.ads.map((ad, idx) => {
+                    const hasSales = ad.sold_quantity != null && ad.sold_quantity > 0
+                    return (
+                      <Card
+                        key={ad.id || ad.mlb_id || idx}
+                        className="border border-emerald-200/80 bg-white hover:border-emerald-300 shadow-2xs transition-all"
+                      >
+                        <CardContent className="p-4">
+                          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                            {/* Imagem + Identificação + Título */}
+                            <div className="flex items-start gap-3.5 flex-1 min-w-0">
+                              {/* Thumbnail */}
+                              <div className="w-16 h-16 rounded-lg bg-slate-100 border border-slate-200 shrink-0 overflow-hidden flex items-center justify-center relative">
+                                {ad.thumbnail ? (
+                                  <img
+                                    src={ad.thumbnail}
+                                    alt={ad.title}
+                                    className="w-full h-full object-contain p-1"
+                                    onError={(e) => {
+                                      ;(e.target as HTMLImageElement).src =
+                                        'https://img.usecurling.com/p/200/200?q=laptop'
+                                    }}
+                                  />
+                                ) : (
+                                  <Package className="w-8 h-8 text-slate-300" />
+                                )}
+                              </div>
+
+                              {/* Informações */}
+                              <div className="space-y-1 flex-1 min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  {/* Badge Verde Coletor */}
+                                  <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] px-2 py-0.5 shadow-2xs">
+                                    Coletor
+                                  </Badge>
+
+                                  {ad.mlb_id && (
+                                    <Badge
+                                      variant="outline"
+                                      className="bg-slate-50 text-slate-700 border-slate-200 text-[10px] font-mono"
+                                    >
+                                      {ad.mlb_id}
+                                    </Badge>
+                                  )}
+
+                                  {/* Condição */}
+                                  {ad.condition && (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[10px] font-medium bg-slate-50 text-slate-700 border-slate-200"
+                                    >
+                                      {ad.condition === 'new'
+                                        ? 'Novo'
+                                        : ad.condition === 'recondicionado' ||
+                                            ad.condition === 'refurbished'
+                                          ? 'Recondicionado'
+                                          : 'Usado'}
+                                    </Badge>
+                                  )}
+
+                                  {/* Badge de Vendas */}
+                                  {renderSoldBadge(ad.sold_quantity, true)}
+
+                                  {ad.is_free_shipping && (
+                                    <Badge
+                                      variant="outline"
+                                      className="bg-emerald-50 text-emerald-800 border-emerald-300 text-[10px] font-medium"
+                                    >
+                                      Frete grátis
+                                    </Badge>
+                                  )}
+                                  {ad.is_full && (
+                                    <Badge
+                                      variant="outline"
+                                      className="bg-emerald-50 text-emerald-800 border-emerald-300 text-[10px] font-semibold"
+                                    >
+                                      ⚡ Full
+                                    </Badge>
+                                  )}
+                                </div>
+
+                                {/* Título do Anúncio */}
+                                <h4
+                                  className="text-sm font-bold text-slate-900 leading-snug line-clamp-2"
+                                  title={ad.title}
+                                >
+                                  {ad.title}
+                                </h4>
+
+                                {/* Seller / Vendedor */}
+                                {ad.seller_name && (
+                                  <div className="flex items-center gap-1.5 text-xs text-slate-600 pt-0.5">
+                                    <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                    <span>
+                                      Vendedor:{' '}
+                                      <strong className="text-slate-800 font-semibold">
+                                        {ad.seller_name}
+                                      </strong>
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Preço + Link ML */}
+                            <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-2 w-full sm:w-auto shrink-0 border-t sm:border-t-0 pt-2 sm:pt-0">
+                              <div className="text-left sm:text-right">
+                                <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                                  Preço no Mercado Livre
+                                </span>
+                                <span className="text-lg font-black font-mono text-emerald-700">
+                                  {ad.price != null && ad.price > 0
+                                    ? Number(ad.price).toLocaleString('pt-BR', {
+                                        style: 'currency',
+                                        currency: 'BRL',
+                                      })
+                                    : 'Sob consulta'}
+                                </span>
+                                {hasSales && (
+                                  <span className="block text-[10px] text-emerald-800 font-medium">
+                                    {ad.sold_quantity} un. vendidas
+                                  </span>
+                                )}
+                              </div>
+
+                              {ad.permalink && (
+                                <a
+                                  href={ad.permalink}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:text-blue-900 bg-blue-50/70 hover:bg-blue-100/80 border border-blue-200 rounded-lg shadow-2xs transition-colors shrink-0"
+                                >
+                                  <span>Ver no ML</span>
+                                  <ExternalLink className="w-3.5 h-3.5" />
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
 
           {/* Diagnóstico da Fonte / Cascata e Resumo da Paginação */}
           {lastStrategy && (
