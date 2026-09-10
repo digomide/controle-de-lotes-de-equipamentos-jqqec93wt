@@ -49,17 +49,24 @@ import { useRealtime } from '@/hooks/use-realtime'
 import { salesService } from '@/services/sales'
 import { productsService } from '@/services/products'
 import { batchesService } from '@/services/batches'
+import { purchaseBatchesService } from '@/services/purchaseBatches'
 import { StoreOrdersTab } from '@/components/StoreOrdersTab'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import type { Sale, Product, Batch, SaleItem } from '@/types/inventory'
+import type { Sale, Product, Batch, SaleItem, PurchaseBatch } from '@/types/inventory'
 
 interface CartItem {
   tempId: string
-  productId: string
+  type: 'equipment' | 'batch'
+  // Quando type === 'equipment':
+  productId?: string
   productName: string
-  sku: string
-  batchId: string
+  sku?: string
+  batchId?: string
   batchNumber: string
+  // Quando type === 'batch':
+  purchaseBatchId?: string
+  purchaseBatchSupplier?: string
+  purchaseBatchInvoice?: string
   availableStock: number
   quantity: number
   unitPrice: number
@@ -69,6 +76,7 @@ export default function Vendas() {
   const [sales, setSales] = useState<Sale[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [batches, setBatches] = useState<Batch[]>([])
+  const [purchaseBatches, setPurchaseBatches] = useState<PurchaseBatch[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'vendas' | 'pedidos_loja'>('vendas')
 
@@ -87,13 +95,22 @@ export default function Vendas() {
   const [customerContact, setCustomerContact] = useState('')
   const [saleNotes, setSaleNotes] = useState('')
 
-  // Step 2: Item Selection
+  // Step 2: Item Selection (Modo Equipamento vs Modo Por Lote)
+  const [selectionMode, setSelectionMode] = useState<'equipment' | 'batch'>('batch')
   const [cart, setCart] = useState<CartItem[]>([])
+
+  // Modo Equipamento
   const [selectedProductId, setSelectedProductId] = useState('')
   const [selectedBatchId, setSelectedBatchId] = useState('')
   const [itemQuantity, setItemQuantity] = useState<number>(1)
   const [itemUnitPrice, setItemUnitPrice] = useState<number>(0)
   const [itemError, setItemError] = useState<string | null>(null)
+
+  // Modo Por Lote de Compra
+  const [selectedPurchaseBatchId, setSelectedPurchaseBatchId] = useState('')
+  const [batchQuantity, setBatchQuantity] = useState<number>(1)
+  const [batchUnitPrice, setBatchUnitPrice] = useState<number>(0)
+  const [batchItemError, setBatchItemError] = useState<string | null>(null)
 
   // Details Modal
   const [detailSale, setDetailSale] = useState<Sale | null>(null)
@@ -106,14 +123,16 @@ export default function Vendas() {
 
   const loadData = async () => {
     try {
-      const [sData, pData, bData] = await Promise.all([
+      const [sData, pData, bData, pbData] = await Promise.all([
         salesService.getAll(),
         productsService.getAll(),
         batchesService.getAll(),
+        purchaseBatchesService.getAll(),
       ])
       setSales(sData)
       setProducts(pData)
       setBatches(bData)
+      setPurchaseBatches(pbData)
     } catch (err) {
       console.error(err)
     } finally {
@@ -153,6 +172,14 @@ export default function Vendas() {
     batchesService.getAll().then(setBatches)
   })
 
+  useRealtime<PurchaseBatch>('purchase_batches', () => {
+    purchaseBatchesService.getAll().then(setPurchaseBatches)
+  })
+
+  useRealtime<Product>('products', () => {
+    productsService.getAll().then(setProducts)
+  })
+
   // Filtered sales
   const filteredSales = useMemo(() => {
     return sales.filter((s) => {
@@ -169,13 +196,57 @@ export default function Vendas() {
     })
   }, [sales, searchFilter, statusFilter, dateFilter])
 
-  // Batches available for chosen product
+  // Lotes de compra enriquecidos com equipamentos disponíveis
+  const purchaseBatchesWithAvailability = useMemo(() => {
+    return purchaseBatches.map((pbItem) => {
+      // Equipamentos deste lote com status 'Disponível'
+      const batchProds = products.filter((p) => p.purchase_batch_id === pbItem.id)
+      const availableProds = batchProds.filter((p) => p.status === 'Disponível')
+      const availableCount = availableProds.length
+
+      // Preço médio sugerido de venda dos disponíveis (ou preço cadastrado de produto)
+      const avgPrice =
+        availableCount > 0
+          ? Math.round(
+              availableProds.reduce((sum, p) => sum + (Number(p.unit_price) || 0), 0) /
+                availableCount,
+            )
+          : 0
+
+      // Resumo de modelos disponíveis no lote (ex: "Dell Latitude 5420 (8), Lenovo T480 (2)")
+      const modelCounts: Record<string, number> = {}
+      for (const p of availableProds) {
+        const label = [p.brand, p.model].filter(Boolean).join(' ') || p.name || 'Equipamento'
+        modelCounts[label] = (modelCounts[label] || 0) + 1
+      }
+      const modelsSummary = Object.entries(modelCounts)
+        .slice(0, 3)
+        .map(([m, c]) => `${m} (${c})`)
+        .join(', ')
+
+      return {
+        ...pbItem,
+        availableCount,
+        totalInventoried: batchProds.length,
+        suggestedUnitPrice: avgPrice,
+        modelsSummary,
+        availableProds,
+      }
+    })
+  }, [purchaseBatches, products])
+
+  // Lote de compra atualmente selecionado no modo 'Por Lote'
+  const activePurchaseBatchObj = useMemo(() => {
+    return purchaseBatchesWithAvailability.find((b) => b.id === selectedPurchaseBatchId)
+  }, [purchaseBatchesWithAvailability, selectedPurchaseBatchId])
+
+  // Batches available for chosen product (Modo Por Equipamento)
   const availableBatchesForProduct = useMemo(() => {
     if (!selectedProductId) return []
     return batches.filter((b) => b.product_id === selectedProductId && b.quantity > 0)
   }, [batches, selectedProductId])
 
-  // Selected batch object
+  // Selected batch object (Modo Por Equipamento)
   const activeBatchObj = useMemo(() => {
     return batches.find((b) => b.id === selectedBatchId)
   }, [batches, selectedBatchId])
@@ -197,7 +268,18 @@ export default function Vendas() {
     setItemError(null)
   }
 
-  // Add Item to cart
+  // When selected purchase batch changes (Modo Por Lote)
+  const handlePurchaseBatchChange = (pbId: string) => {
+    setSelectedPurchaseBatchId(pbId)
+    setBatchItemError(null)
+    const found = purchaseBatchesWithAvailability.find((b) => b.id === pbId)
+    if (found) {
+      setBatchUnitPrice(found.suggestedUnitPrice || 0)
+      setBatchQuantity(1)
+    }
+  }
+
+  // Add Item to cart (Modo Por Equipamento)
   const handleAddItem = () => {
     setItemError(null)
 
@@ -221,7 +303,7 @@ export default function Vendas() {
 
     // Check already carted quantity for this specific batch
     const alreadyInCart = cart
-      .filter((c) => c.batchId === selectedBatchId)
+      .filter((c) => c.type === 'equipment' && c.batchId === selectedBatchId)
       .reduce((sum, c) => sum + c.quantity, 0)
 
     const totalDemanded = alreadyInCart + itemQuantity
@@ -235,6 +317,7 @@ export default function Vendas() {
 
     const newItem: CartItem = {
       tempId: Math.random().toString(36).substring(7),
+      type: 'equipment',
       productId: prod.id,
       productName: prod.name,
       sku: prod.sku,
@@ -249,6 +332,73 @@ export default function Vendas() {
     // Reset selection fields
     setSelectedBatchId('')
     setItemQuantity(1)
+  }
+
+  // Add Purchase Batch to cart (Modo Por Lote)
+  const handleAddBatchToCart = () => {
+    setBatchItemError(null)
+
+    if (!selectedPurchaseBatchId) {
+      setBatchItemError('Selecione um lote de compra.')
+      return
+    }
+    if (!batchQuantity || batchQuantity <= 0) {
+      setBatchItemError('A quantidade deve ser de pelo menos 1 unidade.')
+      return
+    }
+    if (batchUnitPrice < 0) {
+      setBatchItemError('O preço unitário não pode ser negativo.')
+      return
+    }
+
+    const foundPb = purchaseBatchesWithAvailability.find((b) => b.id === selectedPurchaseBatchId)
+    if (!foundPb) {
+      setBatchItemError('Lote de compra não encontrado.')
+      return
+    }
+
+    if (foundPb.availableCount <= 0) {
+      setBatchItemError('Este lote não possui equipamentos com status Disponível no momento.')
+      return
+    }
+
+    // Checar quantidade já adicionada ao carrinho para este lote de compra
+    const alreadyInCart = cart
+      .filter((c) => c.type === 'batch' && c.purchaseBatchId === selectedPurchaseBatchId)
+      .reduce((sum, c) => sum + c.quantity, 0)
+
+    const totalDemanded = alreadyInCart + batchQuantity
+
+    if (totalDemanded > foundPb.availableCount) {
+      setBatchItemError(
+        `Quantidade solicitada (${totalDemanded} un) excede o estoque disponível (${foundPb.availableCount} un) no lote ${foundPb.supplier}! Já no carrinho: ${alreadyInCart} un.`,
+      )
+      return
+    }
+
+    const displayName = `${foundPb.supplier}${foundPb.invoice_number ? ` (NF ${foundPb.invoice_number})` : ''}`
+    const descExtra = foundPb.modelsSummary ? ` — ${foundPb.modelsSummary}` : ''
+
+    const newItem: CartItem = {
+      tempId: Math.random().toString(36).substring(7),
+      type: 'batch',
+      purchaseBatchId: foundPb.id,
+      purchaseBatchSupplier: foundPb.supplier,
+      purchaseBatchInvoice: foundPb.invoice_number || '',
+      productName: `Venda por Lote: ${displayName}${descExtra}`,
+      batchNumber: foundPb.invoice_number
+        ? `NF-${foundPb.invoice_number}`
+        : `LOTE-${foundPb.id.slice(0, 6).toUpperCase()}`,
+      availableStock: foundPb.availableCount,
+      quantity: batchQuantity,
+      unitPrice: batchUnitPrice,
+    }
+
+    setCart([...cart, newItem])
+    // Reset selection
+    setSelectedPurchaseBatchId('')
+    setBatchQuantity(1)
+    setBatchUnitPrice(0)
   }
 
   const handleRemoveCartItem = (tempId: string) => {
@@ -266,10 +416,15 @@ export default function Vendas() {
     setCustomerContact('')
     setSaleNotes('')
     setCart([])
+    setSelectionMode('batch')
     setSelectedProductId('')
     setSelectedBatchId('')
     setItemQuantity(1)
     setItemError(null)
+    setSelectedPurchaseBatchId('')
+    setBatchQuantity(1)
+    setBatchUnitPrice(0)
+    setBatchItemError(null)
     setWizardOpen(true)
   }
 
@@ -306,36 +461,52 @@ export default function Vendas() {
     }
   }
 
-  // Finalize Sale
+  // Finalize Sale (Suporta modo Por Lote e modo Por Equipamento unificados)
   const handleFinalizeSale = async () => {
     setIsSubmitting(true)
     try {
-      await salesService.createSale({
+      const equipmentItems = cart
+        .filter((c) => c.type === 'equipment' && c.productId && c.batchId)
+        .map((c) => ({
+          product_id: c.productId!,
+          batch_id: c.batchId!,
+          quantity: c.quantity,
+          unit_price: c.unitPrice,
+        }))
+
+      const batchLines = cart
+        .filter((c) => c.type === 'batch' && c.purchaseBatchId)
+        .map((c) => ({
+          purchase_batch_id: c.purchaseBatchId!,
+          quantity: c.quantity,
+          unit_price: c.unitPrice,
+        }))
+
+      // Executa a finalização unificada com seleção estável dos N primeiros disponíveis e baixa no estoque
+      await salesService.createSaleWithBatches({
         customer_name: customerName,
         customer_contact: customerContact,
         notes: saleNotes,
         user_id: user?.id,
-        items: cart.map((c) => ({
-          product_id: c.productId,
-          batch_id: c.batchId,
-          quantity: c.quantity,
-          unit_price: c.unitPrice,
-        })),
+        equipmentItems,
+        batchLines,
       })
 
       toast({
         title: 'Venda finalizada com sucesso!',
-        description: 'Baixa de estoque realizada automaticamente nos lotes vinculados.',
+        description: 'Baixa de estoque e vínculo dos equipamentos efetuados com sucesso.',
       })
 
       setWizardOpen(false)
       // reload
       await loadData()
-    } catch (err) {
+    } catch (err: any) {
       console.error(err)
       toast({
         title: 'Erro ao finalizar venda',
-        description: 'Ocorreu uma falha na comunicação com o backend. Tente novamente.',
+        description:
+          err?.message ||
+          'Ocorreu uma falha na validação de estoque ou comunicação com o backend. Tente novamente.',
         variant: 'destructive',
       })
     } finally {
@@ -687,133 +858,348 @@ export default function Vendas() {
             </div>
           )}
 
-          {/* STEP 2: SELEÇÃO DE ITENS (PRODUTO -> LOTE ESPECÍFICO -> QUANTIDADE) */}
+          {/* STEP 2: SELEÇÃO DE ITENS (DUPLO MODO: "POR LOTE" OU "POR EQUIPAMENTO") */}
           {currentStep === 2 && (
             <div className="space-y-5 py-2">
-              {/* Item Adder Box */}
-              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-4">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-                  <Package className="w-4 h-4 text-blue-600" />
-                  Selecionar Equipamento & Lote Específico
-                </h4>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {/* Produto */}
-                  <div className="space-y-1">
-                    <Label className="text-xs text-slate-600">Produto</Label>
-                    <Select value={selectedProductId} onValueChange={handleProductChange}>
-                      <SelectTrigger className="bg-white">
-                        <SelectValue placeholder="Selecione o equipamento" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {products.map((p) => {
-                          const isPending = p.status === 'Pendente de ativação'
-                          return (
-                            <SelectItem key={p.id} value={p.id} disabled={isPending}>
-                              {p.name} ({p.sku})
-                              {isPending ? ' — Pendente de ativação — insira o PN' : ''}
-                            </SelectItem>
-                          )
-                        })}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Lote */}
-                  <div className="space-y-1">
-                    <Label className="text-xs text-slate-600">Lote Físico (Disponibilidade)</Label>
-                    <Select
-                      value={selectedBatchId}
-                      onValueChange={handleBatchChange}
-                      disabled={!selectedProductId}
-                    >
-                      <SelectTrigger className="bg-white">
-                        <SelectValue
-                          placeholder={
-                            !selectedProductId
-                              ? 'Escolha o produto primeiro'
-                              : availableBatchesForProduct.length === 0
-                                ? 'Sem lotes com estoque!'
-                                : 'Selecione o lote'
-                          }
-                        />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {availableBatchesForProduct.map((b) => (
-                          <SelectItem key={b.id} value={b.id}>
-                            {b.batch_number} — {b.quantity} un disponíveis (
-                            {b.location || 'Sem local'})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+              {/* Seletor Dinâmico de Modo de Venda */}
+              <div className="flex items-center justify-between p-2.5 bg-slate-100/90 rounded-xl border border-slate-200">
+                <div className="text-xs font-semibold text-slate-700 pl-1">
+                  Modo de seleção de itens:
                 </div>
-
-                {activeBatchObj && (
-                  <div className="text-xs p-2.5 bg-blue-50/70 border border-blue-200/60 rounded text-blue-900 flex items-center justify-between">
-                    <span>
-                      <strong>Lote ativo:</strong> {activeBatchObj.batch_number} (Local:{' '}
-                      {activeBatchObj.location || 'Depósito Geral'})
-                    </span>
-                    <span className="font-bold">Estoque Atual: {activeBatchObj.quantity} un</span>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  {/* Quantidade */}
-                  <div className="space-y-1">
-                    <Label className="text-xs text-slate-600">Quantidade</Label>
-                    <Input
-                      type="number"
-                      min="1"
-                      max={activeBatchObj?.quantity || 1}
-                      value={itemQuantity}
-                      onChange={(e) => setItemQuantity(parseInt(e.target.value) || 1)}
-                      className="bg-white"
-                    />
-                  </div>
-
-                  {/* Preço Unitário */}
-                  <div className="space-y-1">
-                    <Label className="text-xs text-slate-600">Preço Unitário (R$)</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={itemUnitPrice}
-                      onChange={(e) => setItemUnitPrice(parseFloat(e.target.value) || 0)}
-                      className="bg-white"
-                    />
-                  </div>
-
-                  {/* Subtotal preview & Button */}
-                  <div className="flex flex-col justify-end">
-                    <Button
-                      type="button"
-                      onClick={handleAddItem}
-                      disabled={!selectedBatchId}
-                      className="bg-slate-900 hover:bg-slate-800 text-white w-full gap-1.5"
-                    >
-                      <Plus className="w-4 h-4" />
-                      Adicionar ao Pedido
-                    </Button>
-                  </div>
+                <div className="inline-flex rounded-lg bg-white p-1 border border-slate-200 shadow-xs">
+                  <button
+                    type="button"
+                    onClick={() => setSelectionMode('batch')}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-md flex items-center gap-1.5 transition-all ${
+                      selectionMode === 'batch'
+                        ? 'bg-[#d9532f] text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Layers className="w-3.5 h-3.5" />
+                    Por Lote (Recomendado / Venda em Quantidade)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectionMode('equipment')}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-md flex items-center gap-1.5 transition-all ${
+                      selectionMode === 'equipment'
+                        ? 'bg-slate-900 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Package className="w-3.5 h-3.5" />
+                    Por Equipamento Específico
+                  </button>
                 </div>
-
-                {itemError && (
-                  <div className="p-2 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded flex items-center gap-2">
-                    <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                    <span>{itemError}</span>
-                  </div>
-                )}
               </div>
 
-              {/* Current Cart Items Table */}
+              {/* MODO 1: POR LOTE DE COMPRA (NOVO FLUXO DINÂMICO) */}
+              {selectionMode === 'batch' && (
+                <div className="p-4 bg-orange-50/50 border border-orange-200/80 rounded-xl space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
+                      <Layers className="w-4 h-4 text-[#d9532f]" />
+                      Adicionar por Lote de Compra
+                    </h4>
+                    <span className="text-[11px] text-slate-500 font-medium">
+                      O sistema baixa automaticamente os N primeiros equipamentos disponíveis do
+                      lote
+                    </span>
+                  </div>
+
+                  <div className="space-y-3">
+                    {/* Seletor do Lote de Compra */}
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-700 font-semibold">
+                        Lote de Compra (Fornecedor / NF / Estoque Disponível)
+                      </Label>
+                      <Select
+                        value={selectedPurchaseBatchId}
+                        onValueChange={handlePurchaseBatchChange}
+                      >
+                        <SelectTrigger className="bg-white border-slate-300">
+                          <SelectValue placeholder="Selecione o lote de compra com estoque disponível..." />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-72">
+                          {purchaseBatchesWithAvailability.map((pbItem) => {
+                            const hasStock = pbItem.availableCount > 0
+                            return (
+                              <SelectItem
+                                key={pbItem.id}
+                                value={pbItem.id}
+                                disabled={!hasStock}
+                                className="py-2"
+                              >
+                                <div className="flex items-center justify-between gap-3 w-full">
+                                  <span className="font-semibold text-slate-900">
+                                    {pbItem.supplier}
+                                    {pbItem.invoice_number ? ` (NF ${pbItem.invoice_number})` : ''}
+                                  </span>
+                                  <span className="text-xs font-mono font-bold ml-2">
+                                    {hasStock ? (
+                                      <span className="text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                                        {pbItem.availableCount} un disponíveis
+                                      </span>
+                                    ) : (
+                                      <span className="text-slate-400 italic">Sem disponível</span>
+                                    )}
+                                  </span>
+                                </div>
+                              </SelectItem>
+                            )
+                          })}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Card de Detalhes do Lote Selecionado */}
+                    {activePurchaseBatchObj && (
+                      <div className="p-3 bg-white border border-orange-200 rounded-lg text-xs space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2">
+                          <div>
+                            <span className="text-slate-500">Lote: </span>
+                            <strong className="text-slate-900 font-semibold">
+                              {activePurchaseBatchObj.supplier}
+                              {activePurchaseBatchObj.invoice_number
+                                ? ` — NF ${activePurchaseBatchObj.invoice_number}`
+                                : ''}
+                            </strong>
+                            {activePurchaseBatchObj.location && (
+                              <span className="text-slate-500 ml-2">
+                                (Local: {activePurchaseBatchObj.location})
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-bold text-[11px]">
+                              {activePurchaseBatchObj.availableCount} equipamento(s) disponível(is)
+                            </span>
+                          </div>
+                        </div>
+
+                        {activePurchaseBatchObj.modelsSummary && (
+                          <div className="text-slate-600 text-[11px]">
+                            <span className="font-semibold text-slate-700">Modelos no lote: </span>
+                            <span>{activePurchaseBatchObj.modelsSummary}</span>
+                          </div>
+                        )}
+
+                        {activePurchaseBatchObj.suggestedUnitPrice > 0 && (
+                          <div className="text-[11px] text-slate-500">
+                            Preço médio de cadastro do lote:{' '}
+                            <strong className="text-slate-800">
+                              R$ {activePurchaseBatchObj.suggestedUnitPrice.toFixed(2)}
+                            </strong>{' '}
+                            (sugerido automaticamente no campo de preço)
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Inputs de Quantidade e Preço Unitário */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                      {/* Quantidade */}
+                      <div className="space-y-1">
+                        <Label className="text-xs text-slate-700 font-medium">
+                          Quantidade a Vender
+                        </Label>
+                        <Input
+                          type="number"
+                          min="1"
+                          max={activePurchaseBatchObj?.availableCount || 1}
+                          value={batchQuantity}
+                          onChange={(e) => setBatchQuantity(parseInt(e.target.value) || 1)}
+                          disabled={
+                            !selectedPurchaseBatchId ||
+                            (activePurchaseBatchObj?.availableCount || 0) <= 0
+                          }
+                          className="bg-white border-slate-300"
+                        />
+                        {activePurchaseBatchObj && (
+                          <span className="text-[10px] text-slate-500">
+                            Máximo: {activePurchaseBatchObj.availableCount} un
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Preço Unitário Negociado */}
+                      <div className="space-y-1">
+                        <Label className="text-xs text-slate-700 font-medium">
+                          Preço Unitário Negociado (R$)
+                        </Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={batchUnitPrice}
+                          onChange={(e) => setBatchUnitPrice(parseFloat(e.target.value) || 0)}
+                          disabled={!selectedPurchaseBatchId}
+                          className="bg-white border-slate-300 font-mono"
+                        />
+                        <span className="text-[10px] text-slate-500">
+                          Subtotal da linha: R$ {(batchQuantity * batchUnitPrice).toFixed(2)}
+                        </span>
+                      </div>
+
+                      {/* Botão Adicionar Lote ao Pedido */}
+                      <div className="flex flex-col justify-end">
+                        <Button
+                          type="button"
+                          onClick={handleAddBatchToCart}
+                          disabled={
+                            !selectedPurchaseBatchId ||
+                            (activePurchaseBatchObj?.availableCount || 0) <= 0 ||
+                            batchQuantity <= 0
+                          }
+                          className="bg-[#d9532f] hover:bg-[#c24624] text-white w-full gap-1.5 font-bold shadow-xs"
+                        >
+                          <Plus className="w-4 h-4" />
+                          Adicionar Lote ao Pedido
+                        </Button>
+                      </div>
+                    </div>
+
+                    {batchItemError && (
+                      <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-md flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                        <span>{batchItemError}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* MODO 2: POR EQUIPAMENTO (FLUXO TRADICIONAL INTOCADO) */}
+              {selectionMode === 'equipment' && (
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-4">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                    <Package className="w-4 h-4 text-blue-600" />
+                    Selecionar Equipamento & Lote Específico
+                  </h4>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {/* Produto */}
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Produto</Label>
+                      <Select value={selectedProductId} onValueChange={handleProductChange}>
+                        <SelectTrigger className="bg-white">
+                          <SelectValue placeholder="Selecione o equipamento" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {products.map((p) => {
+                            const isPending = p.status === 'Pendente de ativação'
+                            return (
+                              <SelectItem key={p.id} value={p.id} disabled={isPending}>
+                                {p.name} ({p.sku})
+                                {isPending ? ' — Pendente de ativação — insira o PN' : ''}
+                              </SelectItem>
+                            )
+                          })}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Lote */}
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">
+                        Lote Físico (Disponibilidade)
+                      </Label>
+                      <Select
+                        value={selectedBatchId}
+                        onValueChange={handleBatchChange}
+                        disabled={!selectedProductId}
+                      >
+                        <SelectTrigger className="bg-white">
+                          <SelectValue
+                            placeholder={
+                              !selectedProductId
+                                ? 'Escolha o produto primeiro'
+                                : availableBatchesForProduct.length === 0
+                                  ? 'Sem lotes com estoque!'
+                                  : 'Selecione o lote'
+                            }
+                          />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {availableBatchesForProduct.map((b) => (
+                            <SelectItem key={b.id} value={b.id}>
+                              {b.batch_number} — {b.quantity} un disponíveis (
+                              {b.location || 'Sem local'})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  {activeBatchObj && (
+                    <div className="text-xs p-2.5 bg-blue-50/70 border border-blue-200/60 rounded text-blue-900 flex items-center justify-between">
+                      <span>
+                        <strong>Lote ativo:</strong> {activeBatchObj.batch_number} (Local:{' '}
+                        {activeBatchObj.location || 'Depósito Geral'})
+                      </span>
+                      <span className="font-bold">Estoque Atual: {activeBatchObj.quantity} un</span>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {/* Quantidade */}
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Quantidade</Label>
+                      <Input
+                        type="number"
+                        min="1"
+                        max={activeBatchObj?.quantity || 1}
+                        value={itemQuantity}
+                        onChange={(e) => setItemQuantity(parseInt(e.target.value) || 1)}
+                        className="bg-white"
+                      />
+                    </div>
+
+                    {/* Preço Unitário */}
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Preço Unitário (R$)</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={itemUnitPrice}
+                        onChange={(e) => setItemUnitPrice(parseFloat(e.target.value) || 0)}
+                        className="bg-white"
+                      />
+                    </div>
+
+                    {/* Subtotal preview & Button */}
+                    <div className="flex flex-col justify-end">
+                      <Button
+                        type="button"
+                        onClick={handleAddItem}
+                        disabled={!selectedBatchId}
+                        className="bg-slate-900 hover:bg-slate-800 text-white w-full gap-1.5"
+                      >
+                        <Plus className="w-4 h-4" />
+                        Adicionar ao Pedido
+                      </Button>
+                    </div>
+                  </div>
+
+                  {itemError && (
+                    <div className="p-2 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                      <span>{itemError}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Current Cart Items Table (Unificada: aceita múltiplas linhas por lote e/ou por equipamento) */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                    Itens no Pedido ({cart.length})
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                    <ShoppingCart className="w-4 h-4 text-emerald-600" />
+                    Carrinho do Pedido ({cart.length} linha{cart.length !== 1 ? 's' : ''} —{' '}
+                    {cart.reduce((a, b) => a + b.quantity, 0)} unidades)
                   </h4>
                   <span className="text-sm font-bold text-slate-900">
                     Total: R$ {cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
@@ -822,44 +1208,57 @@ export default function Vendas() {
 
                 {cart.length === 0 ? (
                   <div className="p-6 border border-dashed border-slate-200 rounded-lg text-center text-xs text-slate-400">
-                    Nenhum item adicionado ainda. Selecione o equipamento e o lote acima para
-                    incluir no pedido.
+                    Nenhum item ou lote adicionado ainda. Escolha a opção &quot;Por Lote&quot; ou
+                    &quot;Por Equipamento&quot; acima para incluir no pedido.
                   </div>
                 ) : (
-                  <div className="border border-slate-200 rounded-lg overflow-hidden">
+                  <div className="border border-slate-200 rounded-lg overflow-hidden bg-white">
                     <table className="w-full text-xs text-left">
                       <thead className="bg-slate-100 text-slate-700 font-semibold uppercase">
                         <tr>
-                          <th className="py-2 px-3">Produto</th>
-                          <th className="py-2 px-3">Lote Vinculado</th>
-                          <th className="py-2 px-3 text-center">Qtd</th>
-                          <th className="py-2 px-3 text-right">Unitário</th>
-                          <th className="py-2 px-3 text-right">Subtotal</th>
-                          <th className="py-2 px-3 text-center">Remover</th>
+                          <th className="py-2.5 px-3">Modo / Origem</th>
+                          <th className="py-2.5 px-3">Descrição / Lote</th>
+                          <th className="py-2.5 px-3 text-center">Qtd</th>
+                          <th className="py-2.5 px-3 text-right">Unitário</th>
+                          <th className="py-2.5 px-3 text-right">Subtotal</th>
+                          <th className="py-2.5 px-3 text-center">Remover</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {cart.map((item) => (
                           <tr key={item.tempId} className="hover:bg-slate-50">
-                            <td className="py-2 px-3 font-medium text-slate-900">
-                              {item.productName}
-                              <span className="block text-[10px] text-slate-400 font-mono">
-                                {item.sku}
+                            <td className="py-2.5 px-3 whitespace-nowrap">
+                              {item.type === 'batch' ? (
+                                <Badge className="bg-orange-100 text-orange-800 border-orange-200 text-[10px] font-bold gap-1">
+                                  <Layers className="w-3 h-3" />
+                                  Por Lote
+                                </Badge>
+                              ) : (
+                                <Badge className="bg-slate-100 text-slate-700 border-slate-200 text-[10px] font-bold gap-1">
+                                  <Package className="w-3 h-3" />
+                                  Individual
+                                </Badge>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <span className="font-semibold text-slate-900 block">
+                                {item.productName}
+                              </span>
+                              <span className="text-[11px] text-slate-500 font-mono">
+                                Lote: {item.batchNumber}
+                                {item.sku ? ` — SKU: ${item.sku}` : ''}
                               </span>
                             </td>
-                            <td className="py-2 px-3 font-mono text-slate-700 font-semibold">
-                              {item.batchNumber}
-                            </td>
-                            <td className="py-2 px-3 text-center font-bold text-slate-900">
+                            <td className="py-2.5 px-3 text-center font-bold text-slate-900 whitespace-nowrap">
                               {item.quantity} un
                             </td>
-                            <td className="py-2 px-3 text-right font-mono">
+                            <td className="py-2.5 px-3 text-right font-mono whitespace-nowrap">
                               R$ {item.unitPrice.toFixed(2)}
                             </td>
-                            <td className="py-2 px-3 text-right font-mono font-bold text-slate-900">
+                            <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900 whitespace-nowrap">
                               R$ {(item.quantity * item.unitPrice).toFixed(2)}
                             </td>
-                            <td className="py-2 px-3 text-center">
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -914,27 +1313,41 @@ export default function Vendas() {
               {/* Items summary */}
               <div className="space-y-2">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                  Itens Selecionados ({cart.length})
+                  Itens e Lotes Selecionados ({cart.length} linha{cart.length !== 1 ? 's' : ''})
                 </h4>
-                <div className="border border-slate-200 rounded-lg overflow-hidden text-xs">
+                <div className="border border-slate-200 rounded-lg overflow-hidden text-xs bg-white">
                   <table className="w-full text-left">
                     <thead className="bg-slate-100 text-slate-600 font-semibold uppercase">
                       <tr>
-                        <th className="p-2">Item</th>
-                        <th className="p-2">Lote</th>
-                        <th className="p-2 text-center">Qtd</th>
-                        <th className="p-2 text-right">Unitário</th>
-                        <th className="p-2 text-right">Subtotal</th>
+                        <th className="p-2.5">Tipo</th>
+                        <th className="p-2.5">Descrição</th>
+                        <th className="p-2.5">Lote / Ref</th>
+                        <th className="p-2.5 text-center">Qtd</th>
+                        <th className="p-2.5 text-right">Unitário</th>
+                        <th className="p-2.5 text-right">Subtotal</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {cart.map((c) => (
                         <tr key={c.tempId}>
-                          <td className="p-2 font-medium">{c.productName}</td>
-                          <td className="p-2 font-mono">{c.batchNumber}</td>
-                          <td className="p-2 text-center font-bold">{c.quantity}</td>
-                          <td className="p-2 text-right font-mono">R$ {c.unitPrice.toFixed(2)}</td>
-                          <td className="p-2 text-right font-mono font-bold">
+                          <td className="p-2.5">
+                            {c.type === 'batch' ? (
+                              <Badge className="bg-orange-100 text-orange-800 border-orange-200 text-[10px] font-bold">
+                                Lote
+                              </Badge>
+                            ) : (
+                              <Badge className="bg-slate-100 text-slate-700 border-slate-200 text-[10px]">
+                                Item
+                              </Badge>
+                            )}
+                          </td>
+                          <td className="p-2.5 font-medium">{c.productName}</td>
+                          <td className="p-2.5 font-mono">{c.batchNumber}</td>
+                          <td className="p-2.5 text-center font-bold">{c.quantity}</td>
+                          <td className="p-2.5 text-right font-mono">
+                            R$ {c.unitPrice.toFixed(2)}
+                          </td>
+                          <td className="p-2.5 text-right font-mono font-bold text-slate-900">
                             R$ {(c.quantity * c.unitPrice).toFixed(2)}
                           </td>
                         </tr>
@@ -973,23 +1386,28 @@ export default function Vendas() {
                 </h3>
                 <p className="text-sm text-slate-600 max-w-md mx-auto mt-1">
                   Ao confirmar, o sistema registrará a venda e o backend executará imediatamente a
-                  baixa de estoque nos <strong>{cart.length} lote(s) selecionado(s)</strong>.
+                  baixa de estoque nos <strong>{cart.length} lote(s) selecionado(s)</strong>,
+                  vinculando cada equipamento aos respectivos lotes de compra e histórico.
                 </p>
               </div>
 
-              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 max-w-sm mx-auto text-left text-xs space-y-1">
+              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3.5 max-w-sm mx-auto text-left text-xs space-y-1.5">
                 <div className="flex justify-between">
                   <span className="text-slate-500">Cliente:</span>
                   <strong className="text-slate-800">{customerName}</strong>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-500">Qtd Total de Itens:</span>
+                  <span className="text-slate-500">Linhas do Pedido:</span>
+                  <strong className="text-slate-800">{cart.length} linha(s)</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Qtd Total de Unidades:</span>
                   <strong className="text-slate-800">
                     {cart.reduce((a, b) => a + b.quantity, 0)} unidades
                   </strong>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Valor Final:</span>
+                <div className="flex justify-between pt-1 border-t border-slate-200">
+                  <span className="text-slate-600 font-semibold">Valor Final:</span>
                   <strong className="text-emerald-700 font-mono text-sm">
                     R$ {cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                   </strong>

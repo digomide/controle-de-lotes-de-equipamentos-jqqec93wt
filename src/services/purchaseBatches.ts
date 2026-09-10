@@ -44,4 +44,11 @@ export const purchaseBatchesService = {
       sort: '-created',
     })
   },
+
+  async getAvailableProductsByBatchId(batchId: string): Promise<Product[]> {
+    return await pb.collection('products').getFullList<Product>({
+      filter: `purchase_batch_id = "${batchId}" && status = "Disponível"`,
+      sort: 'created',
+    })
+  },
 }
