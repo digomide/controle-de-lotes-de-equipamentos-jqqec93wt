@@ -129,6 +129,10 @@ export default function LoteEntradaDetalhe() {
   // 7. Impressão de Etiquetas em Massa
   const [etiquetaModalOpen, setEtiquetaModalOpen] = useState(false)
 
+  // 8. Criação em Massa de Part Numbers Internos (AMB0001, AMB0002...)
+  const [bulkInternalPnModalOpen, setBulkInternalPnModalOpen] = useState(false)
+  const [generatingBulkPn, setGeneratingBulkPn] = useState(false)
+
   const loadData = async () => {
     if (!id) return
     try {
@@ -207,6 +211,17 @@ export default function LoteEntradaDetalhe() {
   const selectedProductsList = useMemo(() => {
     return products.filter((p) => selectedProductIds.includes(p.id))
   }, [products, selectedProductIds])
+
+  // Equipamentos selecionados que realmente estão pendentes de ativação e sem PN
+  const selectedPendingActivationProducts = useMemo(() => {
+    return selectedProductsList.filter(
+      (p) => p.status === 'Pendente de ativação' && (!p.part_number || !p.part_number.trim()),
+    )
+  }, [selectedProductsList])
+
+  const selectedAlreadyActiveCount = useMemo(() => {
+    return selectedProductsList.length - selectedPendingActivationProducts.length
+  }, [selectedProductsList, selectedPendingActivationProducts])
 
   const selectedEtiquetasData = useMemo<EtiquetaData[]>(() => {
     return selectedProductsList.map((p) => ({
@@ -335,6 +350,56 @@ export default function LoteEntradaDetalhe() {
       })
     } finally {
       setDeletingBulk(false)
+    }
+  }
+
+  // Handler para Geração em Massa de PNs Internos
+  const handleConfirmBulkInternalPn = async () => {
+    if (selectedPendingActivationProducts.length === 0) {
+      toast({
+        title: 'Nenhum equipamento elegível',
+        description:
+          'Todos os equipamentos selecionados já possuem PN ou já estão ativados. Nenhum PN real foi modificado.',
+        variant: 'destructive',
+      })
+      setBulkInternalPnModalOpen(false)
+      return
+    }
+
+    setGeneratingBulkPn(true)
+    try {
+      const idsToProcess = selectedPendingActivationProducts.map((p) => p.id)
+      const result = await productsService.generateInternalPartNumbersBulk(idsToProcess)
+
+      const totalIgnored = (result.ignoredAlreadyActiveCount || 0) + selectedAlreadyActiveCount
+      const totalCreated = result.activatedCount || 0
+
+      if (totalCreated > 0) {
+        toast({
+          title: 'PNs Internos criados com sucesso!',
+          description: `${totalCreated} PN(s) interno(s) criado(s) e ativado(s) como Disponível.${
+            totalIgnored > 0 ? ` ${totalIgnored} ignorado(s) por já possuírem PN.` : ''
+          }`,
+        })
+      } else {
+        toast({
+          title: 'Nenhum PN criado',
+          description: `0 PNs criados, ${totalIgnored} ignorados (já possuíam PN ou já estavam ativos).`,
+        })
+      }
+
+      setBulkInternalPnModalOpen(false)
+      setSelectedProductIds([])
+      await loadData()
+    } catch (err: any) {
+      console.error(err)
+      toast({
+        title: 'Erro ao gerar PNs internos',
+        description: err?.message || 'Falha ao processar os códigos automáticos.',
+        variant: 'destructive',
+      })
+    } finally {
+      setGeneratingBulkPn(false)
     }
   }
 
@@ -468,12 +533,12 @@ export default function LoteEntradaDetalhe() {
     return (
       <div className="max-w-7xl mx-auto text-center py-16">
         <AlertTriangle className="w-12 h-12 text-amber-500 mx-auto mb-3" />
-        <h2 className="text-xl font-bold text-slate-800">Lote de Entrada não encontrado</h2>
+        <h2 className="text-xl font-bold text-slate-800">Lote de Compra não encontrado</h2>
         <p className="text-sm text-slate-500 mt-1 mb-6">
           O lote solicitado não existe ou foi removido.
         </p>
         <Link to="/lotes-entrada">
-          <Button variant="outline">Voltar para Lotes de Entrada</Button>
+          <Button variant="outline">Voltar para Compra de Lotes</Button>
         </Link>
       </div>
     )
@@ -490,7 +555,7 @@ export default function LoteEntradaDetalhe() {
               className="hover:text-orange-600 font-medium flex items-center gap-1"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
-              Lotes de Entrada
+              Compra de Lotes
             </Link>
             <span>/</span>
             <span className="font-mono text-slate-700">
@@ -966,6 +1031,17 @@ export default function LoteEntradaDetalhe() {
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
+              {/* Botão Criar PNs Internos em Massa */}
+              <Button
+                size="sm"
+                onClick={() => setBulkInternalPnModalOpen(true)}
+                className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold h-8 gap-1.5 shadow-xs"
+                title="Gerar código interno automático (AMB0001...) e ativar equipamentos pendentes para venda"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                Criar PNs Internos ({selectedProductIds.length})
+              </Button>
+
               {/* Botão Imprimir Etiquetas em Massa */}
               <Button
                 size="sm"
@@ -1229,6 +1305,99 @@ export default function LoteEntradaDetalhe() {
           </div>
         )}
       </div>
+
+      {/* Modal de Confirmação: Criar PNs Internos em Massa */}
+      <Dialog open={bulkInternalPnModalOpen} onOpenChange={setBulkInternalPnModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <div className="w-10 h-10 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center mb-2">
+              <Sparkles className="w-5 h-5" />
+            </div>
+            <DialogTitle className="text-lg font-bold text-slate-900">
+              Criar PNs Internos em Massa
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500">
+              Gere códigos sequenciais automáticos (ex:{' '}
+              <code className="font-mono font-semibold text-slate-800">AMB0001</code>,{' '}
+              <code className="font-mono font-semibold text-slate-800">AMB0002</code>...) e ative os
+              equipamentos diretamente para venda.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-2 text-xs">
+            <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-lg space-y-2">
+              <div className="flex items-center justify-between font-semibold">
+                <span className="text-slate-700">Total selecionado:</span>
+                <span className="font-mono text-slate-900">
+                  {selectedProductsList.length} equipamento(s)
+                </span>
+              </div>
+              <div className="flex items-center justify-between font-semibold text-amber-800 border-t border-amber-200/60 pt-1.5">
+                <span>Elegíveis para PN interno:</span>
+                <span className="font-bold bg-amber-100 px-2 py-0.5 rounded text-amber-900">
+                  {selectedPendingActivationProducts.length} pendente(s)
+                </span>
+              </div>
+              {selectedAlreadyActiveCount > 0 && (
+                <div className="flex items-center justify-between text-slate-500 border-t border-amber-200/60 pt-1.5 text-[11px]">
+                  <span>Já ativados / com PN real (serão ignorados):</span>
+                  <span>{selectedAlreadyActiveCount} equipamento(s)</span>
+                </div>
+              )}
+            </div>
+
+            <div className="p-2.5 bg-slate-50 border border-slate-200 rounded text-slate-600 text-[11px] space-y-1">
+              <div className="font-semibold text-slate-800 flex items-center gap-1">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                Regras de proteção do sistema:
+              </div>
+              <ul className="list-disc pl-4 space-y-0.5 text-slate-500">
+                <li>
+                  O sistema buscará o próximo código global disponível (padrão{' '}
+                  <code className="font-mono">AMB0001</code>).
+                </li>
+                <li>
+                  Equipamentos que já possuem PN ativo ou status concluído{' '}
+                  <strong>não serão sobrescritos</strong>.
+                </li>
+                <li>
+                  O status dos pendentes passará automaticamente para <strong>Disponível</strong>{' '}
+                  para venda.
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <DialogFooter className="pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setBulkInternalPnModalOpen(false)}
+              disabled={generatingBulkPn}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              onClick={handleConfirmBulkInternalPn}
+              disabled={generatingBulkPn || selectedPendingActivationProducts.length === 0}
+              className="bg-amber-600 hover:bg-amber-700 text-white font-semibold gap-1.5"
+            >
+              {generatingBulkPn ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Gerando PNs...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Gerar PNs ({selectedPendingActivationProducts.length})
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Modal Adicionar / Editar Peça */}
       <Dialog open={partModalOpen} onOpenChange={setPartModalOpen}>

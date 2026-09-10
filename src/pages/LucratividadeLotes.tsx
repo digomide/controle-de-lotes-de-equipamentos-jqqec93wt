@@ -271,7 +271,7 @@ export default function LucratividadeLotes() {
         <div>
           <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
             <Link to="/lotes-entrada" className="hover:text-[#d9532f] font-medium">
-              Lotes de Entrada
+              Compra de Lotes
             </Link>
             <span>/</span>
             <span className="text-slate-700 font-medium">Relatório de Lucratividade</span>
@@ -289,7 +289,7 @@ export default function LucratividadeLotes() {
           <Link to="/lotes-entrada">
             <Button variant="outline" className="text-xs h-10 border-slate-300 hover:bg-slate-100">
               <Boxes className="w-4 h-4 mr-1.5 text-slate-600" />
-              Ver Lotes de Entrada
+              Ver Compra de Lotes
             </Button>
           </Link>
           <Link to="/vendas">
@@ -451,7 +451,7 @@ export default function LucratividadeLotes() {
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
             <FileSpreadsheet className="w-5 h-5 text-orange-600" />
-            Lucratividade por Lote de Entrada ({filteredItems.length})
+            Lucratividade por Lote de Compra ({filteredItems.length})
           </h2>
           <span className="text-xs text-slate-400">
             Atualizado automaticamente com base nas vendas e peças

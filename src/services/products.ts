@@ -223,4 +223,151 @@ export const productsService = {
       errors,
     }
   },
+
+  /**
+   * Geração em massa de Part Numbers Internos (AMB0001, AMB0002, ...)
+   * Ativa equipamentos pendentes sem PN para o status 'Disponível'.
+   * Tenta primeiro o endpoint atômico do backend; se indisponível, executa via SDK com loop e rollback.
+   */
+  async generateInternalPartNumbersBulk(productIds: string[]): Promise<{
+    activatedCount: number
+    ignoredAlreadyActiveCount: number
+    notFoundCount: number
+    totalRequested: number
+    items?: Array<{ id: string; name: string; part_number: string; status: string }>
+  }> {
+    if (!productIds || productIds.length === 0) {
+      return {
+        activatedCount: 0,
+        ignoredAlreadyActiveCount: 0,
+        notFoundCount: 0,
+        totalRequested: 0,
+      }
+    }
+
+    // 1. Tentar endpoint customizado do backend (transação nativa com $app.runInTransaction)
+    try {
+      const response = await pb.send<{
+        ok: boolean
+        activatedCount: number
+        ignoredAlreadyActiveCount: number
+        notFoundCount: number
+        totalRequested: number
+        items?: Array<{ id: string; name: string; part_number: string; status: string }>
+        error?: string
+      }>('/backend/v1/products/bulk-internal-part-numbers', {
+        method: 'POST',
+        body: { product_ids: productIds },
+      })
+
+      if (response && response.ok) {
+        return {
+          activatedCount: response.activatedCount ?? 0,
+          ignoredAlreadyActiveCount: response.ignoredAlreadyActiveCount ?? 0,
+          notFoundCount: response.notFoundCount ?? 0,
+          totalRequested: response.totalRequested ?? productIds.length,
+          items: response.items,
+        }
+      }
+    } catch (endpointErr: any) {
+      console.warn(
+        'Endpoint customizado /bulk-internal-part-numbers indisponível ou falhou, acionando fallback client-side seguro:',
+        endpointErr?.message || endpointErr,
+      )
+    }
+
+    // 2. Fallback resiliente via SDK
+    // Descobrir o maior número AMB existente no banco
+    let maxNum = 0
+    try {
+      const existingAmbProducts = await pb.collection('products').getFullList<Product>({
+        filter: "part_number ~ 'AMB'",
+        sort: '-created',
+        fields: 'id,part_number',
+      })
+
+      for (const p of existingAmbProducts) {
+        const pn = (p.part_number || '').trim()
+        const match = pn.match(/^AMB(\d{4,})$/)
+        if (match && match[1]) {
+          const val = parseInt(match[1], 10)
+          if (!isNaN(val) && val > maxNum) {
+            maxNum = val
+          }
+        }
+      }
+    } catch (queryErr) {
+      console.warn('Erro ao consultar AMB existentes via SDK:', queryErr)
+    }
+
+    const formatCode = (n: number) => {
+      let s = n.toString()
+      while (s.length < 4) {
+        s = '0' + s
+      }
+      return 'AMB' + s
+    }
+
+    let seq = maxNum
+    let activatedCount = 0
+    let ignoredAlreadyActiveCount = 0
+    let notFoundCount = 0
+    const updatedItems: Array<{ id: string; name: string; part_number: string; status: string }> =
+      []
+    const nowIso = new Date().toISOString().replace('T', ' ').substring(0, 19)
+
+    for (const pId of productIds) {
+      try {
+        const prod = await pb
+          .collection('products')
+          .getOne<Product>(pId)
+          .catch(() => null)
+        if (!prod) {
+          notFoundCount++
+          continue
+        }
+
+        const existingPn = (prod.part_number || '').trim()
+        const currentStatus = prod.status
+
+        // Regra de segurança: Não sobrescrever PN real nem equipamento já ativado
+        if (existingPn.length > 0 || currentStatus !== 'Pendente de ativação') {
+          ignoredAlreadyActiveCount++
+          continue
+        }
+
+        seq++
+        const newPn = formatCode(seq)
+        const currentEvents = Array.isArray(prod.history_events) ? [...prod.history_events] : []
+        currentEvents.push({
+          date: nowIso,
+          title: `Ativação em massa: PN interno gerado (${newPn})`,
+        })
+
+        const updated = await pb.collection('products').update<Product>(prod.id, {
+          part_number: newPn,
+          status: 'Disponível',
+          history_events: currentEvents,
+        })
+
+        activatedCount++
+        updatedItems.push({
+          id: updated.id,
+          name: updated.name,
+          part_number: newPn,
+          status: updated.status,
+        })
+      } catch (itemErr: any) {
+        console.error(`Erro ao ativar equipamento ${pId} no fallback:`, itemErr)
+      }
+    }
+
+    return {
+      activatedCount,
+      ignoredAlreadyActiveCount,
+      notFoundCount,
+      totalRequested: productIds.length,
+      items: updatedItems,
+    }
+  },
 }

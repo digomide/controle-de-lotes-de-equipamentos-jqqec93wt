@@ -472,7 +472,7 @@ export default function Estoque() {
           <Link to="/lotes-entrada">
             <Button className="bg-[#d9532f] hover:bg-[#c24624] text-white text-xs h-9 font-medium shadow-xs gap-1.5">
               <Boxes className="w-4 h-4" />
-              Lotes de Entrada
+              Compra de Lotes
             </Button>
           </Link>
           <Link to="/ajustes">

@@ -243,9 +243,7 @@ export default function LotesEntrada() {
             <Boxes className="w-3.5 h-3.5 text-orange-600" />
             Fluxo de Entrada de Compras
           </div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">
-            Lotes de Entrada
-          </h1>
+          <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">Compra de Lotes</h1>
           <p className="text-sm text-slate-500 mt-1">
             Gerencie compras de fornecedores, triagem de equipamentos e acompanhamento do custo por
             lote.
@@ -258,7 +256,7 @@ export default function LotesEntrada() {
             className="bg-[#d9532f] hover:bg-[#c24624] text-white shadow-sm gap-2 font-medium"
           >
             <Plus className="w-4 h-4" />
-            Novo Lote
+            Nova Compra de Lote
           </Button>
         </div>
       </div>
@@ -392,7 +390,7 @@ export default function LotesEntrada() {
             <div className="w-14 h-14 rounded-full bg-orange-50 text-orange-600 flex items-center justify-center mx-auto mb-4">
               <Boxes className="w-7 h-7" />
             </div>
-            <h3 className="text-lg font-bold text-slate-800">Nenhum lote de entrada encontrado</h3>
+            <h3 className="text-lg font-bold text-slate-800">Nenhum lote de compra encontrado</h3>
             <p className="text-sm text-slate-500 max-w-md mx-auto mt-1">
               {searchTerm || statusFilter !== 'all'
                 ? 'Tente ajustar os filtros ou termo de busca.'
@@ -403,7 +401,7 @@ export default function LotesEntrada() {
               className="mt-5 bg-[#d9532f] hover:bg-[#c24624] text-white"
             >
               <Plus className="w-4 h-4 mr-1.5" />
-              Cadastrar Lote
+              Cadastrar Compra de Lote
             </Button>
           </CardContent>
         </Card>
@@ -572,7 +570,7 @@ export default function LotesEntrada() {
               <Boxes className="w-5 h-5" />
             </div>
             <DialogTitle className="text-xl font-bold text-slate-900">
-              Novo Lote de Entrada
+              Nova Compra de Lote
             </DialogTitle>
             <DialogDescription className="text-sm text-slate-500">
               Informe os dados da nota ou compra para abrir a esteira de triagem de equipamentos.

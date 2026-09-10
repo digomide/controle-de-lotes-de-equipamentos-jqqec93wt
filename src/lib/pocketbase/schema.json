@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-10T17:27:43.040Z",
+  "generatedAt": "2026-09-10T21:59:20.740Z",
   "collections": [
     {
       "name": "users",
@@ -303,7 +303,10 @@
           "system": false
         }
       ],
-      "indexes": ["CREATE UNIQUE INDEX idx_products_sku ON products (sku)"]
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_products_sku ON products (sku)",
+        "CREATE INDEX idx_products_part_number ON products (part_number)"
+      ]
     },
     {
       "name": "batches",

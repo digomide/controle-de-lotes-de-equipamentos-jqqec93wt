@@ -49,7 +49,7 @@ export default function Layout() {
 
   const navItems = [
     { title: 'Dashboard', path: '/', icon: LayoutDashboard },
-    { title: 'Lotes de Entrada', path: '/lotes-entrada', icon: Boxes },
+    { title: 'Compra de Lotes', path: '/lotes-entrada', icon: Boxes },
     { title: 'Lucratividade Lotes', path: '/lucratividade', icon: SlidersHorizontal },
     { title: 'Explorador de Catálogo', path: '/explorador-catalogo', icon: Compass },
     { title: 'Gestor ML', path: '/anuncios-ml', icon: ShoppingBag },
@@ -71,8 +71,8 @@ export default function Layout() {
     if (p === '/') return 'Dashboard Geral'
     if (p.includes('/inventariar')) return 'Ficha de Inventário'
     if (p.startsWith('/lucratividade')) return 'Relatório de Lucratividade por Lote'
-    if (p.startsWith('/lotes-entrada/')) return 'Detalhes do Lote de Entrada'
-    if (p.startsWith('/lotes-entrada')) return 'Lotes de Entrada'
+    if (p.startsWith('/lotes-entrada/')) return 'Detalhes da Compra de Lote'
+    if (p.startsWith('/lotes-entrada')) return 'Compra de Lotes'
     if (p.startsWith('/explorador-catalogo')) return 'Explorador de Catálogo Mercado Livre'
     if (p.startsWith('/anuncios-ml')) return 'Gestor ML (Meus Anúncios)'
     if (p.startsWith('/vendas')) return 'Gestão de Vendas'
@@ -266,7 +266,7 @@ export default function Layout() {
                 size="sm"
                 className="bg-[#d9532f] hover:bg-[#c24624] text-white text-xs h-9 font-medium shadow-xs gap-1.5"
               >
-                <Boxes className="w-4 h-4" />+ Lote de Entrada
+                <Boxes className="w-4 h-4" />+ Compra de Lote
               </Button>
             </NavLink>
             {/* Profile Dropdown */}
@@ -360,7 +360,7 @@ export default function Layout() {
             }
           >
             <Boxes className="w-4 h-4" />
-            Lotes
+            Compras
           </NavLink>
           <NavLink
             to="/produtos"
