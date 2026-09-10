@@ -813,116 +813,179 @@ cronAdd('ml_queue_worker', '*/1 * * * *', () => {
         let offset = 0
         let pageNum = 0
         let totalAnnounced = null
+        let effectiveQuery = queryRaw
 
         rec.set('progress_text', 'Coletando anúncios no catálogo do Mercado Livre...')
         appId.save(rec)
 
-        while (pageNum < MAX_PAGES && itemsFound.length < 1500) {
-          if (isStopRequested()) {
-            debugLog.push('Parada solicitada pelo usuário.')
-            break
-          }
+        const runCatalogSearchLoop = function (queryToUse) {
+          offset = 0
+          pageNum = 0
+          totalAnnounced = null
 
-          pageNum++
-          let searchUrl =
-            'https://api.mercadolibre.com/products/search?status=active&site_id=MLB&q=' +
-            encodeURIComponent(queryRaw) +
-            '&limit=' +
-            PAGE_LIMIT +
-            '&offset=' +
-            offset
-
-          if (selectedCategoryId) {
-            searchUrl += '&category=' + encodeURIComponent(selectedCategoryId)
-          }
-          if (domainId) {
-            searchUrl += '&domain_id=' + encodeURIComponent(domainId)
-          }
-
-          rec.set(
-            'progress_text',
-            'Coletando... (' + itemsFound.length + ' anúncios até agora, pág. ' + pageNum + ')',
-          )
-          saveProgressiveResults(false)
-          sleepMs(20)
-
-          let res = null
-          try {
-            const headers = { Accept: 'application/json' }
-            if (token) headers['Authorization'] = 'Bearer ' + token
-            res = $http.send({
-              url: searchUrl,
-              method: 'GET',
-              headers: headers,
-              timeout: 10,
-            })
-          } catch (httpErr) {
-            debugLog.push('Erro HTTP pág ' + pageNum + ': ' + String(httpErr))
-            break
-          }
-
-          if (!res || res.statusCode !== 200 || !res.json) {
-            break
-          }
-
-          const data = res.json
-          const results = data.results || []
-          const paging = data.paging || {}
-          if (typeof paging.total === 'number') totalAnnounced = paging.total
-
-          if (results.length === 0) break
-
-          for (let r = 0; r < results.length; r++) {
-            const prod = results[r]
-            const catId = prod.id
-            if (!catId || seenCatalogIds[catId]) continue
-            seenCatalogIds[catId] = true
-
-            let thumb = ''
-            if (prod.pictures && prod.pictures.length > 0) {
-              thumb = prod.pictures[0].url || prod.pictures[0].secure_url
-            } else if (prod.thumbnail) {
-              thumb = prod.thumbnail
+          while (pageNum < MAX_PAGES && itemsFound.length < 1500) {
+            if (isStopRequested()) {
+              debugLog.push('Parada solicitada pelo usuário.')
+              break
             }
 
-            const condInfo = extractProductCondition(prod)
-            const compInfo = extractCompetitionData(prod)
+            pageNum++
+            let searchUrl =
+              'https://api.mercadolibre.com/products/search?status=active&site_id=MLB&q=' +
+              encodeURIComponent(queryToUse) +
+              '&limit=' +
+              PAGE_LIMIT +
+              '&offset=' +
+              offset
 
-            itemsFound.push({
-              id: prod.id,
-              catalog_product_id: prod.id,
-              title: (prod.name || prod.title || '').substring(0, 140),
-              domain_id: prod.domain_id || domainId || '',
-              category_id: selectedCategoryId || '',
-              permalink: prod.permalink || 'https://www.mercadolivre.com.br/p/' + prod.id,
-              thumbnail: thumb,
-              buy_box_winner_price: compInfo.buy_box_winner_price,
-              min_price: compInfo.min_price,
-              buy_box_winner_seller_id: compInfo.buy_box_winner_seller_id,
-              buy_box_winner_seller_nickname: compInfo.buy_box_winner_seller_nickname || '',
-              buy_box_winner_item_id: compInfo.buy_box_winner_item_id,
-              buy_box_winner_stock: compInfo.buy_box_winner_stock,
-              buy_box_winner_listing_type: compInfo.buy_box_winner_listing_type || '',
-              buy_box_winner_listing_type_label: compInfo.buy_box_winner_listing_type_label || '',
-              buy_box_winner_free_shipping: compInfo.buy_box_winner_free_shipping,
-              buy_box_winner_shipping_mode: compInfo.buy_box_winner_shipping_mode || '',
-              suggested_price_to_win: null,
-              competitors_count: 0,
-              competitors: [],
-              stock_status: compInfo.stock_status,
-              competition_status: compInfo.competition_status,
-              condition: condInfo.condition,
-              condition_label: condInfo.condition_label,
-              condition_grade: condInfo.condition_grade || undefined,
-              status: prod.status || 'active',
-              source: 'ml_products_search_worker',
-              sold_quantity: compInfo.sold_quantity != null ? compInfo.sold_quantity : null,
-            })
+            if (selectedCategoryId) {
+              searchUrl += '&category=' + encodeURIComponent(selectedCategoryId)
+            }
+            if (domainId) {
+              searchUrl += '&domain_id=' + encodeURIComponent(domainId)
+            }
+
+            rec.set(
+              'progress_text',
+              'Coletando... (' + itemsFound.length + ' anúncios até agora, pág. ' + pageNum + ')',
+            )
+            saveProgressiveResults(false)
+            sleepMs(20)
+
+            let res = null
+            try {
+              const headers = { Accept: 'application/json' }
+              if (token) headers['Authorization'] = 'Bearer ' + token
+              res = $http.send({
+                url: searchUrl,
+                method: 'GET',
+                headers: headers,
+                timeout: 10,
+              })
+            } catch (httpErr) {
+              debugLog.push('Erro HTTP pág ' + pageNum + ': ' + String(httpErr))
+              break
+            }
+
+            if (!res || res.statusCode !== 200 || !res.json) {
+              break
+            }
+
+            const data = res.json
+            const results = data.results || []
+            const paging = data.paging || {}
+            if (typeof paging.total === 'number') totalAnnounced = paging.total
+
+            if (results.length === 0) break
+
+            for (let r = 0; r < results.length; r++) {
+              const prod = results[r]
+              const catId = prod.id
+              if (!catId || seenCatalogIds[catId]) continue
+              seenCatalogIds[catId] = true
+
+              let thumb = ''
+              if (prod.pictures && prod.pictures.length > 0) {
+                thumb = prod.pictures[0].url || prod.pictures[0].secure_url
+              } else if (prod.thumbnail) {
+                thumb = prod.thumbnail
+              }
+
+              const condInfo = extractProductCondition(prod)
+              const compInfo = extractCompetitionData(prod)
+
+              itemsFound.push({
+                id: prod.id,
+                catalog_product_id: prod.id,
+                title: (prod.name || prod.title || '').substring(0, 140),
+                domain_id: prod.domain_id || domainId || '',
+                category_id: selectedCategoryId || '',
+                permalink: prod.permalink || 'https://www.mercadolivre.com.br/p/' + prod.id,
+                thumbnail: thumb,
+                buy_box_winner_price: compInfo.buy_box_winner_price,
+                min_price: compInfo.min_price,
+                buy_box_winner_seller_id: compInfo.buy_box_winner_seller_id,
+                buy_box_winner_seller_nickname: compInfo.buy_box_winner_seller_nickname || '',
+                buy_box_winner_item_id: compInfo.buy_box_winner_item_id,
+                buy_box_winner_stock: compInfo.buy_box_winner_stock,
+                buy_box_winner_listing_type: compInfo.buy_box_winner_listing_type || '',
+                buy_box_winner_listing_type_label: compInfo.buy_box_winner_listing_type_label || '',
+                buy_box_winner_free_shipping: compInfo.buy_box_winner_free_shipping,
+                buy_box_winner_shipping_mode: compInfo.buy_box_winner_shipping_mode || '',
+                suggested_price_to_win: null,
+                competitors_count: 0,
+                competitors: [],
+                stock_status: compInfo.stock_status,
+                competition_status: compInfo.competition_status,
+                condition: condInfo.condition,
+                condition_label: condInfo.condition_label,
+                condition_grade: condInfo.condition_grade || undefined,
+                status: prod.status || 'active',
+                source: 'ml_products_search_worker',
+                sold_quantity: compInfo.sold_quantity != null ? compInfo.sold_quantity : null,
+              })
+            }
+
+            if (results.length < PAGE_LIMIT) break
+            offset += results.length
+            if (totalAnnounced != null && offset >= totalAnnounced) break
           }
+        }
 
-          if (results.length < PAGE_LIMIT) break
-          offset += results.length
-          if (totalAnnounced != null && offset >= totalAnnounced) break
+        // Executar primeira busca com a query original
+        runCatalogSearchLoop(queryRaw)
+
+        // Busca secundária com termo suavizado:
+        // Se a query original (3+ palavras) retornou 0 resultados na API de produtos,
+        // refaz sem palavras genéricas de categoria ("notebook", "computador", etc.)
+        const catalogOnlyCount = itemsFound.filter(function (it) {
+          return !it.is_own_account
+        }).length
+
+        if (catalogOnlyCount === 0 && !isStopRequested()) {
+          const rawWords = queryRaw.split(/\s+/).filter(Boolean)
+          if (rawWords.length >= 3) {
+            const genericCategoryWords = {
+              notebook: 1,
+              notebooks: 1,
+              computador: 1,
+              computadores: 1,
+              laptop: 1,
+              laptops: 1,
+              pc: 1,
+              desktop: 1,
+              desktops: 1,
+              ultrabook: 1,
+              ultrabooks: 1,
+            }
+
+            const softenedWords = rawWords.filter(function (w) {
+              const cleanW = w
+                .toLowerCase()
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/[^a-z0-9]+/g, '')
+              return !genericCategoryWords[cleanW]
+            })
+
+            const softenedQuery = softenedWords.join(' ').trim()
+            if (softenedQuery && softenedQuery.toLowerCase() !== queryRaw.toLowerCase()) {
+              debugLog.push(
+                'Busca secundária suavizada: "' + queryRaw + '" -> "' + softenedQuery + '"',
+              )
+              rec.set(
+                'progress_text',
+                'Refinando com termo específico ("' + softenedQuery + '")...',
+              )
+              appId.save(rec)
+
+              runCatalogSearchLoop(softenedQuery)
+
+              if (itemsFound.length > 0) {
+                effectiveQuery = softenedQuery
+                strategyUsed = 'worker_softened_query'
+              }
+            }
+          }
         }
 
         // Ordenação: próprias no topo
@@ -1152,12 +1215,19 @@ cronAdd('ml_queue_worker', '*/1 * * * *', () => {
         const finalPayload = sanitizeForDatabase(itemsFound)
         rec.set('status', 'done')
         rec.set('status_code', 200)
-        rec.set('strategy_used', strategyUsed)
+        rec.set(
+          'strategy_used',
+          strategyUsed ||
+            (effectiveQuery !== queryRaw ? 'worker_softened_query' : 'products_search'),
+        )
+        rec.set('effective_query', effectiveQuery)
         rec.set('progress_count', itemsFound.length)
         rec.set(
           'progress_text',
           itemsFound.length > 0
-            ? itemsFound.length + ' posições cobertas com sucesso pelo Mercado Livre.'
+            ? itemsFound.length +
+                ' posições cobertas com sucesso pelo Mercado Livre.' +
+                (effectiveQuery !== queryRaw ? ' (Termo refinado: "' + effectiveQuery + '")' : '')
             : 'Nenhum anúncio encontrado para o termo pesquisado.',
         )
         rec.set('is_cached', false)

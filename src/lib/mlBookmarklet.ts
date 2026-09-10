@@ -933,13 +933,13 @@ export function getTampermonkeyUserscript(options: {
     .map((domain) => `// @connect      ${domain}`)
     .join('\n')
 
-  const SCRIPT_VERSION = '1.3.2'
+  const SCRIPT_VERSION = '1.4.0'
 
   return `// ==UserScript==
 // @name         Coletor Automático Mercado Livre · Lotes & Raio-X
 // @namespace    https://controle-de-lotes.app/
 // @version      ${SCRIPT_VERSION}
-// @description  Captura automaticamente contadores públicos de vendas e anúncios no Mercado Livre e envia ao app de Lotes
+// @description  Captura contadores públicos de vendas e anúncios no Mercado Livre com envio sob demanda ao app de Lotes
 // @author       Controle de Lotes de Equipamentos
 // @match        *://lista.mercadolivre.com.br/*
 // @match        *://www.mercadolivre.com.br/*
@@ -973,7 +973,6 @@ ${connectDirectives}
     backendUrl: ${JSON.stringify(cleanBackendUrl)},
     appUrl: ${JSON.stringify(cleanAppUrl || cleanBackendUrl)},
     collectorKey: ${JSON.stringify(collectorKey)},
-    debounceDelayMs: 12000, // Envio em lote 12s após última página/scroll
     storageKeyPrefix: 'ml_auto_collector_'
   };
 
@@ -1325,7 +1324,6 @@ ${connectDirectives}
     if (sendBtn && !sendBtn.dataset.bound) {
       sendBtn.dataset.bound = 'true';
       sendBtn.addEventListener('click', () => {
-        if (debounceTimer) clearTimeout(debounceTimer);
         sendBatchToApp();
       });
     }
@@ -1336,7 +1334,6 @@ ${connectDirectives}
   // Estado acumulado na memória da sessão
   let accumulatedItems = new Map();
   let currentSearchTerm = extractSearchTerm() || '';
-  let debounceTimer = null;
   let isSending = false;
 
   function setStatus(state, msg) {
@@ -1383,8 +1380,7 @@ ${connectDirectives}
 
       const term = extractSearchTerm() || currentSearchTerm;
       if (term && term !== currentSearchTerm && accumulatedItems.size > 0) {
-        // O usuário mudou de busca na mesma aba: envia o lote anterior
-        sendBatchToApp(true);
+        // O usuário mudou de busca na mesma aba: limpa o lote anterior
         accumulatedItems.clear();
         currentSearchTerm = term;
       } else if (term) {
@@ -1411,13 +1407,7 @@ ${connectDirectives}
         setStatus('idle', termLabel + '0 itens detectados (aguardando resultados)');
       } else {
         const termLabel = currentSearchTerm ? ('"' + currentSearchTerm.substring(0, 18) + '" · ') : '';
-        setStatus('collecting', termLabel + accumulatedItems.size + ' itens coletados (' + salesCount + ' com vendas)');
-
-        // Programar envio automático com debounce
-        if (debounceTimer) clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(() => {
-          sendBatchToApp();
-        }, CONFIG.debounceDelayMs);
+        setStatus('collecting', termLabel + accumulatedItems.size + ' itens detectados (' + salesCount + ' com vendas) · Clique em Enviar');
       }
     } catch (collectErr) {
       console.error('[Coletor Automático] Erro durante collectCurrentPage:', collectErr);
@@ -1618,18 +1608,7 @@ ${connectDirectives}
     trySendRequest(primaryEndpoint, false);
   }
 
-  // Enviar ao mudar de visibilidade ou descarregar a página
-  window.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') {
-      sendBatchToApp(true);
-    }
-  });
-
-  window.addEventListener('beforeunload', () => {
-    sendBatchToApp(true);
-  });
-
-  // Observador de mutação do DOM para acompanhar paginação SPA do Mercado Livre
+  // Observador de mutação do DOM para acompanhar paginação SPA do Mercado Livre (apenas leitura passiva, sem auto-envio)
   let observerTimer = null;
   const observer = new MutationObserver(() => {
     if (observerTimer) clearTimeout(observerTimer);

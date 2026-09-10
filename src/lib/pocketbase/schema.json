@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-10T10:27:04.691Z",
+  "generatedAt": "2026-09-10T10:33:12.919Z",
   "collections": [
     {
       "name": "users",
@@ -2624,6 +2624,12 @@
         {
           "name": "chunk_count",
           "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "effective_query",
+          "type": "text",
           "required": false,
           "system": false
         }
