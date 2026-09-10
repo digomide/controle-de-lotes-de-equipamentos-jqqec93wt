@@ -119,8 +119,21 @@ routerAdd('POST', '/backend/v1/ml/resolve-sellers', (e) => {
             $app.save(newCacheRec)
           } catch (_) {}
         }
+      } else {
+        // Fallback para não deixar sem nome
+        result[sId] = 'Vendedor #' + sId
       }
-    } catch (_) {}
+    } catch (_) {
+      result[sId] = 'Vendedor #' + sId
+    }
+  }
+
+  // Para qualquer ID restante em missingFromDb além do limite MAX_API_CALLS
+  for (let i = MAX_API_CALLS; i < missingFromDb.length; i++) {
+    const sId = missingFromDb[i]
+    if (!result[sId]) {
+      result[sId] = 'Vendedor #' + sId
+    }
   }
 
   return e.json(200, {

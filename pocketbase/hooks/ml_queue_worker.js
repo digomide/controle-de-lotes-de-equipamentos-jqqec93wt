@@ -207,17 +207,83 @@ cronAdd('ml_queue_worker', '*/1 * * * *', () => {
           ? requestedConditionRaw
           : 'all'
 
-      // Token de acesso do ML
+      // Token de acesso do ML com renovação proativa e tolerância a falhas
       let token = ''
+      let liveSettings = settings
       try {
-        if (settings) {
-          token = settings.getString('access_token')
-        } else {
+        if (!liveSettings) {
           const sRecs = appId.findRecordsByFilter('ml_settings', '1=1', '-created', 1, 0)
-          if (sRecs && sRecs.length > 0) token = sRecs[0].getString('access_token')
+          if (sRecs && sRecs.length > 0) liveSettings = sRecs[0]
+        }
+        if (liveSettings) {
+          token = liveSettings.getString('access_token') || ''
+          const refreshToken = liveSettings.getString('refresh_token') || ''
+          const clientId = liveSettings.getString('client_id') || ''
+          const clientSecret = liveSettings.getString('client_secret') || ''
+          const expiresAtRaw = liveSettings.getString('token_expires_at') || ''
+
+          // Se o token estiver expirado ou a menos de 10 minutos de expirar, ou se não houver token
+          let isExpiringSoon = false
+          if (expiresAtRaw) {
+            try {
+              const expTime = new Date(expiresAtRaw.replace(' ', 'T')).getTime()
+              if (!isNaN(expTime) && expTime - Date.now() < 10 * 60 * 1000) {
+                isExpiringSoon = true
+              }
+            } catch (_) {}
+          } else {
+            isExpiringSoon = true
+          }
+
+          if ((!token || isExpiringSoon) && refreshToken && clientId && clientSecret) {
+            try {
+              const refreshRes = $http.send({
+                url: 'https://api.mercadolibre.com/oauth/token',
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/x-www-form-urlencoded',
+                  Accept: 'application/json',
+                },
+                body:
+                  'grant_type=refresh_token&client_id=' +
+                  encodeURIComponent(clientId) +
+                  '&client_secret=' +
+                  encodeURIComponent(clientSecret) +
+                  '&refresh_token=' +
+                  encodeURIComponent(refreshToken),
+                timeout: 15,
+              })
+              if (
+                refreshRes.statusCode === 200 &&
+                refreshRes.json &&
+                refreshRes.json.access_token
+              ) {
+                token = refreshRes.json.access_token
+                liveSettings.set('access_token', token)
+                if (refreshRes.json.refresh_token) {
+                  liveSettings.set('refresh_token', refreshRes.json.refresh_token)
+                }
+                if (refreshRes.json.expires_in) {
+                  const newExp = new Date(Date.now() + Number(refreshRes.json.expires_in) * 1000)
+                  liveSettings.set(
+                    'token_expires_at',
+                    newExp.toISOString().replace('T', ' ').substring(0, 19),
+                  )
+                }
+                appId.save(liveSettings)
+                console.log('[ml_queue_worker] Token ML renovado com sucesso para a busca.')
+              } else {
+                console.log(
+                  '[ml_queue_worker] Tentativa de renovação do token retornou status ' +
+                    refreshRes.statusCode,
+                )
+              }
+            } catch (refErr) {
+              console.log('[ml_queue_worker] Erro ao renovar token ML: ' + refErr)
+            }
+          }
         }
       } catch (_) {}
-
       // Helper de parada pelo usuário
       const isStopRequested = function () {
         try {
@@ -490,8 +556,8 @@ cronAdd('ml_queue_worker', '*/1 * * * *', () => {
           buy_box_winner_shipping_mode: winnerShippingMode,
           suggested_price_to_win: null,
           competition_raw_status: '',
-          competitors_count: 0,
-          competitors: [],
+          competitors_count: Array.isArray(prod.competitors) ? prod.competitors.length : 0,
+          competitors: Array.isArray(prod.competitors) ? prod.competitors : [],
           stock_status: stockStatus,
           competition_status: competitionStatus,
           sold_quantity: soldQuantity != null ? Number(soldQuantity) : null,
@@ -555,6 +621,9 @@ cronAdd('ml_queue_worker', '*/1 * * * *', () => {
             buy_box_winner_price:
               item.buy_box_winner_price != null ? Number(item.buy_box_winner_price) : null,
             min_price: item.min_price != null ? Number(item.min_price) : null,
+            buy_box_winner_seller_id: item.buy_box_winner_seller_id
+              ? String(item.buy_box_winner_seller_id)
+              : '',
             buy_box_winner_seller_nickname: (item.buy_box_winner_seller_nickname || '').substring(
               0,
               40,
@@ -562,15 +631,18 @@ cronAdd('ml_queue_worker', '*/1 * * * *', () => {
             buy_box_winner_item_id: item.buy_box_winner_item_id
               ? String(item.buy_box_winner_item_id)
               : '',
+            buy_box_winner_listing_type: item.buy_box_winner_listing_type || '',
             buy_box_winner_listing_type_label: item.buy_box_winner_listing_type_label || '',
             buy_box_winner_stock:
               item.buy_box_winner_stock != null ? Number(item.buy_box_winner_stock) : null,
             suggested_price_to_win:
               item.suggested_price_to_win != null ? Number(item.suggested_price_to_win) : null,
             competitors_count:
-              item.competitors_count != null
-                ? Number(item.competitors_count)
-                : cleanCompetitors.length,
+              cleanCompetitors.length > 0
+                ? cleanCompetitors.length
+                : item.competitors_count != null
+                  ? Number(item.competitors_count)
+                  : 0,
             competitors: cleanCompetitors,
             stock_status: item.stock_status || '',
             competition_status: item.competition_status || '',
@@ -907,11 +979,19 @@ cronAdd('ml_queue_worker', '*/1 * * * *', () => {
                 headers: headers,
                 timeout: 10,
               })
+              // Se der 401 Unauthorized com o token, refazer imediatamente como chamada pública
+              if (res && res.statusCode === 401 && token) {
+                res = $http.send({
+                  url: searchUrl,
+                  method: 'GET',
+                  headers: { Accept: 'application/json' },
+                  timeout: 10,
+                })
+              }
             } catch (httpErr) {
               debugLog.push('Erro HTTP pág ' + pageNum + ': ' + String(httpErr))
               break
             }
-
             if (!res || res.statusCode !== 200 || !res.json) {
               break
             }
@@ -958,8 +1038,8 @@ cronAdd('ml_queue_worker', '*/1 * * * *', () => {
                 buy_box_winner_free_shipping: compInfo.buy_box_winner_free_shipping,
                 buy_box_winner_shipping_mode: compInfo.buy_box_winner_shipping_mode || '',
                 suggested_price_to_win: null,
-                competitors_count: 0,
-                competitors: [],
+                competitors_count: compInfo.competitors_count || 0,
+                competitors: compInfo.competitors || [],
                 stock_status: compInfo.stock_status,
                 competition_status: compInfo.competition_status,
                 condition: condInfo.condition,
@@ -1121,7 +1201,7 @@ cronAdd('ml_queue_worker', '*/1 * * * *', () => {
                 return nick
               }
             } catch (_) {}
-            return ''
+            return 'Vendedor #' + sIdStr
           }
 
           for (let eIdx = 0; eIdx < ENRICH_LIMIT; eIdx++) {
@@ -1137,12 +1217,22 @@ cronAdd('ml_queue_worker', '*/1 * * * *', () => {
 
               const itemsUrl =
                 'https://api.mercadolibre.com/products/' + encodeURIComponent(catId) + '/items'
-              const itRes = $http.send({
+              let itRes = $http.send({
                 url: itemsUrl,
                 method: 'GET',
                 headers: headers,
                 timeout: 5,
               })
+
+              // Se retornar 401 (token expirado ou inválido), refaz SEM header Authorization (endpoint público)
+              if (itRes && itRes.statusCode === 401) {
+                itRes = $http.send({
+                  url: itemsUrl,
+                  method: 'GET',
+                  headers: { Accept: 'application/json' },
+                  timeout: 5,
+                })
+              }
 
               if (itRes.statusCode === 200 && itRes.json) {
                 const rawList = Array.isArray(itRes.json)

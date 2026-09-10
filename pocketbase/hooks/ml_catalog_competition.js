@@ -19,19 +19,70 @@ routerAdd('GET', '/backend/v1/ml/catalog-competition/{catalog_product_id}', (e) 
     return e.json(400, { error: 'ID da posição de catálogo não informado' })
   }
 
-  // Obter token e seller_id de ml_settings
+  // Obter token e seller_id de ml_settings com renovação proativa se expirado
   let token = ''
   let ownSellerId = ''
   try {
     const sRecords = $app.findRecordsByFilter('ml_settings', '1=1', '-created', 1, 0)
     if (sRecords && sRecords.length > 0) {
-      token = sRecords[0].getString('access_token') || ''
-      ownSellerId = sRecords[0].getString('user_id_ml') || ''
+      const s = sRecords[0]
+      token = s.getString('access_token') || ''
+      ownSellerId = s.getString('user_id_ml') || ''
+      const refreshToken = s.getString('refresh_token') || ''
+      const clientId = s.getString('client_id') || ''
+      const clientSecret = s.getString('client_secret') || ''
+      const expiresAtRaw = s.getString('token_expires_at') || ''
+
+      let isExpiringSoon = false
+      if (expiresAtRaw) {
+        try {
+          const expTime = new Date(expiresAtRaw.replace(' ', 'T')).getTime()
+          if (!isNaN(expTime) && expTime - Date.now() < 10 * 60 * 1000) {
+            isExpiringSoon = true
+          }
+        } catch (_) {}
+      } else {
+        isExpiringSoon = true
+      }
+
+      if ((!token || isExpiringSoon) && refreshToken && clientId && clientSecret) {
+        try {
+          const refreshRes = $http.send({
+            url: 'https://api.mercadolibre.com/oauth/token',
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+              Accept: 'application/json',
+            },
+            body:
+              'grant_type=refresh_token&client_id=' +
+              encodeURIComponent(clientId) +
+              '&client_secret=' +
+              encodeURIComponent(clientSecret) +
+              '&refresh_token=' +
+              encodeURIComponent(refreshToken),
+            timeout: 15,
+          })
+          if (refreshRes.statusCode === 200 && refreshRes.json && refreshRes.json.access_token) {
+            token = refreshRes.json.access_token
+            s.set('access_token', token)
+            if (refreshRes.json.refresh_token) {
+              s.set('refresh_token', refreshRes.json.refresh_token)
+            }
+            if (refreshRes.json.expires_in) {
+              const newExp = new Date(Date.now() + Number(refreshRes.json.expires_in) * 1000)
+              s.set('token_expires_at', newExp.toISOString().replace('T', ' ').substring(0, 19))
+            }
+            $app.save(s)
+          }
+        } catch (refErr) {
+          console.log('[ml_catalog_competition] Erro renovação token: ' + refErr)
+        }
+      }
     }
   } catch (errSet) {
     console.log('[ml_catalog_competition] Erro ml_settings: ' + errSet)
   }
-
   const sellerNickCache = {}
   function getSellerNickname(sellerId) {
     if (!sellerId) return ''
@@ -96,7 +147,9 @@ routerAdd('GET', '/backend/v1/ml/catalog-competition/{catalog_product_id}', (e) 
         return nick
       }
     } catch (_) {}
-    return ''
+
+    // Fallback: nunca retornar string vazia para seller_id válido
+    return 'Vendedor #' + sIdStr
   }
 
   const headers = { Accept: 'application/json' }
@@ -141,12 +194,22 @@ routerAdd('GET', '/backend/v1/ml/catalog-competition/{catalog_product_id}', (e) 
   let maxItemSoldQuantity = null
 
   try {
-    const itRes = $http.send({
+    let itRes = $http.send({
       url: itemsUrl,
       method: 'GET',
       headers: headers,
       timeout: 10,
     })
+
+    // Se retornar 401 Unauthorized (token expirado), refazer sem header Authorization (endpoint público)
+    if (itRes && itRes.statusCode === 401) {
+      itRes = $http.send({
+        url: itemsUrl,
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+        timeout: 10,
+      })
+    }
 
     if (itRes.statusCode === 200 && itRes.json) {
       const rawList = Array.isArray(itRes.json)
@@ -256,15 +319,23 @@ routerAdd('GET', '/backend/v1/ml/catalog-competition/{catalog_product_id}', (e) 
 
   // Se ainda não tivermos sold_quantity e houver produto de catálogo, tentar ler de /products/{catId}
   let productSoldQuantity = maxItemSoldQuantity
-  if (productSoldQuantity == null && token) {
+  if (productSoldQuantity == null) {
     try {
-      const prodRes = $http.send({
+      let prodRes = $http.send({
         url: 'https://api.mercadolibre.com/products/' + encodeURIComponent(catId),
         method: 'GET',
         headers: headers,
         timeout: 6,
       })
-      if (prodRes.statusCode === 200 && prodRes.json) {
+      if (prodRes && prodRes.statusCode === 401) {
+        prodRes = $http.send({
+          url: 'https://api.mercadolibre.com/products/' + encodeURIComponent(catId),
+          method: 'GET',
+          headers: { Accept: 'application/json' },
+          timeout: 6,
+        })
+      }
+      if (prodRes && prodRes.statusCode === 200 && prodRes.json) {
         productSoldQuantity = extractSoldQuantity(prodRes.json)
         if (productSoldQuantity == null && prodRes.json.buy_box_winner) {
           productSoldQuantity = extractSoldQuantity(prodRes.json.buy_box_winner)
@@ -272,7 +343,6 @@ routerAdd('GET', '/backend/v1/ml/catalog-competition/{catalog_product_id}', (e) 
       }
     } catch (_) {}
   }
-
   // 3. TENTATIVA HONESTA DE LEITURA DA PÁGINA PÚBLICA (/p/MLB... ou anúncio vencedor)
   // Caso a API retorne null para sold_quantity (muito comum em produtos de catálogo para terceiros),
   // fazemos uma tentativa server-side de captura do contador público ("X vendidos") sem nunca inventar números.

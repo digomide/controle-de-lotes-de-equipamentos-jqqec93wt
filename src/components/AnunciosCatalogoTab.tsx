@@ -112,6 +112,7 @@ export function AnunciosCatalogoTab() {
       setCollectorWithSalesCount(0)
       setCollectorMatchedTerm('')
       setShowingCollectorAds(false)
+      setCollectorFallbackInfo(null)
       return
     }
 
@@ -120,16 +121,24 @@ export function AnunciosCatalogoTab() {
       const res = await mlCollectorService.getCollectorAdsForTerm(cleanTerm)
       if (res && Array.isArray(res.ads) && res.ads.length > 0) {
         setCollectorFallbackAds(res.ads)
-        setCollectorMatchedTerm(res.matchedSearchTerm || cleanTerm)
+        const matchedT = res.matchedSearchTerm || cleanTerm
+        setCollectorMatchedTerm(matchedT)
         const withSales = res.ads.filter(
           (a) => a.sold_quantity != null && Number(a.sold_quantity) > 0,
         ).length
         setCollectorWithSalesCount(withSales)
+        setCollectorFallbackInfo({
+          ads: res.ads,
+          matchedSearchTerm: matchedT,
+          adsWithSalesCount: withSales,
+          hasChecked: true,
+        })
       } else {
         setCollectorFallbackAds([])
         setCollectorWithSalesCount(0)
         setCollectorMatchedTerm('')
         setShowingCollectorAds(false)
+        setCollectorFallbackInfo(null)
       }
     } catch (err) {
       console.warn('[AnunciosCatalogoTab] Erro ao consultar fallback do coletor:', err)
@@ -137,6 +146,7 @@ export function AnunciosCatalogoTab() {
       setCollectorWithSalesCount(0)
       setCollectorMatchedTerm('')
       setShowingCollectorAds(false)
+      setCollectorFallbackInfo(null)
     } finally {
       setCheckingCollectorFallback(false)
     }
@@ -590,44 +600,12 @@ export function AnunciosCatalogoTab() {
 
       const hasMarketplaceResults = results.some((it) => !it.is_own_account)
       if (results.length === 0 || !hasMarketplaceResults) {
-        // Fallback inteligente: buscar anúncios minerados pelo Coletor do navegador
-        try {
-          const collectorResult = await mlCollectorService.getCollectorAdsForTerm(q)
-          if (
-            collectorResult &&
-            Array.isArray(collectorResult.ads) &&
-            collectorResult.ads.length > 0
-          ) {
-            const withSalesCount = collectorResult.ads.filter(
-              (a) => a.sold_quantity != null && a.sold_quantity > 0,
-            ).length
-            setCollectorFallbackInfo({
-              ads: collectorResult.ads,
-              matchedSearchTerm: collectorResult.matchedSearchTerm || q,
-              adsWithSalesCount: withSalesCount,
-              hasChecked: true,
-            })
-          } else {
-            setCollectorFallbackInfo({
-              ads: [],
-              matchedSearchTerm: q,
-              adsWithSalesCount: 0,
-              hasChecked: true,
-            })
-          }
-        } catch (collectorErr) {
-          console.warn(
-            '[AnunciosCatalogoTab] Falha ao consultar fallback do coletor:',
-            collectorErr,
-          )
-          setCollectorFallbackInfo({
-            ads: [],
-            matchedSearchTerm: q,
-            adsWithSalesCount: 0,
-            hasChecked: true,
-          })
-        }
+        await checkCollectorFallback(q)
+      } else {
+        setCollectorFallbackInfo(null)
+      }
 
+      if (results.length === 0) {
         toast({
           title: 'Nenhum produto de catálogo encontrado',
           description: 'A API oficial do Mercado Livre não retornou posições para este termo.',

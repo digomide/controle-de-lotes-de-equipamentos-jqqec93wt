@@ -4,7 +4,13 @@ import {
   positionOverridesService,
   type PositionOverrideAction,
 } from '@/services/positionOverridesService'
-import { detectCollectorNoiseAd, softenSearchTerm } from '@/lib/catalogFilter'
+import {
+  detectCollectorNoiseAd,
+  softenSearchTerm,
+  extractCatalogSearchTokens,
+  matchesCatalogToken,
+  removeAccents,
+} from '@/lib/catalogFilter'
 import type { MLCollectorPayload, MLCollectorResultItem } from '@/lib/mlBookmarklet'
 
 export interface MLCollectorImportRecord {
@@ -335,9 +341,28 @@ export const mlCollectorService = {
       return { ads: [], matchedSearchTerm: '', importRecord: null }
     }
 
+    // Filtro rigoroso por modelo no título do anúncio coletado:
+    // Um anúncio coletado só entra na lista do banner se o título contiver o termo de busca efetivo
+    // após suavização (ex: "notebook lenovo t480" -> "lenovo t480", exigindo tokens significativos como "t480").
+    const effectiveTerm = softenSearchTerm(searchTerm || importRecord.search_term || '')
+    const effectiveTokens = extractCatalogSearchTokens(effectiveTerm)
+
+    const matchesEffectiveModel = (title: string): boolean => {
+      if (!title) return false
+      if (effectiveTokens.length === 0) return true
+      const normTitle = removeAccents(title).toLowerCase()
+      const compactTitle = normTitle.replace(/[^a-z0-9]/g, '')
+      return effectiveTokens.every((tok) => {
+        // Se o token for numérico ou alfanumérico com dígitos (ex: t480, 5420, i5),
+        // deve estar no título normalizado ou compacto
+        return matchesCatalogToken(normTitle, compactTitle, tok)
+      })
+    }
+
     try {
       const summary = await this.buildCollectorSummary(importRecord.search_term, importRecord)
-      const ads = summary?.all_deduplicated_ads || []
+      const rawAds = summary?.all_deduplicated_ads || []
+      const ads = rawAds.filter((ad) => matchesEffectiveModel(ad.title))
       return {
         ads,
         matchedSearchTerm: importRecord.search_term,
@@ -348,7 +373,7 @@ export const mlCollectorService = {
       // Fallback: extrair diretamente do payload
       const payload = this.decodePayload(importRecord.payload)
       const rawResults = payload && Array.isArray(payload.results) ? payload.results : []
-      const ads: CollectorDeduplicatedAd[] = rawResults.map((it: any, idx: number) => ({
+      const rawAds: CollectorDeduplicatedAd[] = rawResults.map((it: any, idx: number) => ({
         canonical_id: it.mlb_id || it.id || `COL_${idx + 1}`,
         title: it.title || '',
         price: it.price || 0,
@@ -367,6 +392,7 @@ export const mlCollectorService = {
         all_mlb_ids: [it.mlb_id || it.id].filter(Boolean),
         source: 'collector' as const,
       }))
+      const ads = rawAds.filter((ad) => matchesEffectiveModel(ad.title))
       return {
         ads,
         matchedSearchTerm: importRecord.search_term,
