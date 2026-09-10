@@ -303,8 +303,10 @@ export function RaioXMercadoTab({ onOpenCollector }: RaioXMercadoTabProps = {}) 
         : 'Iniciando varredura profunda para "' + q + '"...',
     )
 
+    let activeJobId: string | null = null
     try {
       const jobInit = await mlCatalogService.searchCatalog(q, '', 'all', forceRefresh)
+      activeJobId = jobInit.id
       setCurrentJobId(jobInit.id)
 
       const jobDone = await mlCatalogService.pollSearchJob(jobInit.id, (j) => {
@@ -339,11 +341,45 @@ export function RaioXMercadoTab({ onOpenCollector }: RaioXMercadoTabProps = {}) 
       }
     } catch (err: any) {
       console.error('Erro no Raio-X:', err)
-      toast({
-        title: 'Falha na varredura do produto',
-        description: err?.message || 'Não foi possível carregar os dados do Mercado Livre.',
-        variant: 'destructive',
-      })
+
+      // RECUPERAÇÃO AUTOMÁTICA NO RAIO-X:
+      // Se der erro ou timeout no frontend mas o backend terminar com chunks, recupera
+      let recovered = false
+      const targetJobId = activeJobId || currentJobId
+      if (targetJobId) {
+        try {
+          const recoveredJob = await mlCatalogService.recoverSearchJob(targetJobId)
+          if (
+            recoveredJob &&
+            recoveredJob.status === 'done' &&
+            Array.isArray(recoveredJob.results) &&
+            recoveredJob.results.length > 0
+          ) {
+            recovered = true
+            setRawProducts(recoveredJob.results)
+            if (recoveredJob.is_cached || recoveredJob.strategy_used?.includes('cached')) {
+              setIsCached(true)
+              setCachedAt(recoveredJob.cached_at || recoveredJob.created || null)
+            }
+            toast({
+              title: `Varredura recuperada com sucesso (${recoveredJob.results.length} posições)`,
+              description: `Aplicando filtro de precisão de produto exato para "${q}".`,
+            })
+          }
+        } catch (recErr) {
+          console.warn('[RaioXMercadoTab] Falha na recuperação automática:', recErr)
+        }
+      }
+
+      if (!recovered) {
+        toast({
+          title: 'Aviso na varredura do produto',
+          description:
+            err?.message ||
+            'A busca demorou mais que o esperado — os resultados continuam sendo minerados no servidor.',
+          variant: 'destructive',
+        })
+      }
     } finally {
       setLoading(false)
       setCurrentJobId(null)

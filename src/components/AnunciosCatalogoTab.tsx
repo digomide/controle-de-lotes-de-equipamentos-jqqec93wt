@@ -447,6 +447,7 @@ export function AnunciosCatalogoTab() {
 
     const condToUse = overrideCondition ?? searchCondition
     const catToUse = overrideCategoryId !== undefined ? overrideCategoryId : selectedCategoryId
+    let activeJobId: string | null = null
 
     try {
       setSearching(true)
@@ -491,6 +492,7 @@ export function AnunciosCatalogoTab() {
         forceRefresh,
         catToUse,
       )
+      activeJobId = jobInit.id
       setCurrentJobId(jobInit.id)
 
       const jobDone = await mlCatalogService.pollSearchJob(jobInit.id, (j) => {
@@ -589,25 +591,91 @@ export function AnunciosCatalogoTab() {
       }
     } catch (err: any) {
       console.error('Erro na busca de catálogo:', err)
-      const rawMsg = err?.message || ''
-      let friendlyMsg =
-        'Essa busca demorou mais que o esperado — os resultados ficam disponíveis no histórico quando ficarem prontos.'
-      if (rawMsg.includes('Failed to create record')) {
-        friendlyMsg =
-          'Erro temporário de comunicação ao registrar a busca profunda. Tente novamente em alguns segundos.'
-      } else if (
-        rawMsg &&
-        !rawMsg.includes('Something went wrong') &&
-        !rawMsg.includes('failed to fetch')
-      ) {
-        friendlyMsg = rawMsg
+
+      // RECUPERAÇÃO AUTOMÁTICA:
+      // Se tivermos o ID do job (ou pudermos buscar pelo termo no histórico recente),
+      // reconsultamos o status real no servidor e verificamos se há chunks prontos.
+      let recovered = false
+      const targetJobId = activeJobId || currentJobId
+      if (targetJobId) {
+        try {
+          const recoveredJob = await mlCatalogService.recoverSearchJob(targetJobId)
+          if (
+            recoveredJob &&
+            recoveredJob.status === 'done' &&
+            Array.isArray(recoveredJob.results) &&
+            recoveredJob.results.length > 0
+          ) {
+            recovered = true
+            const results = recoveredJob.results
+            setLastStrategy(recoveredJob.strategy_used || 'worker_background')
+            if (recoveredJob.raw_debug) setSearchJobDebug(recoveredJob.raw_debug)
+            if (recoveredJob.progress_text) setSearchProgressText(recoveredJob.progress_text)
+            if (recoveredJob.paging) setSearchPagingInfo(recoveredJob.paging)
+
+            let activeFallback = collectorFallbackMap
+            if (activeFallback.byMlbId.size === 0 && activeFallback.byTitle.size === 0) {
+              try {
+                activeFallback = await mlCollectorService.buildSalesFallbackMap(q)
+                setCollectorFallbackMap(activeFallback)
+              } catch {
+                /* intentionally ignored */
+              }
+            }
+
+            const formatted = processCatalogResults(results, q, condToUse, activeFallback)
+            setCatalogItems(formatted)
+
+            const isDirectCode = isDirectCatalogCodeQuery(q)
+            const tokens = isDirectCode ? [] : extractCatalogSearchTokens(q)
+            const strictCount = isDirectCode
+              ? formatted.length
+              : formatted.filter(
+                  (it) =>
+                    evaluateCatalogItemStrictMatch(
+                      it.catalogProduct.title,
+                      tokens,
+                      it.catalogProduct.attributes,
+                      condToUse,
+                      it.catalogProduct.condition,
+                    ).isMatch,
+                ).length
+
+            const matchedCount = formatted.filter((f) => f.matchedProducts.length > 0).length
+            toast({
+              title: `Busca recuperada com sucesso (${results.length} posições)`,
+              description:
+                matchedCount > 0
+                  ? `${matchedCount} possuem sugestão de match com seu estoque.`
+                  : 'Os resultados foram salvos pelo servidor e recuperados automaticamente.',
+            })
+          }
+        } catch (recoverErr) {
+          console.warn('[AnunciosCatalogoTab] Falha na recuperação automática:', recoverErr)
+        }
       }
 
-      toast({
-        title: 'Erro na busca de catálogo',
-        description: friendlyMsg,
-        variant: 'destructive',
-      })
+      if (!recovered) {
+        const rawMsg = err?.message || ''
+        let friendlyMsg =
+          'Essa busca demorou mais que o esperado — os resultados continuam sendo minerados e ficarão disponíveis.'
+        if (rawMsg.includes('Failed to create record')) {
+          friendlyMsg =
+            'Erro temporário de comunicação ao registrar a busca profunda. Tente novamente em alguns segundos.'
+        } else if (
+          rawMsg &&
+          !rawMsg.includes('Something went wrong') &&
+          !rawMsg.includes('failed to fetch')
+        ) {
+          friendlyMsg = rawMsg
+        }
+
+        toast({
+          title: 'Aviso na busca de catálogo',
+          description: friendlyMsg,
+          variant: 'destructive',
+        })
+      }
     } finally {
       setSearching(false)
       setCurrentJobId(null)

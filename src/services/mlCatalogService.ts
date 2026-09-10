@@ -436,31 +436,79 @@ export const mlCatalogService = {
 
   /**
    * Consulta o estado atual do job de busca.
-   * Se concluído com sucesso, lê os chunks de ml_catalog_search_results e remonta a lista completa.
+   * Se concluído com sucesso (ou com chunks disponíveis), lê os chunks de ml_catalog_search_results e remonta a lista completa.
    */
   async getSearchJob(jobId: string): Promise<MLCatalogSearchJob> {
     const job = await this.getSearchJobMeta(jobId)
 
-    if (job.status === 'done') {
-      const items = await this.fetchJobResultsFromChunks(jobId)
-      if (items.length > 0) {
-        job.results = items
-      } else {
-        // Fallback para caso o job seja legado e tenha sido gravado direto no campo results
-        try {
-          const fullJob = await pb.collection('ml_catalog_search_jobs').getOne(jobId, {
-            fields: 'id,results',
-          })
-          job.results = (fullJob as any).results || []
-        } catch {
-          job.results = []
-        }
+    // Se o job estiver done ou possuir chunks salvos, carrega os itens
+    const items = await this.fetchJobResultsFromChunks(jobId)
+    if (items.length > 0) {
+      job.results = items
+      if (job.status !== 'error') {
+        job.status = 'done'
+      }
+    } else if (job.status === 'done') {
+      // Fallback para caso o job seja legado e tenha sido gravado direto no campo results
+      try {
+        const fullJob = await pb.collection('ml_catalog_search_jobs').getOne(jobId, {
+          fields: 'id,results',
+        })
+        job.results = (fullJob as any).results || []
+      } catch {
+        job.results = []
       }
     } else {
       job.results = []
     }
 
     return job
+  },
+
+  /**
+   * Busca o último job bem-sucedido para um termo de busca e condição
+   */
+  async findLatestJobForQuery(
+    queryText: string,
+    condition: string = 'all',
+  ): Promise<MLCatalogSearchJob | null> {
+    try {
+      const cleanQ = queryText.trim().replace(/["\\]/g, '')
+      if (!cleanQ) return null
+
+      const filter = `query = "${cleanQ}" && status = "done"`
+      const records = await pb.collection('ml_catalog_search_jobs').getList(1, 1, {
+        filter,
+        sort: '-updated',
+        fields:
+          'id,status,query,progress_text,strategy_used,error_message,paging,created,updated,has_chunks,chunk_count,is_cached,cached_at',
+      })
+
+      if (records.items && records.items.length > 0) {
+        return records.items[0] as unknown as MLCatalogSearchJob
+      }
+      return null
+    } catch (err) {
+      console.warn('[mlCatalogService] Falha ao buscar último job para query:', err)
+      return null
+    }
+  },
+
+  /**
+   * Lista histórico de buscas recentes registradas na fila
+   */
+  async listRecentSearchJobs(limit: number = 20): Promise<MLCatalogSearchJob[]> {
+    try {
+      const records = await pb.collection('ml_catalog_search_jobs').getList(1, limit, {
+        sort: '-created',
+        fields:
+          'id,status,query,progress_text,strategy_used,error_message,paging,created,updated,has_chunks,chunk_count,is_cached,cached_at',
+      })
+      return (records.items || []) as unknown as MLCatalogSearchJob[]
+    } catch (err) {
+      console.warn('[mlCatalogService] Falha ao listar buscas recentes:', err)
+      return []
+    }
   },
 
   /**
@@ -481,15 +529,47 @@ export const mlCatalogService = {
    * (`fields: 'id,status,query,progress_text,strategy_used,error_message,paging,created,updated'`).
    * Ao concluir com sucesso, busca os chunks em ml_catalog_search_results e consolida a lista.
    */
+  /**
+   * Aguarda término do job de busca com polling leve por projeção de campos
+   * (`fields: 'id,status,query,progress_text,strategy_used,error_message,paging,created,updated,has_chunks,chunk_count'`).
+   * Não aborta prematuramente enquanto o job estiver em processamento ou na fila ('pending' ou 'processing').
+   * O timeout generoso padrão é de 15 minutos (900s), evitando falso erro no frontend.
+   * Ao concluir com sucesso, busca os chunks em ml_catalog_search_results e consolida a lista.
+   */
   async pollSearchJob(
     jobId: string,
     onProgress?: (job: MLCatalogSearchJob) => void,
-    maxWaitSecs: number = 90,
+    maxWaitSecs: number = 900,
   ): Promise<MLCatalogSearchJob> {
     const start = Date.now()
+    let consecutiveNetworkErrors = 0
+
     while (Date.now() - start < maxWaitSecs * 1000) {
-      // 1. Polling leve apenas dos metadados (sem payload gigante)
-      const jobMeta = await this.getSearchJobMeta(jobId)
+      const elapsedSecs = Math.floor((Date.now() - start) / 1000)
+      let jobMeta: MLCatalogSearchJob
+      try {
+        // 1. Polling leve apenas dos metadados (sem payload gigante)
+        jobMeta = await this.getSearchJobMeta(jobId)
+        consecutiveNetworkErrors = 0
+      } catch (pollErr: any) {
+        consecutiveNetworkErrors++
+        console.warn(
+          `[mlCatalogService] Falha temporária no polling do job ${jobId} (tentativa ${consecutiveNetworkErrors}):`,
+          pollErr,
+        )
+        // Se houver pequenas oscilações de rede, aguarda um pouco mais e tenta novamente antes de desistir
+        if (consecutiveNetworkErrors > 15) {
+          throw pollErr
+        }
+        await new Promise((r) => setTimeout(r, 3000))
+        continue
+      }
+
+      // Sempre injeta o tempo decorrido no progress_text se o backend não enviou detalhes específicos
+      if (!jobMeta.progress_text) {
+        jobMeta.progress_text = `Processando busca profunda no Mercado Livre… (${elapsedSecs}s decorridos)`
+      }
+
       if (onProgress) onProgress(jobMeta)
 
       if (jobMeta.status === 'done') {
@@ -514,27 +594,93 @@ export const mlCatalogService = {
       }
 
       if (jobMeta.status === 'error') {
+        // Antes de declarar erro definitivo, verifica se na verdade o job já possui chunks ou resultados válidos
+        try {
+          const items = await this.fetchJobResultsFromChunks(jobId)
+          if (items.length > 0) {
+            jobMeta.status = 'done'
+            jobMeta.results = items
+            if (onProgress) onProgress(jobMeta)
+            return jobMeta
+          }
+        } catch {
+          /* ignore */
+        }
+
+        // Aguarda 3 segundos adicionais para o caso de o worker estar finalizando a gravação do chunk final
+        if (elapsedSecs < maxWaitSecs - 5) {
+          await new Promise((r) => setTimeout(r, 3000))
+          try {
+            const retryMeta = await this.getSearchJobMeta(jobId)
+            const retryItems = await this.fetchJobResultsFromChunks(jobId)
+            if (retryItems.length > 0 || retryMeta.status === 'done') {
+              retryMeta.status = 'done'
+              retryMeta.results = retryItems
+              if (onProgress) onProgress(retryMeta)
+              return retryMeta
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+
         jobMeta.results = []
         return jobMeta
       }
 
-      await new Promise((r) => setTimeout(r, 600))
+      // Intervalo adaptativo de polling:
+      // Primeiros 60s: 2.5s (resposta rápida para buscas curtas ou cacheadas)
+      // Após 60s: 5s (não sobrecarrega o servidor enquanto a fila processa)
+      const intervalMs = elapsedSecs < 60 ? 2500 : 5000
+      await new Promise((r) => setTimeout(r, intervalMs))
     }
 
-    // Ao estourar tempo limite, verificar se há chunks já disponíveis
+    // Ao estourar tempo limite (15 min), reconsultar o status real e verificar se há chunks já disponíveis
     try {
+      const lastMeta = await this.getSearchJobMeta(jobId)
       const items = await this.fetchJobResultsFromChunks(jobId)
       if (items.length > 0) {
-        const lastMeta = await this.getSearchJobMeta(jobId)
+        lastMeta.status = 'done'
         lastMeta.results = items
+        if (onProgress) onProgress(lastMeta)
+        return lastMeta
+      }
+      if (lastMeta.status === 'done') {
+        lastMeta.results = items
+        if (onProgress) onProgress(lastMeta)
         return lastMeta
       }
     } catch {
       /* intentionally ignored */
     }
     throw new Error(
-      'A busca no catálogo do Mercado Livre excedeu o tempo limite aguardando os resultados. Tente refazer a busca.',
+      'A busca no catálogo do Mercado Livre excedeu o tempo limite de 15 minutos aguardando os resultados. Tente refazer a busca.',
     )
+  },
+
+  /**
+   * Tenta recuperar automaticamente um job de busca que possa ter terminado com sucesso
+   * no servidor ou que já tenha chunks gravados.
+   */
+  async recoverSearchJob(jobId: string): Promise<MLCatalogSearchJob | null> {
+    if (!jobId) return null
+    try {
+      const jobMeta = await this.getSearchJobMeta(jobId)
+      const items = await this.fetchJobResultsFromChunks(jobId)
+      if (items.length > 0 || jobMeta.status === 'done') {
+        jobMeta.status = 'done'
+        jobMeta.results = items
+        return jobMeta
+      }
+      if (jobMeta.status === 'pending' || jobMeta.status === 'processing') {
+        // Ainda está processando no servidor; tentar polling com tempo restante
+        return await this.pollSearchJob(jobId)
+      }
+      return null
+    } catch (err) {
+      console.warn('[mlCatalogService] Falha ao tentar recuperar job ' + jobId + ':', err)
+      return null
+    }
   },
 
   /**
