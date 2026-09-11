@@ -682,7 +682,7 @@ export function ColetorNavegadorPanel({
                   <div className="flex items-center gap-2">
                     <CardTitle className="text-base font-bold text-indigo-950 flex items-center gap-2">
                       <Cpu className="w-5 h-5 text-indigo-600" />
-                      Coletor Automático com Tampermonkey v1.3.2 (Zero Clique)
+                      Coletor Automático com Tampermonkey v1.6.0 (Envio Automático)
                     </CardTitle>
                     <Badge className="bg-emerald-600 text-white text-[10px] font-bold">
                       Recomendado
@@ -691,15 +691,15 @@ export function ColetorNavegadorPanel({
                       variant="outline"
                       className="text-indigo-700 border-indigo-300 text-[10px] font-bold"
                     >
-                      v1.3.2 Atualizada
+                      v1.6.0 Atualizada
                     </Badge>
                   </div>
                   <CardDescription className="text-xs text-slate-600">
-                    Roda em segundo plano enquanto você navega no Mercado Livre. Detecta as buscas,
-                    lê vendas reais, exibe o HUD ativo imediatamente em qualquer página do ML e
-                    sincroniza tudo com o app de Lotes. Se você já instalou antes,{' '}
+                    Roda em segundo plano no Mercado Livre. Coleta página única ou multi-páginas e
+                    despacha o envio ao backend de forma 100% automática ao finalizar, com retry de
+                    rede e confirmação no HUD. Se você já instalou antes,{' '}
                     <strong>copie novamente e substitua no Tampermonkey</strong> para aplicar a
-                    v1.3.2 com o HUD sempre visível e suporte a todas as variações de busca.
+                    versão v1.6.0 com envio automático e retry.
                   </CardDescription>
                 </div>
 
@@ -781,8 +781,9 @@ export function ColetorNavegadorPanel({
                   </div>
                   <p className="text-[11px] text-slate-600 leading-relaxed">
                     Abra qualquer busca no Mercado Livre. Um HUD flutuante &quot;Coletor Lotes&quot;
-                    aparecerá no canto inferior direito mostrando anúncios e vendas lidas, enviando
-                    direto ao banco com botão de Reenviar se necessário.
+                    aparecerá no canto inferior direito. Ao minerar 1 página ou terminar a paginação
+                    N, ele envia automaticamente ao servidor, com 1 retry se houver instabilidade de
+                    rede.
                   </p>
                 </div>
               </div>
@@ -831,18 +832,22 @@ export function ColetorNavegadorPanel({
               </div>
 
               {/* Recursos inclusos no Userscript */}
-              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-950 grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-950 grid grid-cols-1 sm:grid-cols-4 gap-2">
                 <div className="flex items-center gap-1.5">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                   <span>Deduplicação por MLB ID</span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>Envio automático com debounce (12s)</span>
+                  <span>Envio 100% automático</span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>HUD flutuante discreto com status</span>
+                  <span>Retry curto em falha de rede</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>HUD com confirmação e botão reserva</span>
                 </div>
               </div>
             </CardContent>

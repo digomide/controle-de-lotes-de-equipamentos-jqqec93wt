@@ -933,13 +933,13 @@ export function getTampermonkeyUserscript(options: {
     .map((domain) => `// @connect      ${domain}`)
     .join('\n')
 
-  const SCRIPT_VERSION = '1.5.0'
+  const SCRIPT_VERSION = '1.6.0'
 
   return `// ==UserScript==
 // @name         Coletor Automático Mercado Livre · Lotes & Raio-X
 // @namespace    https://controle-de-lotes.app/
 // @version      ${SCRIPT_VERSION}
-// @description  Captura contadores públicos de vendas e anúncios no Mercado Livre com envio sob demanda ao app de Lotes
+// @description  Captura contadores públicos de vendas e anúncios no Mercado Livre com envio automático e retry ao app de Lotes
 // @author       Controle de Lotes de Equipamentos
 // @match        *://lista.mercadolivre.com.br/*
 // @match        *://www.mercadolivre.com.br/*
@@ -1276,8 +1276,8 @@ ${connectDirectives}
 
           <div id="ml-auto-nav-controls" style="display:flex;align-items:center;gap:6px;background:rgba(255,255,255,0.06);padding:4px 6px;border-radius:6px;border:1px solid rgba(255,255,255,0.08);">
             <label for="ml-auto-pages-input" style="color:#94a3b8;font-size:10px;white-space:nowrap;">Páginas:</label>
-            <input id="ml-auto-pages-input" type="number" min="1" max="100" value="1" title="Quantidade de páginas a coletar em sequência" style="width:42px;background:#0f172a;color:#ffffff;border:1px solid rgba(255,255,255,0.25);border-radius:4px;padding:2px 4px;font-size:10px;text-align:center;font-weight:bold;" />
-            <button id="ml-auto-collect-multi-btn" type="button" title="Navega e acumula anúncios automaticamente pelas páginas do ML (envio continua manual)" style="background:#059669;color:#ffffff;border:none;border-radius:4px;padding:3px 8px;font-size:10px;font-weight:700;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:3px;">
+            <input id="ml-auto-pages-input" type="number" min="1" max="100" value="1" title="Quantidade de páginas a coletar em sequência com envio automático ao finalizar" style="width:42px;background:#0f172a;color:#ffffff;border:1px solid rgba(255,255,255,0.25);border-radius:4px;padding:2px 4px;font-size:10px;text-align:center;font-weight:bold;" />
+            <button id="ml-auto-collect-multi-btn" type="button" title="Navega, acumula e envia automaticamente ao finalizar todas as páginas" style="background:#059669;color:#ffffff;border:none;border-radius:4px;padding:3px 8px;font-size:10px;font-weight:700;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:3px;">
               <span>⚡ Coletar N Páginas</span>
             </button>
             <button id="ml-auto-stop-nav-btn" type="button" title="Interromper navegação de páginas" style="display:none;background:#dc2626;color:#ffffff;border:none;border-radius:4px;padding:3px 6px;font-size:10px;font-weight:700;cursor:pointer;">
@@ -1401,7 +1401,10 @@ ${connectDirectives}
     if (sendBtn && !sendBtn.dataset.bound) {
       sendBtn.dataset.bound = 'true';
       sendBtn.addEventListener('click', () => {
-        sendBatchToApp();
+        // Envio manual de reserva
+        const rawPages = pagesInput ? parseInt(pagesInput.value, 10) : 1;
+        const pCount = isNaN(rawPages) || rawPages < 1 ? 1 : rawPages;
+        sendBatchToApp(pCount, 0);
       });
     }
 
@@ -1512,16 +1515,24 @@ ${connectDirectives}
     }
   }
 
-  function sendBatchToApp(isSync = false) {
+  // Envia lote de anúncios para o app PocketBase
+  // pagesCount: número de páginas coletadas (para confirmação no HUD)
+  // retryCount: contagem de retentativas automáticas (máx 1 retry curto)
+  function sendBatchToApp(pagesCount = 1, retryCount = 0) {
     if (accumulatedItems.size === 0 || isSending) return;
     isSending = true;
-    setStatus('sending', 'Enviando… ' + accumulatedItems.size + ' itens');
 
     const itemsArray = Array.from(accumulatedItems.values());
     let salesCount = 0;
     itemsArray.forEach(i => {
       if (i.sold_quantity != null && i.sold_quantity > 0) salesCount++;
     });
+
+    const isRetry = retryCount > 0;
+    const sendingMsg = isRetry
+      ? 'Reconectando (' + retryCount + '/1)… ' + itemsArray.length + ' anúncios'
+      : 'Enviando… ' + itemsArray.length + ' anúncios (' + (pagesCount > 1 ? pagesCount + ' páginas' : '1 página') + ')';
+    setStatus('sending', sendingMsg);
 
     const payload = {
       version: '1.1.0',
@@ -1534,7 +1545,7 @@ ${connectDirectives}
       results: itemsArray
     };
 
-    const baseUrl = (CONFIG.backendUrl || CONFIG.appUrl || '').replace(/\\/+$/, '');
+    const baseUrl = (CONFIG.backendUrl || CONFIG.appUrl || '').replace(//+$/, '');
     // Endpoint oficial: API de coleções padrão do PocketBase
     const primaryEndpoint = baseUrl + '/api/collections/ml_collector_imports/records';
     const fallbackEndpoint = baseUrl + '/backend/v1/ml-collector/ingest';
@@ -1553,10 +1564,14 @@ ${connectDirectives}
     // Envio cross-origin com fallback (GM_xmlhttpRequest, GM.xmlHttpRequest e fetch)
     let failureResetTimer = null;
 
-    function handleSuccess(serverMsg) {
+    function handleSuccess() {
       isSending = false;
       if (failureResetTimer) clearTimeout(failureResetTimer);
-      setStatus('success', '✓ Enviado (' + itemsArray.length + ' itens)');
+
+      const pagesLabel = pagesCount === 1 ? '1 página' : pagesCount + ' páginas';
+      const successMsg = '✓ Enviado: ' + pagesLabel + ', ' + itemsArray.length + ' anúncios (' + salesCount + ' com vendas)';
+
+      setStatus('success', successMsg);
       if (sendBtn) {
         sendBtn.textContent = '✓ Enviado';
         sendBtn.style.background = '#10b981';
@@ -1570,13 +1585,25 @@ ${connectDirectives}
         const latestSales = Array.from(accumulatedItems.values()).filter(i => i.sold_quantity != null && i.sold_quantity > 0).length;
         const termLabel = currentSearchTerm ? ('"' + currentSearchTerm.substring(0, 18) + '" · ') : '';
         setStatus('collecting', termLabel + accumulatedItems.size + ' itens (' + latestSales + ' com vendas)');
-      }, 5000);
+      }, 7000);
     }
 
     function handleFailure(reasonType, detail) {
       isSending = false;
       if (failureResetTimer) clearTimeout(failureResetTimer);
 
+      // Retry curto automático: 1 tentativa extra para erros de rede ou timeout
+      const isTransientNetworkError = reasonType === 'network' || reasonType === 'timeout';
+      if (isTransientNetworkError && retryCount < 1) {
+        console.warn('[Coletor Automático] Erro transitório de rede (' + (detail || reasonType) + '). Tentando retry automático em 2s...');
+        setStatus('sending', 'Falha na conexão · tentando novamente em 2s (1/1)...');
+        setTimeout(() => {
+          sendBatchToApp(pagesCount, retryCount + 1);
+        }, 2000);
+        return;
+      }
+
+      // Se falhou definitivamente após retry ou por erro não-transitório (auth, blocked, server, etc.)
       let msg = '';
       if (reasonType === 'blocked') {
         msg = '✗ Envio bloqueado pelo Tampermonkey — autorize o domínio';
@@ -1585,7 +1612,7 @@ ${connectDirectives}
       } else if (reasonType === 'method_not_allowed') {
         msg = '✗ HTTP 405: URL aponta para frontend estático em vez do backend PocketBase';
       } else if (reasonType === 'timeout') {
-        msg = '✗ Timeout no envio — Tampermonkey aguardando autorização';
+        msg = '✗ Timeout no envio após retry';
       } else if (reasonType === 'server') {
         msg = '✗ Erro no servidor: HTTP ' + detail;
       } else {
@@ -1597,9 +1624,9 @@ ${connectDirectives}
         sendBtn.textContent = 'Reenviar';
         sendBtn.style.background = '#ef4444';
       }
-      console.warn('[Coletor Automático] Falha no envio:', reasonType, detail);
+      console.warn('[Coletor Automático] Falha definitiva no envio:', reasonType, detail);
 
-      // Persiste a mensagem por 7 segundos antes de voltar ao estado normal
+      // Persiste a mensagem de erro por 9 segundos antes de retornar ao estado de prontidão
       failureResetTimer = setTimeout(() => {
         if (sendBtn) {
           sendBtn.textContent = 'Enviar';
@@ -1608,7 +1635,7 @@ ${connectDirectives}
         const latestSales = Array.from(accumulatedItems.values()).filter(i => i.sold_quantity != null && i.sold_quantity > 0).length;
         const termLabel = currentSearchTerm ? ('"' + currentSearchTerm.substring(0, 18) + '" · ') : '';
         setStatus('collecting', termLabel + accumulatedItems.size + ' itens (' + latestSales + ' com vendas)');
-      }, 7000);
+      }, 9000);
     }
 
     function trySendRequest(targetUrl, isFallback) {
@@ -1721,19 +1748,26 @@ ${connectDirectives}
     }
   } catch { /* intentionally ignored */ }
 
-  // Iniciar varredura multi-páginas navegando pelo Mercado Livre
+  // Iniciar varredura de páginas navegando pelo Mercado Livre
   function startMultiPageCollection() {
     const rawPages = pagesInput ? parseInt(pagesInput.value, 10) : 1;
     const targetPages = Math.max(1, Math.min(100, isNaN(rawPages) ? 1 : rawPages));
 
-    // Se pediu 1 página, apenas garante a leitura da página atual
+    // Se pediu 1 página: coleta a página atual e despacha envio automático imediato
     if (targetPages <= 1) {
       collectCurrentPage();
-      setStatus('collecting', 'Página atual minerada (' + accumulatedItems.size + ' itens). Clique em Enviar.');
+      if (accumulatedItems.size > 0) {
+        setStatus('collecting', 'Página atual minerada (' + accumulatedItems.size + ' anúncios) · enviando automaticamente...');
+        setTimeout(() => {
+          sendBatchToApp(1, 0);
+        }, 300);
+      } else {
+        setStatus('idle', 'Nenhum anúncio detectado nesta página para enviar.');
+      }
       return;
     }
 
-    // Coleta a página atual primeiro
+    // Coleta a página atual primeiro antes de navegar para a próxima
     collectCurrentPage();
 
     const storedItemsObj = {};
@@ -1763,7 +1797,8 @@ ${connectDirectives}
     setStatus('collecting', 'Navegando: pág. ' + sessionData.currentPage + ' de ' + sessionData.targetPages + ' (' + accumulatedItems.size + ' anúncios acumulados)...');
 
     if (sessionData.currentPage >= sessionData.targetPages) {
-      // Concluído todas as páginas solicitadas!
+      // Concluído todas as páginas solicitadas -> ENVIO AUTOMÁTICO!
+      const totalPagesCollected = sessionData.currentPage;
       clearMultiSession();
       if (stopNavBtn) stopNavBtn.style.display = 'none';
       if (collectMultiBtn) {
@@ -1774,20 +1809,32 @@ ${connectDirectives}
       accumulatedItems.forEach(i => {
         if (i.sold_quantity != null && i.sold_quantity > 0) salesCount++;
       });
-      setStatus('collecting', '✓ ' + sessionData.targetPages + ' páginas coletadas com sucesso (' + accumulatedItems.size + ' anúncios, ' + salesCount + ' com vendas). Envio MANUAL: clique em Enviar!');
+      setStatus('sending', '✓ ' + totalPagesCollected + ' páginas coletadas (' + accumulatedItems.size + ' anúncios, ' + salesCount + ' com vendas) · Enviando automaticamente ao app...');
+      setTimeout(() => {
+        sendBatchToApp(totalPagesCollected, 0);
+      }, 400);
       return;
     }
 
     // Procura link da próxima página
     const nextHref = findNextPageHref();
     if (!nextHref) {
+      // Fim da paginação do Mercado Livre alcançado antes da meta -> ENVIO AUTOMÁTICO com o que foi coletado
+      const pagesReached = sessionData.currentPage;
       clearMultiSession();
       if (stopNavBtn) stopNavBtn.style.display = 'none';
       if (collectMultiBtn) {
         collectMultiBtn.disabled = false;
         collectMultiBtn.innerHTML = '<span>⚡ Coletar N Páginas</span>';
       }
-      setStatus('collecting', 'Fim da paginação do ML alcançado na página ' + sessionData.currentPage + ' (' + accumulatedItems.size + ' itens acumulados). Clique em Enviar.');
+      let salesCount = 0;
+      accumulatedItems.forEach(i => {
+        if (i.sold_quantity != null && i.sold_quantity > 0) salesCount++;
+      });
+      setStatus('sending', 'Fim da paginação do ML (pág. ' + pagesReached + ', ' + accumulatedItems.size + ' anúncios) · Enviando automaticamente ao app...');
+      setTimeout(() => {
+        sendBatchToApp(pagesReached, 0);
+      }, 400);
       return;
     }
 
@@ -1804,7 +1851,6 @@ ${connectDirectives}
       window.location.href = nextHref;
     }, 1500);
   }
-
   // Restaura sessão de multi-páginas se estiver no meio de uma navegação
   function checkAndResumeMultiSession() {
     const session = getMultiSession();
