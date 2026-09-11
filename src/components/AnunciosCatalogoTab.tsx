@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -111,17 +111,21 @@ export function AnunciosCatalogoTab() {
   const [checkingCollectorFallback, setCheckingCollectorFallback] = useState<boolean>(false)
 
   // Função para verificar se há anúncios minerados do coletor caso a API oficial retorne vazia
-  const checkCollectorFallback = async (searchTerm: string) => {
+  const checkCollectorFallback = async (searchTerm: string, expectedGenId?: number) => {
     const cleanTerm = (searchTerm || '').trim()
     if (!cleanTerm) {
-      setCollectorFallbackInfo(null)
-      setShowCollectorAds(false)
+      if (expectedGenId === undefined || activeSearchIdRef.current === expectedGenId) {
+        setCollectorFallbackInfo(null)
+        setShowCollectorAds(false)
+      }
       return
     }
 
+    if (expectedGenId !== undefined && activeSearchIdRef.current !== expectedGenId) return
     setCheckingCollectorFallback(true)
     try {
       const res = await mlCollectorService.getCollectorAdsForTerm(cleanTerm)
+      if (expectedGenId !== undefined && activeSearchIdRef.current !== expectedGenId) return
       if (res && Array.isArray(res.ads) && res.ads.length > 0) {
         // Aplicação do filtro rigoroso por modelo no título do anúncio:
         // Apenas anúncios cujo título contém o modelo exato do termo entram na lista e na contagem.
@@ -152,14 +156,20 @@ export function AnunciosCatalogoTab() {
       }
     } catch (err) {
       console.warn('[AnunciosCatalogoTab] Erro ao consultar fallback do coletor:', err)
-      setCollectorFallbackInfo(null)
-      setShowCollectorAds(false)
+      if (expectedGenId === undefined || activeSearchIdRef.current === expectedGenId) {
+        setCollectorFallbackInfo(null)
+        setShowCollectorAds(false)
+      }
     } finally {
-      setCheckingCollectorFallback(false)
+      if (expectedGenId === undefined || activeSearchIdRef.current === expectedGenId) {
+        setCheckingCollectorFallback(false)
+      }
     }
   }
   const [currentJobId, setCurrentJobId] = useState<string | null>(null)
   const [stoppingJob, setStoppingJob] = useState(false)
+  // Ref de geração de busca para isolar concorrência / descartar respostas obsoletas
+  const activeSearchIdRef = useRef(0)
   const [resolvedSellers, setResolvedSellers] = useState<Record<string, string>>(() =>
     getCachedSellerNames(),
   )
@@ -642,10 +652,14 @@ export function AnunciosCatalogoTab() {
     const catToUse = overrideCategoryId !== undefined ? overrideCategoryId : selectedCategoryId
     let activeJobId: string | null = null
 
+    // Geração da busca para concorrência e descarte de race conditions
+    const searchGenId = ++activeSearchIdRef.current
+
     try {
       setSearching(true)
       setActiveSearchTerm(q)
       setConditionFilter(condToUse)
+      // Limpeza imediata da grade e de todos os estados de resultados/diagnósticos
       setCatalogItems([])
       setSearchJobDebug([])
       setCachedJobInfo(null)
@@ -691,6 +705,9 @@ export function AnunciosCatalogoTab() {
       setCurrentJobId(jobInit.id)
 
       const jobDone = await mlCatalogService.pollSearchJob(jobInit.id, (j) => {
+        // Se outra busca foi disparada, descartar qualquer chunk/atualização
+        if (activeSearchIdRef.current !== searchGenId) return
+
         if (j.raw_debug) setSearchJobDebug(j.raw_debug)
         if (j.progress_text) setSearchProgressText(j.progress_text)
         if (j.paging) setSearchPagingInfo(j.paging)
@@ -700,6 +717,7 @@ export function AnunciosCatalogoTab() {
         // preenche a grade com os resultados recebidos!
         if (Array.isArray(j.results) && j.results.length > 0) {
           setCatalogItems((prev) => {
+            if (activeSearchIdRef.current !== searchGenId) return prev
             if (prev.length === 0 || (j.results && j.results.length >= prev.length)) {
               return processCatalogResults(j.results, q, condToUse)
             }
@@ -707,6 +725,9 @@ export function AnunciosCatalogoTab() {
           })
         }
       })
+
+      // Se outra busca foi disparada enquanto aguardava pollSearchJob, descartar
+      if (activeSearchIdRef.current !== searchGenId) return
 
       if (jobDone.status === 'error') {
         throw new Error(jobDone.error_message || 'Falha ao buscar no catálogo do Mercado Livre')
@@ -730,10 +751,13 @@ export function AnunciosCatalogoTab() {
 
       const hasMarketplaceResults = results.some((it) => !it.is_own_account)
       if (results.length === 0 || !hasMarketplaceResults) {
-        await checkCollectorFallback(q)
+        await checkCollectorFallback(q, searchGenId)
       } else {
         setCollectorFallbackInfo(null)
       }
+
+      // Checa novamente concorrência antes de manipular estado
+      if (activeSearchIdRef.current !== searchGenId) return
 
       if (results.length === 0) {
         toast({
@@ -749,11 +773,15 @@ export function AnunciosCatalogoTab() {
       if (activeFallback.byMlbId.size === 0 && activeFallback.byTitle.size === 0) {
         try {
           activeFallback = await mlCollectorService.buildSalesFallbackMap(q)
-          setCollectorFallbackMap(activeFallback)
+          if (activeSearchIdRef.current === searchGenId) {
+            setCollectorFallbackMap(activeFallback)
+          }
         } catch {
           /* intentionally ignored */
         }
       }
+
+      if (activeSearchIdRef.current !== searchGenId) return
 
       const formatted = processCatalogResults(results, q, condToUse, activeFallback)
       setCatalogItems(formatted)
@@ -794,15 +822,21 @@ export function AnunciosCatalogoTab() {
     } catch (err: any) {
       console.error('Erro na busca de catálogo:', err)
 
+      // Se outra busca já foi disparada, descarta qualquer recuperação ou alerta
+      if (activeSearchIdRef.current !== searchGenId) {
+        return
+      }
+
       // RECUPERAÇÃO AUTOMÁTICA:
       // Se tivermos o ID do job (ou pudermos buscar pelo termo no histórico recente),
       // reconsultamos o status real no servidor e verificamos se há chunks prontos.
       let recovered = false
       const targetJobId = activeJobId || currentJobId
-      if (targetJobId) {
+      if (targetJobId && activeSearchIdRef.current === searchGenId) {
         try {
           const recoveredJob = await mlCatalogService.recoverSearchJob(targetJobId)
           if (
+            activeSearchIdRef.current === searchGenId &&
             recoveredJob &&
             recoveredJob.status === 'done' &&
             Array.isArray(recoveredJob.results) &&
@@ -819,45 +853,56 @@ export function AnunciosCatalogoTab() {
             if (activeFallback.byMlbId.size === 0 && activeFallback.byTitle.size === 0) {
               try {
                 activeFallback = await mlCollectorService.buildSalesFallbackMap(q)
-                setCollectorFallbackMap(activeFallback)
+                if (activeSearchIdRef.current === searchGenId) {
+                  setCollectorFallbackMap(activeFallback)
+                }
               } catch {
                 /* intentionally ignored */
               }
             }
 
-            const formatted = processCatalogResults(results, q, condToUse, activeFallback)
-            setCatalogItems(formatted)
+            if (activeSearchIdRef.current === searchGenId) {
+              const formatted = processCatalogResults(results, q, condToUse, activeFallback)
+              setCatalogItems(formatted)
 
-            const isDirectCode = isDirectCatalogCodeQuery(q)
-            const tokens = isDirectCode ? [] : extractCatalogSearchTokens(q)
-            const strictCount = isDirectCode
-              ? formatted.length
-              : formatted.filter(
-                  (it) =>
-                    evaluateCatalogItemStrictMatch(
-                      it.catalogProduct.title,
-                      tokens,
-                      it.catalogProduct.attributes,
-                      condToUse,
-                      it.catalogProduct.condition,
-                    ).isMatch,
-                ).length
+              const isDirectCode = isDirectCatalogCodeQuery(q)
+              const tokens = isDirectCode ? [] : extractCatalogSearchTokens(q)
+              const strictCount = isDirectCode
+                ? formatted.length
+                : formatted.filter(
+                    (it) =>
+                      evaluateCatalogItemStrictMatch(
+                        it.catalogProduct.title,
+                        tokens,
+                        it.catalogProduct.attributes,
+                        condToUse,
+                        it.catalogProduct.condition,
+                      ).isMatch,
+                  ).length
 
-            const matchedCount = formatted.filter((f) => f.matchedProducts.length > 0).length
-            toast({
-              title: `Busca recuperada com sucesso (${results.length} posições)`,
-              description:
-                matchedCount > 0
-                  ? `${matchedCount} possuem sugestão de match com seu estoque.`
-                  : 'Os resultados foram salvos pelo servidor e recuperados automaticamente.',
-            })
+              const matchedCount = formatted.filter((f) => f.matchedProducts.length > 0).length
+              toast({
+                title: `Busca recuperada com sucesso (${results.length} posições)`,
+                description:
+                  matchedCount > 0
+                    ? `${matchedCount} possuem sugestão de match com seu estoque.`
+                    : 'Os resultados foram salvos pelo servidor e recuperados automaticamente.',
+              })
+            }
           }
         } catch (recoverErr) {
           console.warn('[AnunciosCatalogoTab] Falha na recuperação automática:', recoverErr)
         }
       }
 
-      if (!recovered) {
+      if (!recovered && activeSearchIdRef.current === searchGenId) {
+        // No catch/timeout sem recuperação: garantir grade vazia com mensagem de erro, nunca dados da busca anterior
+        setCatalogItems([])
+        setCollectorFallbackInfo(null)
+        setSearchPagingInfo(null)
+        setSearchJobDebug([])
+        setCachedJobInfo(null)
+
         const rawMsg = err?.message || ''
         let friendlyMsg =
           'Essa busca demorou mais que o esperado — os resultados continuam sendo minerados e ficarão disponíveis.'
@@ -879,8 +924,10 @@ export function AnunciosCatalogoTab() {
         })
       }
     } finally {
-      setSearching(false)
-      setCurrentJobId(null)
+      if (activeSearchIdRef.current === searchGenId) {
+        setSearching(false)
+        setCurrentJobId(null)
+      }
     }
   }
 
@@ -1561,10 +1608,24 @@ export function AnunciosCatalogoTab() {
     })
   }
 
-  // Itens estritos e parciais/descartados filtrados pela condição selecionada e ordenados
-  const strictItems = sortEvaluatedEntries(
-    evaluatedItems.filter((entry) => entry.isMatch && entry.matchesCondition),
+  // Filtro de modelo exato na grade oficial (Edição 3)
+  const requiredTokens = extractRequiredModelTokens(activeSearchTerm)
+  const hasModelFilter = requiredTokens.length > 0
+
+  const conditionFilteredStrict = evaluatedItems.filter(
+    (entry) => entry.isMatch && entry.matchesCondition,
   )
+  const modelFilteredStrict = hasModelFilter
+    ? conditionFilteredStrict.filter(
+        (entry) =>
+          matchesExactModelInTitle(entry.item.catalogProduct.title, activeSearchTerm).matches ===
+          true,
+      )
+    : conditionFilteredStrict
+  const modelDiscardedCount = conditionFilteredStrict.length - modelFilteredStrict.length
+
+  // Itens estritos e parciais/descartados filtrados pela condição selecionada e ordenados
+  const strictItems = sortEvaluatedEntries(modelFilteredStrict)
   const partialItems = sortEvaluatedEntries(
     evaluatedItems.filter((entry) => !entry.isMatch && entry.matchesCondition),
   )
@@ -2782,6 +2843,16 @@ export function AnunciosCatalogoTab() {
       {/* Lista de Resultados de Catálogo Encontrados */}
       {catalogItems.length > 0 && (
         <div className="space-y-4">
+          {/* Aviso discreto de itens descartados pelo filtro de modelo */}
+          {modelDiscardedCount > 0 && (
+            <div className="text-xs text-amber-800 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-md flex items-center gap-1.5">
+              <span>
+                {modelDiscardedCount} anúncio(s) descartado(s) pelo filtro de modelo (
+                {requiredTokens.join(', ')}).
+              </span>
+            </div>
+          )}
+
           {/* Banner de Transparência do Filtro Rigoroso */}
           {isFilterActive ? (
             <div className="p-3.5 rounded-lg border bg-slate-50 border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">

@@ -136,15 +136,7 @@ export function extractRequiredModelTokens(query: string): string[] {
     return Array.from(new Set(modelCodeTokens))
   }
 
-  // Se não houver código alfa/numérico evidente (ex: "placa mae lenovo" ou "memoria smart"),
-  // remove marcas populares caso sobre algo mais específico (ex: "lenovo thinkpad" -> "thinkpad")
-  const nonBrandTokens = otherMeaningfulTokens.filter((t) => !POPULAR_BRANDS.has(t))
-  if (nonBrandTokens.length > 0) {
-    return Array.from(new Set(nonBrandTokens))
-  }
-
-  // Fallback: todos os tokens significativos não-stopwords
-  return Array.from(new Set(otherMeaningfulTokens.length > 0 ? otherMeaningfulTokens : words))
+  return []
 }
 
 /**

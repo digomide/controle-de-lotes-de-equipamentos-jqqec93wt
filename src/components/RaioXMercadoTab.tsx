@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react'
+import React, { useState, useMemo, useEffect, useRef } from 'react'
 import {
   TrendingUp,
   Search,
@@ -81,6 +81,8 @@ export function RaioXMercadoTab({ onOpenCollector }: RaioXMercadoTabProps = {}) 
   const [progressText, setSearchProgressText] = useState('')
   const [stoppingJob, setStoppingJob] = useState(false)
   const [currentJobId, setCurrentJobId] = useState<string | null>(null)
+  // Ref de geração de busca para isolar concorrência / descartar respostas obsoletas
+  const activeSearchIdRef = useRef(0)
   const [isCached, setIsCached] = useState(false)
   const [cachedAt, setCachedAt] = useState<string | null>(null)
   const [rawProducts, setRawProducts] = useState<MLCatalogProduct[]>([])
@@ -279,6 +281,10 @@ export function RaioXMercadoTab({ onOpenCollector }: RaioXMercadoTabProps = {}) 
 
   // Executar busca profunda de mercado
   async function runAnalysis(queryToUse?: string, forceRefresh = false) {
+    const searchGenId = ++activeSearchIdRef.current
+    setRawProducts([])
+    setSelectedSellerDetail(null)
+
     const q = (queryToUse ?? searchTerm).trim()
     if (!q) {
       toast({
@@ -306,15 +312,19 @@ export function RaioXMercadoTab({ onOpenCollector }: RaioXMercadoTabProps = {}) 
     let activeJobId: string | null = null
     try {
       const jobInit = await mlCatalogService.searchCatalog(q, '', 'all', forceRefresh)
+      if (activeSearchIdRef.current !== searchGenId) return
       activeJobId = jobInit.id
       setCurrentJobId(jobInit.id)
 
       const jobDone = await mlCatalogService.pollSearchJob(jobInit.id, (j) => {
+        if (activeSearchIdRef.current !== searchGenId) return
         if (j.progress_text) setSearchProgressText(j.progress_text)
         if (Array.isArray(j.results) && j.results.length > 0) {
           setRawProducts(j.results)
         }
       })
+
+      if (activeSearchIdRef.current !== searchGenId) return
 
       if (jobDone.status === 'error') {
         throw new Error(jobDone.error_message || 'Falha ao buscar no catálogo')
@@ -340,16 +350,18 @@ export function RaioXMercadoTab({ onOpenCollector }: RaioXMercadoTabProps = {}) 
         })
       }
     } catch (err: any) {
+      if (activeSearchIdRef.current !== searchGenId) return
       console.error('Erro no Raio-X:', err)
 
       // RECUPERAÇÃO AUTOMÁTICA NO RAIO-X:
       // Se der erro ou timeout no frontend mas o backend terminar com chunks, recupera
       let recovered = false
       const targetJobId = activeJobId || currentJobId
-      if (targetJobId) {
+      if (targetJobId && activeSearchIdRef.current === searchGenId) {
         try {
           const recoveredJob = await mlCatalogService.recoverSearchJob(targetJobId)
           if (
+            activeSearchIdRef.current === searchGenId &&
             recoveredJob &&
             recoveredJob.status === 'done' &&
             Array.isArray(recoveredJob.results) &&
@@ -371,7 +383,8 @@ export function RaioXMercadoTab({ onOpenCollector }: RaioXMercadoTabProps = {}) 
         }
       }
 
-      if (!recovered) {
+      if (!recovered && activeSearchIdRef.current === searchGenId) {
+        setRawProducts([])
         toast({
           title: 'Aviso na varredura do produto',
           description:
@@ -381,8 +394,10 @@ export function RaioXMercadoTab({ onOpenCollector }: RaioXMercadoTabProps = {}) 
         })
       }
     } finally {
-      setLoading(false)
-      setCurrentJobId(null)
+      if (activeSearchIdRef.current === searchGenId) {
+        setLoading(false)
+        setCurrentJobId(null)
+      }
     }
   }
 
