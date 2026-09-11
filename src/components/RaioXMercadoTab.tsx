@@ -244,10 +244,17 @@ export function RaioXMercadoTab({ onOpenCollector }: RaioXMercadoTabProps = {}) 
         console.warn('Erro ao carregar coletas do navegador:', err)
       }
 
-      // Carregar relatório consolidado e deduplicado para o Pódio de Vendas
+      // Carregar relatório consolidado e deduplicado para o Pódio de Vendas e Herói do Topo
+      // Cascata inteligente: se a query completa não tiver retorno, usa o search_term casado na última coleta válida
       try {
         setLoadingCollectorReport(true)
-        const report = await mlCollectorService.getCollectorSummaryReport(queryToUse)
+        let report = await mlCollectorService.getCollectorSummaryReport(queryToUse)
+        if (!report || !report.ok || report.total_deduplicated_ads === 0) {
+          const latest = await mlCollectorService.getLatestImportForTerm(queryToUse)
+          if (latest && latest.search_term && latest.search_term !== queryToUse) {
+            report = await mlCollectorService.getCollectorSummaryReport(latest.search_term)
+          }
+        }
         if (report && report.ok && report.total_deduplicated_ads > 0) {
           setCollectorReport(report)
         } else {

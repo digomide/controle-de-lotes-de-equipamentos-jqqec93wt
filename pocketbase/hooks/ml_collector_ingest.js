@@ -523,6 +523,118 @@ routerAdd('GET', '/backend/v1/custom/ml-collector/summary', (e) => {
       return ''
     }
 
+    // Excluir termos sujos conhecidos e buscas irrelevantes
+    var isDirtyTermInline = function (st) {
+      if (!st) return true
+      var clean = removeAccentsInline(st).toLowerCase().trim()
+      if (clean.length <= 2) return true
+      if (
+        clean === 'busca mercado livre' ||
+        clean === 'busca mercadolivre' ||
+        clean === 'mercado livre' ||
+        clean === 'mercadolivre' ||
+        clean === 'home' ||
+        clean === 'pagina inicial' ||
+        clean === 'pl'
+      ) {
+        return true
+      }
+      return false
+    }
+
+    // Componentes de hardware para proteção anti-herança no backend
+    var HARDWARE_COMPONENTS_BACKEND = {
+      placa: 1,
+      placas: 1,
+      'placa-mae': 1,
+      'placa mae': 1,
+      placamae: 1,
+      motherboard: 1,
+      tela: 1,
+      telas: 1,
+      display: 1,
+      teclado: 1,
+      teclados: 1,
+      cooler: 1,
+      coolers: 1,
+      ventoinha: 1,
+      fan: 1,
+      fonte: 1,
+      carcaca: 1,
+      carcacas: 1,
+      bateria: 1,
+      baterias: 1,
+      cabo: 1,
+      flat: 1,
+      touchpad: 1,
+      palmrest: 1,
+      dobradica: 1,
+    }
+
+    var extractCompTokensBackend = function (str) {
+      var words = (str || '')
+        .toLowerCase()
+        .split(/[\s\-_]+/)
+        .filter(Boolean)
+      var found = []
+      for (var wi = 0; wi < words.length; wi++) {
+        var w = words[wi]
+        if (HARDWARE_COMPONENTS_BACKEND[w]) found.push(w)
+      }
+      return found
+    }
+
+    var isCollectorTermCompatibleBackend = function (targetQ, collTerm) {
+      if (!targetQ || !collTerm) return false
+      if (isDirtyTermInline(collTerm)) return false
+
+      var normT = removeAccentsInline(softenSearchTermInline(targetQ) || targetQ)
+        .toLowerCase()
+        .trim()
+      var normC = removeAccentsInline(softenSearchTermInline(collTerm) || collTerm)
+        .toLowerCase()
+        .trim()
+      if (!normT || !normC) return false
+      if (normT === normC) return true
+
+      // Checar componentes de hardware incompatíveis
+      var targetComps = extractCompTokensBackend(normT)
+      var collComps = extractCompTokensBackend(normC)
+      if (targetComps.length > 0 || collComps.length > 0) {
+        for (var ci = 0; ci < collComps.length; ci++) {
+          if (targetComps.indexOf(collComps[ci]) === -1) return false
+        }
+        for (var ti = 0; ti < targetComps.length; ti++) {
+          if (collComps.indexOf(targetComps[ti]) === -1) return false
+        }
+      }
+
+      if (normT.indexOf(normC) !== -1 || normC.indexOf(normT) !== -1) {
+        return true
+      }
+
+      var tWords = normT.split(/\s+/).filter(function (w) {
+        return w.length >= 3 && !genericCategoryWords[w]
+      })
+      var cWords = normC.split(/\s+/).filter(function (w) {
+        return w.length >= 3 && !genericCategoryWords[w]
+      })
+      if (tWords.length === 0 || cWords.length === 0) return false
+
+      var collSub = cWords.every(function (cw) {
+        return tWords.some(function (tw) {
+          return tw === cw || tw.indexOf(cw) !== -1 || cw.indexOf(tw) !== -1
+        })
+      })
+      var targetSub = tWords.every(function (tw) {
+        return cWords.some(function (cw) {
+          return cw === tw || cw.indexOf(tw) !== -1 || tw.indexOf(cw) !== -1
+        })
+      })
+
+      return collSub || targetSub
+    }
+
     // Busca multi-candidato: termo normalizado, termo suavizado e tokens
     var candidateTerms = []
     var addCandidate = function (cand) {
@@ -550,8 +662,18 @@ routerAdd('GET', '/backend/v1/custom/ml-collector/summary', (e) => {
           0,
         )
         if (exactRecs && exactRecs.length > 0) {
-          records = exactRecs
-          break
+          var validExact = []
+          for (var eIdx = 0; eIdx < exactRecs.length; eIdx++) {
+            var er = exactRecs[eIdx]
+            var st = er.getString('search_term')
+            if (!isDirtyTermInline(st) && isCollectorTermCompatibleBackend(term, st)) {
+              validExact.push(er)
+            }
+          }
+          if (validExact.length > 0) {
+            records = validExact
+            break
+          }
         }
       } catch (_) {}
 
@@ -565,8 +687,18 @@ routerAdd('GET', '/backend/v1/custom/ml-collector/summary', (e) => {
           0,
         )
         if (likeRecs && likeRecs.length > 0) {
-          records = likeRecs
-          break
+          var validLike = []
+          for (var lIdx = 0; lIdx < likeRecs.length; lIdx++) {
+            var lr = likeRecs[lIdx]
+            var lst = lr.getString('search_term')
+            if (!isDirtyTermInline(lst) && isCollectorTermCompatibleBackend(term, lst)) {
+              validLike.push(lr)
+            }
+          }
+          if (validLike.length > 0) {
+            records = validLike
+            break
+          }
         }
       } catch (_) {}
     }
@@ -592,7 +724,17 @@ routerAdd('GET', '/backend/v1/custom/ml-collector/summary', (e) => {
             0,
           )
           if (tokenRecs && tokenRecs.length > 0) {
-            records = tokenRecs
+            var validTokens = []
+            for (var tkIdx = 0; tkIdx < tokenRecs.length; tkIdx++) {
+              var tr = tokenRecs[tkIdx]
+              var tst = tr.getString('search_term')
+              if (!isDirtyTermInline(tst) && isCollectorTermCompatibleBackend(term, tst)) {
+                validTokens.push(tr)
+              }
+            }
+            if (validTokens.length > 0) {
+              records = validTokens
+            }
           }
         } catch (_) {}
       }

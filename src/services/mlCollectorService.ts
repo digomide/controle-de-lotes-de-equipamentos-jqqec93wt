@@ -10,6 +10,7 @@ import {
   matchesExactModelInTitle,
   removeAccents,
   isCollectorTermCompatible,
+  isDirtyCollectorTerm,
 } from '@/lib/catalogFilter'
 import type { MLCollectorPayload, MLCollectorResultItem } from '@/lib/mlBookmarklet'
 
@@ -264,33 +265,45 @@ export const mlCollectorService = {
           // 1. Tentar correspondência exata
           let records = await pb
             .collection('ml_collector_imports')
-            .getList<MLCollectorImportRecord>(1, 1, {
+            .getList<MLCollectorImportRecord>(1, 10, {
               filter: `search_term = "${candidate}"`,
               sort: '-imported_at',
             })
 
           if (records && records.items && records.items.length > 0) {
-            const item = records.items[0]
-            if (item.payload) {
-              item.payload = this.decodePayload(item.payload) || item.payload
+            for (const item of records.items) {
+              if (
+                !isDirtyCollectorTerm(item.search_term) &&
+                isCollectorTermCompatible(term, item.search_term)
+              ) {
+                if (item.payload) {
+                  item.payload = this.decodePayload(item.payload) || item.payload
+                }
+                return item
+              }
             }
-            return item
           }
 
           // 2. Tentar busca ampla por contém
           records = await pb
             .collection('ml_collector_imports')
-            .getList<MLCollectorImportRecord>(1, 1, {
+            .getList<MLCollectorImportRecord>(1, 15, {
               filter: `search_term ~ "${candidate}"`,
               sort: '-imported_at',
             })
 
           if (records && records.items && records.items.length > 0) {
-            const item = records.items[0]
-            if (item.payload) {
-              item.payload = this.decodePayload(item.payload) || item.payload
+            for (const item of records.items) {
+              if (
+                !isDirtyCollectorTerm(item.search_term) &&
+                isCollectorTermCompatible(term, item.search_term)
+              ) {
+                if (item.payload) {
+                  item.payload = this.decodePayload(item.payload) || item.payload
+                }
+                return item
+              }
             }
-            return item
           }
         }
 
@@ -301,13 +314,16 @@ export const mlCollectorService = {
           const tokenFilter = tokens.map((t) => `search_term ~ "${t}"`).join(' && ')
           const records = await pb
             .collection('ml_collector_imports')
-            .getList<MLCollectorImportRecord>(1, 5, {
+            .getList<MLCollectorImportRecord>(1, 15, {
               filter: tokenFilter,
               sort: '-imported_at',
             })
           if (records && records.items && records.items.length > 0) {
             for (const item of records.items) {
-              if (isCollectorTermCompatible(term, item.search_term)) {
+              if (
+                !isDirtyCollectorTerm(item.search_term) &&
+                isCollectorTermCompatible(term, item.search_term)
+              ) {
                 if (item.payload) {
                   item.payload = this.decodePayload(item.payload) || item.payload
                 }
@@ -433,13 +449,16 @@ export const mlCollectorService = {
               }
             }
 
-            // Filtrar apenas registros compatíveis estritamente com o termo buscado
-            list.items = list.items.filter((item) =>
-              isCollectorTermCompatible(term, item.search_term),
+            // Filtrar apenas registros não-sujos e compatíveis estritamente com o termo buscado
+            list.items = list.items.filter(
+              (item) =>
+                !isDirtyCollectorTerm(item.search_term) &&
+                isCollectorTermCompatible(term, item.search_term),
             )
             return list
           })()
         : await pb.collection('ml_collector_imports').getList<MLCollectorImportRecord>(1, 20, {
+            filter: 'search_term != "busca mercado livre" && search_term != "pl"',
             sort: '-imported_at',
           })
 
@@ -571,9 +590,13 @@ export const mlCollectorService = {
       const records = await pb
         .collection('ml_collector_imports')
         .getList<MLCollectorImportRecord>(1, limit, {
+          filter: 'search_term != "busca mercado livre" && search_term != "pl"',
           sort: '-imported_at',
         })
-      return records.items || []
+      const cleanItems = (records.items || []).filter(
+        (rec) => !isDirtyCollectorTerm(rec.search_term),
+      )
+      return cleanItems
     } catch (err: any) {
       console.warn('[mlCollectorService] Erro ao listar coletas:', err)
       if (this.isAuthError(err)) {
@@ -994,41 +1017,98 @@ export const mlCollectorService = {
       const COLLECTOR_PAGE_SIZE = 15
 
       try {
-        // Buscar até 15 registros que contenham o termo ou tokens significativos
-        let records = await pb
-          .collection('ml_collector_imports')
-          .getList<MLCollectorImportRecord>(1, COLLECTOR_PAGE_SIZE, {
-            filter: `search_term ~ "${term}"`,
-            sort: '-imported_at',
-            signal: currentSignal,
-          })
+        // Cascata inteligente: termo normalizado -> termo suavizado -> tokens significativos (AND)
+        const candidates = [term]
+        const softened = normalizeSearchTerm(softenSearchTerm(term))
+        if (softened && softened !== term) {
+          candidates.push(softened)
+        }
 
-        if (!records || !records.items || records.items.length === 0) {
-          // Tentar por tokens caso o termo composto não tenha retorno direto
-          // Conserto: exigir compatibilidade com TODOS os tokens obrigatórios (AND),
-          // nunca tokens em OR que misturam tipos de produto divergentes
-          const softened = normalizeSearchTerm(softenSearchTerm(term))
-          const tokensSource = softened || term
-          const tokens = tokensSource.split(/\s+/).filter((t) => t.length >= 3)
-          if (tokens.length > 0) {
-            const tokenFilter = tokens.map((t) => `search_term ~ "${t}"`).join(' && ')
-            records = await pb
+        let collectedList: MLCollectorImportRecord[] = []
+
+        // 1. Tentar cada candidato em exato e por contém
+        for (const cand of candidates) {
+          if (collectedList.length > 0) break
+          try {
+            const exactRes = await pb
               .collection('ml_collector_imports')
               .getList<MLCollectorImportRecord>(1, COLLECTOR_PAGE_SIZE, {
-                filter: tokenFilter,
+                filter: `search_term = "${cand}"`,
                 sort: '-imported_at',
                 signal: currentSignal,
               })
+            const validExact = (exactRes.items || []).filter(
+              (rec) =>
+                !isDirtyCollectorTerm(rec.search_term) &&
+                isCollectorTermCompatible(term, rec.search_term),
+            )
+            if (validExact.length > 0) {
+              collectedList = validExact
+              break
+            }
+          } catch {
+            /* intentionally ignored */
+          }
+
+          try {
+            const likeRes = await pb
+              .collection('ml_collector_imports')
+              .getList<MLCollectorImportRecord>(1, COLLECTOR_PAGE_SIZE, {
+                filter: `search_term ~ "${cand}"`,
+                sort: '-imported_at',
+                signal: currentSignal,
+              })
+            const validLike = (likeRes.items || []).filter(
+              (rec) =>
+                !isDirtyCollectorTerm(rec.search_term) &&
+                isCollectorTermCompatible(term, rec.search_term),
+            )
+            if (validLike.length > 0) {
+              collectedList = validLike
+              break
+            }
+          } catch {
+            /* intentionally ignored */
           }
         }
 
-        if (!records || !records.items || records.items.length === 0) {
+        // 2. Se ainda vazio, tentar pelos tokens significativos (AND obrigatório)
+        if (collectedList.length === 0) {
+          const activeSource = candidates[candidates.length - 1]
+          const tokens = activeSource.split(/\s+/).filter((t) => t.length >= 3)
+          if (tokens.length > 0) {
+            const tokenFilter = tokens.map((t) => `search_term ~ "${t}"`).join(' && ')
+            try {
+              const tokenRes = await pb
+                .collection('ml_collector_imports')
+                .getList<MLCollectorImportRecord>(1, COLLECTOR_PAGE_SIZE, {
+                  filter: tokenFilter,
+                  sort: '-imported_at',
+                  signal: currentSignal,
+                })
+              const validTokens = (tokenRes.items || []).filter(
+                (rec) =>
+                  !isDirtyCollectorTerm(rec.search_term) &&
+                  isCollectorTermCompatible(term, rec.search_term),
+              )
+              if (validTokens.length > 0) {
+                collectedList = validTokens
+              }
+            } catch {
+              /* intentionally ignored */
+            }
+          }
+        }
+
+        if (collectedList.length === 0) {
           return null
         }
 
-        // Filtrar estritamente apenas coletas cujo search_term seja compatível com a query buscada
-        const compatibleItems = records.items.filter((rec) =>
-          isCollectorTermCompatible(term, rec.search_term),
+        // Filtrar estritamente apenas coletas cujo search_term seja compatível e não-sujo
+        const compatibleItems = collectedList.filter(
+          (rec) =>
+            !isDirtyCollectorTerm(rec.search_term) &&
+            isCollectorTermCompatible(term, rec.search_term),
         )
         if (compatibleItems.length === 0) {
           return null
@@ -1276,7 +1356,7 @@ export const mlCollectorService = {
         return {
           ok: true,
           term,
-          imports_count: records.items.length,
+          imports_count: compatibleItems.length,
           imports: importsList,
           total_deduplicated_ads: allAds.length,
           ads_with_sales_count: adsWithSales.length,

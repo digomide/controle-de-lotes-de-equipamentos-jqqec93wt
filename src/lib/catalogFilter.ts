@@ -1624,8 +1624,58 @@ export function detectCollectorNoiseAd(
  * 4. Se um termo possui um componente de hardware específico (placa, tela, teclado, fonte, cooler, carcaca...),
  *    o outro termo DEVE possuir o mesmo componente ou sinônimo compatível.
  */
+/**
+ * Lista de termos genéricos / sujos de raspagem que NUNCA devem ser aceitos em relatórios
+ * (como "busca mercado livre", "pl", buscas da home do ML ou termos genéricos de navegação).
+ */
+export const DIRTY_COLLECTOR_SEARCH_TERMS = new Set([
+  'busca mercado livre',
+  'busca mercadolivre',
+  'mercado livre',
+  'mercadolivre',
+  'home',
+  'pagina inicial',
+  'pl',
+])
+
+/**
+ * Identifica se um search_term de uma importação do Coletor é considerado "sujo" / ruído genérico:
+ * - Termos conhecidos de ruído da home ("busca mercado livre", "pl")
+ * - Termos com comprimento excessivamente curto (<= 2 caracteres após normalização)
+ * - Termos sem nenhum caractere alfanumérico significativo
+ */
+export function isDirtyCollectorTerm(collectorTerm: string | undefined | null): boolean {
+  if (!collectorTerm) return true
+  const norm = normalizeCatalogText(collectorTerm)
+  if (!norm || norm.length <= 2) return true
+
+  if (DIRTY_COLLECTOR_SEARCH_TERMS.has(norm)) {
+    return true
+  }
+
+  // Se o termo normalizado for exatamente qualquer uma das formas de ruído
+  const cleaned = removeAccents(norm).toLowerCase().trim()
+  if (
+    cleaned === 'busca mercado livre' ||
+    cleaned === 'busca mercadolivre' ||
+    cleaned === 'mercado livre' ||
+    cleaned === 'mercadolivre' ||
+    cleaned === 'pl' ||
+    cleaned.length <= 2
+  ) {
+    return true
+  }
+
+  return false
+}
+
 export function isCollectorTermCompatible(targetQuery: string, collectorTerm: string): boolean {
   if (!targetQuery || !collectorTerm) return false
+
+  // Se o termo da coleta for sujo/genérico, rejeita imediatamente
+  if (isDirtyCollectorTerm(collectorTerm)) {
+    return false
+  }
 
   const normTarget = normalizeCatalogText(softenSearchTerm(targetQuery) || targetQuery)
   const normCollector = normalizeCatalogText(softenSearchTerm(collectorTerm) || collectorTerm)
