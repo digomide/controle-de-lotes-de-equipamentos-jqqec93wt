@@ -1606,3 +1606,158 @@ export function detectCollectorNoiseAd(
 
   return { isNoise: false }
 }
+
+/**
+ * Valida se um termo de importação/coleta do Coletor é compatível estritamente
+ * com o termo que está sendo pesquisado pelo usuário.
+ *
+ * Regras:
+ * 1. Preserva o suavizador/cascata:
+ *    - "notebook lenovo t480" casa com "lenovo t480"
+ *    - "carcaça dell" casa com "carcaca dell"
+ *    - "dell latitude 5420 i5" casa com "dell latitude 5420"
+ * 2. Bloqueia divergência de produto / componentes:
+ *    - Termo buscado "dell latitude 5420" NÃO contém "placa" -> NUNCA casa com "placa mae dell"
+ *    - Termo buscado "placa mae dell" NÃO casa com "notebook dell 5420"
+ *    - Termo buscado "memoria 4gb ddr3" NÃO casa com "memoria smartt" a menos que "smartt" seja procurado
+ * 3. Se ambos os termos possuem códigos de modelo (ex: "5420", "t480"), eles devem coincidir.
+ * 4. Se um termo possui um componente de hardware específico (placa, tela, teclado, fonte, cooler, carcaca...),
+ *    o outro termo DEVE possuir o mesmo componente ou sinônimo compatível.
+ */
+export function isCollectorTermCompatible(targetQuery: string, collectorTerm: string): boolean {
+  if (!targetQuery || !collectorTerm) return false
+
+  const normTarget = normalizeCatalogText(softenSearchTerm(targetQuery) || targetQuery)
+  const normCollector = normalizeCatalogText(softenSearchTerm(collectorTerm) || collectorTerm)
+
+  if (!normTarget || !normCollector) return false
+
+  // Se são idênticos após normalização e suavização
+  if (normTarget === normCollector) return true
+
+  // Se um contém o outro exatamente como sequência de palavras
+  if (normTarget.includes(normCollector) || normCollector.includes(normTarget)) {
+    // Mesmo se contiver como substring, não podemos aceitar divergência de componente crítico
+    // (ex.: "dell" está contido em "placa mae dell", mas "dell" não tem "placa")
+    const targetCompTokens = extractHardwareComponentTokens(normTarget)
+    const collectorCompTokens = extractHardwareComponentTokens(normCollector)
+
+    // Se o termo da coleta tem componentes que o termo buscado NÃO pediu (ex: "placa mae dell" vs "dell")
+    const hasUnrequestedComponent = collectorCompTokens.some(
+      (comp) => !hasMatchingComponent(comp, targetCompTokens),
+    )
+    if (hasUnrequestedComponent) {
+      return false
+    }
+
+    // Se o termo buscado pediu um componente que a coleta NÃO tem (ex: "teclado dell" vs "dell")
+    const hasMissingRequestedComponent = targetCompTokens.some(
+      (comp) => !hasMatchingComponent(comp, collectorCompTokens),
+    )
+    if (hasMissingRequestedComponent) {
+      return false
+    }
+
+    // Se ambos possuem modelos numéricos/alfanuméricos, checar se não divergem
+    const targetModels = extractRequiredModelTokens(normTarget)
+    const collectorModels = extractRequiredModelTokens(normCollector)
+    if (targetModels.length > 0 && collectorModels.length > 0) {
+      const allTargetMatch = targetModels.every((m) => collectorModels.includes(m))
+      const allCollectorMatch = collectorModels.every((m) => targetModels.includes(m))
+      if (!allTargetMatch && !allCollectorMatch) {
+        return false
+      }
+    }
+
+    return true
+  }
+
+  // Tokens essenciais de cada um (sem stopwords genéricas)
+  const targetTokens = extractCatalogSearchTokens(normTarget)
+  const collectorTokens = extractCatalogSearchTokens(normCollector)
+
+  if (targetTokens.length === 0 || collectorTokens.length === 0) return false
+
+  // 1. Compatibilidade de componentes de hardware
+  const targetCompTokens = extractHardwareComponentTokens(normTarget)
+  const collectorCompTokens = extractHardwareComponentTokens(normCollector)
+
+  // Se um tem componente e o outro não, ou têm componentes incompatíveis
+  if (targetCompTokens.length > 0 || collectorCompTokens.length > 0) {
+    // Se a coleta tem componentes que não foram pedidos na busca (ex: coleta é "placa mae dell", busca é "dell latitude 5420")
+    for (const cComp of collectorCompTokens) {
+      if (!hasMatchingComponent(cComp, targetCompTokens)) {
+        return false
+      }
+    }
+    // Se a busca pediu um componente e a coleta não tem (ex: busca é "placa mae dell", coleta é "dell latitude 5420")
+    for (const tComp of targetCompTokens) {
+      if (!hasMatchingComponent(tComp, collectorCompTokens)) {
+        return false
+      }
+    }
+  }
+
+  // 2. Compatibilidade de modelos explícitos (ex: "5420", "t480", "3020")
+  const targetModels = extractRequiredModelTokens(normTarget)
+  const collectorModels = extractRequiredModelTokens(normCollector)
+
+  if (targetModels.length > 0) {
+    // Todos os modelos do termo buscado devem estar presentes nos tokens do coletor
+    for (const tm of targetModels) {
+      if (!collectorModels.includes(tm) && !collectorTokens.includes(tm)) {
+        return false
+      }
+    }
+  }
+
+  if (collectorModels.length > 0 && targetModels.length > 0) {
+    // Modelos do coletor não podem divergir dos modelos do termo buscado
+    for (const cm of collectorModels) {
+      if (!targetModels.includes(cm) && !targetTokens.includes(cm)) {
+        return false
+      }
+    }
+  }
+
+  // 3. AND rigoroso de tokens significativos do termo da coleta vs termo buscado
+  // Cada token do termo da coleta (com len >= 3 e não-stopword) deve casar no termo alvo,
+  // OU vice-versa (termo alvo é subset estrito da coleta compatível).
+  const significantTargetTokens = targetTokens.filter(
+    (t) => t.length >= 3 && !GENERIC_CATEGORY_WORDS.has(t),
+  )
+  const significantCollectorTokens = collectorTokens.filter(
+    (t) => t.length >= 3 && !GENERIC_CATEGORY_WORDS.has(t),
+  )
+
+  if (significantCollectorTokens.length === 0) return false
+
+  // Se os tokens do coletor são todos encontrados no alvo (ex: coletor "lenovo t480", alvo "notebook lenovo thinkpad t480 i5")
+  const collectorSubsetOfTarget = significantCollectorTokens.every((ct) =>
+    significantTargetTokens.some((tt) => tt === ct || tt.includes(ct) || ct.includes(tt)),
+  )
+
+  // Se os tokens significativos do alvo são todos encontrados no coletor (ex: alvo "lenovo t480", coletor "lenovo thinkpad t480")
+  const targetSubsetOfCollector = significantTargetTokens.every((tt) =>
+    significantCollectorTokens.some((ct) => ct === tt || ct.includes(tt) || tt.includes(ct)),
+  )
+
+  return collectorSubsetOfTarget || targetSubsetOfCollector
+}
+
+function extractHardwareComponentTokens(text: string): string[] {
+  const words = text.toLowerCase().split(/\s+/).filter(Boolean)
+  const found: string[] = []
+  for (const w of words) {
+    if (HARDWARE_COMPONENTS.has(w)) {
+      found.push(w)
+    }
+  }
+  return found
+}
+
+function hasMatchingComponent(comp: string, candidateList: string[]): boolean {
+  if (candidateList.includes(comp)) return true
+  const syns = getComponentSynonyms(comp)
+  return candidateList.some((c) => syns.includes(c))
+}

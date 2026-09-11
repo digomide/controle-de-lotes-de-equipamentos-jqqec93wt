@@ -9,6 +9,7 @@ import {
   softenSearchTerm,
   matchesExactModelInTitle,
   removeAccents,
+  isCollectorTermCompatible,
 } from '@/lib/catalogFilter'
 import type { MLCollectorPayload, MLCollectorResultItem } from '@/lib/mlBookmarklet'
 
@@ -293,23 +294,26 @@ export const mlCollectorService = {
           }
         }
 
-        // 3. Tentar pelos tokens significativos individuais do termo suavizado
+        // 3. Tentar pelos tokens significativos individuais do termo suavizado (AND obrigatório + validação de compatibilidade)
         const activeTermForTokens = candidates[candidates.length - 1]
         const tokens = activeTermForTokens.split(/\s+/).filter((t) => t.length >= 3)
         if (tokens.length > 0) {
           const tokenFilter = tokens.map((t) => `search_term ~ "${t}"`).join(' && ')
-          let records = await pb
+          const records = await pb
             .collection('ml_collector_imports')
-            .getList<MLCollectorImportRecord>(1, 1, {
+            .getList<MLCollectorImportRecord>(1, 5, {
               filter: tokenFilter,
               sort: '-imported_at',
             })
           if (records && records.items && records.items.length > 0) {
-            const item = records.items[0]
-            if (item.payload) {
-              item.payload = this.decodePayload(item.payload) || item.payload
+            for (const item of records.items) {
+              if (isCollectorTermCompatible(term, item.search_term)) {
+                if (item.payload) {
+                  item.payload = this.decodePayload(item.payload) || item.payload
+                }
+                return item
+              }
             }
-            return item
           }
         }
       } catch (err) {
@@ -415,11 +419,11 @@ export const mlCollectorService = {
                 sort: '-imported_at',
               })
 
-            // 2. Se vazio, buscar OR por tokens significativos (ex: search_term ~ "lenovo" || search_term ~ "t480")
+            // 2. Se vazio, buscar por tokens significativos com AND estrito
             if (list.items.length === 0) {
               const tokens = effectiveTerm.split(/\s+/).filter((t) => t.length >= 3)
               if (tokens.length > 0) {
-                const tokenFilter = tokens.map((t) => `search_term ~ "${t}"`).join(' || ')
+                const tokenFilter = tokens.map((t) => `search_term ~ "${t}"`).join(' && ')
                 list = await pb
                   .collection('ml_collector_imports')
                   .getList<MLCollectorImportRecord>(1, 20, {
@@ -429,14 +433,10 @@ export const mlCollectorService = {
               }
             }
 
-            // 3. Fallback genérico dos mais recentes se ainda vazio
-            if (list.items.length === 0) {
-              return await pb
-                .collection('ml_collector_imports')
-                .getList<MLCollectorImportRecord>(1, 20, {
-                  sort: '-imported_at',
-                })
-            }
+            // Filtrar apenas registros compatíveis estritamente com o termo buscado
+            list.items = list.items.filter((item) =>
+              isCollectorTermCompatible(term, item.search_term),
+            )
             return list
           })()
         : await pb.collection('ml_collector_imports').getList<MLCollectorImportRecord>(1, 20, {
@@ -1005,9 +1005,13 @@ export const mlCollectorService = {
 
         if (!records || !records.items || records.items.length === 0) {
           // Tentar por tokens caso o termo composto não tenha retorno direto
-          const tokens = term.split(/\s+/).filter((t) => t.length >= 3)
+          // Conserto: exigir compatibilidade com TODOS os tokens obrigatórios (AND),
+          // nunca tokens em OR que misturam tipos de produto divergentes
+          const softened = normalizeSearchTerm(softenSearchTerm(term))
+          const tokensSource = softened || term
+          const tokens = tokensSource.split(/\s+/).filter((t) => t.length >= 3)
           if (tokens.length > 0) {
-            const tokenFilter = tokens.map((t) => `search_term ~ "${t}"`).join(' || ')
+            const tokenFilter = tokens.map((t) => `search_term ~ "${t}"`).join(' && ')
             records = await pb
               .collection('ml_collector_imports')
               .getList<MLCollectorImportRecord>(1, COLLECTOR_PAGE_SIZE, {
@@ -1022,6 +1026,14 @@ export const mlCollectorService = {
           return null
         }
 
+        // Filtrar estritamente apenas coletas cujo search_term seja compatível com a query buscada
+        const compatibleItems = records.items.filter((rec) =>
+          isCollectorTermCompatible(term, rec.search_term),
+        )
+        if (compatibleItems.length === 0) {
+          return null
+        }
+
         const deduplicatedAds = new Map<string, CollectorDeduplicatedAd>()
         const importsList: Array<{
           id: string
@@ -1031,7 +1043,7 @@ export const mlCollectorService = {
           with_sales_count: number
         }> = []
 
-        for (const rec of records.items) {
+        for (const rec of compatibleItems) {
           const payload = this.decodePayload(rec.payload)
           const items = payload && Array.isArray(payload.results) ? payload.results : []
 
