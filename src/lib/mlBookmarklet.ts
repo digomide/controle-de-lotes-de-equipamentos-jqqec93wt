@@ -933,7 +933,7 @@ export function getTampermonkeyUserscript(options: {
     .map((domain) => `// @connect      ${domain}`)
     .join('\n')
 
-  const SCRIPT_VERSION = '1.6.3'
+  const SCRIPT_VERSION = '1.6.4'
 
   return `// ==UserScript==
 // @name         Coletor Automático Mercado Livre · Lotes & Raio-X
@@ -1545,7 +1545,7 @@ ${connectDirectives}
       results: itemsArray
     };
 
-    const baseUrl = (CONFIG.backendUrl || CONFIG.appUrl || '').replace(//+$/, '');
+    const baseUrl = (CONFIG.backendUrl || CONFIG.appUrl || '').replace(/\\/+$/, '');
     // Endpoint oficial: API de coleções padrão do PocketBase
     const primaryEndpoint = baseUrl + '/api/collections/ml_collector_imports/records';
     const fallbackEndpoint = baseUrl + '/backend/v1/ml-collector/ingest';

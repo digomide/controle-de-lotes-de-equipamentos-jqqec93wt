@@ -682,7 +682,7 @@ export function ColetorNavegadorPanel({
                   <div className="flex items-center gap-2">
                     <CardTitle className="text-base font-bold text-indigo-950 flex items-center gap-2">
                       <Cpu className="w-5 h-5 text-indigo-600" />
-                      Coletor Automático com Tampermonkey v1.6.3 Atualizada (Envio Automático)
+                      Coletor Automático com Tampermonkey v1.6.4 Atualizada (Envio Automático)
                     </CardTitle>
                     <Badge className="bg-emerald-600 text-white text-[10px] font-bold">
                       Recomendado
@@ -691,7 +691,7 @@ export function ColetorNavegadorPanel({
                       variant="outline"
                       className="text-indigo-700 border-indigo-300 text-[10px] font-bold"
                     >
-                      v1.6.3 Atualizada (Envio Automático)
+                      v1.6.4 Atualizada (Envio Automático)
                     </Badge>
                   </div>
                   <CardDescription className="text-xs text-slate-600">
@@ -699,7 +699,7 @@ export function ColetorNavegadorPanel({
                     despacha o envio ao backend de forma 100% automática ao finalizar, com retry de
                     rede e confirmação no HUD. Se você já instalou antes,{' '}
                     <strong>copie novamente e substitua no Tampermonkey</strong> para aplicar a
-                    versão v1.6.3 com envio automático e retry.
+                    versão v1.6.4 com envio automático e retry.
                   </CardDescription>
                 </div>
 
