@@ -18,9 +18,12 @@ const tsSourcePath = path.resolve(__dirname, '../src/lib/mlBookmarklet.ts')
 const tsSource = fs.readFileSync(tsSourcePath, 'utf8')
 
 // Extrai e compila os geradores de script ou testa o código gerado
+console.error('[FORCE_FAIL_TEST] Provando que run_qa executa este script!')
+process.exit(99)
 console.log('--- 1. Verificação de integridade estática no código-fonte ---')
 
-// 1. Verificar se //+$ existe no fonte
+// 1. Verificação inicial da string estática do fonte
+
 if (tsSource.includes('//+$')) {
   console.error('ERRO: mlBookmarklet.ts ainda contém //+$!')
   process.exit(1)
@@ -59,15 +62,29 @@ const cleanAppUrl = (options.appUrl || '').replace(/\/+$/, '')
 const collectorKey = options.collectorKey || ''
 const SCRIPT_VERSION = '1.6.2'
 
-// Isola o template string que fica dentro de return `// ==UserScript== ... `
-const match = tsSource.match(/return `(\/\/ ==UserScript==[\s\S]*?)`\s*\}/)
-if (!match) {
-  console.error('ERRO: Não foi possível localizar o template do userscript em mlBookmarklet.ts')
+// Encontra onde começa getTampermonkeyUserscript
+const fnStart = tsSource.indexOf('export function getTampermonkeyUserscript')
+if (fnStart === -1) {
+  console.error('ERRO: Função getTampermonkeyUserscript não encontrada no fonte!')
+  process.exit(1)
+}
+const returnBacktick = tsSource.indexOf('return `// ==UserScript==', fnStart)
+if (returnBacktick === -1) {
+  console.error('ERRO: Início da template string do userscript não encontrado!')
+  process.exit(1)
+}
+const templateContentStart = returnBacktick + 'return `'.length
+// A template string termina no fechamento da função: `\n}`
+const templateContentEnd = tsSource.lastIndexOf('\n`\n}')
+if (templateContentEnd === -1 || templateContentEnd <= templateContentStart) {
+  console.error('ERRO: Fim da template string do userscript não encontrado!')
   process.exit(1)
 }
 
-// Interpola as variáveis exatamente como a função faz
-let generatedScript = match[1]
+const rawTemplateContent = tsSource.slice(templateContentStart, templateContentEnd)
+
+// Simula a interpolação exata de getTampermonkeyUserscript
+let generatedScript = rawTemplateContent
   .replace(/\${SCRIPT_VERSION}/g, SCRIPT_VERSION)
   .replace(/\${connectDirectives}/g, '// @connect      app-teste.goskip.app')
   .replace(/\${JSON\.stringify\(cleanBackendUrl\)}/g, JSON.stringify(cleanBackendUrl))
