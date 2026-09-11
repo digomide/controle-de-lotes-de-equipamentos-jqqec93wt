@@ -933,7 +933,7 @@ export function getTampermonkeyUserscript(options: {
     .map((domain) => `// @connect      ${domain}`)
     .join('\n')
 
-  const SCRIPT_VERSION = '1.6.1'
+  const SCRIPT_VERSION = '1.6.2'
 
   return `// ==UserScript==
 // @name         Coletor Automático Mercado Livre · Lotes & Raio-X
@@ -1348,11 +1348,11 @@ ${connectDirectives}
 
     // 2. Links com padrão _Desde_ da paginação clássica do Mercado Livre
     const allLinks = Array.from(document.querySelectorAll('a[href*="_Desde_"]'));
-    const curMatch = window.location.href.match(/_Desde_(d+)/i);
+    const curMatch = window.location.href.match(/_Desde_(\\d+)/i);
     const curDesde = curMatch ? parseInt(curMatch[1], 10) : 1;
 
     for (const a of allLinks) {
-      const match = a.href.match(/_Desde_(d+)/i);
+      const match = a.href.match(/_Desde_(\\d+)/i);
       if (match) {
         const linkDesde = parseInt(match[1], 10);
         if (linkDesde > curDesde) {
