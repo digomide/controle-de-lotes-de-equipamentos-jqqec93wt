@@ -1,17 +1,25 @@
 import pb from '@/lib/pocketbase/client'
 import type { User } from '@/types/inventory'
 
+import type { AppModuleId } from '@/types/modules'
+
+export interface UserWithAccess extends User {
+  modules?: AppModuleId[]
+}
+
 export interface CreateUserInput {
   name: string
   email: string
   password: string
   role: 'admin' | 'member'
+  modules?: AppModuleId[]
 }
 
 export interface UpdateUserInput {
   name?: string
   role?: 'admin' | 'member'
   active?: boolean
+  modules?: AppModuleId[]
 }
 
 export interface ResetPasswordResult {
@@ -34,6 +42,75 @@ export const usersService = {
       return records
     } catch (err) {
       console.error('[usersService] Erro ao listar usuários:', err)
+      throw err
+    }
+  },
+
+  /**
+   * Lista usuários com seus respectivos módulos liberados (para tela de admin)
+   */
+  async getAllWithAccess(): Promise<UserWithAccess[]> {
+    try {
+      const res = await pb.send<{ ok: boolean; users: UserWithAccess[] }>(
+        '/backend/v1/users/list-with-access',
+        { method: 'GET' },
+      )
+      if (res && res.users) {
+        return res.users
+      }
+      // Fallback local se a rota falhar
+      const rawUsers = await this.getAll()
+      return rawUsers.map((u) => ({
+        ...u,
+        modules: u.role === 'admin' ? ['dashboard', 'vendas'] : ['dashboard', 'vendas'],
+      }))
+    } catch (err) {
+      console.warn('[usersService] Fallback nativo para getAllWithAccess:', err)
+      const rawUsers = await this.getAll()
+      return rawUsers.map((u) => ({
+        ...u,
+        modules: ['dashboard', 'vendas'],
+      }))
+    }
+  },
+
+  /**
+   * Busca as permissões de módulos do usuário logado
+   */
+  async getMyAccess(): Promise<{ isAdmin: boolean; modules: AppModuleId[] }> {
+    try {
+      const res = await pb.send<{ ok: boolean; isAdmin: boolean; modules: AppModuleId[] }>(
+        '/backend/v1/users/my-access',
+        { method: 'GET' },
+      )
+      if (res && res.modules) {
+        return {
+          isAdmin: res.isAdmin,
+          modules: res.modules,
+        }
+      }
+      return { isAdmin: false, modules: ['dashboard', 'vendas'] }
+    } catch (err) {
+      console.warn('[usersService] Erro ao obter my-access:', err)
+      return { isAdmin: false, modules: ['dashboard', 'vendas'] }
+    }
+  },
+
+  /**
+   * Salva as permissões de módulos de um usuário específico
+   */
+  async saveUserModules(userId: string, modules: AppModuleId[]): Promise<boolean> {
+    try {
+      const res = await pb.send<{ ok: boolean; modules: AppModuleId[] }>(
+        '/backend/v1/users/save-access',
+        {
+          method: 'POST',
+          body: { userId, modules },
+        },
+      )
+      return Boolean(res && res.ok)
+    } catch (err) {
+      console.error('[usersService] Erro ao salvar módulos:', err)
       throw err
     }
   },

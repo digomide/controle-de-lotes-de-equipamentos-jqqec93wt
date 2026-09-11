@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-11T11:47:17.561Z",
+  "generatedAt": "2026-09-11T20:37:02.552Z",
   "collections": [
     {
       "name": "users",
@@ -3586,6 +3586,33 @@
         "CREATE INDEX idx_gen_inv_mov_item ON general_inventory_movements (item_id)",
         "CREATE INDEX idx_gen_inv_mov_type ON general_inventory_movements (type)"
       ]
+    },
+    {
+      "name": "user_module_access",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && (@request.auth.role = 'admin' || @request.auth.id = user_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'admin' || @request.auth.id = user_id)",
+        "create": "@request.auth.id != '' && @request.auth.role = 'admin'",
+        "update": "@request.auth.id != '' && @request.auth.role = 'admin'",
+        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+      },
+      "fields": [
+        {
+          "name": "user_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "modules",
+          "type": "json",
+          "required": true,
+          "system": false
+        }
+      ],
+      "indexes": ["CREATE UNIQUE INDEX idx_user_module_access_user ON user_module_access (user_id)"]
     }
   ]
 }

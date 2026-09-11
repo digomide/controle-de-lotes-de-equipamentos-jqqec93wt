@@ -168,7 +168,9 @@ export default function Configuracoes() {
               <Label className="text-slate-600">Nível de Acesso (Papel)</Label>
               <Input
                 value={
-                  isAdmin ? 'Acesso Total (Ajuste de Estoque + Vendas)' : 'Operador (Apenas Vendas)'
+                  isAdmin
+                    ? 'Administrador (Acesso Total Imune a Todos os Módulos)'
+                    : 'Membro / Operador com Permissões por Módulo'
                 }
                 readOnly
                 className="bg-slate-100 font-medium"
@@ -308,19 +310,38 @@ export default function Configuracoes() {
             </form>
           </div>
 
+          {/* Seção Usuários & Acessos (Acesso Admin) */}
+          {isAdmin && (
+            <div className="mt-4 pt-4 border-t border-slate-200">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-orange-50/50 rounded-xl border border-orange-200/80">
+                <div className="flex items-start gap-3">
+                  <div className="p-2 bg-orange-600 text-white rounded-lg flex-shrink-0">
+                    <Users className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-900">
+                      Gestão de Usuários & Acessos por Módulo
+                    </h4>
+                    <p className="text-[11px] text-slate-600 mt-0.5">
+                      Configure permissões individuais por módulo (ex: usuário com acesso exclusivo
+                      ao Explorador de Catálogo), crie novos colaboradores e resete senhas.
+                    </p>
+                  </div>
+                </div>
+                <Link to="/usuarios" className="sm:self-center flex-shrink-0">
+                  <Button
+                    size="sm"
+                    className="bg-orange-600 hover:bg-orange-700 text-white text-xs h-8 gap-1.5 shadow-xs"
+                  >
+                    <Users className="w-3.5 h-3.5" />
+                    Gerenciar Usuários & Acessos
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          )}
+
           <div className="pt-2 flex items-center justify-between border-t border-slate-100">
-            {isAdmin && (
-              <Link to="/usuarios">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="text-xs text-blue-700 border-blue-200 hover:bg-blue-50 gap-1.5"
-                >
-                  <Users className="w-3.5 h-3.5" />
-                  Ir para Gestão de Usuários
-                </Button>
-              </Link>
-            )}
             <Button
               variant="outline"
               size="sm"

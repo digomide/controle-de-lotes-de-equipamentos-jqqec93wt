@@ -69,28 +69,173 @@ const App = () => (
               </ProtectedRoute>
             }
           >
-            <Route path="/" element={<Index />} />
-            <Route path="/vendas" element={<Vendas />} />
-            <Route path="/lucratividade" element={<LucratividadeLotes />} />
-            <Route path="/produtos" element={<Produtos />} />
-            <Route path="/catalogo" element={<Produtos />} />
-            <Route path="/catalogo/:id" element={<CatalogoDetalhe />} />
-            <Route path="/estoque-geral" element={<EstoqueGeral />} />
-            <Route path="/estoque" element={<Estoque />} />
-            <Route path="/estoque/:id" element={<CatalogoDetalhe />} />
-            <Route path="/lotes-entrada" element={<LotesEntrada />} />
-            <Route path="/lotes-entrada/:id" element={<LoteEntradaDetalhe />} />
-            <Route path="/lotes-entrada/:id/inventariar" element={<LoteInventariar />} />
-            <Route path="/lotes/:id" element={<CatalogoDetalhe />} />
-            <Route path="/ajustes" element={<Ajustes />} />
-            <Route path="/marketing" element={<Marketing />} />
-            <Route path="/post-instagram" element={<PostInstagram />} />
-            <Route path="/post-tiktok" element={<PostTikTok />} />
-            <Route path="/cotacoes" element={<CotacoesCorporativas />} />
+            {/* Dashboard */}
+            <Route
+              path="/"
+              element={
+                <ProtectedRoute requiredModule="dashboard">
+                  <Index />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Vendas */}
+            <Route
+              path="/vendas"
+              element={
+                <ProtectedRoute requiredModule="vendas">
+                  <Vendas />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Lucratividade */}
+            <Route
+              path="/lucratividade"
+              element={
+                <ProtectedRoute requiredModule="lucratividade">
+                  <LucratividadeLotes />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Produtos / Catálogo */}
+            <Route
+              path="/produtos"
+              element={
+                <ProtectedRoute requiredModule="produtos">
+                  <Produtos />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/catalogo"
+              element={
+                <ProtectedRoute requiredModule="produtos">
+                  <Produtos />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/catalogo/:id"
+              element={
+                <ProtectedRoute requiredModule="produtos">
+                  <CatalogoDetalhe />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Estoque Geral */}
+            <Route
+              path="/estoque-geral"
+              element={
+                <ProtectedRoute requiredModule="estoque_geral">
+                  <EstoqueGeral />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Estoque / Lotes */}
+            <Route
+              path="/estoque"
+              element={
+                <ProtectedRoute requiredModule="estoque_lotes">
+                  <Estoque />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/estoque/:id"
+              element={
+                <ProtectedRoute requiredModule="estoque_lotes">
+                  <CatalogoDetalhe />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Lotes Compra */}
+            <Route
+              path="/lotes-entrada"
+              element={
+                <ProtectedRoute requiredModule="lotes_compra">
+                  <LotesEntrada />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/lotes-entrada/:id"
+              element={
+                <ProtectedRoute requiredModule="lotes_compra">
+                  <LoteEntradaDetalhe />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/lotes-entrada/:id/inventariar"
+              element={
+                <ProtectedRoute requiredModule="lotes_compra">
+                  <LoteInventariar />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/lotes/:id"
+              element={
+                <ProtectedRoute requiredModule="lotes_compra">
+                  <CatalogoDetalhe />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Ajustes de Estoque */}
+            <Route
+              path="/ajustes"
+              element={
+                <ProtectedRoute requiredModule="ajustes">
+                  <Ajustes />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Marketing & Redes */}
+            <Route
+              path="/marketing"
+              element={
+                <ProtectedRoute requiredModule="marketing">
+                  <Marketing />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/post-instagram"
+              element={
+                <ProtectedRoute requiredModule="post_instagram">
+                  <PostInstagram />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/post-tiktok"
+              element={
+                <ProtectedRoute requiredModule="post_tiktok">
+                  <PostTikTok />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/cotacoes"
+              element={
+                <ProtectedRoute requiredModule="cotacoes">
+                  <CotacoesCorporativas />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Configurações & Usuários (Admin) */}
             <Route
               path="/configuracoes"
               element={
-                <ProtectedRoute requireAdmin>
+                <ProtectedRoute requireAdmin requiredModule="configuracoes">
                   <Configuracoes />
                 </ProtectedRoute>
               }
@@ -98,14 +243,37 @@ const App = () => (
             <Route
               path="/usuarios"
               element={
-                <ProtectedRoute requireAdmin>
+                <ProtectedRoute requireAdmin requiredModule="usuarios">
                   <Usuarios />
                 </ProtectedRoute>
               }
             />
-            <Route path="/explorador-catalogo" element={<ExploradorCatalogo />} />
-            <Route path="/anuncios-ml" element={<AnunciosML />} />
-            <Route path="/radar-ml" element={<RadarML />} />
+
+            {/* Mercado Livre e Concorrência */}
+            <Route
+              path="/explorador-catalogo"
+              element={
+                <ProtectedRoute requiredModule="explorador_catalogo">
+                  <ExploradorCatalogo />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/anuncios-ml"
+              element={
+                <ProtectedRoute requiredModule="gestor_ml">
+                  <AnunciosML />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/radar-ml"
+              element={
+                <ProtectedRoute requiredModule="radar_ml">
+                  <RadarML />
+                </ProtectedRoute>
+              }
+            />
           </Route>
 
           <Route path="*" element={<NotFound />} />

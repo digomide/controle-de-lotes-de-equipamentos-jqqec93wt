@@ -38,33 +38,62 @@ import {
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import type { AppModuleId } from '@/types/modules'
 
 export default function Layout() {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const { user, logout, isAdmin } = useAuth()
+  const { user, logout, isAdmin, hasModule } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
 
-  const navItems = [
-    { title: 'Dashboard', path: '/', icon: LayoutDashboard },
-    { title: 'Compra de Lotes', path: '/lotes-entrada', icon: Boxes },
-    { title: 'Lucratividade Lotes', path: '/lucratividade', icon: SlidersHorizontal },
-    { title: 'Explorador de Catálogo', path: '/explorador-catalogo', icon: Compass },
-    { title: 'Gestor ML', path: '/anuncios-ml', icon: ShoppingBag },
-    { title: 'Catálogo de Notebooks', path: '/produtos', icon: Package },
-    { title: 'Marketing', path: '/marketing', icon: Megaphone },
-    { title: 'Radar ML', path: '/radar-ml', icon: Radar },
-    { title: 'Post Insta', path: '/post-instagram', icon: Instagram },
-    { title: 'Post TikTok', path: '/post-tiktok', icon: Video },
-    { title: 'Cotações Corporativas', path: '/cotacoes', icon: Building2 },
-    { title: 'Vendas', path: '/vendas', icon: ShoppingCart },
-    { title: 'Estoque Geral', path: '/estoque-geral', icon: Boxes },
-    { title: 'Estoque / Lotes', path: '/estoque', icon: Layers },
-    { title: 'Ajustes', path: '/ajustes', icon: SlidersHorizontal },
-    { title: 'Usuários', path: '/usuarios', icon: Users, adminOnly: true },
-    { title: 'Configurações', path: '/configuracoes', icon: Settings, adminOnly: true },
+  const navItems: {
+    title: string
+    path: string
+    icon: any
+    moduleId: AppModuleId
+    adminOnly?: boolean
+  }[] = [
+    { title: 'Dashboard', path: '/', icon: LayoutDashboard, moduleId: 'dashboard' },
+    { title: 'Compra de Lotes', path: '/lotes-entrada', icon: Boxes, moduleId: 'lotes_compra' },
+    {
+      title: 'Lucratividade Lotes',
+      path: '/lucratividade',
+      icon: SlidersHorizontal,
+      moduleId: 'lucratividade',
+    },
+    {
+      title: 'Explorador de Catálogo',
+      path: '/explorador-catalogo',
+      icon: Compass,
+      moduleId: 'explorador_catalogo',
+    },
+    { title: 'Gestor ML', path: '/anuncios-ml', icon: ShoppingBag, moduleId: 'gestor_ml' },
+    { title: 'Catálogo de Notebooks', path: '/produtos', icon: Package, moduleId: 'produtos' },
+    { title: 'Marketing', path: '/marketing', icon: Megaphone, moduleId: 'marketing' },
+    { title: 'Radar ML', path: '/radar-ml', icon: Radar, moduleId: 'radar_ml' },
+    { title: 'Post Insta', path: '/post-instagram', icon: Instagram, moduleId: 'post_instagram' },
+    { title: 'Post TikTok', path: '/post-tiktok', icon: Video, moduleId: 'post_tiktok' },
+    { title: 'Cotações Corporativas', path: '/cotacoes', icon: Building2, moduleId: 'cotacoes' },
+    { title: 'Vendas', path: '/vendas', icon: ShoppingCart, moduleId: 'vendas' },
+    { title: 'Estoque Geral', path: '/estoque-geral', icon: Boxes, moduleId: 'estoque_geral' },
+    { title: 'Estoque / Lotes', path: '/estoque', icon: Layers, moduleId: 'estoque_lotes' },
+    { title: 'Ajustes', path: '/ajustes', icon: SlidersHorizontal, moduleId: 'ajustes' },
+    {
+      title: 'Usuários & Acessos',
+      path: '/usuarios',
+      icon: Users,
+      moduleId: 'usuarios',
+      adminOnly: true,
+    },
+    {
+      title: 'Configurações',
+      path: '/configuracoes',
+      icon: Settings,
+      moduleId: 'configuracoes',
+      adminOnly: true,
+    },
   ]
 
   const getPageTitle = () => {
@@ -100,33 +129,36 @@ export default function Layout() {
     }
   }
 
+  const visibleNavItems = navItems.filter((item) => {
+    if (item.adminOnly && !isAdmin) return false
+    return isAdmin || hasModule(item.moduleId)
+  })
+
   const renderNavLinks = (onItemClick?: () => void) => (
     <nav className="space-y-1.5 px-2">
-      {navItems
-        .filter((item) => !item.adminOnly || isAdmin)
-        .map((item) => {
-          const Icon = item.icon
-          const isActive =
-            item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path)
+      {visibleNavItems.map((item) => {
+        const Icon = item.icon
+        const isActive =
+          item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path)
 
-          return (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              onClick={onItemClick}
-              className={cn(
-                'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
-                isActive
-                  ? 'bg-slate-800 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/60',
-              )}
-              title={collapsed ? item.title : undefined}
-            >
-              <Icon className="w-5 h-5 flex-shrink-0" />
-              {(!collapsed || onItemClick) && <span>{item.title}</span>}
-            </NavLink>
-          )
-        })}
+        return (
+          <NavLink
+            key={item.path}
+            to={item.path}
+            onClick={onItemClick}
+            className={cn(
+              'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+              isActive
+                ? 'bg-slate-800 text-white shadow-sm'
+                : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/60',
+            )}
+            title={collapsed ? item.title : undefined}
+          >
+            <Icon className="w-5 h-5 flex-shrink-0" />
+            {(!collapsed || onItemClick) && <span>{item.title}</span>}
+          </NavLink>
+        )
+      })}
     </nav>
   )
 
@@ -338,164 +370,26 @@ export default function Layout() {
           <Outlet />
         </main>
 
-        {/* Mobile Bottom Navigation for quick access */}
-        <div className="md:hidden flex items-center justify-around bg-white border-t border-slate-200 py-2 px-1 z-30">
-          <NavLink
-            to="/"
-            className={({ isActive }) =>
-              cn(
-                'flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-2 rounded',
-                isActive ? 'text-slate-900 font-bold' : 'text-slate-500',
-              )
-            }
-          >
-            <LayoutDashboard className="w-4 h-4" />
-            Início
-          </NavLink>
-          <NavLink
-            to="/lotes-entrada"
-            className={({ isActive }) =>
-              cn(
-                'flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-2 rounded',
-                isActive ? 'text-orange-600 font-bold' : 'text-slate-500',
-              )
-            }
-          >
-            <Boxes className="w-4 h-4" />
-            Compras
-          </NavLink>
-          <NavLink
-            to="/produtos"
-            className={({ isActive }) =>
-              cn(
-                'flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-2 rounded',
-                isActive ? 'text-slate-900 font-bold' : 'text-slate-500',
-              )
-            }
-          >
-            <Package className="w-4 h-4" />
-            Catálogo
-          </NavLink>
-          <NavLink
-            to="/marketing"
-            className={({ isActive }) =>
-              cn(
-                'flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-2 rounded',
-                isActive ? 'text-emerald-600 font-bold' : 'text-slate-500',
-              )
-            }
-          >
-            <Megaphone className="w-4 h-4" />
-            Marketing
-          </NavLink>
-          <NavLink
-            to="/explorador-catalogo"
-            className={({ isActive }) =>
-              cn(
-                'flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-2 rounded',
-                isActive ? 'text-blue-600 font-bold' : 'text-slate-500',
-              )
-            }
-          >
-            <Compass className="w-4 h-4" />
-            Catálogo
-          </NavLink>
-          <NavLink
-            to="/anuncios-ml"
-            className={({ isActive }) =>
-              cn(
-                'flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-2 rounded',
-                isActive ? 'text-amber-600 font-bold' : 'text-slate-500',
-              )
-            }
-          >
-            <ShoppingBag className="w-4 h-4" />
-            Gestor ML
-          </NavLink>
-          <NavLink
-            to="/radar-ml"
-            className={({ isActive }) =>
-              cn(
-                'flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-2 rounded',
-                isActive ? 'text-orange-600 font-bold' : 'text-slate-500',
-              )
-            }
-          >
-            <Radar className="w-4 h-4" />
-            Radar ML
-          </NavLink>
-          <NavLink
-            to="/post-instagram"
-            className={({ isActive }) =>
-              cn(
-                'flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-2 rounded',
-                isActive ? 'text-rose-600 font-bold' : 'text-slate-500',
-              )
-            }
-          >
-            <Instagram className="w-4 h-4" />
-            Insta
-          </NavLink>
-          <NavLink
-            to="/post-tiktok"
-            className={({ isActive }) =>
-              cn(
-                'flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-2 rounded',
-                isActive ? 'text-cyan-600 font-bold' : 'text-slate-500',
-              )
-            }
-          >
-            <Video className="w-4 h-4" />
-            TikTok
-          </NavLink>
-          <NavLink
-            to="/cotacoes"
-            className={({ isActive }) =>
-              cn(
-                'flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-2 rounded',
-                isActive ? 'text-emerald-600 font-bold' : 'text-slate-500',
-              )
-            }
-          >
-            <Building2 className="w-4 h-4" />
-            Cotações
-          </NavLink>
-          <NavLink
-            to="/estoque-geral"
-            className={({ isActive }) =>
-              cn(
-                'flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-2 rounded',
-                isActive ? 'text-indigo-600 font-bold' : 'text-slate-500',
-              )
-            }
-          >
-            <Boxes className="w-4 h-4" />
-            Estoque Geral
-          </NavLink>
-          <NavLink
-            to="/estoque"
-            className={({ isActive }) =>
-              cn(
-                'flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-2 rounded',
-                isActive ? 'text-slate-900 font-bold' : 'text-slate-500',
-              )
-            }
-          >
-            <Layers className="w-4 h-4" />
-            Lotes
-          </NavLink>
-          <NavLink
-            to="/ajustes"
-            className={({ isActive }) =>
-              cn(
-                'flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-2 rounded',
-                isActive ? 'text-slate-900 font-bold' : 'text-slate-500',
-              )
-            }
-          >
-            <SlidersHorizontal className="w-4 h-4" />
-            Ajustes
-          </NavLink>
+        {/* Mobile Bottom Navigation for quick access — exibe apenas módulos permitidos */}
+        <div className="md:hidden flex items-center justify-around bg-white border-t border-slate-200 py-2 px-1 z-30 overflow-x-auto">
+          {visibleNavItems.slice(0, 5).map((item) => {
+            const Icon = item.icon
+            return (
+              <NavLink
+                key={item.path}
+                to={item.path}
+                className={({ isActive }) =>
+                  cn(
+                    'flex flex-col items-center gap-1 text-[10px] font-medium py-1 px-2 rounded min-w-[50px] text-center',
+                    isActive ? 'text-orange-600 font-bold' : 'text-slate-500',
+                  )
+                }
+              >
+                <Icon className="w-4 h-4" />
+                <span className="truncate max-w-[64px]">{item.title}</span>
+              </NavLink>
+            )
+          })}
         </div>
       </div>
     </div>

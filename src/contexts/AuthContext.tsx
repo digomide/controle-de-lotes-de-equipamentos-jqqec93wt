@@ -2,10 +2,16 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
 import pb from '@/lib/pocketbase/client'
 import type { User } from '@/types/inventory'
 
+import type { AppModuleId } from '@/types/modules'
+import { ALL_MODULE_IDS, DEFAULT_MEMBER_MODULE_IDS } from '@/types/modules'
+import { usersService } from '@/services/users'
+
 interface AuthContextType {
   user: User | null
   isLoading: boolean
   isAdmin: boolean
+  userModules: AppModuleId[]
+  hasModule: (moduleId: AppModuleId) => boolean
   login: (email: string, pass: string) => Promise<void>
   logout: () => void
   refreshUser: () => Promise<void>
@@ -32,7 +38,43 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     return null
   })
+  const [userModules, setUserModules] = useState<AppModuleId[]>(() => {
+    const email = pb.authStore.record?.email || ''
+    const role = pb.authStore.record?.role || ''
+    if (role === 'admin' || email === 'rodrigoifgx@gmail.com' || email.includes('gomide')) {
+      return ALL_MODULE_IDS
+    }
+    return DEFAULT_MEMBER_MODULE_IDS
+  })
   const [isLoading, setIsLoading] = useState<boolean>(true)
+
+  const loadPermissions = async (currentUserRec?: User | null) => {
+    const targetUser = currentUserRec !== undefined ? currentUserRec : user
+    if (!targetUser) {
+      setUserModules([])
+      return
+    }
+
+    const email = (targetUser.email || '').toLowerCase()
+    const isAdminUser =
+      targetUser.role === 'admin' || email === 'rodrigoifgx@gmail.com' || email.includes('gomide')
+
+    if (isAdminUser) {
+      setUserModules(ALL_MODULE_IDS)
+      return
+    }
+
+    try {
+      const res = await usersService.getMyAccess()
+      if (res && res.modules && res.modules.length > 0) {
+        setUserModules(res.modules)
+      } else {
+        setUserModules(DEFAULT_MEMBER_MODULE_IDS)
+      }
+    } catch {
+      setUserModules(DEFAULT_MEMBER_MODULE_IDS)
+    }
+  }
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -40,7 +82,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (pb.authStore.isValid) {
           // refresh auth token if possible
           const authData = await pb.collection('users').authRefresh()
-          setUser({
+          const refreshedUser: User = {
             id: authData.record.id,
             collectionId: authData.record.collectionId,
             collectionName: authData.record.collectionName,
@@ -51,13 +93,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             avatar: authData.record.avatar || '',
             created: authData.record.created,
             updated: authData.record.updated,
-          } as User)
+          }
+          setUser(refreshedUser)
+          await loadPermissions(refreshedUser)
         } else {
           setUser(null)
+          setUserModules([])
         }
       } catch {
         pb.authStore.clear()
         setUser(null)
+        setUserModules([])
       } finally {
         setIsLoading(false)
       }
@@ -91,7 +137,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (email: string, pass: string) => {
     const authData = await pb.collection('users').authWithPassword(email, pass)
-    setUser({
+    const loggedUser: User = {
       id: authData.record.id,
       collectionId: authData.record.collectionId,
       collectionName: authData.record.collectionName,
@@ -102,19 +148,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       avatar: authData.record.avatar || '',
       created: authData.record.created,
       updated: authData.record.updated,
-    } as User)
+    }
+    setUser(loggedUser)
+    await loadPermissions(loggedUser)
   }
 
   const logout = () => {
     pb.authStore.clear()
     setUser(null)
+    setUserModules([])
   }
 
   const refreshUser = async () => {
     if (pb.authStore.isValid) {
       try {
         const authData = await pb.collection('users').authRefresh()
-        setUser({
+        const refreshedUser: User = {
           id: authData.record.id,
           collectionId: authData.record.collectionId,
           collectionName: authData.record.collectionName,
@@ -125,17 +174,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           avatar: authData.record.avatar || '',
           created: authData.record.created,
           updated: authData.record.updated,
-        } as User)
+        }
+        setUser(refreshedUser)
+        await loadPermissions(refreshedUser)
       } catch {
         // keep current user or clear
       }
     }
   }
 
-  const isAdmin = user?.role === 'admin' || user?.email === 'rodrigoifgx@gmail.com'
+  const isAdmin =
+    user?.role === 'admin' ||
+    user?.email === 'rodrigoifgx@gmail.com' ||
+    (user?.email || '').toLowerCase().includes('gomide')
+
+  const hasModule = (moduleId: AppModuleId): boolean => {
+    if (isAdmin) return true
+    return userModules.includes(moduleId)
+  }
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, isAdmin, login, logout, refreshUser }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        isLoading,
+        isAdmin,
+        userModules,
+        hasModule,
+        login,
+        logout,
+        refreshUser,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   )
