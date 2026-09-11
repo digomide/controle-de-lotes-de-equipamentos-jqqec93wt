@@ -7,9 +7,11 @@ import {
   isKitOrBundleTitle,
   isAccessoryTitle,
   detectCollectorNoiseAd,
+  isCollectorTermCompatible,
   type ExactProductScoreResult,
   type ExactProductSearchMode,
 } from '@/lib/catalogFilter'
+import type { CollectorDeduplicatedAd } from '@/services/mlCollectorService'
 
 export type RaioXScopeMode = 'exact' | 'all_mentions' | 'own_only'
 
@@ -1309,4 +1311,252 @@ export async function recordAdSnapshots(
   }
 
   return { savedCount, errorsCount }
+}
+
+/**
+ * Agrega vendedores a partir dos anúncios deduplicados do Coletor de Vendas
+ * quando a busca não possui ficha oficial de catálogo no Mercado Livre.
+ */
+export function aggregateSellersFromCollector(
+  collectorAds: CollectorDeduplicatedAd[] | undefined | null,
+  searchTerm: string,
+): SellerPerformanceAggregate[] {
+  if (!Array.isArray(collectorAds) || collectorAds.length === 0) {
+    return []
+  }
+
+  const cleanQuery = (searchTerm || '').trim()
+
+  // 1. Filtrar anúncios deduplicados compatíveis com o termo buscado
+  // (nunca herdar coletas de categoria divergente, ex. "placa mae" para busca de notebook)
+  // e descartar ruídos grosseiros caso não tenham sido filtrados antes.
+  const validAds: CollectorDeduplicatedAd[] = []
+  const seenIds = new Set<string>()
+
+  for (const ad of collectorAds) {
+    const adId = ad.id || ad.mlb_id || ''
+    if (adId && seenIds.has(adId)) continue
+    if (adId) seenIds.add(adId)
+
+    // Checar compatibilidade de termo com o título do anúncio caso haja busca
+    if (cleanQuery) {
+      // 1.1 Se o termo e o título do anúncio divergirem de categoria/componente
+      const isCompat = isCollectorTermCompatible(cleanQuery, ad.title || '')
+      if (!isCompat) {
+        // Se isCollectorTermCompatible rejeitou por categoria divergente (ex: placa mae vs notebook)
+        continue
+      }
+
+      // 1.2 Checagem de ruído absoluto
+      const noise = detectCollectorNoiseAd(ad.title || '', cleanQuery)
+      if (noise.isNoise) {
+        continue
+      }
+    }
+
+    validAds.push(ad)
+  }
+
+  if (validAds.length === 0) {
+    return []
+  }
+
+  // 2. Agrupar por vendedor (seller_name ou fallback pelo id do anúncio)
+  const sellersMap = new Map<
+    string,
+    {
+      sellerId: string
+      sellerNickname: string
+      isOwnAccount: boolean
+      ads: Array<{
+        ad: CollectorDeduplicatedAd
+        price: number
+        stock: number
+        sold: number
+        isFull: boolean
+        isPremium: boolean
+      }>
+    }
+  >()
+
+  for (const ad of validAds) {
+    const rawSellerName = (ad.seller_name || '').trim()
+    const adId = ad.id || ad.mlb_id || 'anuncio'
+
+    const sellerKey = rawSellerName ? `seller_${rawSellerName.toLowerCase()}` : `ad_seller_${adId}`
+
+    const isOwn = isOwnSeller(sellerKey, rawSellerName)
+
+    let sellerEntry = sellersMap.get(sellerKey)
+    if (!sellerEntry) {
+      const displayNickname = rawSellerName
+        ? rawSellerName
+        : `Vendedor #${adId.replace(/^MLB-?/i, '')}`
+
+      sellerEntry = {
+        sellerId: sellerKey,
+        sellerNickname: isOwn ? 'Sua Conta (INFOPRECOBAIXO)' : displayNickname,
+        isOwnAccount: isOwn,
+        ads: [],
+      }
+      sellersMap.set(sellerKey, sellerEntry)
+    }
+
+    const price = typeof ad.price === 'number' && !isNaN(ad.price) ? ad.price : 0
+    // Pilar C: soma available_quantity quando presente (acessado de forma defensiva), senão mínimo 1 por anúncio
+    const rawAvailable = (ad as any).available_quantity
+    const stock =
+      typeof rawAvailable === 'number' && !isNaN(rawAvailable) && rawAvailable > 0
+        ? rawAvailable
+        : 1
+
+    const sold =
+      typeof ad.sold_quantity === 'number' && !isNaN(ad.sold_quantity) && ad.sold_quantity > 0
+        ? ad.sold_quantity
+        : 0
+
+    const isFull = Boolean(ad.is_full)
+    // Título ou condição indicando modalidade premium / sem juros se houver
+    const isPremium = isFull || /sem juros|12x|parcelado|premium/i.test(ad.title || '')
+
+    sellerEntry.ads.push({
+      ad,
+      price,
+      stock,
+      sold,
+      isFull,
+      isPremium,
+    })
+  }
+
+  // 3. Montar SellerPerformanceAggregate calculando o score 0–100 e termômetro
+  const result: SellerPerformanceAggregate[] = []
+
+  for (const entry of sellersMap.values()) {
+    const totalAdsCount = entry.ads.length
+    const prices = entry.ads.map((a) => a.price).filter((p) => p > 0)
+    const minPrice = prices.length > 0 ? Math.min(...prices) : 0
+    const maxPrice = prices.length > 0 ? Math.max(...prices) : 0
+    const avgPrice =
+      prices.length > 0 ? Math.round(prices.reduce((acc, p) => acc + p, 0) / prices.length) : 0
+
+    const totalSold = entry.ads.reduce((acc, a) => acc + a.sold, 0)
+    const totalStock = entry.ads.reduce((acc, a) => acc + a.stock, 0)
+    const premiumCount = entry.ads.filter((a) => a.isPremium).length
+    const classicCount = totalAdsCount - premiumCount
+
+    // Cálculo do Score (0 - 100) conforme especificação exata:
+    // - Pilar A: vendas confirmadas (soma de sold_quantity; ~25–60 pts, escala logarítmica tipo Math.min(60, 25 + Math.floor(Math.log10(totalSold + 1) * 20)))
+    // - Pilar C: estoque observado (soma available_quantity quando presente, senão mínimo 1 por anúncio; +8 a +15 pts)
+    // - Pilar D: modalidade (+10 se is_full/premium/sem juros)
+    // - Pilar E: multi-anúncios (+5 se seller tem 2+ anúncios)
+    let score = 0
+    const reasons: string[] = []
+    const usesConfirmedSales = totalSold > 0
+    const usesStock = totalStock > 0
+    const usesListingType = premiumCount > 0
+
+    // Pilar A
+    if (totalSold > 0) {
+      const salesPoints = Math.min(60, 25 + Math.floor(Math.log10(totalSold + 1) * 20))
+      score += salesPoints
+      reasons.push(`${totalSold} venda(s) confirmada(s) no Coletor`)
+    } else {
+      reasons.push('Sem vendas confirmadas registradas no Coletor')
+    }
+
+    // Pilar C
+    if (totalStock >= 10) {
+      score += 15
+      reasons.push(`Estoque profundo (${totalStock} un. observadas)`)
+    } else if (totalStock > 0) {
+      score += 8
+      reasons.push(`Estoque observado (${totalStock} un.)`)
+    }
+
+    // Pilar D
+    if (premiumCount > 0) {
+      score += 10
+      reasons.push('Modalidade Full / Sem juros identificada')
+    }
+
+    // Pilar E
+    if (totalAdsCount >= 2) {
+      score += 5
+      reasons.push(`Multi-anúncios do produto (${totalAdsCount} posições ativas)`)
+    }
+
+    // Normalização 0-100 (mínimo de 5 se tiver anúncios ativos)
+    const thermometerScore = Math.min(100, Math.max(5, score))
+
+    // Tiers: high ≥ 65, medium 35–64, low < 35
+    let thermometerTier: 'high' | 'medium' | 'low' = 'low'
+    if (thermometerScore >= 65) {
+      thermometerTier = 'high'
+    } else if (thermometerScore >= 35) {
+      thermometerTier = 'medium'
+    } else {
+      thermometerTier = 'low'
+    }
+
+    // Anúncios desse seller formatados
+    const ads = entry.ads.map(({ ad, price, stock, sold, isPremium }) => ({
+      id: ad.id || ad.mlb_id || '',
+      title: ad.title || '',
+      price,
+      stock,
+      soldQuantity: sold > 0 ? sold : null,
+      isBuyBoxWinner: false,
+      listingTypeLabel: isPremium ? 'Premium / Full' : 'Clássico',
+      permalink: ad.permalink || '',
+      thumbnail: ad.thumbnail || '',
+      isKitOrBundle: isKitOrBundleTitle(ad.title || ''),
+    }))
+
+    result.push({
+      sellerId: entry.sellerId,
+      sellerNickname: entry.sellerNickname,
+      isOwnAccount: entry.isOwnAccount,
+      totalAdsCount,
+      totalAvailableStock: totalStock,
+      minPrice,
+      maxPrice,
+      avgPrice,
+      buyBoxWinnersCount: 0,
+      hasBuyBox: false,
+      premiumListingsCount: premiumCount,
+      classicListingsCount: classicCount,
+      hasRealSalesData: totalSold > 0,
+      totalConfirmedSales: totalSold,
+      estimatedSales60d: totalSold > 0 ? Math.max(1, Math.round(totalSold * 0.4)) : null,
+      salesVelocityPerDay:
+        totalSold > 0 ? Number((Math.max(1, Math.round(totalSold * 0.4)) / 60).toFixed(2)) : null,
+      historicalSnapshotsCount: 0,
+      snapshotDeltaSales60d: null,
+      thermometerScore,
+      thermometerTier,
+      thermometerReasons: reasons,
+      dataSignalsUsed: {
+        usesConfirmedSales,
+        usesBuyBox: false,
+        usesStock,
+        usesListingType,
+        usesRankingPosition: false,
+      },
+      ads,
+    })
+  }
+
+  // Ordenar por termômetro descrescente, depois por vendas e estoque
+  result.sort((a, b) => {
+    if (b.thermometerScore !== a.thermometerScore) {
+      return b.thermometerScore - a.thermometerScore
+    }
+    if (b.totalConfirmedSales !== a.totalConfirmedSales) {
+      return b.totalConfirmedSales - a.totalConfirmedSales
+    }
+    return b.totalAvailableStock - a.totalAvailableStock
+  })
+
+  return result
 }

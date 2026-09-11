@@ -124,6 +124,18 @@ export function NumerosDoMercado({
                   Todas as especificações (Termo Geral)
                 </Badge>
               )}
+              {hasCollector ? (
+                <Badge className="bg-emerald-100 text-emerald-800 border-emerald-300 text-[10px] font-bold">
+                  Fonte: Coletor (Vendas Reais)
+                </Badge>
+              ) : catalogSummary ? (
+                <Badge
+                  variant="outline"
+                  className="bg-blue-50 text-blue-800 border-blue-200 text-[10px] font-bold"
+                >
+                  Fonte: Catálogo ML
+                </Badge>
+              ) : null}
             </div>
             <p className="text-xs text-slate-500">
               {isSpecFiltered
