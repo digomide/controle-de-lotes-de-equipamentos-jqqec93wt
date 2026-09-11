@@ -60,6 +60,7 @@ export default function Layout() {
     { title: 'Post TikTok', path: '/post-tiktok', icon: Video },
     { title: 'Cotações Corporativas', path: '/cotacoes', icon: Building2 },
     { title: 'Vendas', path: '/vendas', icon: ShoppingCart },
+    { title: 'Estoque Geral', path: '/estoque-geral', icon: Boxes },
     { title: 'Estoque / Lotes', path: '/estoque', icon: Layers },
     { title: 'Ajustes', path: '/ajustes', icon: SlidersHorizontal },
     { title: 'Usuários', path: '/usuarios', icon: Users, adminOnly: true },
@@ -83,6 +84,7 @@ export default function Layout() {
     if (p.startsWith('/cotacoes')) return 'Cotações Corporativas & Lotes'
     if (p.startsWith('/catalogo/')) return 'Detalhes do Equipamento'
     if (p.startsWith('/produtos') || p.startsWith('/catalogo')) return 'Catálogo de Equipamentos'
+    if (p.startsWith('/estoque-geral')) return 'Estoque Geral (Peças & Acessórios)'
     if (p.startsWith('/estoque')) return 'Controle de Lotes & Estoque'
     if (p.startsWith('/ajustes')) return 'Ajuste de Inventário & Divergências'
     if (p.startsWith('/usuarios')) return 'Gestão de Usuários'
@@ -457,6 +459,18 @@ export default function Layout() {
           >
             <Building2 className="w-4 h-4" />
             Cotações
+          </NavLink>
+          <NavLink
+            to="/estoque-geral"
+            className={({ isActive }) =>
+              cn(
+                'flex flex-col items-center gap-1 text-[11px] font-medium py-1 px-2 rounded',
+                isActive ? 'text-indigo-600 font-bold' : 'text-slate-500',
+              )
+            }
+          >
+            <Boxes className="w-4 h-4" />
+            Estoque Geral
           </NavLink>
           <NavLink
             to="/estoque"

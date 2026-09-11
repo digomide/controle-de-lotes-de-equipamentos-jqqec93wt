@@ -15,6 +15,7 @@ import Produtos from './pages/Produtos'
 import CatalogoDetalhe from './pages/CatalogoDetalhe'
 import LucratividadeLotes from './pages/LucratividadeLotes'
 import Estoque from './pages/Estoque'
+import EstoqueGeral from './pages/EstoqueGeral'
 import Ajustes from './pages/Ajustes'
 import Configuracoes from './pages/Configuracoes'
 import Usuarios from './pages/Usuarios'
@@ -74,6 +75,7 @@ const App = () => (
             <Route path="/produtos" element={<Produtos />} />
             <Route path="/catalogo" element={<Produtos />} />
             <Route path="/catalogo/:id" element={<CatalogoDetalhe />} />
+            <Route path="/estoque-geral" element={<EstoqueGeral />} />
             <Route path="/estoque" element={<Estoque />} />
             <Route path="/estoque/:id" element={<CatalogoDetalhe />} />
             <Route path="/lotes-entrada" element={<LotesEntrada />} />

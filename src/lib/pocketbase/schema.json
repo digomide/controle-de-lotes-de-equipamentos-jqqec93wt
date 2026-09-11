@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-11T11:19:35.810Z",
+  "generatedAt": "2026-09-11T11:47:17.561Z",
   "collections": [
     {
       "name": "users",
@@ -3446,6 +3446,145 @@
       ],
       "indexes": [
         "CREATE INDEX idx_ml_catalog_search_results_job ON ml_catalog_search_results (job_id, chunk_index ASC)"
+      ]
+    },
+    {
+      "name": "general_inventory_items",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+      },
+      "fields": [
+        {
+          "name": "description",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "category",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "quantity",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cost_price",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "suggested_price",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "min_stock",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "location",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "required": false,
+          "system": false
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_gen_inv_category ON general_inventory_items (category)",
+        "CREATE INDEX idx_gen_inv_description ON general_inventory_items (description)"
+      ]
+    },
+    {
+      "name": "general_inventory_movements",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != '' && @request.auth.role = 'admin'",
+        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+      },
+      "fields": [
+        {
+          "name": "item_id",
+          "type": "relation",
+          "required": true,
+          "system": false,
+          "collectionRef": "general_inventory_items"
+        },
+        {
+          "name": "type",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["entrada", "saida", "ajuste"]
+        },
+        {
+          "name": "quantity",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "quantity_before",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "quantity_after",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "unit_cost",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "reason",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "observation",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "user_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_gen_inv_mov_item ON general_inventory_movements (item_id)",
+        "CREATE INDEX idx_gen_inv_mov_type ON general_inventory_movements (type)"
       ]
     }
   ]
