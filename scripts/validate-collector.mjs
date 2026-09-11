@@ -18,8 +18,6 @@ const tsSourcePath = path.resolve(__dirname, '../src/lib/mlBookmarklet.ts')
 const tsSource = fs.readFileSync(tsSourcePath, 'utf8')
 
 // Extrai e compila os geradores de script ou testa o código gerado
-console.error('[FORCE_FAIL_TEST] Provando que run_qa executa este script!')
-process.exit(99)
 console.log('--- 1. Verificação de integridade estática no código-fonte ---')
 
 // 1. Verificação inicial da string estática do fonte
@@ -35,14 +33,14 @@ if (/_Desde_\(d\+\)/i.test(tsSource)) {
   process.exit(1)
 }
 
-// 3. Verificar versão 1.6.2
-if (!tsSource.includes("SCRIPT_VERSION = '1.6.2'")) {
-  console.error('ERRO: SCRIPT_VERSION não está definido como 1.6.2!')
+// 3. Verificar versão 1.6.3
+if (!tsSource.includes("SCRIPT_VERSION = '1.6.3'")) {
+  console.error('ERRO: SCRIPT_VERSION não está definido como 1.6.3!')
   process.exit(1)
 }
 
 console.log(
-  '✓ Código-fonte estático limpo: zero ocorrências de //+$ e _Desde_(d+). Versão 1.6.2 confirmada.',
+  '✓ Código-fonte estático limpo: zero ocorrências de //+$ e _Desde_(d+). Versão 1.6.3 confirmada.',
 )
 
 // 4. Teste de compilação dinâmica do template do userscript
@@ -60,7 +58,7 @@ const options = {
 const cleanBackendUrl = (options.backendUrl || options.appUrl || '').replace(/\/+$/, '')
 const cleanAppUrl = (options.appUrl || '').replace(/\/+$/, '')
 const collectorKey = options.collectorKey || ''
-const SCRIPT_VERSION = '1.6.2'
+const SCRIPT_VERSION = '1.6.3'
 
 // Encontra onde começa getTampermonkeyUserscript
 const fnStart = tsSource.indexOf('export function getTampermonkeyUserscript')
@@ -108,8 +106,8 @@ if (/_Desde_\(d\+\)/i.test(generatedScript)) {
   console.error('ERRO: O texto do userscript gerado contém _Desde_(d+)!')
   process.exit(1)
 }
-if (!generatedScript.includes('1.6.2')) {
-  console.error('ERRO: O texto do userscript gerado não contém a versão 1.6.2!')
+if (!generatedScript.includes('1.6.3')) {
+  console.error('ERRO: O texto do userscript gerado não contém a versão 1.6.3!')
   process.exit(1)
 }
 
@@ -117,7 +115,7 @@ try {
   // new Function avalia a sintaxe completa do JavaScript no motor V8 sem executá-lo
   new Function(jsExecutableCode)
   console.log(
-    '✓ Userscript Tampermonkey v1.6.2 compilado pelo parser JavaScript com sucesso sem erros de sintaxe!',
+    '✓ Userscript Tampermonkey v1.6.3 compilado pelo parser JavaScript com sucesso sem erros de sintaxe!',
   )
 } catch (syntaxError) {
   console.error('ERRO de sintaxe ao compilar o userscript:', syntaxError)
