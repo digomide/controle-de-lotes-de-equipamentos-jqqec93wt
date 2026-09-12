@@ -485,6 +485,12 @@ export const mlOrdersService = {
     source: string
     message: string
   }> {
+    const token = pb.authStore.token
+    const headers: Record<string, string> = {}
+    if (token) {
+      headers.Authorization = token
+    }
+
     const res = await pb.send<{
       ok: boolean
       found: boolean
@@ -495,6 +501,7 @@ export const mlOrdersService = {
       message: string
     }>(`/backend/v1/ml/orders/${encodeURIComponent(orderId)}/fiscal-lookup`, {
       method: 'POST',
+      headers,
     })
     return res
   },

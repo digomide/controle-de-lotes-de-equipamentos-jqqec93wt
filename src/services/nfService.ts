@@ -246,9 +246,16 @@ export const nfService = {
     numero?: string
     caminho_danfe?: string
   }> {
+    const token = pb.authStore.token
+    const headers: Record<string, string> = {}
+    if (token) {
+      headers.Authorization = token
+    }
+
     const res = await pb.send('/backend/v1/nf/emit', {
       method: 'POST',
       body: input,
+      headers,
     })
     return res
   },
@@ -265,8 +272,15 @@ export const nfService = {
     caminho_xml?: string
     mensagem?: string
   }> {
+    const token = pb.authStore.token
+    const headers: Record<string, string> = {}
+    if (token) {
+      headers.Authorization = token
+    }
+
     const res = await pb.send(`/backend/v1/nf/status/${encodeURIComponent(ref)}`, {
       method: 'GET',
+      headers,
     })
     return res
   },

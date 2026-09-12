@@ -647,9 +647,20 @@ export function EmitirNFModal({
         })
       }
     } catch (err: any) {
+      const isUnauthorized =
+        err?.status === 401 ||
+        err?.statusCode === 401 ||
+        err?.response?.status === 401 ||
+        err?.data?.status === 401 ||
+        (typeof err?.message === 'string' && err.message.includes('401'))
+
+      const description = isUnauthorized
+        ? 'Sessão expirada — faça login novamente'
+        : err?.data?.error || err.message || 'Falha na comunicação com o Mercado Livre.'
+
       toast({
-        title: 'Erro ao consultar API do ML',
-        description: err.message || 'Falha na comunicação com o Mercado Livre.',
+        title: isUnauthorized ? 'Sessão expirada' : 'Erro ao consultar API do ML',
+        description,
         variant: 'destructive',
       })
     } finally {
@@ -763,11 +774,21 @@ export function EmitirNFModal({
         })
       }
     } catch (err: any) {
-      const msg = err?.data?.error || err?.message || 'Falha na transmissão da nota fiscal'
+      const isUnauthorized =
+        err?.status === 401 ||
+        err?.statusCode === 401 ||
+        err?.response?.status === 401 ||
+        err?.data?.status === 401 ||
+        (typeof err?.message === 'string' && err.message.includes('401'))
+
+      const msg = isUnauthorized
+        ? 'Sessão expirada — faça login novamente'
+        : err?.data?.error || err?.message || 'Falha na transmissão da nota fiscal'
+
       setResultStatus('erro_transmissao')
       setResultMessage(msg)
       toast({
-        title: 'Erro de emissão',
+        title: isUnauthorized ? 'Sessão expirada' : 'Erro de emissão',
         description: msg,
         variant: 'destructive',
       })
@@ -796,9 +817,20 @@ export function EmitirNFModal({
         if (onSuccess) onSuccess()
       }
     } catch (err: any) {
+      const isUnauthorized =
+        err?.status === 401 ||
+        err?.statusCode === 401 ||
+        err?.response?.status === 401 ||
+        err?.data?.status === 401 ||
+        (typeof err?.message === 'string' && err.message.includes('401'))
+
+      const msg = isUnauthorized
+        ? 'Sessão expirada — faça login novamente'
+        : err?.data?.error || err.message || 'Falha ao consultar status da nota fiscal.'
+
       toast({
-        title: 'Erro ao consultar',
-        description: err.message,
+        title: isUnauthorized ? 'Sessão expirada' : 'Erro ao consultar',
+        description: msg,
         variant: 'destructive',
       })
     } finally {

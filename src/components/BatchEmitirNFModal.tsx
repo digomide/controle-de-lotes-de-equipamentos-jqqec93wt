@@ -398,9 +398,20 @@ export function BatchEmitirNFModal({
         })
       }
     } catch (err: any) {
+      const isUnauthorized =
+        err?.status === 401 ||
+        err?.statusCode === 401 ||
+        err?.response?.status === 401 ||
+        err?.data?.status === 401 ||
+        (typeof err?.message === 'string' && err.message.includes('401'))
+
+      const description = isUnauthorized
+        ? 'Sessão expirada — faça login novamente'
+        : err?.data?.error || err.message || 'Falha ao consultar API do Mercado Livre.'
+
       toast({
-        title: 'Erro na busca do ML',
-        description: err.message || 'Falha ao consultar API do Mercado Livre.',
+        title: isUnauthorized ? 'Sessão expirada' : 'Erro na busca do ML',
+        description,
         variant: 'destructive',
       })
     } finally {
@@ -590,11 +601,19 @@ export function BatchEmitirNFModal({
         }
       } catch (err: any) {
         rejectedCount++
-        const errorMsg =
-          err?.data?.error ||
-          err?.data?.mensagem ||
-          err?.message ||
-          'Falha de comunicação com Focus NFe'
+        const isUnauthorized =
+          err?.status === 401 ||
+          err?.statusCode === 401 ||
+          err?.response?.status === 401 ||
+          err?.data?.status === 401 ||
+          (typeof err?.message === 'string' && err.message.includes('401'))
+
+        const errorMsg = isUnauthorized
+          ? 'Sessão expirada — faça login novamente'
+          : err?.data?.error ||
+            err?.data?.mensagem ||
+            err?.message ||
+            'Falha de comunicação com Focus NFe'
 
         setExecutions((prev) =>
           prev.map((ex, idx) =>

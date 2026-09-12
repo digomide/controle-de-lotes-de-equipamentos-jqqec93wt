@@ -16,9 +16,19 @@ routerAdd(
   'POST',
   '/backend/v1/ml/orders/{order_id}/fiscal-lookup',
   (e) => {
-    var authRecord = e.get('authRecord')
+    var authRecord = e.auth
     if (!authRecord) {
-      return e.json(401, { ok: false, error: 'Acesso não autorizado.' })
+      try {
+        var info = e.requestInfo()
+        authRecord = info.auth
+      } catch (_) {}
+    }
+
+    if (!authRecord || !authRecord.id) {
+      return e.json(401, {
+        ok: false,
+        error: 'Acesso não autorizado: sessão expirada ou não autenticada.',
+      })
     }
 
     var orderId = e.request.pathValue('order_id')

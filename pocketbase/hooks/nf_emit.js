@@ -16,9 +16,52 @@ routerAdd(
   'POST',
   '/backend/v1/nf/emit',
   (e) => {
-    var authRecord = e.get('authRecord')
+    var authRecord = e.auth
     if (!authRecord) {
-      return e.json(401, { ok: false, error: 'Acesso não autorizado.' })
+      try {
+        var info = e.requestInfo()
+        authRecord = info.auth
+      } catch (_) {}
+    }
+
+    if (!authRecord || !authRecord.id) {
+      return e.json(401, {
+        ok: false,
+        error: 'Acesso não autorizado: sessão expirada ou não autenticada.',
+      })
+    }
+
+    // Validação de permissão de módulo (notas_fiscais ou admin)
+    var role = authRecord.getString ? authRecord.getString('role') : authRecord.role
+    var email = (
+      authRecord.getString ? authRecord.getString('email') : authRecord.email || ''
+    ).toLowerCase()
+    var isAdmin =
+      role === 'admin' || email === 'rodrigoifgx@gmail.com' || email.indexOf('gomide') !== -1
+
+    if (!isAdmin) {
+      var hasAccess = false
+      try {
+        var accessRec = $app.findFirstRecordByFilter(
+          'user_module_access',
+          "user_id = '" + authRecord.id + "'",
+        )
+        if (accessRec) {
+          var mods = accessRec.get('modules') || []
+          var modsList = Array.isArray(mods) ? mods : JSON.parse(mods || '[]')
+          if (modsList.indexOf('notas_fiscais') !== -1) {
+            hasAccess = true
+          }
+        }
+      } catch (_) {}
+
+      if (!hasAccess) {
+        return e.json(403, {
+          ok: false,
+          error:
+            'Acesso negado: seu usuário não possui permissão para o módulo de Notas Fiscais (notas_fiscais).',
+        })
+      }
     }
 
     var body = e.requestInfo().body || {}
