@@ -107,6 +107,10 @@ export default function NotasFiscais() {
     }
   }
 
+  // Indicador de configuração ativa do emissor:
+  // Considera configurado se o focus_token estiver preenchido no registro ativo
+  const isEmissorConfigured = Boolean(config.focus_token && config.focus_token.trim().length > 0)
+
   // Carregar Notas
   const loadInvoices = async () => {
     setLoadingInvoices(true)
@@ -319,16 +323,19 @@ export default function NotasFiscais() {
           <TabsTrigger value="config" className="gap-2 text-xs font-medium">
             <Building className="w-4 h-4" />
             Configuração do Emissor
-            {!config.focus_token && (
-              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse ml-1" />
-            )}
+            <span
+              className={`w-2 h-2 rounded-full ml-1 ${
+                isEmissorConfigured ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'
+              }`}
+              title={isEmissorConfigured ? 'Emissor configurado' : 'Aguardando credenciais'}
+            />
           </TabsTrigger>
         </TabsList>
 
         {/* Aba: Histórico de Notas */}
         <TabsContent value="invoices" className="space-y-4">
           {/* Alerta de configuração se ausente */}
-          {!config.focus_token && (
+          {!isEmissorConfigured && (
             <Card className="border-amber-200 bg-amber-50/70">
               <CardContent className="p-4 flex items-center justify-between">
                 <div className="flex items-center gap-3">

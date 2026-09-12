@@ -112,8 +112,9 @@ export const nfService = {
    */
   async getConfig(): Promise<NFConfig | null> {
     try {
+      // Sempre buscar o primeiro registro existente (singleton de configuração)
       const records = await pb.collection('nf_config').getList<NFConfig>(1, 1, {
-        sort: '-created',
+        sort: 'created',
       })
       if (records.items && records.items.length > 0) {
         return records.items[0]
@@ -126,14 +127,34 @@ export const nfService = {
   },
 
   /**
-   * Salva ou atualiza as configurações da empresa emissora
+   * Salva ou atualiza as configurações da empresa emissora.
+   * Garante a semântica singleton: sempre atualiza o registro único existente
+   * e apenas cria se a coleção estiver absolutamente vazia.
    */
   async saveConfig(data: Partial<NFConfig>, certificateFile?: File): Promise<NFConfig> {
-    const existing = await this.getConfig()
+    // 1. Identificar o id do registro existente: pelo input data.id ou buscando na coleção
+    let targetId = data.id
+    if (!targetId) {
+      const existing = await this.getConfig()
+      if (existing?.id) {
+        targetId = existing.id
+      }
+    }
 
     const formData = new FormData()
     for (const [key, val] of Object.entries(data)) {
-      if (val !== undefined && val !== null && key !== 'certificate_file') {
+      // Ignorar id, created, updated, collectionId, collectionName e certificate_file se string
+      if (
+        key === 'id' ||
+        key === 'created' ||
+        key === 'updated' ||
+        key === 'collectionId' ||
+        key === 'collectionName' ||
+        key === 'certificate_file'
+      ) {
+        continue
+      }
+      if (val !== undefined && val !== null) {
         formData.append(key, String(val))
       }
     }
@@ -142,10 +163,11 @@ export const nfService = {
       formData.append('certificate_file', certificateFile)
     }
 
-    if (existing?.id) {
-      const updated = await pb.collection('nf_config').update<NFConfig>(existing.id, formData)
+    if (targetId) {
+      const updated = await pb.collection('nf_config').update<NFConfig>(targetId, formData)
       return updated
     } else {
+      // Se a coleção estiver vazia, cria o primeiro e único registro
       const created = await pb.collection('nf_config').create<NFConfig>(formData)
       return created
     }
