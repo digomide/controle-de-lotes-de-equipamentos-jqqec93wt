@@ -55,6 +55,7 @@ export interface MLSellerItem {
     serial_number?: string
     status: string
     unit_price: number
+    cost_price?: number
     match_type: 'ml_listing_id' | 'gtin'
   }
 }
@@ -1314,6 +1315,167 @@ export const mlService = {
   },
 
   /**
+   * Atualiza preço do anúncio no ML via ml_item_queue + polling
+   */
+  async updateItemPrice(mlItemId: string, newPrice: number, productId?: string): Promise<any> {
+    if (!newPrice || isNaN(newPrice) || newPrice <= 0) {
+      throw new Error('O preço deve ser maior que zero.')
+    }
+
+    let targetProductId = productId
+    if (!targetProductId && mlItemId) {
+      try {
+        const records = await pb.collection('products').getList(1, 1, {
+          filter: `ml_listing_id = "${mlItemId}"`,
+        })
+        if (records.items.length > 0) {
+          targetProductId = records.items[0].id
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
+    const queueItem = await pb.collection('ml_item_queue').create({
+      product: targetProductId || null,
+      ml_item_id: mlItemId,
+      action: 'update_price',
+      new_price: Number(newPrice.toFixed(2)),
+      status: 'pending',
+    })
+
+    const queueId = queueItem.id
+    const timeoutMs = 45_000
+    const intervalMs = 1_500
+    const startTime = Date.now()
+
+    while (Date.now() - startTime < timeoutMs) {
+      await sleep(intervalMs)
+      try {
+        const current = await pb.collection('ml_item_queue').getOne(queueId)
+        if (current.status === 'done') {
+          return {
+            success: true,
+            id: mlItemId,
+            price: newPrice,
+          }
+        }
+        if (current.status === 'error') {
+          throw new Error(current.error_message || 'Falha ao atualizar preço no Mercado Livre.')
+        }
+      } catch (err: any) {
+        if (err.message && !err.status) throw err
+      }
+    }
+    throw new Error('Tempo limite ao atualizar preço do anúncio no servidor.')
+  },
+
+  /**
+   * Atualiza estoque (quantidade disponível) do anúncio no ML via ml_item_queue + polling
+   */
+  async updateItemStock(mlItemId: string, newQuantity: number, productId?: string): Promise<any> {
+    if (
+      newQuantity === undefined ||
+      newQuantity === null ||
+      isNaN(newQuantity) ||
+      newQuantity < 0
+    ) {
+      throw new Error('A quantidade deve ser maior ou igual a zero.')
+    }
+
+    let targetProductId = productId
+    if (!targetProductId && mlItemId) {
+      try {
+        const records = await pb.collection('products').getList(1, 1, {
+          filter: `ml_listing_id = "${mlItemId}"`,
+        })
+        if (records.items.length > 0) {
+          targetProductId = records.items[0].id
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
+    const queueItem = await pb.collection('ml_item_queue').create({
+      product: targetProductId || null,
+      ml_item_id: mlItemId,
+      action: 'update_stock',
+      new_quantity: Math.floor(newQuantity),
+      status: 'pending',
+    })
+
+    const queueId = queueItem.id
+    const timeoutMs = 45_000
+    const intervalMs = 1_500
+    const startTime = Date.now()
+
+    while (Date.now() - startTime < timeoutMs) {
+      await sleep(intervalMs)
+      try {
+        const current = await pb.collection('ml_item_queue').getOne(queueId)
+        if (current.status === 'done') {
+          return {
+            success: true,
+            id: mlItemId,
+            available_quantity: newQuantity,
+          }
+        }
+        if (current.status === 'error') {
+          throw new Error(
+            current.error_message || 'Falha ao atualizar quantidade no Mercado Livre.',
+          )
+        }
+      } catch (err: any) {
+        if (err.message && !err.status) throw err
+      }
+    }
+    throw new Error('Tempo limite ao atualizar estoque do anúncio no servidor.')
+  },
+
+  /**
+   * Busca itens na fila de publicação (ml_publish_queue) com suporte a filtro de erro e reprocessamento
+   */
+  async getPublishQueueItems(options?: {
+    status?: 'error' | 'pending' | 'processing' | 'done' | 'all'
+    limit?: number
+  }): Promise<any[]> {
+    const status = options?.status || 'all'
+    const limit = options?.limit || 50
+    const filters: string[] = []
+    if (status !== 'all') {
+      filters.push(`status = "${status}"`)
+    }
+
+    try {
+      const records = await pb.collection('ml_publish_queue').getList(1, limit, {
+        filter: filters.join(' && ') || undefined,
+        sort: '-created',
+        expand: 'product',
+        requestKey: null,
+      })
+      return records.items
+    } catch (err) {
+      console.warn('Erro ao carregar fila de publicação:', err)
+      return []
+    }
+  },
+
+  /**
+   * Re-enfileira um anúncio que falhou na publicação criando novo registro pending ou resetando o atual
+   */
+  async retryPublishQueueItem(queueId: string): Promise<any> {
+    const oldItem = await pb.collection('ml_publish_queue').getOne(queueId)
+    // Cria um novo registro limpo com status 'pending' para reprocessar
+    const newItem = await pb.collection('ml_publish_queue').create({
+      product: oldItem.product,
+      payload: oldItem.payload,
+      status: 'pending',
+    })
+    return newItem
+  },
+
+  /**
    * Obtém a lista somente-leitura de anúncios do vendedor autenticado no Mercado Livre
    * e faz match com produtos existentes no catálogo (por ml_listing_id ou gtin).
    *
@@ -1405,7 +1567,7 @@ export const mlService = {
     // Cruzar com catálogo local (somente leitura) para indicar quais já correspondem a produtos
     try {
       const products = await pb.collection('products').getFullList({
-        fields: 'id,name,sku,serial_number,status,unit_price,ml_listing_id,gtin',
+        fields: 'id,name,sku,serial_number,status,unit_price,cost_price,ml_listing_id,gtin',
       })
 
       const mapByListingId = new Map<string, any>()
@@ -1430,6 +1592,7 @@ export const mlService = {
             serial_number: match.serial_number,
             status: match.status,
             unit_price: Number(match.unit_price) || 0,
+            cost_price: Number(match.cost_price) || 0,
             match_type: 'ml_listing_id',
           }
         } else if (item.gtin && mapByGtin.has(item.gtin)) {
@@ -1441,6 +1604,7 @@ export const mlService = {
             serial_number: match.serial_number,
             status: match.status,
             unit_price: Number(match.unit_price) || 0,
+            cost_price: Number(match.cost_price) || 0,
             match_type: 'gtin',
           }
         }

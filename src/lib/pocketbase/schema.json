@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-11T20:37:02.552Z",
+  "generatedAt": "2026-09-12T01:04:21.623Z",
   "collections": [
     {
       "name": "users",
@@ -1020,7 +1020,14 @@
           "type": "select",
           "required": true,
           "system": false,
-          "selectValues": ["pause", "activate", "close"]
+          "selectValues": [
+            "pause",
+            "activate",
+            "close",
+            "update_price",
+            "update_stock",
+            "update_price_stock"
+          ]
         },
         {
           "name": "status",
@@ -1054,6 +1061,24 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "ml_item_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "new_price",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "new_quantity",
+          "type": "number",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": []
@@ -3613,6 +3638,209 @@
         }
       ],
       "indexes": ["CREATE UNIQUE INDEX idx_user_module_access_user ON user_module_access (user_id)"]
+    },
+    {
+      "name": "ml_orders",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+      },
+      "fields": [
+        {
+          "name": "order_id",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "date_created",
+          "type": "date",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "date_closed",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "status_detail",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "total_amount",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "currency_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "buyer_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "buyer_nickname",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "buyer_name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "buyer_document",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "shipping_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "shipping_status",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "shipping_substatus",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "shipping_mode",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "receiver_address",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "items",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "payments",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "feedback",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "tags",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "raw_order",
+          "type": "json",
+          "required": false,
+          "system": false
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_ml_orders_order_id ON ml_orders (order_id)",
+        "CREATE INDEX idx_ml_orders_date ON ml_orders (date_created)",
+        "CREATE INDEX idx_ml_orders_status ON ml_orders (status)",
+        "CREATE INDEX idx_ml_orders_shipping ON ml_orders (shipping_status)"
+      ]
+    },
+    {
+      "name": "ml_orders_sync_jobs",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+      },
+      "fields": [
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["pending", "processing", "done", "error"]
+        },
+        {
+          "name": "days_back",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "orders_fetched",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "orders_saved",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "progress_text",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "error_message",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "requested_by",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        }
+      ],
+      "indexes": ["CREATE INDEX idx_ml_orders_sync_status ON ml_orders_sync_jobs (status)"]
     }
   ]
 }
