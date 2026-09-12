@@ -276,6 +276,42 @@ routerAdd(
 
     $app.save(invoiceRecord)
 
+    // Função auxiliar segura para codificação Base64 (compatível com PocketBase JSVM Goja)
+    function encodeBase64(input) {
+      if (typeof Buffer !== 'undefined' && typeof Buffer.from === 'function') {
+        try {
+          return Buffer.from(input).toString('base64')
+        } catch (_) {}
+      }
+      if (typeof btoa === 'function') {
+        try {
+          return btoa(input)
+        } catch (_) {}
+      }
+      var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+      var output = ''
+      var str = String(input)
+      var len = str.length
+      var i = 0
+      while (i < len) {
+        var c1 = str.charCodeAt(i++)
+        var c2 = i < len ? str.charCodeAt(i++) : NaN
+        var c3 = i < len ? str.charCodeAt(i++) : NaN
+
+        var b1 = c1 >> 2
+        var b2 = ((c1 & 3) << 4) | (isNaN(c2) ? 0 : c2 >> 4)
+        var b3 = isNaN(c2) ? 64 : ((c2 & 15) << 2) | (isNaN(c3) ? 0 : c3 >> 6)
+        var b4 = isNaN(c3) ? 64 : c3 & 63
+
+        output +=
+          chars.charAt(b1) +
+          chars.charAt(b2) +
+          (b3 === 64 ? '=' : chars.charAt(b3)) +
+          (b4 === 64 ? '=' : chars.charAt(b4))
+      }
+      return output
+    }
+
     // 7. Transmissão para a API da Focus NFe
     var focusEndpoint = baseUrl + '/v2/nfe?ref=' + encodeURIComponent(ref)
     console.log(
@@ -288,7 +324,7 @@ routerAdd(
     )
 
     try {
-      var authHeader = 'Basic ' + $security.base64Encode(focusToken + ':')
+      var authHeader = 'Basic ' + encodeBase64(focusToken + ':')
       var res = $http.send({
         url: focusEndpoint,
         method: 'POST',
@@ -476,10 +512,46 @@ routerAdd(
       environment === 'producao'
         ? 'https://api.focusnfe.com.br'
         : 'https://homologacao.focusnfe.com.br'
+    // Função auxiliar segura para codificação Base64
+    function encodeBase64Status(input) {
+      if (typeof Buffer !== 'undefined' && typeof Buffer.from === 'function') {
+        try {
+          return Buffer.from(input).toString('base64')
+        } catch (_) {}
+      }
+      if (typeof btoa === 'function') {
+        try {
+          return btoa(input)
+        } catch (_) {}
+      }
+      var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+      var output = ''
+      var str = String(input)
+      var len = str.length
+      var i = 0
+      while (i < len) {
+        var c1 = str.charCodeAt(i++)
+        var c2 = i < len ? str.charCodeAt(i++) : NaN
+        var c3 = i < len ? str.charCodeAt(i++) : NaN
+
+        var b1 = c1 >> 2
+        var b2 = ((c1 & 3) << 4) | (isNaN(c2) ? 0 : c2 >> 4)
+        var b3 = isNaN(c2) ? 64 : ((c2 & 15) << 2) | (isNaN(c3) ? 0 : c3 >> 6)
+        var b4 = isNaN(c3) ? 64 : c3 & 63
+
+        output +=
+          chars.charAt(b1) +
+          chars.charAt(b2) +
+          (b3 === 64 ? '=' : chars.charAt(b3)) +
+          (b4 === 64 ? '=' : chars.charAt(b4))
+      }
+      return output
+    }
+
     var consultUrl = baseUrl + '/v2/nfe/' + encodeURIComponent(ref) + '?completa=1'
 
     try {
-      var authHeader = 'Basic ' + $security.base64Encode(focusToken + ':')
+      var authHeader = 'Basic ' + encodeBase64Status(focusToken + ':')
       var res = $http.send({
         url: consultUrl,
         method: 'GET',
