@@ -37,9 +37,16 @@ export interface NFItem {
   codigo_produto?: string
   sku?: string
   descricao: string
+  categoria?: string
   ncm: string
+  cest?: string
   cfop: string
   csosn?: string
+  cst_icms?: string
+  pis_cst?: string
+  cofins_cst?: string
+  ipi_cst?: string
+  origem?: number
   quantidade: number
   valor_unitario: number
   valor_total: number

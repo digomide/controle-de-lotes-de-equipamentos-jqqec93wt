@@ -22,6 +22,7 @@ import {
   type NFItem,
   type EmitNFInput,
 } from '@/services/nfService'
+import { taxRulesService, type TaxRule } from '@/services/taxRulesService'
 import {
   FileCheck,
   Send,
@@ -32,10 +33,11 @@ import {
   ExternalLink,
   Loader2,
   RefreshCw,
-  Building,
   User,
-  MapPin,
   FileText,
+  BookmarkPlus,
+  Sliders,
+  Sparkles,
 } from 'lucide-react'
 
 interface EmitirNFModalProps {
@@ -58,6 +60,11 @@ export function EmitirNFModal({
   const [loadingConfig, setLoadingConfig] = useState(true)
   const [transmitting, setTransmitting] = useState(false)
   const [config, setConfig] = useState<NFConfig | null>(null)
+  const [taxRules, setTaxRules] = useState<TaxRule[]>([])
+
+  // Regime tributário selecionado no momento da emissão (default vem da config)
+  // '1' = Simples Nacional, '2' = Lucro Presumido, '3' = Lucro Real
+  const [regimeTributario, setRegimeTributario] = useState<string>('1')
 
   // Feedback SEFAZ / Focus
   const [resultStatus, setResultStatus] = useState<string | null>(null)
@@ -67,10 +74,12 @@ export function EmitirNFModal({
   const [numeroNfe, setNumeroNfe] = useState<string | null>(null)
   const [createdRef, setCreatedRef] = useState<string | null>(null)
 
-  // Form State
+  // Form State Cabeçalho
   const [naturezaOperacao, setNaturezaOperacao] = useState('')
   const [informacoesComplementares, setInformacoesComplementares] = useState('')
+  const [valorIbpt, setValorIbpt] = useState<number>(0)
 
+  // Destinatário
   const [destinatario, setDestinatario] = useState<NFDestinatario>({
     nome_completo: '',
     cpf: '',
@@ -84,7 +93,63 @@ export function EmitirNFModal({
     cep: '',
   })
 
+  // Itens da NF
   const [itens, setItens] = useState<NFItem[]>([])
+
+  // Modal para "Salvar como regra"
+  const [saveRuleModalOpen, setSaveRuleModalOpen] = useState(false)
+  const [ruleToSave, setRuleToSave] = useState<{
+    categoria: string
+    cfop_dentro: string
+    cfop_fora: string
+    csosn: string
+    cst: string
+    origem: number
+    ncm_sugerido: string
+    cest_sugerido: string
+  }>({
+    categoria: '',
+    cfop_dentro: '5405',
+    cfop_fora: '6404',
+    csosn: '500',
+    cst: '',
+    origem: 0,
+    ncm_sugerido: '',
+    cest_sugerido: '',
+  })
+  const [savingRule, setSavingRule] = useState(false)
+
+  /**
+   * Determina o CFOP de um item baseado na regra fiscal e na comparação de UF:
+   * Mesma UF da empresa emissora -> cfop_dentro (default 5405)
+   * UF diferente -> cfop_fora (default 6404)
+   */
+  const resolveItemCfop = (
+    rule: TaxRule | null,
+    emitterUf: string | undefined,
+    destUf: string | undefined,
+  ): string => {
+    const isSameUf =
+      destUf && emitterUf && destUf.toUpperCase().trim() === emitterUf.toUpperCase().trim()
+
+    if (rule) {
+      return isSameUf ? rule.cfop_dentro || '5405' : rule.cfop_fora || '6404'
+    }
+
+    // Fallback geral
+    return isSameUf
+      ? config?.default_cfop_estadual || '5405'
+      : config?.default_cfop_interestadual || '6404'
+  }
+
+  // Constrói texto padrão de Informações Complementares com padrão Bling + IBPT
+  const buildSimplesObs = (ibptVal: number) => {
+    const ibptFormatted = new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+    }).format(ibptVal || 0)
+    return `Empresa optante pelo Simples Nacional. Não gera direito a crédito fiscal de IPI. Tributos aprox.: ${ibptFormatted} (fonte IBPT).`
+  }
 
   // Carregar dados de configuração e preparar campos
   useEffect(() => {
@@ -101,20 +166,33 @@ export function EmitirNFModal({
     async function loadData() {
       setLoadingConfig(true)
       try {
-        const cfg = await nfService.getConfig()
+        const [cfg, rules] = await Promise.all([nfService.getConfig(), taxRulesService.getActive()])
         setConfig(cfg)
+        setTaxRules(rules)
 
-        const defaultNatureza = cfg?.natureza_operacao_padrao || 'VENDA DE MERCADORIA USADA'
-        const defaultObs =
-          cfg?.informacoes_complementares_padrao ||
-          'Mercadoria usada. Documento emitido por ME ou EPP optante pelo Simples Nacional.'
-        const defaultNcm = cfg?.default_ncm || '84713012' // Notebook
-        const defaultCsosn = cfg?.default_csosn || '102'
+        const activeRegime = cfg?.regime_tributario || '1'
+        setRegimeTributario(activeRegime)
 
+        const defaultNatureza = cfg?.natureza_operacao_padrao || 'Venda de Mercadorias'
         setNaturezaOperacao(defaultNatureza)
-        setInformacoesComplementares(defaultObs)
 
-        // Preenchimento a partir de Pedido ML
+        const initialIbpt = 0
+        setValorIbpt(initialIbpt)
+
+        if (activeRegime === '1') {
+          setInformacoesComplementares(
+            cfg?.informacoes_complementares_padrao || buildSimplesObs(initialIbpt),
+          )
+        } else {
+          setInformacoesComplementares(
+            cfg?.informacoes_complementares_padrao ||
+              'Documento emitido conforme legislação aplicável.',
+          )
+        }
+
+        const emitterUf = cfg?.uf || 'MG'
+
+        // 1. Preenchimento a partir de Pedido ML
         if (originType === 'ml_order' && mlOrder) {
           const buyer = mlOrder.buyer || {}
           const shipping = mlOrder.shipping || {}
@@ -128,11 +206,9 @@ export function EmitirNFModal({
           const buyerDoc = (buyer.billing_info?.doc_number || '').replace(/\D/g, '')
           const isCnpj = buyerDoc.length === 14
 
-          const destUf = receiver.state?.name || receiver.state?.id || 'SP'
-          const defaultCfop =
-            cfg?.uf && destUf.toUpperCase() !== cfg.uf.toUpperCase()
-              ? cfg.default_cfop_interestadual || '6108'
-              : cfg?.default_cfop_estadual || '5108'
+          const destUf = (receiver.state?.name || receiver.state?.id || 'SP')
+            .substring(0, 2)
+            .toUpperCase()
 
           setDestinatario({
             nome_completo: buyerName,
@@ -143,7 +219,7 @@ export function EmitirNFModal({
             complemento: receiver.comment || '',
             bairro: receiver.neighborhood?.name || receiver.city?.name || 'Centro',
             municipio: receiver.city?.name || '',
-            uf: destUf.length === 2 ? destUf.toUpperCase() : 'SP',
+            uf: destUf.length === 2 ? destUf : 'SP',
             cep: (receiver.zip_code || '').replace(/\D/g, ''),
           })
 
@@ -153,13 +229,26 @@ export function EmitirNFModal({
             const mappedItens: NFItem[] = orderItems.map((oi: any) => {
               const qtd = oi.quantity || 1
               const unitPrice = oi.unit_price || 0
+              const itemTitle = oi.item?.title || 'Notebook Usado'
+
+              // Motor de categoria e regra fiscal
+              const matchedRule = taxRulesService.matchRule(rules, itemTitle)
+              const resolvedCfop = resolveItemCfop(matchedRule, emitterUf, destUf)
+
               return {
-                codigo_produto: oi.item?.id || 'NOTEBOOK',
+                codigo_produto: oi.item?.id || 'PROD',
                 sku: oi.item?.seller_custom_field || oi.item?.id || '',
-                descricao: oi.item?.title || 'Notebook Usado',
-                ncm: defaultNcm,
-                cfop: defaultCfop,
-                csosn: defaultCsosn,
+                descricao: itemTitle,
+                categoria: matchedRule?.categoria || '',
+                ncm: matchedRule?.ncm_sugerido || cfg?.default_ncm || '84713012',
+                cest: matchedRule?.cest_sugerido || '',
+                cfop: resolvedCfop,
+                csosn: matchedRule?.csosn || cfg?.default_csosn || '500',
+                cst_icms: matchedRule?.cst || '',
+                pis_cst: '01',
+                cofins_cst: '01',
+                ipi_cst: '99',
+                origem: typeof matchedRule?.origem === 'number' ? matchedRule.origem : 0,
                 quantidade: qtd,
                 valor_unitario: unitPrice,
                 valor_total: qtd * unitPrice,
@@ -167,13 +256,24 @@ export function EmitirNFModal({
             })
             setItens(mappedItens)
           } else {
+            const itemTitle = mlOrder.item_title || 'Notebook Usado'
+            const matchedRule = taxRulesService.matchRule(rules, itemTitle)
+            const resolvedCfop = resolveItemCfop(matchedRule, emitterUf, destUf)
+
             setItens([
               {
                 codigo_produto: mlOrder.order_id || 'PROD-01',
-                descricao: mlOrder.item_title || 'Notebook Usado',
-                ncm: defaultNcm,
-                cfop: defaultCfop,
-                csosn: defaultCsosn,
+                descricao: itemTitle,
+                categoria: matchedRule?.categoria || '',
+                ncm: matchedRule?.ncm_sugerido || cfg?.default_ncm || '84713012',
+                cest: matchedRule?.cest_sugerido || '',
+                cfop: resolvedCfop,
+                csosn: matchedRule?.csosn || cfg?.default_csosn || '500',
+                cst_icms: matchedRule?.cst || '',
+                pis_cst: '01',
+                cofins_cst: '01',
+                ipi_cst: '99',
+                origem: typeof matchedRule?.origem === 'number' ? matchedRule.origem : 0,
                 quantidade: 1,
                 valor_unitario: mlOrder.total_amount || 0,
                 valor_total: mlOrder.total_amount || 0,
@@ -181,16 +281,12 @@ export function EmitirNFModal({
             ])
           }
         } else if (originType === 'sale_internal' && sale) {
-          // Preenchimento a partir de venda interna
+          // 2. Preenchimento a partir de venda interna
           const clientName = sale.client_name || sale.buyer_name || ''
           const clientDoc = (sale.client_document || sale.document || '').replace(/\D/g, '')
           const isCnpj = clientDoc.length === 14
 
-          const destUf = sale.client_uf || 'SP'
-          const defaultCfop =
-            cfg?.uf && destUf.toUpperCase() !== cfg.uf.toUpperCase()
-              ? cfg.default_cfop_interestadual || '6108'
-              : cfg?.default_cfop_estadual || '5108'
+          const destUf = (sale.client_uf || 'MG').substring(0, 2).toUpperCase()
 
           setDestinatario({
             nome_completo: clientName,
@@ -201,32 +297,53 @@ export function EmitirNFModal({
             complemento: sale.client_complement || '',
             bairro: sale.client_bairro || 'Centro',
             municipio: sale.client_city || '',
-            uf: destUf.length === 2 ? destUf.toUpperCase() : 'SP',
+            uf: destUf.length === 2 ? destUf : 'MG',
             cep: (sale.client_cep || '').replace(/\D/g, ''),
           })
+
+          const itemDesc = sale.product_description || sale.description || 'Notebook Usado'
+          const matchedRule = taxRulesService.matchRule(rules, itemDesc)
+          const resolvedCfop = resolveItemCfop(matchedRule, emitterUf, destUf)
 
           setItens([
             {
               codigo_produto: sale.id || 'NOTEBOOK',
-              descricao: sale.product_description || sale.description || 'Notebook Usado',
-              ncm: defaultNcm,
-              cfop: defaultCfop,
-              csosn: defaultCsosn,
+              descricao: itemDesc,
+              categoria: matchedRule?.categoria || '',
+              ncm: matchedRule?.ncm_sugerido || cfg?.default_ncm || '84713012',
+              cest: matchedRule?.cest_sugerido || '',
+              cfop: resolvedCfop,
+              csosn: matchedRule?.csosn || cfg?.default_csosn || '500',
+              cst_icms: matchedRule?.cst || '',
+              pis_cst: '01',
+              cofins_cst: '01',
+              ipi_cst: '99',
+              origem: typeof matchedRule?.origem === 'number' ? matchedRule.origem : 0,
               quantidade: sale.quantity || 1,
               valor_unitario: sale.unit_price || sale.total_value || 0,
               valor_total: sale.total_value || 0,
             },
           ])
         } else {
-          // Emissão manual em branco
-          const defaultCfop = cfg?.default_cfop_estadual || '5108'
+          // 3. Emissão manual em branco
+          const destUf = 'SP'
+          const defaultRule = rules.find((r) => r.categoria.toLowerCase() === 'notebook') || null
+          const resolvedCfop = resolveItemCfop(defaultRule, emitterUf, destUf)
+
           setItens([
             {
-              codigo_produto: 'NOTEBOOK-01',
+              codigo_produto: 'PROD-01',
               descricao: 'Notebook Usado Core i5 8GB SSD',
-              ncm: defaultNcm,
-              cfop: defaultCfop,
-              csosn: defaultCsosn,
+              categoria: defaultRule?.categoria || 'Notebook',
+              ncm: defaultRule?.ncm_sugerido || cfg?.default_ncm || '84713012',
+              cest: defaultRule?.cest_sugerido || '',
+              cfop: resolvedCfop,
+              csosn: defaultRule?.csosn || cfg?.default_csosn || '500',
+              cst_icms: defaultRule?.cst || '',
+              pis_cst: '01',
+              cofins_cst: '01',
+              ipi_cst: '99',
+              origem: typeof defaultRule?.origem === 'number' ? defaultRule.origem : 0,
               quantidade: 1,
               valor_unitario: 0,
               valor_total: 0,
@@ -243,19 +360,86 @@ export function EmitirNFModal({
     loadData()
   }, [open, originType, mlOrder, sale])
 
+  /**
+   * Recalcula o CFOP de todos os itens quando a UF do destinatário muda
+   */
+  const handleDestUfChange = (newUf: string) => {
+    const formattedUf = newUf.toUpperCase().substring(0, 2)
+    setDestinatario((prev) => ({ ...prev, uf: formattedUf }))
+
+    const emitterUf = config?.uf || 'MG'
+    setItens((prev) =>
+      prev.map((item) => {
+        // Encontra regra da categoria do item se existir
+        const rule = item.categoria
+          ? taxRules.find((r) => r.categoria.toLowerCase() === item.categoria?.toLowerCase()) ||
+            null
+          : taxRulesService.matchRule(taxRules, item.descricao)
+
+        const newCfop = resolveItemCfop(rule, emitterUf, formattedUf)
+        return { ...item, cfop: newCfop }
+      }),
+    )
+  }
+
+  /**
+   * Quando o usuário escolhe ou muda a Categoria de um Item:
+   * Carrega CFOP (por UF), CSOSN, CST, Origem e preenche NCM e CEST como SUGESTÃO editável
+   */
+  const handleItemCategoryChange = (index: number, newCategory: string) => {
+    const emitterUf = config?.uf || 'MG'
+    const destUf = destinatario.uf || 'SP'
+
+    const rule =
+      taxRules.find((r) => r.categoria.toLowerCase() === newCategory.toLowerCase()) || null
+
+    setItens((prev) =>
+      prev.map((item, i) => {
+        if (i !== index) return item
+
+        if (!rule) {
+          // Sem regra encontrada para a categoria digitada
+          return { ...item, categoria: newCategory }
+        }
+
+        const resolvedCfop = resolveItemCfop(rule, emitterUf, destUf)
+
+        return {
+          ...item,
+          categoria: rule.categoria,
+          cfop: resolvedCfop,
+          csosn: rule.csosn || item.csosn || '500',
+          cst_icms: rule.cst || item.cst_icms || '',
+          origem: typeof rule.origem === 'number' ? rule.origem : (item.origem ?? 0),
+          // NCM e CEST são sugestões editáveis: se o usuário já digitou, mantemos override ou sugerimos
+          ncm: rule.ncm_sugerido || item.ncm,
+          cest: rule.cest_sugerido || item.cest || '',
+        }
+      }),
+    )
+  }
+
   const handleAddItem = () => {
-    const defaultNcm = config?.default_ncm || '84713012'
-    const defaultCfop = config?.default_cfop_estadual || '5108'
-    const defaultCsosn = config?.default_csosn || '102'
+    const emitterUf = config?.uf || 'MG'
+    const destUf = destinatario.uf || 'SP'
+    const defaultRule = taxRules.find((r) => r.categoria.toLowerCase() === 'notebook') || null
+    const defaultCfop = resolveItemCfop(defaultRule, emitterUf, destUf)
 
     setItens((prev) => [
       ...prev,
       {
         codigo_produto: `ITEM-${prev.length + 1}`,
-        descricao: 'Notebook Usado',
-        ncm: defaultNcm,
+        descricao: '',
+        categoria: defaultRule?.categoria || '',
+        ncm: defaultRule?.ncm_sugerido || config?.default_ncm || '84713012',
+        cest: defaultRule?.cest_sugerido || '',
         cfop: defaultCfop,
-        csosn: defaultCsosn,
+        csosn: defaultRule?.csosn || config?.default_csosn || '500',
+        cst_icms: defaultRule?.cst || '',
+        pis_cst: '01',
+        cofins_cst: '01',
+        ipi_cst: '99',
+        origem: typeof defaultRule?.origem === 'number' ? defaultRule.origem : 0,
         quantidade: 1,
         valor_unitario: 0,
         valor_total: 0,
@@ -284,7 +468,99 @@ export function EmitirNFModal({
 
   const valorTotalGeral = itens.reduce((acc, it) => acc + (it.valor_total || 0), 0)
 
-  // Enviar nota fiscal
+  // Abrir modal "Salvar como regra"
+  const handleOpenSaveAsRule = (item: NFItem) => {
+    const isSameUf =
+      destinatario.uf && config?.uf && destinatario.uf.toUpperCase() === config.uf.toUpperCase()
+
+    setRuleToSave({
+      categoria: item.categoria || item.descricao || '',
+      cfop_dentro: isSameUf ? item.cfop : '5405',
+      cfop_fora: !isSameUf ? item.cfop : '6404',
+      csosn: item.csosn || '500',
+      cst: item.cst_icms || '',
+      origem: typeof item.origem === 'number' ? item.origem : 0,
+      ncm_sugerido: item.ncm || '',
+      cest_sugerido: item.cest || '',
+    })
+    setSaveRuleModalOpen(true)
+  }
+
+  // Confirmar salvamento da regra
+  const handleConfirmSaveRule = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!ruleToSave.categoria.trim()) {
+      toast({
+        title: 'Nome da categoria obrigatório',
+        description: 'Informe o nome da categoria para a regra fiscal.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setSavingRule(true)
+    try {
+      const existing = taxRules.find(
+        (r) => r.categoria.toLowerCase() === ruleToSave.categoria.trim().toLowerCase(),
+      )
+
+      if (existing?.id) {
+        await taxRulesService.update(existing.id, {
+          categoria: ruleToSave.categoria.trim(),
+          cfop_dentro: ruleToSave.cfop_dentro.trim(),
+          cfop_fora: ruleToSave.cfop_fora.trim(),
+          csosn: ruleToSave.csosn.trim(),
+          cst: ruleToSave.cst.trim(),
+          origem: ruleToSave.origem,
+          ncm_sugerido: ruleToSave.ncm_sugerido.trim(),
+          cest_sugerido: ruleToSave.cest_sugerido.trim(),
+          ativo: true,
+        })
+        toast({
+          title: 'Regra fiscal atualizada!',
+          description: `A categoria "${ruleToSave.categoria}" foi salva com sucesso.`,
+        })
+      } else {
+        await taxRulesService.create({
+          categoria: ruleToSave.categoria.trim(),
+          cfop_dentro: ruleToSave.cfop_dentro.trim(),
+          cfop_fora: ruleToSave.cfop_fora.trim(),
+          csosn: ruleToSave.csosn.trim(),
+          cst: ruleToSave.cst.trim(),
+          origem: ruleToSave.origem,
+          ncm_sugerido: ruleToSave.ncm_sugerido.trim(),
+          cest_sugerido: ruleToSave.cest_sugerido.trim(),
+          ativo: true,
+        })
+        toast({
+          title: 'Nova regra fiscal criada!',
+          description: `A categoria "${ruleToSave.categoria}" agora possui padrões fiscais automáticos.`,
+        })
+      }
+
+      const updatedRules = await taxRulesService.getActive()
+      setTaxRules(updatedRules)
+      setSaveRuleModalOpen(false)
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao salvar regra fiscal',
+        description: err.message,
+        variant: 'destructive',
+      })
+    } finally {
+      setSavingRule(false)
+    }
+  }
+
+  // Atualizar valor IBPT e informações complementares automaticamente
+  const handleUpdateIbpt = (newVal: number) => {
+    setValorIbpt(newVal)
+    if (regimeTributario === '1') {
+      setInformacoesComplementares(buildSimplesObs(newVal))
+    }
+  }
+
+  // Transmitir NF-e
   const handleTransmitir = async () => {
     if (!config?.focus_token) {
       toast({
@@ -357,7 +633,7 @@ export function EmitirNFModal({
       if (res.status === 'autorizada') {
         toast({
           title: 'NF-e Autorizada pela SEFAZ!',
-          description: `Nota nº ${res.numero} emitida com sucesso.`,
+          description: `Nota nº ${res.numero} emitida com sucesso na Série ${config?.serie_nfe || '2'}.`,
         })
         if (onSuccess) onSuccess()
       } else if (res.status === 'processando') {
@@ -417,11 +693,13 @@ export function EmitirNFModal({
     }
   }
 
+  const isSimples = regimeTributario === '1'
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto">
         <DialogHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <div className="w-9 h-9 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-700">
                 <FileCheck className="w-5 h-5" />
@@ -430,36 +708,41 @@ export function EmitirNFModal({
                 <DialogTitle className="text-xl">
                   Emissão de Nota Fiscal Eletrônica (NF-e)
                 </DialogTitle>
-                <DialogDescription>
+                <DialogDescription className="text-xs">
                   {originType === 'ml_order'
                     ? `Venda Mercado Livre #${mlOrder?.order_id || ''}`
                     : originType === 'sale_internal'
                       ? `Venda Interna #${sale?.id || ''}`
                       : 'Emissão Avulsa'}
-                  {' · '}Transmissão SEFAZ via Focus NFe
+                  {' · '}Transmissão SEFAZ Série {config?.serie_nfe || '2'}
                 </DialogDescription>
               </div>
             </div>
 
-            {config?.environment && (
-              <Badge
-                variant="outline"
-                className={
-                  config.environment === 'producao'
-                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                    : 'bg-amber-50 text-amber-800 border-amber-300'
-                }
-              >
-                {config.environment === 'producao' ? 'Produção' : 'Ambiente Homologação'}
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="bg-slate-50 font-mono text-xs">
+                Série {config?.serie_nfe || '2'}
               </Badge>
-            )}
+              {config?.environment && (
+                <Badge
+                  variant="outline"
+                  className={
+                    config.environment === 'producao'
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300 text-xs'
+                      : 'bg-amber-50 text-amber-800 border-amber-300 text-xs'
+                  }
+                >
+                  {config.environment === 'producao' ? 'Produção SEFAZ' : 'Homologação (Testes)'}
+                </Badge>
+              )}
+            </div>
           </div>
         </DialogHeader>
 
         {loadingConfig ? (
           <div className="flex flex-col items-center justify-center py-12 gap-2 text-slate-500">
             <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
-            <p className="text-sm">Carregando dados fiscais e pré-preenchimento...</p>
+            <p className="text-sm">Carregando dados fiscais e regras por categoria...</p>
           </div>
         ) : (
           <div className="space-y-6">
@@ -472,8 +755,8 @@ export function EmitirNFModal({
                     <p className="font-semibold text-sm">Emissor próprio não configurado</p>
                     <p>
                       Para transmitir notas fiscais à SEFAZ, acesse{' '}
-                      <strong>Configurações → Notas Fiscais</strong> e preencha o Token da Focus
-                      NFe, dados do CNPJ e certificado A1 (.pfx).
+                      <strong>Notas Fiscais → Configuração do Emissor</strong> e preencha o Token da
+                      Focus NFe, dados do CNPJ e certificado A1 (.pfx).
                     </p>
                   </div>
                 </CardContent>
@@ -533,7 +816,9 @@ export function EmitirNFModal({
                       {numeroNfe && (
                         <div>
                           <span className="text-slate-500 block">Número da NF-e:</span>
-                          <span className="font-mono font-semibold">{numeroNfe}</span>
+                          <span className="font-mono font-semibold">
+                            {numeroNfe} (Série {config?.serie_nfe || '2'})
+                          </span>
                         </div>
                       )}
                       {chaveNfe && (
@@ -564,25 +849,45 @@ export function EmitirNFModal({
               </Card>
             )}
 
-            {/* Cabeçalho da Nota */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Cabeçalho da Nota: Natureza, Regime Tributário e Empresa */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div>
                 <Label className="text-xs font-semibold">Natureza da Operação</Label>
                 <Input
                   className="h-9 mt-1 text-xs"
                   value={naturezaOperacao}
                   onChange={(e) => setNaturezaOperacao(e.target.value)}
-                  placeholder="Ex: VENDA DE MERCADORIA USADA"
+                  placeholder="Ex: Venda de Mercadorias"
                 />
               </div>
 
               <div>
-                <Label className="text-xs font-semibold">Empresa Emissora</Label>
+                <Label className="text-xs font-semibold">Regime Tributário da Emissão</Label>
+                <select
+                  aria-label="Regime Tributário para emissão"
+                  value={regimeTributario}
+                  onChange={(e) => {
+                    const newReg = e.target.value
+                    setRegimeTributario(newReg)
+                    if (newReg === '1') {
+                      setInformacoesComplementares(buildSimplesObs(valorIbpt))
+                    }
+                  }}
+                  className="w-full mt-1 h-9 px-3 rounded-md border border-slate-200 bg-white text-xs font-medium"
+                >
+                  <option value="1">Simples Nacional (CSOSN)</option>
+                  <option value="2">Lucro Presumido (CST ICMS/PIS/COFINS)</option>
+                  <option value="3">Lucro Real (CST ICMS/PIS/COFINS)</option>
+                </select>
+              </div>
+
+              <div>
+                <Label className="text-xs font-semibold">
+                  Empresa Emissora (UF Origem: {config?.uf || 'MG'})
+                </Label>
                 <div className="h-9 mt-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-md text-xs flex items-center justify-between text-slate-700">
                   <span className="truncate">
-                    {config?.razao_social ||
-                      config?.nome_fantasia ||
-                      'Razão Social não configurada'}
+                    {config?.razao_social || config?.nome_fantasia || 'Empresa Emissora'}
                   </span>
                   <span className="font-mono text-slate-500 shrink-0 ml-2">
                     {config?.cnpj || 'Sem CNPJ'}
@@ -595,9 +900,24 @@ export function EmitirNFModal({
 
             {/* Bloco Destinatário */}
             <div>
-              <div className="flex items-center gap-2 mb-3">
-                <User className="w-4 h-4 text-emerald-600" />
-                <h3 className="text-sm font-semibold text-slate-900">Destinatário / Comprador</h3>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <User className="w-4 h-4 text-emerald-600" />
+                  <h3 className="text-sm font-semibold text-slate-900">Destinatário / Comprador</h3>
+                </div>
+
+                <Badge variant="outline" className="text-[11px] font-mono">
+                  {destinatario.uf === config?.uf ? (
+                    <span className="text-emerald-700 font-semibold">
+                      Operação Interna (Mesma UF: {destinatario.uf}) → CFOP Estadual
+                    </span>
+                  ) : (
+                    <span className="text-blue-700 font-semibold">
+                      Operação Interestadual ({config?.uf || 'MG'} → {destinatario.uf}) → CFOP Fora
+                      UF
+                    </span>
+                  )}
+                </Badge>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -691,21 +1011,17 @@ export function EmitirNFModal({
                         onChange={(e) =>
                           setDestinatario((prev) => ({ ...prev, municipio: e.target.value }))
                         }
-                        placeholder="São Paulo"
+                        placeholder="Belo Horizonte"
                       />
                     </div>
                     <div>
-                      <Label className="text-xs">UF</Label>
+                      <Label className="text-xs font-bold text-emerald-800">UF Destino *</Label>
                       <Input
-                        className="h-9 mt-1 text-xs uppercase text-center"
+                        className="h-9 mt-1 text-xs uppercase text-center font-bold bg-emerald-50 border-emerald-300"
                         maxLength={2}
-                        value={destinatario.uf || 'SP'}
-                        onChange={(e) =>
-                          setDestinatario((prev) => ({
-                            ...prev,
-                            uf: e.target.value.toUpperCase(),
-                          }))
-                        }
+                        value={destinatario.uf || 'MG'}
+                        onChange={(e) => handleDestUfChange(e.target.value)}
+                        placeholder="MG"
                       />
                     </div>
                   </div>
@@ -725,16 +1041,21 @@ export function EmitirNFModal({
                   </h3>
                 </div>
 
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={handleAddItem}
-                  className="h-8 gap-1 text-xs"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  Adicionar Item
-                </Button>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-slate-500 hidden sm:inline">
+                    Regra por categoria define CFOP por UF, CSOSN e Origem (+ sugestão de NCM/CEST)
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={handleAddItem}
+                    className="h-8 gap-1 text-xs"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Adicionar Item
+                  </Button>
+                </div>
               </div>
 
               <div className="space-y-3">
@@ -744,33 +1065,82 @@ export function EmitirNFModal({
                     className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2.5 text-xs"
                   >
                     <div className="flex items-center justify-between">
-                      <span className="font-semibold text-slate-700">Item #{idx + 1}</span>
-                      {itens.length > 1 && (
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-slate-800">Item #{idx + 1}</span>
+                        {it.categoria && (
+                          <Badge
+                            variant="outline"
+                            className="bg-emerald-50 text-emerald-800 text-[10px]"
+                          >
+                            Regra: {it.categoria}
+                          </Badge>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
                         <Button
                           type="button"
-                          variant="ghost"
+                          variant="outline"
                           size="sm"
-                          onClick={() => handleRemoveItem(idx)}
-                          className="h-6 w-6 p-0 text-rose-600 hover:bg-rose-50"
+                          onClick={() => handleOpenSaveAsRule(it)}
+                          className="h-6 px-2 text-[10px] text-emerald-700 border-emerald-200 hover:bg-emerald-50 gap-1"
+                          title="Salvar valores deste item como regra permanente da categoria"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <BookmarkPlus className="w-3 h-3" />
+                          Salvar como regra
                         </Button>
-                      )}
+
+                        {itens.length > 1 && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleRemoveItem(idx)}
+                            className="h-6 w-6 p-0 text-rose-600 hover:bg-rose-50"
+                            title="Remover item"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
+                      </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-                      <div className="md:col-span-3">
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
+                      <div className="md:col-span-4">
                         <Label className="text-[11px]">Descrição do Produto</Label>
                         <Input
                           className="h-8 text-xs bg-white"
                           value={it.descricao}
                           onChange={(e) => handleUpdateItem(idx, 'descricao', e.target.value)}
-                          placeholder="Notebook Usado Dell / Lenovo / HP"
+                          placeholder="Ex: Notebook Lenovo ThinkPad T580 16GB"
                         />
                       </div>
 
-                      <div>
-                        <Label className="text-[11px]">NCM</Label>
+                      <div className="md:col-span-3">
+                        <Label className="text-[11px] text-emerald-800 font-semibold">
+                          Categoria (Aplica Regra Fiscal)
+                        </Label>
+                        <div className="flex gap-1">
+                          <select
+                            aria-label="Selecionar categoria da regra fiscal"
+                            value={it.categoria || ''}
+                            onChange={(e) => handleItemCategoryChange(idx, e.target.value)}
+                            className="h-8 px-2 rounded-md border border-emerald-200 bg-emerald-50/40 text-xs font-medium w-full"
+                          >
+                            <option value="">Sem categoria (Manual)</option>
+                            {taxRules.map((rule) => (
+                              <option key={rule.id} value={rule.categoria}>
+                                {rule.categoria} (CFOP {rule.cfop_dentro}/{rule.cfop_fora})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="md:col-span-3">
+                        <Label className="text-[11px]">
+                          NCM <span className="text-slate-400 font-normal">(Sugestão livre)</span>
+                        </Label>
                         <Input
                           className="h-8 text-xs font-mono bg-white"
                           value={it.ncm}
@@ -778,27 +1148,92 @@ export function EmitirNFModal({
                           placeholder="84713012"
                         />
                       </div>
-                    </div>
 
-                    <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-                      <div>
-                        <Label className="text-[11px]">CFOP</Label>
+                      <div className="md:col-span-2">
+                        <Label className="text-[11px]">
+                          CEST <span className="text-slate-400 font-normal">(Opcional)</span>
+                        </Label>
                         <Input
                           className="h-8 text-xs font-mono bg-white"
+                          value={it.cest || ''}
+                          onChange={(e) => handleUpdateItem(idx, 'cest', e.target.value)}
+                          placeholder="21.035.00"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Linha Fiscal: CFOP, Tributação (CSOSN / CST) e Origem */}
+                    <div className="grid grid-cols-2 md:grid-cols-6 gap-2 pt-1 border-t border-slate-200/60">
+                      <div>
+                        <Label className="text-[11px] font-semibold text-emerald-800">
+                          CFOP (Auto p/ UF)
+                        </Label>
+                        <Input
+                          className="h-8 text-xs font-mono font-bold bg-white border-emerald-300 text-emerald-900"
                           value={it.cfop}
                           onChange={(e) => handleUpdateItem(idx, 'cfop', e.target.value)}
-                          placeholder="5108"
+                          placeholder="5405"
                         />
                       </div>
 
+                      {isSimples ? (
+                        <div>
+                          <Label className="text-[11px] font-semibold">CSOSN (Simples)</Label>
+                          <Input
+                            className="h-8 text-xs font-mono bg-white"
+                            value={it.csosn || '500'}
+                            onChange={(e) => handleUpdateItem(idx, 'csosn', e.target.value)}
+                            placeholder="500"
+                          />
+                        </div>
+                      ) : (
+                        <>
+                          <div>
+                            <Label className="text-[11px] font-semibold">CST ICMS</Label>
+                            <Input
+                              className="h-8 text-xs font-mono bg-white"
+                              value={it.cst_icms || ''}
+                              onChange={(e) => handleUpdateItem(idx, 'cst_icms', e.target.value)}
+                              placeholder="60 ou 00"
+                            />
+                          </div>
+
+                          <div>
+                            <Label className="text-[11px]">CST PIS</Label>
+                            <Input
+                              className="h-8 text-xs font-mono bg-white"
+                              value={it.pis_cst || '01'}
+                              onChange={(e) => handleUpdateItem(idx, 'pis_cst', e.target.value)}
+                              placeholder="01"
+                            />
+                          </div>
+
+                          <div>
+                            <Label className="text-[11px]">CST COFINS</Label>
+                            <Input
+                              className="h-8 text-xs font-mono bg-white"
+                              value={it.cofins_cst || '01'}
+                              onChange={(e) => handleUpdateItem(idx, 'cofins_cst', e.target.value)}
+                              placeholder="01"
+                            />
+                          </div>
+                        </>
+                      )}
+
                       <div>
-                        <Label className="text-[11px]">CSOSN</Label>
-                        <Input
-                          className="h-8 text-xs font-mono bg-white"
-                          value={it.csosn || '102'}
-                          onChange={(e) => handleUpdateItem(idx, 'csosn', e.target.value)}
-                          placeholder="102"
-                        />
+                        <Label className="text-[11px]">Origem</Label>
+                        <select
+                          aria-label="Origem da mercadoria"
+                          value={it.origem ?? 0}
+                          onChange={(e) =>
+                            handleUpdateItem(idx, 'origem', parseInt(e.target.value, 10))
+                          }
+                          className="h-8 px-2 rounded-md border border-slate-200 bg-white text-xs w-full"
+                        >
+                          <option value={0}>0 - Nacional</option>
+                          <option value={1}>1 - Estrangeira direta</option>
+                          <option value={2}>2 - Estrangeira int.</option>
+                        </select>
                       </div>
 
                       <div>
@@ -813,19 +1248,19 @@ export function EmitirNFModal({
                       </div>
 
                       <div>
-                        <Label className="text-[11px]">Valor Unitário (R$)</Label>
+                        <Label className="text-[11px]">Valor Unit. (R$)</Label>
                         <Input
                           type="number"
                           step="0.01"
-                          className="h-8 text-xs text-right bg-white"
+                          className="h-8 text-xs text-right bg-white font-mono"
                           value={it.valor_unitario}
                           onChange={(e) => handleUpdateItem(idx, 'valor_unitario', e.target.value)}
                         />
                       </div>
 
-                      <div className="col-span-2 md:col-span-1">
+                      <div>
                         <Label className="text-[11px]">Subtotal (R$)</Label>
-                        <div className="h-8 px-2 bg-slate-200/60 rounded flex items-center justify-end font-semibold text-slate-800">
+                        <div className="h-8 px-2 bg-slate-200/60 rounded flex items-center justify-end font-semibold text-slate-800 font-mono">
                           {new Intl.NumberFormat('pt-BR', {
                             style: 'currency',
                             currency: 'BRL',
@@ -840,7 +1275,7 @@ export function EmitirNFModal({
                 <div className="flex justify-end pt-2">
                   <div className="bg-emerald-50 border border-emerald-200 px-4 py-2 rounded-lg text-right">
                     <span className="text-xs text-emerald-800 font-medium block">
-                      Valor Total da Nota
+                      Valor Total da Nota (Série {config?.serie_nfe || '2'})
                     </span>
                     <span className="text-lg font-bold text-emerald-950 font-mono">
                       {new Intl.NumberFormat('pt-BR', {
@@ -855,17 +1290,33 @@ export function EmitirNFModal({
 
             <Separator />
 
-            {/* Informações Complementares */}
-            <div>
-              <Label className="text-xs font-semibold">
-                Informações Complementares de Interesse do Contribuinte
-              </Label>
+            {/* Informações Complementares & IBPT */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-semibold">
+                  Informações Complementares de Interesse do Contribuinte (DANFE)
+                </Label>
+
+                {isSimples && (
+                  <div className="flex items-center gap-1.5 text-xs">
+                    <span className="text-slate-500">Valor IBPT (R$):</span>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      className="h-7 w-24 text-xs font-mono text-right"
+                      value={valorIbpt}
+                      onChange={(e) => handleUpdateIbpt(parseFloat(e.target.value) || 0)}
+                    />
+                  </div>
+                )}
+              </div>
+
               <Textarea
                 className="mt-1 text-xs"
                 rows={2}
                 value={informacoesComplementares}
                 onChange={(e) => setInformacoesComplementares(e.target.value)}
-                placeholder="Ex: Mercadoria usada com garantia de 90 dias. Tributação Simples Nacional."
+                placeholder="Ex: Empresa optante pelo Simples Nacional. Não gera direito a crédito fiscal de IPI."
               />
             </div>
           </div>
@@ -885,7 +1336,7 @@ export function EmitirNFModal({
             type="button"
             onClick={handleTransmitir}
             disabled={transmitting || loadingConfig || resultStatus === 'autorizada'}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2"
+            className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2 shadow-sm"
           >
             {transmitting ? (
               <>
@@ -895,12 +1346,128 @@ export function EmitirNFModal({
             ) : (
               <>
                 <Send className="w-4 h-4" />
-                Transmitir NF-e
+                Transmitir NF-e (Série {config?.serie_nfe || '2'})
               </>
             )}
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      {/* Modal Secundário: "Salvar como regra da categoria" */}
+      <Dialog open={saveRuleModalOpen} onOpenChange={setSaveRuleModalOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-700">
+                <BookmarkPlus className="w-4 h-4" />
+              </div>
+              <div>
+                <DialogTitle className="text-base font-bold">Salvar como Regra Fiscal</DialogTitle>
+                <DialogDescription className="text-xs">
+                  Crie ou atualize os parâmetros fiscais padrão desta categoria.
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <form onSubmit={handleConfirmSaveRule} className="space-y-3 pt-2 text-xs">
+            <div>
+              <Label className="text-xs font-semibold">Nome da Categoria *</Label>
+              <Input
+                className="h-8 mt-1 text-xs"
+                value={ruleToSave.categoria}
+                onChange={(e) => setRuleToSave((p) => ({ ...p, categoria: e.target.value }))}
+                placeholder="Ex: Memória, Notebook, HD/SSD"
+                required
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label className="text-xs font-semibold text-emerald-800">CFOP Dentro UF *</Label>
+                <Input
+                  className="h-8 mt-1 text-xs font-mono"
+                  value={ruleToSave.cfop_dentro}
+                  onChange={(e) => setRuleToSave((p) => ({ ...p, cfop_dentro: e.target.value }))}
+                  required
+                />
+              </div>
+
+              <div>
+                <Label className="text-xs font-semibold text-blue-800">CFOP Fora UF *</Label>
+                <Input
+                  className="h-8 mt-1 text-xs font-mono"
+                  value={ruleToSave.cfop_fora}
+                  onChange={(e) => setRuleToSave((p) => ({ ...p, cfop_fora: e.target.value }))}
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label className="text-xs">CSOSN (Simples)</Label>
+                <Input
+                  className="h-8 mt-1 text-xs font-mono"
+                  value={ruleToSave.csosn}
+                  onChange={(e) => setRuleToSave((p) => ({ ...p, csosn: e.target.value }))}
+                />
+              </div>
+
+              <div>
+                <Label className="text-xs">CST (Regime Normal)</Label>
+                <Input
+                  className="h-8 mt-1 text-xs font-mono"
+                  value={ruleToSave.cst}
+                  onChange={(e) => setRuleToSave((p) => ({ ...p, cst: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label className="text-xs">NCM Sugerido</Label>
+                <Input
+                  className="h-8 mt-1 text-xs font-mono"
+                  value={ruleToSave.ncm_sugerido}
+                  onChange={(e) => setRuleToSave((p) => ({ ...p, ncm_sugerido: e.target.value }))}
+                  placeholder="84713012"
+                />
+              </div>
+
+              <div>
+                <Label className="text-xs">CEST Sugerido</Label>
+                <Input
+                  className="h-8 mt-1 text-xs font-mono"
+                  value={ruleToSave.cest_sugerido}
+                  onChange={(e) => setRuleToSave((p) => ({ ...p, cest_sugerido: e.target.value }))}
+                  placeholder="21.035.00"
+                />
+              </div>
+            </div>
+
+            <DialogFooter className="pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setSaveRuleModalOpen(false)}
+                disabled={savingRule}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={savingRule}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              >
+                {savingRule ? 'Salvando...' : 'Confirmar e Salvar'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   )
 }

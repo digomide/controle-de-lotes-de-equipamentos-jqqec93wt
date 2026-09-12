@@ -17,7 +17,9 @@ import {
 } from '@/components/ui/table'
 import { toast } from '@/hooks/use-toast'
 import { nfService, type NFConfig, type NFInvoice } from '@/services/nfService'
+import { taxRulesService, type TaxRule } from '@/services/taxRulesService'
 import { EmitirNFModal } from '@/components/EmitirNFModal'
+import { TaxRulesTab } from '@/components/TaxRulesTab'
 import {
   FileCheck,
   Building,
@@ -25,23 +27,21 @@ import {
   FileText,
   RefreshCw,
   Plus,
-  ExternalLink,
   CheckCircle2,
   AlertCircle,
   Clock,
-  Send,
-  Upload,
   ShieldCheck,
   Search,
   Sliders,
-  DollarSign,
-  Info,
+  Sparkles,
 } from 'lucide-react'
 
 export default function NotasFiscais() {
-  const [activeTab, setActiveTab] = useState<'invoices' | 'config'>('invoices')
+  const [activeTab, setActiveTab] = useState<'invoices' | 'tax_rules' | 'config'>('invoices')
   const [loadingInvoices, setLoadingInvoices] = useState(true)
   const [loadingConfig, setLoadingConfig] = useState(true)
+  const [loadingTaxRules, setLoadingTaxRules] = useState(true)
+  const [taxRules, setTaxRules] = useState<TaxRule[]>([])
   const [savingConfig, setSavingConfig] = useState(false)
   const [consultingId, setConsultingId] = useState<string | null>(null)
 
@@ -124,9 +124,27 @@ export default function NotasFiscais() {
     }
   }
 
+  // Carregar Regras Fiscais
+  const loadTaxRules = async () => {
+    setLoadingTaxRules(true)
+    try {
+      const data = await taxRulesService.getAll()
+      setTaxRules(data)
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao carregar regras fiscais',
+        description: err.message,
+        variant: 'destructive',
+      })
+    } finally {
+      setLoadingTaxRules(false)
+    }
+  }
+
   useEffect(() => {
     loadConfig()
     loadInvoices()
+    loadTaxRules()
   }, [])
 
   // Salvar Configuração
@@ -265,12 +283,13 @@ export default function NotasFiscais() {
             onClick={() => {
               loadInvoices()
               loadConfig()
+              loadTaxRules()
             }}
-            disabled={loadingInvoices || loadingConfig}
+            disabled={loadingInvoices || loadingConfig || loadingTaxRules}
             className="h-9 gap-1.5"
           >
             <RefreshCw
-              className={`w-3.5 h-3.5 ${loadingInvoices || loadingConfig ? 'animate-spin' : ''}`}
+              className={`w-3.5 h-3.5 ${loadingInvoices || loadingConfig || loadingTaxRules ? 'animate-spin' : ''}`}
             />
             Atualizar
           </Button>
@@ -292,6 +311,10 @@ export default function NotasFiscais() {
           <TabsTrigger value="invoices" className="gap-2 text-xs font-medium">
             <FileText className="w-4 h-4" />
             Histórico de Notas ({invoices.length})
+          </TabsTrigger>
+          <TabsTrigger value="tax_rules" className="gap-2 text-xs font-medium">
+            <Sliders className="w-4 h-4" />
+            Padrões Fiscais ({taxRules.length})
           </TabsTrigger>
           <TabsTrigger value="config" className="gap-2 text-xs font-medium">
             <Building className="w-4 h-4" />
@@ -510,6 +533,11 @@ export default function NotasFiscais() {
           </Card>
         </TabsContent>
 
+        {/* Aba: Padrões Fiscais por Categoria */}
+        <TabsContent value="tax_rules" className="space-y-4">
+          <TaxRulesTab rules={taxRules} loading={loadingTaxRules} onReload={loadTaxRules} />
+        </TabsContent>
+
         {/* Aba: Configuração do Emissor */}
         <TabsContent value="config">
           <form onSubmit={handleSaveConfig} className="space-y-6">
@@ -673,19 +701,22 @@ export default function NotasFiscais() {
                   </div>
 
                   <div>
-                    <Label className="text-xs">Regime Tributário</Label>
+                    <Label className="text-xs font-semibold">Regime Tributário da Empresa</Label>
                     <select
                       aria-label="Regime Tributário da Empresa"
                       value={config.regime_tributario || '1'}
                       onChange={(e: any) =>
                         setConfig((prev) => ({ ...prev, regime_tributario: e.target.value }))
                       }
-                      className="w-full mt-1 h-9 px-3 rounded-md border border-slate-200 bg-white text-xs font-medium"
+                      className="w-full mt-1 h-9 px-3 rounded-md border border-slate-200 bg-white text-xs font-medium focus:ring-1 focus:ring-emerald-500"
                     >
-                      <option value="1">Simples Nacional (ME / EPP)</option>
-                      <option value="2">Simples Nacional - Excesso de Sublimite</option>
-                      <option value="3">Regime Normal (Lucro Presumido / Real)</option>
+                      <option value="1">Simples Nacional (ME / EPP - Padrão)</option>
+                      <option value="2">Lucro Presumido</option>
+                      <option value="3">Lucro Real</option>
                     </select>
+                    <span className="text-[10px] text-slate-500">
+                      Adaptação dinâmica para empresas no Simples ou Regime Normal
+                    </span>
                   </div>
                 </div>
 
@@ -780,35 +811,76 @@ export default function NotasFiscais() {
               </CardContent>
             </Card>
 
-            {/* Bloco 3: Padrões Fiscais para Notebook Usado */}
+            {/* Bloco 3: Configurações de Numeração e Emissão Própria */}
             <Card>
               <CardHeader className="pb-3">
                 <div className="flex items-center gap-2">
                   <Sliders className="w-5 h-5 text-emerald-600" />
-                  <CardTitle className="text-base">
-                    Padrões Fiscais para Venda de Notebook Usado
-                  </CardTitle>
+                  <CardTitle className="text-base">Numeração e Série do Emissor Próprio</CardTitle>
                 </div>
                 <CardDescription className="text-xs">
-                  Valores padrão pré-carregados ao abrir o formulário de emissão rápida em pedidos
-                  ML e vendas internas.
+                  Série separada (Série 2) para emissão sem colidir com o Bling (Série 1). O próximo
+                  número é incrementado automaticamente a cada autorização.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div>
-                    <Label className="text-xs">Série da NF-e</Label>
+                    <Label className="text-xs font-semibold">Série da NF-e *</Label>
                     <Input
-                      className="mt-1 h-9 text-xs font-mono"
-                      value={config.serie_nfe || '1'}
+                      className="mt-1 h-9 text-xs font-mono font-bold text-emerald-800 bg-emerald-50/50"
+                      value={config.serie_nfe || '2'}
                       onChange={(e) =>
                         setConfig((prev) => ({ ...prev, serie_nfe: e.target.value }))
                       }
+                      placeholder="2"
                     />
+                    <span className="text-[10px] text-slate-500">
+                      Default "2" (não colide com o Bling na Série 1)
+                    </span>
                   </div>
 
                   <div>
-                    <Label className="text-xs">NCM Padrão (Notebook)</Label>
+                    <Label className="text-xs font-semibold">Próximo Número da NF-e *</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      className="mt-1 h-9 text-xs font-mono font-bold text-slate-900"
+                      value={config.proximo_numero_nfe ?? 1}
+                      onChange={(e) =>
+                        setConfig((prev) => ({
+                          ...prev,
+                          proximo_numero_nfe: parseInt(e.target.value, 10) || 1,
+                        }))
+                      }
+                    />
+                    <span className="text-[10px] text-slate-500">
+                      Controle sequencial editável da Série {config.serie_nfe || '2'}
+                    </span>
+                  </div>
+
+                  <div>
+                    <Label className="text-xs font-semibold">Natureza da Operação Padrão</Label>
+                    <Input
+                      className="mt-1 h-9 text-xs"
+                      value={config.natureza_operacao_padrao || 'Venda de Mercadorias'}
+                      onChange={(e) =>
+                        setConfig((prev) => ({
+                          ...prev,
+                          natureza_operacao_padrao: e.target.value,
+                        }))
+                      }
+                      placeholder="Venda de Mercadorias"
+                    />
+                    <span className="text-[10px] text-slate-500">
+                      Default: "Venda de Mercadorias"
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+                  <div>
+                    <Label className="text-xs">NCM Padrão Fallback</Label>
                     <Input
                       className="mt-1 h-9 text-xs font-mono"
                       value={config.default_ncm || '84713012'}
@@ -816,28 +888,28 @@ export default function NotasFiscais() {
                         setConfig((prev) => ({ ...prev, default_ncm: e.target.value }))
                       }
                     />
-                    <span className="text-[10px] text-slate-500">8471.30.12 = Notebooks</span>
-                  </div>
-
-                  <div>
-                    <Label className="text-xs">CFOP Dentro do Estado</Label>
-                    <Input
-                      className="mt-1 h-9 text-xs font-mono"
-                      value={config.default_cfop_estadual || '5108'}
-                      onChange={(e) =>
-                        setConfig((prev) => ({ ...prev, default_cfop_estadual: e.target.value }))
-                      }
-                    />
                     <span className="text-[10px] text-slate-500">
-                      5108 = Venda de Usados Estadual
+                      Usado se o produto não tiver regra
                     </span>
                   </div>
 
                   <div>
-                    <Label className="text-xs">CFOP Interestadual</Label>
+                    <Label className="text-xs">CFOP Estadual Fallback</Label>
                     <Input
                       className="mt-1 h-9 text-xs font-mono"
-                      value={config.default_cfop_interestadual || '6108'}
+                      value={config.default_cfop_estadual || '5405'}
+                      onChange={(e) =>
+                        setConfig((prev) => ({ ...prev, default_cfop_estadual: e.target.value }))
+                      }
+                    />
+                    <span className="text-[10px] text-slate-500">Dentro UF (fallback: 5405)</span>
+                  </div>
+
+                  <div>
+                    <Label className="text-xs">CFOP Interestadual Fallback</Label>
+                    <Input
+                      className="mt-1 h-9 text-xs font-mono"
+                      value={config.default_cfop_interestadual || '6404'}
                       onChange={(e) =>
                         setConfig((prev) => ({
                           ...prev,
@@ -845,48 +917,20 @@ export default function NotasFiscais() {
                         }))
                       }
                     />
-                    <span className="text-[10px] text-slate-500">6108 = Interestadual</span>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <Label className="text-xs">Natureza da Operação Padrão</Label>
-                    <Input
-                      className="mt-1 h-9 text-xs"
-                      value={config.natureza_operacao_padrao || 'VENDA DE MERCADORIA USADA'}
-                      onChange={(e) =>
-                        setConfig((prev) => ({
-                          ...prev,
-                          natureza_operacao_padrao: e.target.value,
-                        }))
-                      }
-                    />
-                  </div>
-
-                  <div>
-                    <Label className="text-xs">CSOSN Padrão (Simples Nacional)</Label>
-                    <Input
-                      className="mt-1 h-9 text-xs font-mono"
-                      value={config.default_csosn || '102'}
-                      onChange={(e) =>
-                        setConfig((prev) => ({ ...prev, default_csosn: e.target.value }))
-                      }
-                    />
-                    <span className="text-[10px] text-slate-500">
-                      102 = Tributada pelo Simples Nacional sem permissão de crédito
-                    </span>
+                    <span className="text-[10px] text-slate-500">Fora UF (fallback: 6404)</span>
                   </div>
                 </div>
 
                 <div>
-                  <Label className="text-xs">Informações Complementares Padrão</Label>
+                  <Label className="text-xs font-semibold">
+                    Informações Complementares Padrão (DANFE)
+                  </Label>
                   <Textarea
                     className="mt-1 text-xs"
-                    rows={2}
+                    rows={3}
                     value={
                       config.informacoes_complementares_padrao ||
-                      'Mercadoria usada. Documento emitido por ME ou EPP optante pelo Simples Nacional.'
+                      'Empresa optante pelo Simples Nacional. Não gera direito a crédito fiscal de IPI. Tributos aprox.: R$ 0,00 (fonte IBPT)'
                     }
                     onChange={(e) =>
                       setConfig((prev) => ({
@@ -895,6 +939,10 @@ export default function NotasFiscais() {
                       }))
                     }
                   />
+                  <span className="text-[10px] text-slate-500">
+                    Padrão Bling para optantes pelo Simples Nacional com menção à lei e valor IBPT
+                    editável por nota.
+                  </span>
                 </div>
               </CardContent>
             </Card>

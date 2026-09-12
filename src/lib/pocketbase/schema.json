@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-12T11:21:16.516Z",
+  "generatedAt": "2026-09-12T11:54:11.402Z",
   "collections": [
     {
       "name": "users",
@@ -4324,6 +4324,77 @@
         "CREATE INDEX idx_nf_invoices_ml_order ON nf_invoices (ml_order_id)",
         "CREATE INDEX idx_nf_invoices_sale ON nf_invoices (sale_id)",
         "CREATE INDEX idx_nf_invoices_chave ON nf_invoices (chave_nfe)"
+      ]
+    },
+    {
+      "name": "tax_rules",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "categoria",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "cfop_dentro",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "cfop_fora",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "csosn",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cst",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "origem",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ncm_sugerido",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cest_sugerido",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ativo",
+          "type": "bool",
+          "required": false,
+          "system": false
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_tax_rules_categoria ON tax_rules (categoria)",
+        "CREATE INDEX idx_tax_rules_ativo ON tax_rules (ativo)"
       ]
     }
   ]

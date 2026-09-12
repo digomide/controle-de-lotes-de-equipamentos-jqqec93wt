@@ -1,35 +1,40 @@
-// Hook de Servidor para Emissão e Gestão de Notas Fiscais via Focus NFe
-// Rotas registradas:
-// 1. POST /backend/v1/nf/emit — Transmissão ou Simulação de emissão de NF-e para a Focus NFe
-// 2. GET /backend/v1/nf/status — Consulta status de uma nota fiscal na Focus NFe pelo ref
-// 3. POST /backend/v1/nf/sync-certificate — Upload e configuração do certificado digital A1 na Focus NFe
-//
-// Documentação de referência: https://doc.focusnfe.com.br/reference/emitir_nfe.md
+/// <reference path="../pb_data/types.d.ts" />
+
+/**
+ * Hook de Emissão e Consulta de NF-e via Focus NFe API
+ * Rota POST: /backend/v1/nf/emit
+ * Rota GET:  /backend/v1/nf/status/:ref
+ *
+ * Suporte a:
+ * - Séries dedicadas (ex: Série 2 para não colidir com o Bling na Série 1)
+ * - Próximo número sequencial com incremento automático após autorização
+ * - Regimes tributários: Simples Nacional (CSOSN), Lucro Presumido e Lucro Real (CST ICMS/PIS/COFINS/IPI)
+ * - Origem e regras dinâmicas por categoria de produto
+ */
 
 routerAdd(
   'POST',
   '/backend/v1/nf/emit',
   (e) => {
-    var authRecord = e.auth
+    var authRecord = e.get('authRecord')
     if (!authRecord) {
-      try {
-        var info = e.requestInfo()
-        authRecord = info.auth
-      } catch (_) {}
+      return e.json(401, { ok: false, error: 'Acesso não autorizado.' })
     }
 
-    if (!authRecord || !authRecord.id) {
-      return e.json(401, { ok: false, error: 'Sessão não autenticada.' })
+    var body = e.requestInfo().body || {}
+    var originType = body.origin_type || 'manual'
+    var mlOrderId = body.ml_order_id || ''
+    var saleId = body.sale_id || ''
+    var destinatario = body.destinatario || {}
+    var itens = body.itens || []
+    var naturezaOperacao = body.natureza_operacao || 'Venda de Mercadorias'
+    var informacoesComplementares = body.informacoes_complementares || ''
+
+    if (!itens || itens.length === 0) {
+      return e.json(400, { ok: false, error: 'Nenhum item informado na nota fiscal.' })
     }
 
-    var body = {}
-    try {
-      body = e.requestInfo().body || {}
-    } catch (_) {
-      body = {}
-    }
-
-    // 1. Carregar configuração ativa do emissor em nf_config
+    // 1. Obter configuração do emissor (nf_config)
     var configRecords = []
     try {
       configRecords = $app.findRecordsByFilter('nf_config', '1=1', '-created', 1, 0)
@@ -37,45 +42,35 @@ routerAdd(
       console.log('[nf_emit] Erro ao buscar nf_config: ' + errCfg)
     }
 
-    var config = configRecords && configRecords.length > 0 ? configRecords[0] : null
-    var focusToken = config ? (config.getString('focus_token') || '').trim() : ''
-
-    // Se o token Focus ou a configuração não existir, retornar o erro amigável solicitado
-    if (!focusToken) {
+    if (!configRecords || configRecords.length === 0) {
       return e.json(400, {
         ok: false,
-        error_code: 'CONFIG_MISSING',
         error:
-          'Configure o emissor em Configurações → Notas Fiscais para habilitar a transmissão de NF-e.',
+          'Emissor próprio não configurado. Acesse Configurações → Notas Fiscais para configurar o token da Focus NFe e dados da empresa.',
       })
     }
 
-    // 2. Obter dados enviados na requisição de emissão
-    var originType = body.origin_type || 'manual' // 'ml_order' | 'sale_internal' | 'manual'
-    var mlOrderId = body.ml_order_id || ''
-    var saleId = body.sale_id || ''
-    var destinatario = body.destinatario || {}
-    var itens = Array.isArray(body.itens) ? body.itens : []
-    var naturezaOperacao = (
-      body.natureza_operacao ||
-      config.getString('natureza_operacao_padrao') ||
-      'VENDA DE MERCADORIA USADA'
-    ).trim()
-    var informacoesComplementares = (
-      body.informacoes_complementares ||
-      config.getString('informacoes_complementares_padrao') ||
-      ''
-    ).trim()
+    var config = configRecords[0]
+    var focusToken = (config.getString('focus_token') || '').trim()
 
-    if (!itens || itens.length === 0) {
-      return e.json(400, { ok: false, error: 'A nota fiscal deve conter pelo menos 1 item.' })
+    if (!focusToken) {
+      return e.json(400, {
+        ok: false,
+        error: 'Token da Focus NFe não preenchido nas configurações. Transmissão SEFAZ bloqueada.',
+      })
     }
 
-    // Validação básica do destinatário
+    // Configurações fiscais da empresa
+    var serieNfe = (config.getString('serie_nfe') || '2').trim()
+    var proximoNumero = config.getInt('proximo_numero_nfe') || 1
+    var regimeTributario = config.getString('regime_tributario') || '1' // '1' = Simples Nacional, '2' = Presumido, '3' = Real
+
+    // 2. Validação do destinatário
     var docDest = (destinatario.cpf || destinatario.cnpj || destinatario.documento || '').replace(
       /\D/g,
       '',
     )
+
     var nomeDest = (
       destinatario.nome_completo ||
       destinatario.razao_social ||
@@ -109,16 +104,20 @@ routerAdd(
       valorTotal += subtotal
 
       var ncm = (item.ncm || config.getString('default_ncm') || '84713012').replace(/\D/g, '')
+      var cest = (item.cest || '').replace(/\D/g, '')
       var cfop = (
         item.cfop ||
         (destinatario.uf && destinatario.uf !== config.getString('uf')
           ? config.getString('default_cfop_interestadual')
           : config.getString('default_cfop_estadual')) ||
-        '5108'
+        '5405'
       ).trim()
-      var csosn = (item.csosn || config.getString('default_csosn') || '102').trim()
 
-      focusItens.push({
+      var csosn = (item.csosn || config.getString('default_csosn') || '500').trim()
+      var cstIcms = (item.cst_icms || '').trim()
+      var origemItem = typeof item.origem === 'number' ? item.origem : 0
+
+      var itemPayload = {
         numero_item: i + 1,
         codigo_produto: item.codigo_produto || item.sku || 'PROD-' + (i + 1),
         descricao: item.descricao || 'Notebook Usado',
@@ -131,12 +130,32 @@ routerAdd(
         unidade_tributavel: 'UN',
         quantidade_tributavel: qtd,
         valor_unitario_tributavel: vUnit,
-        origem: 0, // 0 - Nacional
-        icms_situacao_tributaria: csosn,
-      })
+        origem: origemItem,
+      }
+
+      if (cest) {
+        itemPayload.codigo_cest = cest
+      }
+
+      // Tratamento conforme Regime Tributário: Simples Nacional vs Regime Normal
+      if (regimeTributario === '1') {
+        // Simples Nacional: usa CSOSN
+        itemPayload.icms_situacao_tributaria = csosn
+      } else {
+        // Lucro Presumido ou Real: usa CST ICMS + PIS/COFINS
+        itemPayload.icms_situacao_tributaria = cstIcms || '00'
+        if (item.pis_cst) {
+          itemPayload.pis_situacao_tributaria = item.pis_cst
+        }
+        if (item.cofins_cst) {
+          itemPayload.cofins_situacao_tributaria = item.cofins_cst
+        }
+      }
+
+      focusItens.push(itemPayload)
     }
 
-    // 5. Montar payload completo Focus NFe
+    // 5. Montar payload completo Focus NFe com Série e Número configurados
     var environment = config.getString('environment') || 'homologacao'
     var baseUrl =
       environment === 'producao'
@@ -146,10 +165,12 @@ routerAdd(
     var focusPayload = {
       natureza_operacao: naturezaOperacao,
       data_emissao: new Date().toISOString(),
+      serie: serieNfe,
+      numero: proximoNumero,
       tipo_documento: 1, // 1 - Saída
       finalidade_emissao: 1, // 1 - Normal
       consumidor_final: 1, // 1 - Consumidor final
-      presenca_comprador: originType === 'ml_order' ? 2 : 1, // 2 - Não presencial (Internet), 1 - Presencial
+      presenca_comprador: originType === 'ml_order' ? 2 : 1, // 2 - Internet / 1 - Presencial
       informacoes_adicionais_contribuinte: informacoesComplementares,
       itens: focusItens,
       destinatario: {
@@ -165,7 +186,7 @@ routerAdd(
       },
       formas_pagamento: [
         {
-          forma_pagamento: originType === 'ml_order' ? '17' : '01', // 17 = Pagamento Instantâneo (PIX) / Mercado Pago, 01 = Dinheiro
+          forma_pagamento: originType === 'ml_order' ? '17' : '01', // 17 = PIX / Mercado Pago
           valor_pagamento: valorTotal,
         },
       ],
@@ -177,7 +198,7 @@ routerAdd(
       focusPayload.destinatario.cnpj = docDest
     }
 
-    // 6. Criar ou atualizar registro em nf_invoices (status: processando)
+    // 6. Criar registro em nf_invoices (status: processando)
     var invoiceCol = $app.findCollectionByNameOrId('nf_invoices')
     var invoiceRecord = new Record(invoiceCol)
     invoiceRecord.set('ref', ref)
@@ -191,13 +212,22 @@ routerAdd(
     invoiceRecord.set('itens', itens)
     invoiceRecord.set('informacoes_complementares', informacoesComplementares)
     invoiceRecord.set('focus_payload', focusPayload)
+    invoiceRecord.set('serie', serieNfe)
+    invoiceRecord.set('numero', String(proximoNumero))
     invoiceRecord.set('created_by', authRecord.id)
 
     $app.save(invoiceRecord)
 
-    // 7. Transmissão para a API da Focus NFe via HTTP Basic Auth (token no username, senha vazia)
+    // 7. Transmissão para a API da Focus NFe
     var focusEndpoint = baseUrl + '/v2/nfe?ref=' + encodeURIComponent(ref)
-    console.log('[nf_emit] Enviando NFe para Focus: ' + focusEndpoint)
+    console.log(
+      '[nf_emit] Enviando NFe Série ' +
+        serieNfe +
+        ' Nº ' +
+        proximoNumero +
+        ' para Focus: ' +
+        focusEndpoint,
+    )
 
     try {
       var authHeader = 'Basic ' + $security.base64Encode(focusToken + ':')
@@ -217,8 +247,6 @@ routerAdd(
       var resData = res.json || {}
       invoiceRecord.set('focus_response', resData)
 
-      // Análise do retorno da Focus NFe
-      // Status possíveis da Focus: 'processando_autorizacao', 'autorizado', 'erro_autorizacao', 'cancelado'
       var focusStatus = resData.status || ''
       var sefazStatus = resData.status_sefaz || ''
       var sefazMensagem = resData.mensagem_sefaz || resData.mensagem || resData.erros || ''
@@ -229,8 +257,8 @@ routerAdd(
 
       if (focusStatus === 'autorizado') {
         invoiceRecord.set('status', 'autorizada')
-        invoiceRecord.set('numero', String(resData.numero || ''))
-        invoiceRecord.set('serie', String(resData.serie || ''))
+        invoiceRecord.set('numero', String(resData.numero || proximoNumero))
+        invoiceRecord.set('serie', String(resData.serie || serieNfe))
         invoiceRecord.set('chave_nfe', String(resData.chave_nfe || ''))
         invoiceRecord.set('protocolo_autorizacao', String(resData.protocolo_autorizacao || ''))
         invoiceRecord.set(
@@ -244,7 +272,18 @@ routerAdd(
         invoiceRecord.set('status_sefaz', sefazStatus)
         invoiceRecord.set('mensagem_sefaz', sefazMensagem || 'Autorizada com sucesso')
 
-        // Se for pedido do Mercado Livre, limpar invoice_pending do pedido para sumir o alerta
+        // Incremento automático do próximo número da NF-e
+        try {
+          config.set('proximo_numero_nfe', proximoNumero + 1)
+          $app.save(config)
+          console.log(
+            '[nf_emit] Contador proximo_numero_nfe incrementado para ' + (proximoNumero + 1),
+          )
+        } catch (errInc) {
+          console.log('[nf_emit] Erro ao incrementar proximo_numero_nfe: ' + errInc)
+        }
+
+        // Se for pedido do Mercado Livre, limpar invoice_pending do pedido
         if (mlOrderId) {
           try {
             var mlOrders = $app.findRecordsByFilter(
@@ -292,6 +331,7 @@ routerAdd(
         mensagem: invoiceRecord.getString('mensagem_sefaz'),
         chave_nfe: invoiceRecord.getString('chave_nfe'),
         numero: invoiceRecord.getString('numero'),
+        serie: invoiceRecord.getString('serie'),
         caminho_danfe: invoiceRecord.getString('caminho_danfe'),
       })
     } catch (errHttp) {
@@ -339,6 +379,7 @@ routerAdd(
         ok: true,
         status: inv.getString('status'),
         numero: inv.getString('numero'),
+        serie: inv.getString('serie'),
         chave_nfe: inv.getString('chave_nfe'),
         caminho_danfe: inv.getString('caminho_danfe'),
         caminho_xml: inv.getString('caminho_xml_nota_fiscal'),
@@ -387,8 +428,8 @@ routerAdd(
 
       if (focusStatus === 'autorizado') {
         inv.set('status', 'autorizada')
-        inv.set('numero', String(data.numero || ''))
-        inv.set('serie', String(data.serie || ''))
+        inv.set('numero', String(data.numero || inv.getString('numero') || ''))
+        inv.set('serie', String(data.serie || inv.getString('serie') || ''))
         inv.set('chave_nfe', String(data.chave_nfe || ''))
         inv.set('protocolo_autorizacao', String(data.protocolo_autorizacao || ''))
         inv.set('caminho_danfe', data.caminho_danfe ? baseUrl + data.caminho_danfe : '')
@@ -398,6 +439,16 @@ routerAdd(
         )
         inv.set('status_sefaz', sefazStatus)
         inv.set('mensagem_sefaz', sefazMensagem || 'Autorizada com sucesso')
+
+        // Incremento automático do contador caso tenha sido autorizada assincronamente
+        try {
+          var currNum = config.getInt('proximo_numero_nfe') || 1
+          var notaNum = parseInt(data.numero, 10)
+          if (notaNum && notaNum >= currNum) {
+            config.set('proximo_numero_nfe', notaNum + 1)
+            $app.save(config)
+          }
+        } catch (_) {}
 
         var mlId = inv.getString('ml_order_id')
         if (mlId) {
@@ -430,6 +481,7 @@ routerAdd(
         ok: true,
         status: inv.getString('status'),
         numero: inv.getString('numero'),
+        serie: inv.getString('serie'),
         chave_nfe: inv.getString('chave_nfe'),
         caminho_danfe: inv.getString('caminho_danfe'),
         caminho_xml: inv.getString('caminho_xml_nota_fiscal'),
