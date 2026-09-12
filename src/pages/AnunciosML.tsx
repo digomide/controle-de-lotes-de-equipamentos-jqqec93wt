@@ -31,6 +31,7 @@ import {
   TrendingUp,
   Filter,
   Clock,
+  MessageSquare,
 } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -51,6 +52,7 @@ import { mlCompetitorService, type MLCompetitorAd } from '@/services/mlCompetito
 import { formatMLSoldQuantity } from '@/services/mlCatalogService'
 import { MLOrdersTab } from '@/components/MLOrdersTab'
 import { MLPublishQueueTab } from '@/components/MLPublishQueueTab'
+import { MLQuestionsTab } from '@/components/MLQuestionsTab'
 import { MLAlertsBanner } from '@/components/MLAlertsBanner'
 import { MLBulkPriceModal } from '@/components/MLBulkPriceModal'
 import { MLDeadlinesTab } from '@/components/MLDeadlinesTab'
@@ -58,9 +60,9 @@ import { MLDeadlinesTab } from '@/components/MLDeadlinesTab'
 export default function AnunciosML() {
   const { toast } = useToast()
 
-  // Aba ativa: 'anuncios' (padrão) | 'envios' | 'pedidos' | 'erros_publicacao'
+  // Aba ativa: 'anuncios' (padrão) | 'perguntas' | 'envios' | 'pedidos' | 'erros_publicacao'
   const [activeTab, setActiveTab] = useState<
-    'anuncios' | 'envios' | 'pedidos' | 'erros_publicacao'
+    'anuncios' | 'perguntas' | 'envios' | 'pedidos' | 'erros_publicacao'
   >('anuncios')
 
   const [loading, setLoading] = useState(true)
@@ -717,13 +719,20 @@ export default function AnunciosML() {
 
       {/* Abas Principais do Gestor ML */}
       <Tabs value={activeTab} onValueChange={(val: any) => setActiveTab(val)} className="space-y-6">
-        <TabsList className="bg-slate-100 p-1 rounded-xl h-11 border border-slate-200 grid grid-cols-4 max-w-2xl">
+        <TabsList className="bg-slate-100 p-1 rounded-xl h-11 border border-slate-200 grid grid-cols-5 max-w-3xl">
           <TabsTrigger
             value="anuncios"
             className="text-xs font-bold gap-1.5 data-[state=active]:bg-white data-[state=active]:shadow-xs"
           >
             <ShoppingBag className="w-4 h-4 text-amber-600" />
             Meus Anúncios ({stats.total})
+          </TabsTrigger>
+          <TabsTrigger
+            value="perguntas"
+            className="text-xs font-bold gap-1.5 data-[state=active]:bg-white data-[state=active]:shadow-xs"
+          >
+            <MessageSquare className="w-4 h-4 text-yellow-600" />
+            Perguntas ML
           </TabsTrigger>
           <TabsTrigger
             value="envios"
@@ -1765,6 +1774,11 @@ export default function AnunciosML() {
               })}
             </div>
           )}
+        </TabsContent>
+
+        {/* ==================== ABA: CENTRAL DE PERGUNTAS ML ==================== */}
+        <TabsContent value="perguntas" className="space-y-6 focus-visible:outline-hidden">
+          <MLQuestionsTab />
         </TabsContent>
 
         {/* ==================== ABA 2: ENVIOS & PRAZOS (DESPACHO E REPUTAÇÃO) ==================== */}

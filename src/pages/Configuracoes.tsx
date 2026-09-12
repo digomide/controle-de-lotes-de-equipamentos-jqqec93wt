@@ -23,6 +23,8 @@ import {
   EyeOff,
   Loader2,
   Sparkles,
+  MessageSquare,
+  Bot,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { MercadoLivreConfigCard } from '@/components/MercadoLivreConfigCard'
@@ -397,6 +399,60 @@ export default function Configuracoes() {
 
       {/* Integração Mercado Livre */}
       <MercadoLivreConfigCard />
+
+      {/* Central de Perguntas ML & Auto-Resposta */}
+      <Card className="border-yellow-200 shadow-xs bg-gradient-to-b from-yellow-50/30 to-white">
+        <CardHeader className="border-b border-yellow-100 pb-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-yellow-500 text-slate-950 flex items-center justify-center shadow-xs font-bold">
+                <MessageSquare className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <CardTitle className="text-base font-bold text-slate-900">
+                    Central de Perguntas & Auto-Resposta ML
+                  </CardTitle>
+                  <Badge
+                    variant="outline"
+                    className="bg-yellow-50 text-yellow-800 border-yellow-300 text-[10px] font-semibold"
+                  >
+                    INFOPRECOBAIXO
+                  </Badge>
+                </div>
+                <CardDescription className="text-xs">
+                  Motor de resposta inicial com saudação por horário, fila com selo "⏳ Aguardando
+                  resposta real", templates e SLA
+                </CardDescription>
+              </div>
+            </div>
+
+            <Link to="/anuncios-ml">
+              <Button
+                size="sm"
+                className="text-xs h-8 bg-yellow-500 hover:bg-yellow-600 text-slate-950 font-bold gap-1.5"
+              >
+                <Bot className="w-3.5 h-3.5" />
+                Acessar Perguntas ML
+              </Button>
+            </Link>
+          </div>
+        </CardHeader>
+        <CardContent className="p-4 text-xs text-slate-600 space-y-2">
+          <p>
+            O motor de auto-resposta envia uma resposta inicial automática aos novos compradores
+            respeitando a saudação (Bom dia / Boa tarde / Boa noite) e mantém a pergunta na fila
+            aguardando a resposta definitiva do operador humano.
+          </p>
+          <div className="flex items-center gap-2 pt-1 text-slate-800">
+            <span className="font-semibold text-yellow-800">Regra de Segurança:</span>
+            <span>
+              Nenhuma resposta secundária é enviada sem sua ação expressa. SLA medido da criação até
+              a resposta real.
+            </span>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Integração Marketing Automatizado & WhatsApp Meta */}
       <Card className="border-emerald-200/80 shadow-xs bg-gradient-to-b from-emerald-50/20 to-white">

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-12T20:46:53.811Z",
+  "generatedAt": "2026-09-12T21:00:09.011Z",
   "collections": [
     {
       "name": "users",
@@ -4512,6 +4512,304 @@
       "indexes": [
         "CREATE INDEX idx_ncm_cest_ncm ON ncm_cest (ncm)",
         "CREATE INDEX idx_ncm_cest_cest ON ncm_cest (cest)"
+      ]
+    },
+    {
+      "name": "ml_questions_config",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "auto_reply_enabled",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "auto_reply_text",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "polling_interval_seconds",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "sla_warning_hours",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "sla_critical_hours",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "ml_question_templates",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "title",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "category",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "keywords",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "content",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "use_stock_placeholder",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "times_used",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "active",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_ml_qtemplates_title ON ml_question_templates (title)",
+        "CREATE INDEX idx_ml_qtemplates_cat ON ml_question_templates (category)"
+      ]
+    },
+    {
+      "name": "ml_questions_cache",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "question_id",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "item_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "item_title",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "item_permalink",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "item_thumbnail",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "item_price",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "buyer_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "buyer_nickname",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "text",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "date_created",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status_ml",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "queue_status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["unanswered", "auto_replied", "answered"]
+        },
+        {
+          "name": "initial_auto_reply_sent",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "initial_auto_reply_text",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "initial_auto_reply_sent_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "real_reply_sent",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "real_reply_text",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "real_reply_sent_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "real_reply_user_name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "sla_minutes_to_real_reply",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "raw_data",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_ml_questions_qid ON ml_questions_cache (question_id)",
+        "CREATE INDEX idx_ml_questions_item ON ml_questions_cache (item_id)",
+        "CREATE INDEX idx_ml_questions_queue ON ml_questions_cache (queue_status)",
+        "CREATE INDEX idx_ml_questions_date ON ml_questions_cache (date_created)",
+        "CREATE INDEX idx_ml_questions_buyer ON ml_questions_cache (buyer_id)"
       ]
     }
   ]

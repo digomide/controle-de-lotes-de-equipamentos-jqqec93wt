@@ -12,7 +12,9 @@ import {
   CheckCircle2,
   AlertCircle,
   XCircle,
+  MessageSquare,
 } from 'lucide-react'
+import { mlQuestionsService, type MLQuestionMetrics } from '@/services/mlQuestionsService'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -37,17 +39,20 @@ export default function Dashboard() {
   const [batches, setBatches] = useState<Batch[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
+  const [questionsMetrics, setQuestionsMetrics] = useState<MLQuestionMetrics | null>(null)
 
   const loadData = async () => {
     try {
-      const [salesData, batchesData, productsData] = await Promise.all([
+      const [salesData, batchesData, productsData, qMetrics] = await Promise.all([
         salesService.getAll(),
         batchesService.getAll(),
         productsService.getAll(),
+        mlQuestionsService.getMetrics().catch(() => null),
       ])
       setSales(salesData)
       setBatches(batchesData)
       setProducts(productsData)
+      if (qMetrics) setQuestionsMetrics(qMetrics)
     } catch (err) {
       console.error('Erro ao carregar dados do dashboard:', err)
     } finally {
@@ -161,6 +166,53 @@ export default function Dashboard() {
           </Link>
         </div>
       </div>
+
+      {/* Alerta de Perguntas Críticas ML no Dashboard */}
+      {questionsMetrics &&
+        (questionsMetrics.critical_count > 0 || questionsMetrics.pending_total > 0) && (
+          <div className="p-4 rounded-xl border bg-yellow-500/10 border-yellow-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+            <div className="flex items-center gap-3">
+              <div
+                className={`p-2.5 rounded-lg ${questionsMetrics.critical_count > 0 ? 'bg-red-500 text-white animate-pulse' : 'bg-yellow-500 text-slate-950'}`}
+              >
+                <MessageSquare className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-sm text-slate-900">
+                    Central de Perguntas ML: {questionsMetrics.pending_total} pendência(s)
+                  </span>
+                  {questionsMetrics.critical_count > 0 && (
+                    <Badge variant="destructive" className="font-bold text-xs animate-bounce">
+                      🚨 {questionsMetrics.critical_count} CRÍTICA(S) (&gt;4h)
+                    </Badge>
+                  )}
+                  {questionsMetrics.waiting_real_reply > 0 && (
+                    <Badge
+                      variant="outline"
+                      className="bg-amber-100 text-amber-800 border-amber-300 text-xs font-semibold"
+                    >
+                      ⏳ {questionsMetrics.waiting_real_reply} aguardando resposta real
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-xs text-slate-600 mt-0.5">
+                  {questionsMetrics.critical_count > 0
+                    ? 'Existem dúvidas de clientes sem resposta real há mais de 4 horas, com risco direto de queda na reputação do ML.'
+                    : 'Responda as dúvidas dos compradores para acelerar a conversão e manter o SLA saudável.'}
+                </p>
+              </div>
+            </div>
+            <Link to="/anuncios-ml">
+              <Button
+                size="sm"
+                className="bg-yellow-500 hover:bg-yellow-600 text-slate-950 font-bold text-xs shrink-0 shadow-xs"
+              >
+                Abrir Central de Perguntas ML <ArrowRight className="w-3.5 h-3.5 ml-1" />
+              </Button>
+            </Link>
+          </div>
+        )}
 
       {/* 4 KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
