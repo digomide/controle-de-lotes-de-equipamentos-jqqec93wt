@@ -39,9 +39,19 @@ export interface RegisterMovementInput {
 
 export const generalInventoryService = {
   async getAllItems(): Promise<GeneralInventoryItem[]> {
-    return await pb.collection('general_inventory_items').getFullList<GeneralInventoryItem>({
-      sort: '-created',
-    })
+    try {
+      return await pb.collection('general_inventory_items').getFullList<GeneralInventoryItem>({
+        sort: '-created',
+      })
+    } catch (err: any) {
+      console.warn(
+        '[generalInventoryService] Erro ao listar com sort -created, tentando fallback por -id:',
+        err,
+      )
+      return await pb.collection('general_inventory_items').getFullList<GeneralInventoryItem>({
+        sort: '-id',
+      })
+    }
   },
 
   async getItemById(id: string): Promise<GeneralInventoryItem> {
@@ -111,23 +121,51 @@ export const generalInventoryService = {
   },
 
   async getMovementsByItem(itemId: string): Promise<GeneralInventoryMovement[]> {
-    return await pb
-      .collection('general_inventory_movements')
-      .getFullList<GeneralInventoryMovement>({
-        filter: `item_id = "${itemId}"`,
-        sort: '-created',
-        expand: 'item_id,user_id',
-      })
+    try {
+      return await pb
+        .collection('general_inventory_movements')
+        .getFullList<GeneralInventoryMovement>({
+          filter: `item_id = "${itemId}"`,
+          sort: '-created',
+          expand: 'item_id,user_id',
+        })
+    } catch (err: any) {
+      console.warn(
+        '[generalInventoryService] Erro ao buscar movimentações com sort -created, fallback por -id:',
+        err,
+      )
+      return await pb
+        .collection('general_inventory_movements')
+        .getFullList<GeneralInventoryMovement>({
+          filter: `item_id = "${itemId}"`,
+          sort: '-id',
+          expand: 'item_id,user_id',
+        })
+    }
   },
 
   async getAllMovements(limit = 100): Promise<GeneralInventoryMovement[]> {
-    return await pb
-      .collection('general_inventory_movements')
-      .getList<GeneralInventoryMovement>(1, limit, {
-        sort: '-created',
-        expand: 'item_id,user_id',
-      })
-      .then((res) => res.items)
+    try {
+      return await pb
+        .collection('general_inventory_movements')
+        .getList<GeneralInventoryMovement>(1, limit, {
+          sort: '-created',
+          expand: 'item_id,user_id',
+        })
+        .then((res) => res.items)
+    } catch (err: any) {
+      console.warn(
+        '[generalInventoryService] Erro ao buscar todas movimentações com sort -created, fallback por -id:',
+        err,
+      )
+      return await pb
+        .collection('general_inventory_movements')
+        .getList<GeneralInventoryMovement>(1, limit, {
+          sort: '-id',
+          expand: 'item_id,user_id',
+        })
+        .then((res) => res.items)
+    }
   },
 
   /**

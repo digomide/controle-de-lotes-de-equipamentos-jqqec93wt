@@ -113,7 +113,11 @@ export default function EstoqueGeral() {
     try {
       setLoading(true)
       const data = await generalInventoryService.getAllItems()
-      setItems(data)
+      // Filtra de forma resiliente registros válidos para não quebrar a tela caso algum esteja malformado
+      const validItems = (Array.isArray(data) ? data : []).filter(
+        (it) => it && typeof it === 'object' && typeof it.id === 'string' && it.description,
+      )
+      setItems(validItems)
     } catch (err: any) {
       console.error(err)
       toast({
@@ -132,7 +136,17 @@ export default function EstoqueGeral() {
 
   // Atualização em tempo real via PocketBase
   useRealtime<GeneralInventoryItem>('general_inventory_items', () => {
-    generalInventoryService.getAllItems().then(setItems)
+    generalInventoryService
+      .getAllItems()
+      .then((data) => {
+        const validItems = (Array.isArray(data) ? data : []).filter(
+          (it) => it && typeof it === 'object' && typeof it.id === 'string' && it.description,
+        )
+        setItems(validItems)
+      })
+      .catch((err) => {
+        console.error('[EstoqueGeral] Erro no realtime refresh:', err)
+      })
   })
 
   // Categorias disponíveis (padrões + existentes no banco)
@@ -154,6 +168,7 @@ export default function EstoqueGeral() {
     let zeroStockCount = 0
 
     items.forEach((item) => {
+      if (!item) return
       const qty = Number(item.quantity) || 0
       const cost = Number(item.cost_price) || 0
       const price = Number(item.suggested_price) || 0
@@ -185,13 +200,19 @@ export default function EstoqueGeral() {
   // Filtragem
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
+      if (!item) return false
       const term = searchTerm.toLowerCase().trim()
+      const description = (item.description || '').toLowerCase()
+      const category = (item.category || '').toLowerCase()
+      const location = (item.location || '').toLowerCase()
+      const notes = (item.notes || '').toLowerCase()
+
       const matchesSearch =
         !term ||
-        item.description.toLowerCase().includes(term) ||
-        item.category.toLowerCase().includes(term) ||
-        (item.location && item.location.toLowerCase().includes(term)) ||
-        (item.notes && item.notes.toLowerCase().includes(term))
+        description.includes(term) ||
+        category.includes(term) ||
+        location.includes(term) ||
+        notes.includes(term)
 
       const matchesCat = selectedCategory === 'all' || item.category === selectedCategory
 
@@ -421,7 +442,10 @@ export default function EstoqueGeral() {
     setLoadingHistory(true)
     try {
       const movs = await generalInventoryService.getMovementsByItem(item.id)
-      setHistoryMovements(movs)
+      const validMovs = (Array.isArray(movs) ? movs : []).filter(
+        (m) => m && typeof m === 'object' && typeof m.id === 'string',
+      )
+      setHistoryMovements(validMovs)
     } catch (err: any) {
       console.error(err)
       toast({
