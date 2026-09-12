@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-12T04:07:24.335Z",
+  "generatedAt": "2026-09-12T04:33:57.371Z",
   "collections": [
     {
       "name": "users",
@@ -3855,6 +3855,106 @@
         }
       ],
       "indexes": ["CREATE INDEX idx_ml_orders_sync_status ON ml_orders_sync_jobs (status)"]
+    },
+    {
+      "name": "ml_customers",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+      },
+      "fields": [
+        {
+          "name": "name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "nickname",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "buyer_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "phone",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "email",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "document",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "address",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "raw_address",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "origin",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["ml", "manual", "loja", "outro"]
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "notes_history",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "next_contact_date",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "tags",
+          "type": "json",
+          "required": false,
+          "system": false
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_ml_customers_name ON ml_customers (name)",
+        "CREATE INDEX idx_ml_customers_buyer_id ON ml_customers (buyer_id)",
+        "CREATE INDEX idx_ml_customers_nickname ON ml_customers (nickname)",
+        "CREATE INDEX idx_ml_customers_phone ON ml_customers (phone)",
+        "CREATE INDEX idx_ml_customers_origin ON ml_customers (origin)",
+        "CREATE INDEX idx_ml_customers_next_contact ON ml_customers (next_contact_date)"
+      ]
     }
   ]
 }

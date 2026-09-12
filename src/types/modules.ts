@@ -26,6 +26,7 @@ export type AppModuleId =
   | 'gestor_ml'
   | 'produtos'
   | 'marketing'
+  | 'clientes'
   | 'radar_ml'
   | 'post_instagram'
   | 'post_tiktok'
@@ -64,6 +65,14 @@ export const APP_MODULES: AppModuleDefinition[] = [
     category: 'operacao',
     icon: ShoppingCart,
     paths: ['/vendas', '/pedido-6849'],
+  },
+  {
+    id: 'clientes',
+    label: 'Clientes & Pós-Venda',
+    description: 'CRM simples de compradores ML e manuais, histórico e pós-venda',
+    category: 'vendas_mkt',
+    icon: Users,
+    paths: ['/clientes'],
   },
   {
     id: 'produtos',
@@ -219,6 +228,7 @@ export function getModuleIdByPath(pathname: string): AppModuleId | null {
   if (pathname.startsWith('/estoque')) return 'estoque_lotes'
   if (pathname.startsWith('/explorador-catalogo')) return 'explorador_catalogo'
   if (pathname.startsWith('/anuncios-ml')) return 'gestor_ml'
+  if (pathname.startsWith('/clientes')) return 'clientes'
   if (pathname.startsWith('/radar-ml')) return 'radar_ml'
   if (pathname.startsWith('/post-instagram')) return 'post_instagram'
   if (pathname.startsWith('/post-tiktok')) return 'post_tiktok'

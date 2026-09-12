@@ -105,15 +105,28 @@ export function MLOrdersTab() {
     }
   }
 
-  // Resolver status de envio real do pedido (com suporte a tags como fallback)
+  // Resolver status de envio real do pedido (com tags como fallback estrito de igualdade)
   const resolveEffectiveShippingStatus = (o: MLOrder): string => {
+    const tags = Array.isArray(o.tags) ? o.tags : []
+    const hasNotDelivered = tags.includes('not_delivered')
+    const hasDelivered = tags.includes('delivered')
+    const hasShipped = tags.includes('shipped')
+
+    // Se possui not_delivered explícito, JAMAIS pode ser exibido como delivered ou shipped
+    if (hasNotDelivered && !hasDelivered) {
+      if (o.shipping_status === 'delivered' || o.shipping_status === 'shipped') {
+        return 'pending'
+      }
+      return o.shipping_status || 'pending'
+    }
+
     if (o.shipping_status && o.shipping_status !== 'pending') {
       return o.shipping_status
     }
-    if (Array.isArray(o.tags)) {
-      if (o.tags.includes('delivered')) return 'delivered'
-      if (o.tags.includes('shipped')) return 'shipped'
-    }
+
+    if (hasDelivered) return 'delivered'
+    if (hasShipped) return 'shipped'
+
     return o.shipping_status || 'pending'
   }
 

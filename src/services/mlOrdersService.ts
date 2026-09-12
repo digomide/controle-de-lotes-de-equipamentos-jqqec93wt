@@ -143,13 +143,14 @@ export const mlOrdersService = {
       const amount = Number(order.total_amount) || 0
 
       // Envio pronto para despachar (somente se não foi cancelado nem entregue nem enviado)
-      const isDelivered =
-        order.shipping_status === 'delivered' ||
-        (Array.isArray(order.tags) && order.tags.includes('delivered'))
+      const tags = Array.isArray(order.tags) ? order.tags : []
+      const hasNotDelivered = tags.includes('not_delivered')
+      const hasDelivered = tags.includes('delivered')
+      const hasShipped = tags.includes('shipped')
 
-      const isShipped =
-        order.shipping_status === 'shipped' ||
-        (Array.isArray(order.tags) && order.tags.includes('shipped'))
+      const isDelivered =
+        !hasNotDelivered && (order.shipping_status === 'delivered' || hasDelivered)
+      const isShipped = !hasNotDelivered && (order.shipping_status === 'shipped' || hasShipped)
 
       if (
         !isDelivered &&

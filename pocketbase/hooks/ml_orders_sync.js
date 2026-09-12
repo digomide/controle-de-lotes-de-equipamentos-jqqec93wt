@@ -204,17 +204,9 @@ onRecordAfterCreateSuccess((e) => {
         let shippingMode = shipping.shipping_mode || shipping.mode || ''
         let receiverAddress = shipping.receiver_address || null
 
-        // 1º Fallback: inferência de entrega a partir das tags do Mercado Livre se shipping.status vier vazio
-        if (!shippingStatus) {
-          if (orderTags.indexOf('delivered') !== -1) {
-            shippingStatus = 'delivered'
-          } else if (orderTags.indexOf('shipped') !== -1) {
-            shippingStatus = 'shipped'
-          }
-        }
-
-        // 2º Enriquecimento via endpoint oficial /shipments/:id do Mercado Livre quando disponível
-        if (shippingId && (!shippingStatus || shippingStatus === 'pending' || !receiverAddress)) {
+        // 1º Ordem de Confiança Prioritária: API oficial de shipments (/shipments/:id)
+        // Consultada antes de qualquer fallback para garantir integridade absoluta de status e endereço
+        if (shippingId) {
           try {
             const shipRes = $http.send({
               url: 'https://api.mercadolibre.com/shipments/' + encodeURIComponent(shippingId),
@@ -236,27 +228,46 @@ onRecordAfterCreateSuccess((e) => {
               if (shipData.mode || shipData.shipping_mode) {
                 shippingMode = String(shipData.mode || shipData.shipping_mode)
               }
-              if (shipData.receiver_address && !receiverAddress) {
+              if (shipData.receiver_address) {
                 receiverAddress = shipData.receiver_address
               }
             }
           } catch (shipErr) {
-            // Não interrompe o fluxo geral em caso de timeout pontual em /shipments
             console.log(
-              '[ml_orders_sync] Aviso ao enriquecer shipment ' + shippingId + ': ' + shipErr,
+              '[ml_orders_sync] Aviso ao consultar /shipments/' + shippingId + ': ' + shipErr,
             )
           }
         }
 
-        // Fallback final coerente caso ainda não haja status de envio
-        if (!shippingStatus) {
-          if (orderTags.indexOf('delivered') !== -1) {
+        // 2º Fallback estrito: Tags do pedido como ÚLTIMO recurso
+        // NUNCA usar indexOf de substring, pois 'delivered' está contido em 'not_delivered'.
+        // Deve ser correspondência exata de elemento no array.
+        const hasExactDeliveredTag = orderTags.includes('delivered')
+        const hasExactNotDeliveredTag = orderTags.includes('not_delivered')
+        const hasExactShippedTag = orderTags.includes('shipped')
+
+        if (!shippingStatus || shippingStatus === 'pending') {
+          if (hasExactNotDeliveredTag) {
+            // Se o ML marcou not_delivered, JAMAIS pode ficar como delivered ou shipped
+            if (shippingStatus === 'delivered' || shippingStatus === 'shipped') {
+              shippingStatus = 'pending'
+            }
+          } else if (hasExactDeliveredTag) {
             shippingStatus = 'delivered'
+          } else if (hasExactShippedTag && shippingStatus !== 'delivered') {
+            shippingStatus = 'shipped'
           } else if (shippingMode === 'custom' || shippingMode === 'not_specified') {
             shippingStatus = 'to_be_agreed'
-          } else {
+          } else if (!shippingStatus) {
             shippingStatus = 'pending'
           }
+        } else if (
+          shippingStatus === 'delivered' &&
+          hasExactNotDeliveredTag &&
+          !hasExactDeliveredTag
+        ) {
+          // Salvaguarda: se por acaso veio delivered incorreto mas tem tag not_delivered explícita
+          shippingStatus = 'pending'
         }
 
         // Itens do pedido
@@ -339,6 +350,115 @@ onRecordAfterCreateSuccess((e) => {
           totalSavedOrUpdated++
         } catch (saveErr) {
           console.log('[ml_orders_sync] Erro ao salvar pedido ' + orderIdStr + ': ' + saveErr)
+        }
+
+        // 3. Upsert automático do cliente em ml_customers
+        if (buyerId || buyerNickname) {
+          try {
+            let customersCol = null
+            try {
+              customersCol = $app.findCollectionByNameOrId('ml_customers')
+            } catch (_) {}
+
+            if (customersCol) {
+              let customerRec = null
+              if (buyerId) {
+                try {
+                  customerRec = $app.findFirstRecordByFilter(
+                    'ml_customers',
+                    "buyer_id = '" + buyerId + "'",
+                  )
+                } catch (_) {}
+              }
+              if (!customerRec && buyerNickname) {
+                try {
+                  customerRec = $app.findFirstRecordByFilter(
+                    'ml_customers',
+                    "nickname = '" + buyerNickname.replace(/'/g, "\\'") + "'",
+                  )
+                } catch (_) {}
+              }
+
+              const targetCustomer = customerRec || new Record(customersCol)
+
+              // Montar endereço formatado em texto legível
+              let formattedAddress = ''
+              if (receiverAddress) {
+                const parts = [
+                  receiverAddress.street_name
+                    ? receiverAddress.street_name +
+                      (receiverAddress.street_number ? ', ' + receiverAddress.street_number : '')
+                    : '',
+                  receiverAddress.comment || receiverAddress.address_line || '',
+                  (receiverAddress.city && receiverAddress.city.name) || '',
+                  (receiverAddress.state && receiverAddress.state.name) || '',
+                  receiverAddress.zip_code ? 'CEP ' + receiverAddress.zip_code : '',
+                ].filter(Boolean)
+                formattedAddress = parts.join(' - ')
+              }
+
+              // Extrair telefone do comprador se disponível no payload
+              let buyerPhone = ''
+              if (buyer.phone) {
+                if (typeof buyer.phone === 'object') {
+                  const area = buyer.phone.area_code || ''
+                  const num = buyer.phone.number || ''
+                  buyerPhone = [area, num].filter(Boolean).join(' ')
+                } else {
+                  buyerPhone = String(buyer.phone)
+                }
+              }
+
+              const buyerEmail = buyer.email || ''
+              const finalName = buyerName || buyerNickname || 'Cliente ML ' + (buyerId || '')
+
+              if (!customerRec) {
+                // Novo cliente
+                targetCustomer.set('buyer_id', buyerId)
+                targetCustomer.set('nickname', buyerNickname)
+                targetCustomer.set('name', finalName)
+                if (buyerPhone) targetCustomer.set('phone', buyerPhone)
+                if (buyerEmail) targetCustomer.set('email', buyerEmail)
+                if (buyerDoc) targetCustomer.set('document', buyerDoc)
+                if (formattedAddress) targetCustomer.set('address', formattedAddress)
+                if (receiverAddress) targetCustomer.set('raw_address', receiverAddress)
+                targetCustomer.set('origin', 'ml')
+                targetCustomer.set('tags', ['ml'])
+                $app.save(targetCustomer)
+              } else {
+                // Cliente existente: atualizar dados se vierem preenchidos
+                if (buyerName && !customerRec.getString('name')) {
+                  targetCustomer.set('name', buyerName)
+                }
+                if (buyerNickname && !customerRec.getString('nickname')) {
+                  targetCustomer.set('nickname', buyerNickname)
+                }
+                if (buyerPhone && !customerRec.getString('phone')) {
+                  targetCustomer.set('phone', buyerPhone)
+                }
+                if (buyerEmail && !customerRec.getString('email')) {
+                  targetCustomer.set('email', buyerEmail)
+                }
+                if (buyerDoc && !customerRec.getString('document')) {
+                  targetCustomer.set('document', buyerDoc)
+                }
+                if (formattedAddress) {
+                  targetCustomer.set('address', formattedAddress)
+                }
+                if (receiverAddress) {
+                  targetCustomer.set('raw_address', receiverAddress)
+                }
+                $app.save(targetCustomer)
+              }
+            }
+          } catch (custErr) {
+            console.log(
+              '[ml_orders_sync] Aviso ao salvar cliente ' +
+                (buyerNickname || buyerId) +
+                ': ' +
+                custErr,
+            )
+          }
         }
       }
 

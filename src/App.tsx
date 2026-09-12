@@ -31,6 +31,7 @@ import PostTikTok from './pages/PostTikTok'
 import CotacoesCorporativas from './pages/CotacoesCorporativas'
 import Marketing from './pages/Marketing'
 import Pedido6849 from './pages/Pedido6849'
+import Clientes from './pages/Clientes'
 import { AuthProvider } from './contexts/AuthContext'
 import { ProtectedRoute } from './components/ProtectedRoute'
 
@@ -85,6 +86,16 @@ const App = () => (
               element={
                 <ProtectedRoute requiredModule="vendas">
                   <Vendas />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Clientes & Pós-Venda */}
+            <Route
+              path="/clientes"
+              element={
+                <ProtectedRoute requiredModule="clientes">
+                  <Clientes />
                 </ProtectedRoute>
               }
             />
