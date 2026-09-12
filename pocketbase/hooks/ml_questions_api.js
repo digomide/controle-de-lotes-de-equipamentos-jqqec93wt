@@ -847,9 +847,51 @@ routerAdd(
 
     var avgSlaMinutes = slaCount > 0 ? Math.round(slaSumMinutes / slaCount) : 0
 
+    // Carregar correções já aplicadas para marcar insights como corrigidos
+    var correctedMap = {}
+    var recentCorrections = []
+    try {
+      var corrRecords = $app.findRecordsByFilter(
+        'ml_question_corrections',
+        "status = 'applied'",
+        '-applied_at,-created',
+        50,
+        0,
+      )
+      for (var cIdx = 0; cIdx < corrRecords.length; cIdx++) {
+        var cr = corrRecords[cIdx]
+        var crItemId = cr.getString('item_id')
+        if (crItemId && !correctedMap[crItemId]) {
+          correctedMap[crItemId] = {
+            id: cr.id,
+            item_id: crItemId,
+            applied_at: cr.getString('applied_at'),
+            applied_by: cr.getString('applied_by'),
+            proposed_text: cr.getString('proposed_text'),
+          }
+        }
+        if (cIdx < 10) {
+          recentCorrections.push({
+            id: cr.id,
+            item_id: crItemId,
+            item_title: cr.getString('item_title'),
+            item_permalink: cr.getString('item_permalink'),
+            applied_at: cr.getString('applied_at'),
+            applied_by: cr.getString('applied_by'),
+            proposed_text: cr.getString('proposed_text'),
+          })
+        }
+      }
+    } catch (corrErr) {
+      console.log('[ml_questions_api] Aviso ao carregar ml_question_corrections: ' + corrErr)
+    }
+
     var productList = []
     for (var k in productQuestionsMap) {
-      productList.push(productQuestionsMap[k])
+      var pObj = productQuestionsMap[k]
+      pObj.is_corrected = Boolean(correctedMap[pObj.item_id])
+      pObj.last_correction = correctedMap[pObj.item_id] || null
+      productList.push(pObj)
     }
     productList.sort(function (a, b) {
       return b.total_questions - a.total_questions
@@ -865,7 +907,583 @@ routerAdd(
       answered_count: answeredCount,
       answered_today: answeredToday,
       avg_sla_minutes: avgSlaMinutes,
-      top_products_with_questions: productList.slice(0, 10),
+      top_products_with_questions: productList.slice(0, 15),
+      recent_corrections: recentCorrections,
+    })
+  },
+  $apis.requireAuth(),
+)
+
+// 4. ROTA GET /backend/v1/ml/questions/insight-correction/propose
+// Retorna a proposta do texto da correção para a descrição do anúncio baseado nas dúvidas e templates
+routerAdd(
+  'GET',
+  '/backend/v1/ml/questions/insight-correction/propose',
+  (e) => {
+    var authRecord = e.auth
+    if (!authRecord) {
+      try {
+        var info = e.requestInfo()
+        authRecord = info.auth
+      } catch (_) {}
+    }
+
+    if (!authRecord || !authRecord.id) {
+      return e.json(401, {
+        ok: false,
+        error: 'Acesso não autorizado: sessão expirada ou não autenticada.',
+      })
+    }
+
+    var itemId = String(e.requestInfo().query.item_id || '').trim()
+    if (!itemId) {
+      return e.json(400, { ok: false, error: 'O parâmetro item_id é obrigatório.' })
+    }
+
+    // Carregar ml_settings para token
+    var sRecords = []
+    try {
+      sRecords = $app.findRecordsByFilter('ml_settings', '1=1', '-created', 1, 0)
+    } catch (err) {
+      console.log('[ml_questions_api] Erro ao carregar ml_settings: ' + err)
+    }
+
+    if (!sRecords || sRecords.length === 0) {
+      return e.json(400, {
+        ok: false,
+        error: 'Configurações do Mercado Livre não encontradas no sistema.',
+      })
+    }
+
+    var settings = sRecords[0]
+    var accessToken = settings.getString('access_token')
+    var refreshToken = settings.getString('refresh_token')
+    var clientId = settings.getString('client_id')
+    var clientSecret = settings.getString('client_secret')
+    var tokenExpiresAt = settings.getString('token_expires_at')
+
+    // Renovar token se necessário
+    var needRefresh = false
+    if (tokenExpiresAt) {
+      try {
+        var expTime = new Date(tokenExpiresAt).getTime()
+        if (Date.now() + 5 * 60 * 1000 >= expTime) {
+          needRefresh = true
+        }
+      } catch (_) {}
+    }
+
+    if (needRefresh && refreshToken && clientId && clientSecret) {
+      try {
+        var refRes = $http.send({
+          url: 'https://api.mercadolibre.com/oauth/token',
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            grant_type: 'refresh_token',
+            client_id: clientId,
+            client_secret: clientSecret,
+            refresh_token: refreshToken,
+          }),
+          timeout: 20,
+        })
+
+        if (refRes.statusCode === 200 && refRes.json) {
+          accessToken = refRes.json.access_token || accessToken
+          var newRef = refRes.json.refresh_token || refreshToken
+          var expIn = Number(refRes.json.expires_in) || 21600
+          var newExpDate = new Date(Date.now() + expIn * 1000).toISOString()
+          settings.set('access_token', accessToken)
+          settings.set('refresh_token', newRef)
+          settings.set('token_expires_at', newExpDate)
+          $app.save(settings)
+        }
+      } catch (rErr) {
+        console.log('[ml_questions_api] Erro ao renovar token ML: ' + rErr)
+      }
+    }
+
+    // 1. Buscar perguntas reais deste item no cache
+    var questionRecords = []
+    try {
+      questionRecords = $app.findRecordsByFilter(
+        'ml_questions_cache',
+        "item_id = '" + itemId + "'",
+        '-date_created,-created',
+        50,
+        0,
+      )
+    } catch (qErr) {
+      console.log('[ml_questions_api] Erro ao buscar perguntas para proposta: ' + qErr)
+    }
+
+    var itemTitle = ''
+    var itemPermalink = ''
+    var questionsList = []
+    for (var qi = 0; qi < questionRecords.length; qi++) {
+      var qRec = questionRecords[qi]
+      if (!itemTitle && qRec.getString('item_title')) {
+        itemTitle = qRec.getString('item_title')
+      }
+      if (!itemPermalink && qRec.getString('item_permalink')) {
+        itemPermalink = qRec.getString('item_permalink')
+      }
+      var t = qRec.getString('text')
+      if (t && questionsList.indexOf(t) === -1) {
+        questionsList.push(t)
+      }
+    }
+
+    // 2. Buscar dados do item no ML e estoque no sistema local
+    var currentDescription = ''
+    var mlItemStatus = 'active'
+    if (accessToken && itemId) {
+      try {
+        var itRes = $http.send({
+          url: 'https://api.mercadolibre.com/items/' + encodeURIComponent(itemId),
+          method: 'GET',
+          headers: {
+            Authorization: 'Bearer ' + accessToken,
+            Accept: 'application/json',
+          },
+          timeout: 15,
+        })
+        if (itRes.statusCode === 200 && itRes.json) {
+          if (!itemTitle && itRes.json.title) itemTitle = itRes.json.title
+          if (!itemPermalink && itRes.json.permalink) itemPermalink = itRes.json.permalink
+          if (itRes.json.status) mlItemStatus = itRes.json.status
+        }
+      } catch (_) {}
+
+      // Buscar descrição atual do anúncio (GET /items/{id}/description)
+      try {
+        var descRes = $http.send({
+          url: 'https://api.mercadolibre.com/items/' + encodeURIComponent(itemId) + '/description',
+          method: 'GET',
+          headers: {
+            Authorization: 'Bearer ' + accessToken,
+            Accept: 'application/json',
+          },
+          timeout: 15,
+        })
+        if (descRes.statusCode === 200 && descRes.json) {
+          currentDescription = descRes.json.plain_text || descRes.json.text || ''
+        }
+      } catch (dGetErr) {
+        console.log('[ml_questions_api] Aviso ao buscar descrição atual: ' + dGetErr)
+      }
+    }
+
+    // 3. Buscar estoque real disponível no sistema local
+    var matchingStock = 0
+    try {
+      var directProds = $app.findRecordsByFilter(
+        'products',
+        "ml_listing_id = '" + itemId + "' && status = 'Disponível'",
+        '-created',
+        100,
+        0,
+      )
+      if (directProds && directProds.length > 0) {
+        matchingStock = directProds.length
+      }
+    } catch (_) {}
+
+    // 4. Buscar templates disponíveis em ml_question_templates
+    var templates = []
+    try {
+      templates = $app.findRecordsByFilter(
+        'ml_question_templates',
+        'active = true',
+        '-times_used,-created',
+        50,
+        0,
+      )
+    } catch (_) {}
+
+    // 5. Motor de Síntese Inteligente da Proposta de Correção
+    // Consolida as dúvidas recorrentes num parágrafo de FAQ do Produto
+    var faqItems = []
+    var matchedTemplatesUsed = []
+
+    for (var tIdx = 0; tIdx < templates.length; tIdx++) {
+      var tpl = templates[tIdx]
+      var kwRaw = tpl.get('keywords') || []
+      var kws = Array.isArray(kwRaw) ? kwRaw : []
+      var tTitle = tpl.getString('title') || ''
+      var tContent = tpl.getString('content') || ''
+
+      // Verificar se alguma pergunta recebida bate com as keywords do template
+      var matchedQuestions = []
+      for (var qIdx = 0; qIdx < questionsList.length; qIdx++) {
+        var qTextLower = questionsList[qIdx].toLowerCase()
+        var hasMatch = false
+        for (var k = 0; k < kws.length; k++) {
+          var kw = String(kws[k]).toLowerCase()
+          if (kw.length >= 3 && qTextLower.indexOf(kw) !== -1) {
+            hasMatch = true
+            break
+          }
+        }
+        if (hasMatch) {
+          matchedQuestions.push(questionsList[qIdx])
+        }
+      }
+
+      if (matchedQuestions.length > 0) {
+        // Formatar o texto do template substituindo variáveis
+        var stockStr = matchingStock > 0 ? String(matchingStock) : 'unidades a pronta entrega'
+        var cleanContent = tContent
+          .replace(/\{estoque_real\}/g, stockStr)
+          .replace(/\{saudacao\}\!?\s*/gi, '')
+          .replace(/Olá\!\s*/gi, '')
+          .replace(/Bom dia\!\s*/gi, '')
+          .replace(/Boa tarde\!\s*/gi, '')
+          .replace(/Boa noite\!\s*/gi, '')
+          .trim()
+
+        faqItems.push({
+          topic: tTitle,
+          answer: cleanContent,
+          questions: matchedQuestions,
+        })
+        matchedTemplatesUsed.push(tTitle)
+      }
+    }
+
+    // Construção do parágrafo proposto formatado para a descrição do Mercado Livre
+    var proposedParagraph = ''
+    if (faqItems.length > 0) {
+      var lines = []
+      lines.push('📌 INFORMAÇÕES FREQUENTES E DÚVIDAS ESCLARECIDAS:')
+      for (var f = 0; f < faqItems.length; f++) {
+        var item = faqItems[f]
+        lines.push('• ' + item.topic.toUpperCase() + ': ' + item.answer)
+      }
+      lines.push(
+        '✔ Equipamento revisado com garantia Ambicorp e envio imediato com Nota Fiscal (NF-e).',
+      )
+      proposedParagraph = lines.join('\n')
+    } else {
+      // Fallback consolidando as perguntas gerais recebidas
+      var sampleQ = questionsList.slice(0, 3).join('", "')
+      proposedParagraph =
+        '📌 ESCLARECIMENTOS SOBRE O PRODUTO (Dúvidas frequentes atendidas):\n' +
+        '• Compatibilidade e Condição: equipamento testado e revisado em bancada técnica especializada Ambicorp.\n' +
+        '• Garantia e Procedência: emitimos Nota Fiscal (NF-e) e oferecemos garantia de 90 dias com suporte direto.\n' +
+        '• Envio Rápido: produto em estoque com despacho ágil e embalagem segura via Mercado Envios.'
+    }
+
+    // Visual da descrição concatenada final
+    var finalCombined = ''
+    if (currentDescription && currentDescription.trim().length > 0) {
+      finalCombined = currentDescription.trim() + '\n\n---\n\n' + proposedParagraph.trim()
+    } else {
+      finalCombined = proposedParagraph.trim()
+    }
+
+    // Verificar se já foi corrigido antes
+    var alreadyCorrected = false
+    var lastCorrectionRecord = null
+    try {
+      var existCorr = $app.findRecordsByFilter(
+        'ml_question_corrections',
+        "item_id = '" + itemId + "' && status = 'applied'",
+        '-applied_at,-created',
+        1,
+        0,
+      )
+      if (existCorr && existCorr.length > 0) {
+        alreadyCorrected = true
+        lastCorrectionRecord = {
+          applied_at: existCorr[0].getString('applied_at'),
+          applied_by: existCorr[0].getString('applied_by'),
+          proposed_text: existCorr[0].getString('proposed_text'),
+        }
+      }
+    } catch (_) {}
+
+    return e.json(200, {
+      ok: true,
+      item_id: itemId,
+      item_title: itemTitle,
+      item_permalink: itemPermalink,
+      ml_item_status: mlItemStatus,
+      matching_stock: matchingStock,
+      total_questions: questionsList.length,
+      sample_questions: questionsList.slice(0, 5),
+      proposed_text: proposedParagraph,
+      current_description: currentDescription,
+      final_description_preview: finalCombined,
+      already_corrected: alreadyCorrected,
+      last_correction: lastCorrectionRecord,
+    })
+  },
+  $apis.requireAuth(),
+)
+
+// 5. ROTA POST /backend/v1/ml/questions/insight-correction/apply
+// Aplica a correção de 1 clique na API do Mercado Livre (PUT /items/{id}/description)
+routerAdd(
+  'POST',
+  '/backend/v1/ml/questions/insight-correction/apply',
+  (e) => {
+    var authRecord = e.auth
+    if (!authRecord) {
+      try {
+        var info = e.requestInfo()
+        authRecord = info.auth
+      } catch (_) {}
+    }
+
+    if (!authRecord || !authRecord.id) {
+      return e.json(401, {
+        ok: false,
+        error: 'Acesso não autorizado: sessão expirada ou não autenticada.',
+      })
+    }
+
+    var body = {}
+    try {
+      body = e.requestInfo().body || {}
+    } catch (_) {}
+
+    var itemId = String(body.item_id || '').trim()
+    var textToAdd = String(body.proposed_text || '').trim()
+
+    if (!itemId) {
+      return e.json(400, { ok: false, error: 'O campo item_id é obrigatório.' })
+    }
+    if (!textToAdd) {
+      return e.json(400, {
+        ok: false,
+        error: 'O texto da correção para adicionar ao anúncio não pode ser vazio.',
+      })
+    }
+
+    // Carregar ml_settings
+    var sRecords = []
+    try {
+      sRecords = $app.findRecordsByFilter('ml_settings', '1=1', '-created', 1, 0)
+    } catch (err) {
+      console.log('[ml_questions_api] Erro ao carregar ml_settings: ' + err)
+    }
+
+    if (!sRecords || sRecords.length === 0) {
+      return e.json(400, {
+        ok: false,
+        error: 'Configurações do Mercado Livre não encontradas no sistema.',
+      })
+    }
+
+    var settings = sRecords[0]
+    var accessToken = settings.getString('access_token')
+    var refreshToken = settings.getString('refresh_token')
+    var clientId = settings.getString('client_id')
+    var clientSecret = settings.getString('client_secret')
+    var tokenExpiresAt = settings.getString('token_expires_at')
+
+    // Renovar token se necessário
+    var needRefresh = false
+    if (tokenExpiresAt) {
+      try {
+        var expTime = new Date(tokenExpiresAt).getTime()
+        if (Date.now() + 5 * 60 * 1000 >= expTime) {
+          needRefresh = true
+        }
+      } catch (_) {}
+    }
+
+    if (needRefresh && refreshToken && clientId && clientSecret) {
+      try {
+        var refRes = $http.send({
+          url: 'https://api.mercadolibre.com/oauth/token',
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            grant_type: 'refresh_token',
+            client_id: clientId,
+            client_secret: clientSecret,
+            refresh_token: refreshToken,
+          }),
+          timeout: 20,
+        })
+
+        if (refRes.statusCode === 200 && refRes.json) {
+          accessToken = refRes.json.access_token || accessToken
+          var newRef = refRes.json.refresh_token || refreshToken
+          var expIn = Number(refRes.json.expires_in) || 21600
+          var newExpDate = new Date(Date.now() + expIn * 1000).toISOString()
+          settings.set('access_token', accessToken)
+          settings.set('refresh_token', newRef)
+          settings.set('token_expires_at', newExpDate)
+          $app.save(settings)
+          console.log('[ml_questions_api] Token renovado com sucesso para aplicação de correção.')
+        }
+      } catch (rErr) {
+        console.log('[ml_questions_api] Erro ao renovar token ML: ' + rErr)
+      }
+    }
+
+    if (!accessToken) {
+      return e.json(400, {
+        ok: false,
+        error: 'Mercado Livre sem token de acesso ativo ou autenticação expirada.',
+      })
+    }
+
+    // 1. Obter dados e descrição atual do anúncio no ML
+    var itemTitle = ''
+    var itemPermalink = ''
+    try {
+      var itRes = $http.send({
+        url: 'https://api.mercadolibre.com/items/' + encodeURIComponent(itemId),
+        method: 'GET',
+        headers: {
+          Authorization: 'Bearer ' + accessToken,
+          Accept: 'application/json',
+        },
+        timeout: 15,
+      })
+      if (itRes.statusCode === 200 && itRes.json) {
+        itemTitle = itRes.json.title || ''
+        itemPermalink = itRes.json.permalink || ''
+      }
+    } catch (_) {}
+
+    var previousDescription = ''
+    var hadExistingDescription = false
+    try {
+      var curDescRes = $http.send({
+        url: 'https://api.mercadolibre.com/items/' + encodeURIComponent(itemId) + '/description',
+        method: 'GET',
+        headers: {
+          Authorization: 'Bearer ' + accessToken,
+          Accept: 'application/json',
+        },
+        timeout: 15,
+      })
+      if (curDescRes.statusCode === 200 && curDescRes.json) {
+        previousDescription = curDescRes.json.plain_text || curDescRes.json.text || ''
+        hadExistingDescription = true
+      }
+    } catch (dGetErr) {
+      console.log('[ml_questions_api] Aviso ao buscar descrição anterior: ' + dGetErr)
+    }
+
+    // REGRA DE OURO: A API do ML SUBSTITUI a descrição inteira — então CONCATENAMOS ao final com separador visual
+    var finalPlainText = ''
+    if (previousDescription && previousDescription.trim().length > 0) {
+      finalPlainText = previousDescription.trim() + '\n\n---\n\n' + textToAdd.trim()
+    } else {
+      finalPlainText = textToAdd.trim()
+    }
+
+    // 2. Enviar para a API do ML via PUT (ou POST caso ainda não existisse descrição)
+    var putUrl = 'https://api.mercadolibre.com/items/' + encodeURIComponent(itemId) + '/description'
+    var putRes = null
+    var mlError = ''
+
+    // Tentativa com PUT (padrão oficial para atualizar descrição)
+    try {
+      putRes = $http.send({
+        url: putUrl,
+        method: 'PUT',
+        headers: {
+          Authorization: 'Bearer ' + accessToken,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          plain_text: finalPlainText,
+        }),
+        timeout: 25,
+      })
+    } catch (netErr) {
+      mlError = 'Erro de rede: ' + (netErr.message || netErr)
+    }
+
+    // Fallback: se o ML retornar 404 informando que não há descrição prévia criada, usa POST
+    if (putRes && putRes.statusCode === 404) {
+      try {
+        putRes = $http.send({
+          url: putUrl,
+          method: 'POST',
+          headers: {
+            Authorization: 'Bearer ' + accessToken,
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify({
+            plain_text: finalPlainText,
+          }),
+          timeout: 25,
+        })
+      } catch (pErr) {
+        mlError = 'Erro no fallback POST: ' + (pErr.message || pErr)
+      }
+    }
+
+    var isSuccess = putRes && putRes.statusCode >= 200 && putRes.statusCode < 300
+    if (!isSuccess && putRes) {
+      var eJson = putRes.json || {}
+      mlError =
+        eJson.message ||
+        eJson.error_description ||
+        eJson.error ||
+        'Código HTTP ' + putRes.statusCode
+    }
+
+    var operatorName =
+      authRecord.getString('name') || authRecord.getString('email') || 'Operador Ambicorp'
+
+    // 3. Registrar auditoria em ml_question_corrections
+    var auditRec = null
+    try {
+      var corrCol = $app.findCollectionByNameOrId('ml_question_corrections')
+      if (corrCol) {
+        auditRec = new Record(corrCol)
+        auditRec.set('item_id', itemId)
+        auditRec.set('item_title', itemTitle)
+        auditRec.set('item_permalink', itemPermalink)
+        auditRec.set('proposed_text', textToAdd)
+        auditRec.set('previous_description', previousDescription)
+        auditRec.set('final_description', finalPlainText)
+        auditRec.set('status', isSuccess ? 'applied' : 'failed')
+        auditRec.set('applied_by', operatorName)
+        auditRec.set('applied_at', new Date().toISOString())
+        if (!isSuccess) {
+          auditRec.set('error_message', mlError)
+        }
+        if (putRes && putRes.json) {
+          auditRec.set('api_response', putRes.json)
+        }
+        $app.save(auditRec)
+      }
+    } catch (audErr) {
+      console.log('[ml_questions_api] Aviso ao salvar auditoria de correção: ' + audErr)
+    }
+
+    if (!isSuccess) {
+      return e.json(putRes ? putRes.statusCode : 502, {
+        ok: false,
+        error:
+          'Não foi possível atualizar a descrição do anúncio no Mercado Livre: ' +
+          (mlError || 'Falha de comunicação com o ML.'),
+        item_id: itemId,
+      })
+    }
+
+    return e.json(200, {
+      ok: true,
+      message: 'Correção aplicada com sucesso na descrição do anúncio do Mercado Livre!',
+      item_id: itemId,
+      item_title: itemTitle,
+      item_permalink: itemPermalink,
+      applied_by: operatorName,
+      applied_at: new Date().toISOString(),
+      final_description: finalPlainText,
+      audit_id: auditRec ? auditRec.id : null,
     })
   },
   $apis.requireAuth(),

@@ -56,6 +56,8 @@ import { MLQuestionsTab } from '@/components/MLQuestionsTab'
 import { MLAlertsBanner } from '@/components/MLAlertsBanner'
 import { MLBulkPriceModal } from '@/components/MLBulkPriceModal'
 import { MLDeadlinesTab } from '@/components/MLDeadlinesTab'
+import { MLQuestionsInsightsPanel } from '@/components/MLQuestionsInsightsPanel'
+import { mlQuestionsService, type MLQuestionMetrics } from '@/services/mlQuestionsService'
 
 export default function AnunciosML() {
   const { toast } = useToast()
@@ -71,6 +73,7 @@ export default function AnunciosML() {
   )
   const [data, setData] = useState<MLSellerItemsResult | null>(null)
   const [competitorAds, setCompetitorAds] = useState<MLCompetitorAd[]>([])
+  const [questionsMetrics, setQuestionsMetrics] = useState<MLQuestionMetrics | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
@@ -115,17 +118,19 @@ export default function AnunciosML() {
     setError(null)
     setProgressText('Consultando anúncios na conta do Mercado Livre...')
     try {
-      const [res, compAds] = await Promise.all([
+      const [res, compAds, qMetrics] = await Promise.all([
         mlService.getSellerItems({
           onProgress: (pText) => {
             if (pText) setProgressText(pText)
           },
         }),
         mlCompetitorService.getCompetitorAds().catch(() => []),
+        mlQuestionsService.getMetrics().catch(() => null),
       ])
 
       setData(res)
       setCompetitorAds(compAds)
+      setQuestionsMetrics(qMetrics)
 
       if (showToast) {
         const activeCount = res.items.filter((i) => i.status === 'active').length
@@ -713,6 +718,17 @@ export default function AnunciosML() {
           onFilterUnmatched={() => {
             setActiveTab('anuncios')
             setMatchedFilter('unmatched')
+          }}
+        />
+      )}
+
+      {/* Banner de Insight com Correção de 1 Clique (quando houver dúvidas recorrentes) */}
+      {questionsMetrics && (
+        <MLQuestionsInsightsPanel
+          metrics={questionsMetrics}
+          compact={true}
+          onRefresh={() => {
+            fetchItems(false)
           }}
         />
       )}

@@ -26,6 +26,7 @@ import {
   ShieldCheck,
   Check,
 } from 'lucide-react'
+import { MLQuestionsInsightsPanel } from '@/components/MLQuestionsInsightsPanel'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -697,48 +698,10 @@ export function MLQuestionsTab({ onRefreshBadge }: MLQuestionsTabProps) {
         </div>
       )}
 
-      {/* 3. DICA DE ANÚNCIO (INSIGHT AUTOMÁTICO SE HOUVER PRODUTOS COM MUITAS DÚVIDAS) */}
-      {metrics?.top_products_with_questions &&
-        metrics.top_products_with_questions.length > 0 &&
-        (() => {
-          const topItem = metrics.top_products_with_questions[0]
-          if (topItem.total_questions >= 3) {
-            return (
-              <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3.5 flex items-start gap-3">
-                <div className="p-2 rounded-lg bg-amber-500/20 text-amber-700 shrink-0 mt-0.5">
-                  <Lightbulb className="h-5 w-5" />
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-sm text-amber-900 dark:text-amber-300">
-                      Insight de Conversão: Dúvidas repetidas no mesmo anúncio
-                    </span>
-                    <Badge
-                      variant="outline"
-                      className="text-xs bg-amber-500/10 border-amber-500/30 text-amber-700"
-                    >
-                      {topItem.total_questions} perguntas recebidas
-                    </Badge>
-                  </div>
-                  <p className="text-xs text-amber-800 dark:text-amber-200 mt-1">
-                    O produto <span className="font-semibold">"{topItem.item_title}"</span> tem
-                    recebido muitas perguntas semelhantes (
-                    {topItem.sample_texts
-                      .slice(0, 2)
-                      .map((t) => `"${t}"`)
-                      .join(', ')}
-                    ).
-                    <span className="font-medium text-amber-950 dark:text-amber-100 ml-1">
-                      💡 Recomendação: adicione essas especificações diretamente na descrição do
-                      anúncio para aumentar sua conversão!
-                    </span>
-                  </p>
-                </div>
-              </div>
-            )
-          }
-          return null
-        })()}
+      {/* 3. PAINEL DE INSIGHTS COM CORREÇÃO DE 1 CLIQUE */}
+      {metrics?.top_products_with_questions && metrics.top_products_with_questions.length > 0 && (
+        <MLQuestionsInsightsPanel metrics={metrics} onRefresh={loadAll} />
+      )}
 
       {/* 4. LAYOUT PRINCIPAL: INBOX (FILA) + DETALHE & RESPOSTA */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">

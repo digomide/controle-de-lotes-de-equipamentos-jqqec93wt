@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-12T21:00:09.011Z",
+  "generatedAt": "2026-09-12T21:11:58.490Z",
   "collections": [
     {
       "name": "users",
@@ -4810,6 +4810,111 @@
         "CREATE INDEX idx_ml_questions_queue ON ml_questions_cache (queue_status)",
         "CREATE INDEX idx_ml_questions_date ON ml_questions_cache (date_created)",
         "CREATE INDEX idx_ml_questions_buyer ON ml_questions_cache (buyer_id)"
+      ]
+    },
+    {
+      "name": "ml_question_corrections",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "item_id",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "item_title",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "item_permalink",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "questions_used",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "proposed_text",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "previous_description",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "final_description",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["applied", "failed"]
+        },
+        {
+          "name": "applied_by",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "applied_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "error_message",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "api_response",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_ml_qcorr_item ON ml_question_corrections (item_id)",
+        "CREATE INDEX idx_ml_qcorr_status ON ml_question_corrections (status)",
+        "CREATE INDEX idx_ml_qcorr_applied ON ml_question_corrections (applied_at)"
       ]
     }
   ]

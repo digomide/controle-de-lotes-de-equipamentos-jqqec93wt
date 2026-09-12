@@ -52,6 +52,23 @@ export interface MLQuestionTemplate {
   updated?: string
 }
 
+export interface MLQuestionInsightProduct {
+  item_id: string
+  item_title: string
+  item_permalink: string
+  total_questions: number
+  pending_questions: number
+  sample_texts: string[]
+  is_corrected?: boolean
+  last_correction?: {
+    id: string
+    item_id: string
+    applied_at: string
+    applied_by: string
+    proposed_text: string
+  } | null
+}
+
 export interface MLQuestionMetrics {
   pending_total: number
   pending_unanswered: number
@@ -61,14 +78,55 @@ export interface MLQuestionMetrics {
   answered_count: number
   answered_today: number
   avg_sla_minutes: number
-  top_products_with_questions: {
+  top_products_with_questions: MLQuestionInsightProduct[]
+  recent_corrections?: {
+    id: string
     item_id: string
     item_title: string
     item_permalink: string
-    total_questions: number
-    pending_questions: number
-    sample_texts: string[]
+    applied_at: string
+    applied_by: string
+    proposed_text: string
   }[]
+}
+
+export interface MLInsightCorrectionProposal {
+  ok: boolean
+  item_id: string
+  item_title: string
+  item_permalink: string
+  ml_item_status: string
+  matching_stock: number
+  total_questions: number
+  sample_questions: string[]
+  proposed_text: string
+  current_description: string
+  final_description_preview: string
+  already_corrected: boolean
+  last_correction?: {
+    applied_at: string
+    applied_by: string
+    proposed_text: string
+  } | null
+  error?: string
+}
+
+export interface ApplyMLInsightCorrectionInput {
+  item_id: string
+  proposed_text: string
+}
+
+export interface ApplyMLInsightCorrectionResponse {
+  ok: boolean
+  message: string
+  item_id: string
+  item_title: string
+  item_permalink: string
+  applied_by: string
+  applied_at: string
+  final_description: string
+  audit_id?: string
+  error?: string
 }
 
 export interface SyncQuestionsResult {
@@ -281,6 +339,51 @@ export const mlQuestionsService = {
       })
     } catch {
       /* intentionally ignored */
+    }
+  },
+
+  /**
+   * Gera a proposta de correção inteligente para a descrição do anúncio com preview lado a lado
+   */
+  async getInsightCorrectionProposal(itemId: string): Promise<MLInsightCorrectionProposal> {
+    const res = await pb.send<MLInsightCorrectionProposal>(
+      `/backend/v1/ml/questions/insight-correction/propose?item_id=${encodeURIComponent(itemId)}`,
+      {
+        method: 'GET',
+      },
+    )
+    return res
+  },
+
+  /**
+   * Aplica a correção de 1 clique na descrição do anúncio no Mercado Livre (PUT /items/{id}/description)
+   */
+  async applyInsightCorrection(
+    input: ApplyMLInsightCorrectionInput,
+  ): Promise<ApplyMLInsightCorrectionResponse> {
+    const res = await pb.send<ApplyMLInsightCorrectionResponse>(
+      '/backend/v1/ml/questions/insight-correction/apply',
+      {
+        method: 'POST',
+        body: input,
+      },
+    )
+    return res
+  },
+
+  /**
+   * Lista auditoria de correções de insights realizadas
+   */
+  async listCorrections(limit = 20) {
+    try {
+      const records = await pb.collection('ml_question_corrections').getList(1, limit, {
+        sort: '-applied_at,-created',
+        requestKey: null,
+      })
+      return records.items
+    } catch (err) {
+      console.error('Erro ao listar correções de anúncios:', err)
+      return []
     }
   },
 }
