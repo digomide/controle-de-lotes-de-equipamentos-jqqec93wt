@@ -105,23 +105,23 @@ export function MLOrdersTab() {
     }
   }
 
-  // Resolver status de envio real do pedido (com tags como fallback estrito de igualdade)
+  // Resolver status de envio real do pedido
+  // O status gravado no banco (enriquecido via API oficial de shipments) prevalece sobre tags que frequentemente ficam velhas/desatualizadas no ML.
+  // Tags servem estritamente como fallback quando o shipping_status não veio ou está pendente/indefinido.
   const resolveEffectiveShippingStatus = (o: MLOrder): string => {
+    // 1º Prioridade: Se o banco já possui status enriquecido vindo da API oficial de shipments (delivered, shipped, ready_to_ship, to_be_agreed, cancelled, etc.)
+    if (o.shipping_status && o.shipping_status !== 'pending') {
+      return o.shipping_status
+    }
+
+    // 2º Fallback para quando shipping_status é vazio ou 'pending'
     const tags = Array.isArray(o.tags) ? o.tags : []
     const hasNotDelivered = tags.includes('not_delivered')
     const hasDelivered = tags.includes('delivered')
     const hasShipped = tags.includes('shipped')
 
-    // Se possui not_delivered explícito, JAMAIS pode ser exibido como delivered ou shipped
     if (hasNotDelivered && !hasDelivered) {
-      if (o.shipping_status === 'delivered' || o.shipping_status === 'shipped') {
-        return 'pending'
-      }
-      return o.shipping_status || 'pending'
-    }
-
-    if (o.shipping_status && o.shipping_status !== 'pending') {
-      return o.shipping_status
+      return 'pending'
     }
 
     if (hasDelivered) return 'delivered'

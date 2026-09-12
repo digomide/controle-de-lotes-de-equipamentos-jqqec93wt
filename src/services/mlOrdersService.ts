@@ -142,22 +142,36 @@ export const mlOrdersService = {
       const isPaid = order.status === 'paid' || order.status === 'confirmed'
       const amount = Number(order.total_amount) || 0
 
-      // Envio pronto para despachar (somente se não foi cancelado nem entregue nem enviado)
+      // Resolver status de envio efetivo:
+      // Status enriquecido do banco (API oficial de shipments) tem autoridade absoluta sobre tags.
+      // Tags servem estritamente como fallback quando shipping_status é indefinido ou pending.
       const tags = Array.isArray(order.tags) ? order.tags : []
       const hasNotDelivered = tags.includes('not_delivered')
       const hasDelivered = tags.includes('delivered')
       const hasShipped = tags.includes('shipped')
 
-      const isDelivered =
-        !hasNotDelivered && (order.shipping_status === 'delivered' || hasDelivered)
-      const isShipped = !hasNotDelivered && (order.shipping_status === 'shipped' || hasShipped)
+      let effShippingStatus = order.shipping_status || 'pending'
+      if (order.shipping_status && order.shipping_status !== 'pending') {
+        effShippingStatus = order.shipping_status
+      } else {
+        if (hasNotDelivered && !hasDelivered) {
+          effShippingStatus = 'pending'
+        } else if (hasDelivered) {
+          effShippingStatus = 'delivered'
+        } else if (hasShipped) {
+          effShippingStatus = 'shipped'
+        }
+      }
+
+      const isDelivered = effShippingStatus === 'delivered'
+      const isShipped = effShippingStatus === 'shipped'
 
       if (
         !isDelivered &&
         !isShipped &&
-        (order.shipping_status === 'ready_to_ship' ||
-          order.shipping_status === 'pending' ||
-          order.shipping_status === 'to_be_agreed')
+        (effShippingStatus === 'ready_to_ship' ||
+          effShippingStatus === 'pending' ||
+          effShippingStatus === 'to_be_agreed')
       ) {
         if (order.status !== 'cancelled') {
           pedidosProntosEnvio++

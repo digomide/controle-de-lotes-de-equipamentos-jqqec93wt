@@ -205,7 +205,9 @@ onRecordAfterCreateSuccess((e) => {
         let receiverAddress = shipping.receiver_address || null
 
         // 1º Ordem de Confiança Prioritária: API oficial de shipments (/shipments/:id)
-        // Consultada antes de qualquer fallback para garantir integridade absoluta de status e endereço
+        // Consultada antes de qualquer fallback para garantir integridade absoluta de status e endereço.
+        // A API oficial de shipments tem AUTORIDADE ABSOLUTA sobre qualquer tag legada do pedido.
+        let statusFromShipmentsApi = false
         if (shippingId) {
           try {
             const shipRes = $http.send({
@@ -221,6 +223,7 @@ onRecordAfterCreateSuccess((e) => {
               const shipData = shipRes.json
               if (shipData.status) {
                 shippingStatus = String(shipData.status)
+                statusFromShipmentsApi = true
               }
               if (shipData.substatus) {
                 shippingSubstatus = String(shipData.substatus)
@@ -239,35 +242,35 @@ onRecordAfterCreateSuccess((e) => {
           }
         }
 
-        // 2º Fallback estrito: Tags do pedido como ÚLTIMO recurso
-        // NUNCA usar indexOf de substring, pois 'delivered' está contido em 'not_delivered'.
-        // Deve ser correspondência exata de elemento no array.
+        // 2º Fallback: Tags do pedido servem APENAS quando a API oficial de shipments NÃO respondeu status
+        // Se a API oficial respondeu, o status dela é soberano e NENHUMA tag pode rebaixá-lo.
         const hasExactDeliveredTag = orderTags.includes('delivered')
         const hasExactNotDeliveredTag = orderTags.includes('not_delivered')
         const hasExactShippedTag = orderTags.includes('shipped')
 
-        if (!shippingStatus || shippingStatus === 'pending') {
-          if (hasExactNotDeliveredTag) {
-            // Se o ML marcou not_delivered, JAMAIS pode ficar como delivered ou shipped
-            if (shippingStatus === 'delivered' || shippingStatus === 'shipped') {
+        if (!statusFromShipmentsApi) {
+          // A API não respondeu ou falhou: usamos o que veio no shipping do rawOrder + fallback estrito de tags
+          if (!shippingStatus || shippingStatus === 'pending') {
+            if (hasExactNotDeliveredTag) {
+              // No fallback, se marcou not_delivered, não gera delivered nem shipped
+              shippingStatus = 'pending'
+            } else if (hasExactDeliveredTag) {
+              shippingStatus = 'delivered'
+            } else if (hasExactShippedTag) {
+              shippingStatus = 'shipped'
+            } else if (shippingMode === 'custom' || shippingMode === 'not_specified') {
+              shippingStatus = 'to_be_agreed'
+            } else if (!shippingStatus) {
               shippingStatus = 'pending'
             }
-          } else if (hasExactDeliveredTag) {
-            shippingStatus = 'delivered'
-          } else if (hasExactShippedTag && shippingStatus !== 'delivered') {
-            shippingStatus = 'shipped'
-          } else if (shippingMode === 'custom' || shippingMode === 'not_specified') {
-            shippingStatus = 'to_be_agreed'
-          } else if (!shippingStatus) {
+          } else if (
+            (shippingStatus === 'delivered' || shippingStatus === 'shipped') &&
+            hasExactNotDeliveredTag &&
+            !hasExactDeliveredTag
+          ) {
+            // Apenas no fallback (sem API oficial de shipments) a tag not_delivered rebaixa
             shippingStatus = 'pending'
           }
-        } else if (
-          shippingStatus === 'delivered' &&
-          hasExactNotDeliveredTag &&
-          !hasExactDeliveredTag
-        ) {
-          // Salvaguarda: se por acaso veio delivered incorreto mas tem tag not_delivered explícita
-          shippingStatus = 'pending'
         }
 
         // Itens do pedido
