@@ -419,3 +419,132 @@ export function downloadSvgFile(svgContent: string, fileName: string) {
   document.body.removeChild(link)
   URL.revokeObjectURL(url)
 }
+
+export interface ExportRasterOptions {
+  format: 'png' | 'jpeg'
+  targetWidth?: number
+  targetHeight?: number
+  backgroundColor?: string | null // null para PNG transparente; cor hex/rgb para JPG ou PNG com fundo
+  quality?: number // default 0.95 para JPG
+}
+
+/**
+ * Converte uma string SVG em raster (PNG ou JPG) client-side usando canvas e dispara o download.
+ * - viewBox original é respeitado para calcular o aspect ratio
+ * - targetWidth padrão: 2048px (ou se viewBox for 512x512, calcula proporcionalmente)
+ * - Para JPG, preenche o fundo com backgroundColor antes do drawImage para evitar fundo preto
+ */
+export async function downloadRasterFromSvg(
+  svgContent: string,
+  fileName: string,
+  options: ExportRasterOptions,
+): Promise<void> {
+  const { format, targetWidth = 2048, targetHeight, backgroundColor, quality = 0.95 } = options
+
+  return new Promise((resolve, reject) => {
+    // 1. Extrair dimensões / viewBox do SVG para preservar proporção correta
+    const parser = new DOMParser()
+    const doc = parser.parseFromString(svgContent, 'image/svg+xml')
+    const svgEl = doc.querySelector('svg')
+    let vbWidth = 640
+    let vbHeight = 160
+
+    if (svgEl) {
+      const viewBox = svgEl.getAttribute('viewBox')
+      if (viewBox) {
+        const parts = viewBox
+          .trim()
+          .split(/[\s,]+/)
+          .map(Number)
+        if (parts.length === 4 && parts[2] > 0 && parts[3] > 0) {
+          vbWidth = parts[2]
+          vbHeight = parts[3]
+        }
+      } else {
+        const wAttr = parseFloat(svgEl.getAttribute('width') || '')
+        const hAttr = parseFloat(svgEl.getAttribute('height') || '')
+        if (!isNaN(wAttr) && !isNaN(hAttr) && wAttr > 0 && hAttr > 0) {
+          vbWidth = wAttr
+          vbHeight = hAttr
+        }
+      }
+    }
+
+    const finalWidth = targetWidth
+    const finalHeight = targetHeight ?? Math.round((finalWidth * vbHeight) / vbWidth)
+
+    // 2. Criar Blob SVG com charset utf-8
+    const svgBlob = new Blob([svgContent], { type: 'image/svg+xml;charset=utf-8' })
+    const url = URL.createObjectURL(svgBlob)
+
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas')
+        canvas.width = finalWidth
+        canvas.height = finalHeight
+        const ctx = canvas.getContext('2d')
+
+        if (!ctx) {
+          URL.revokeObjectURL(url)
+          reject(new Error('Não foi possível obter o contexto 2D do Canvas'))
+          return
+        }
+
+        // Se for JPEG ou se backgroundColor estiver definido, pintar o fundo
+        if (format === 'jpeg') {
+          // JPEG não suporta transparência, sempre exige fundo sólido
+          ctx.fillStyle = backgroundColor || '#FFFFFF'
+          ctx.fillRect(0, 0, finalWidth, finalHeight)
+        } else if (backgroundColor) {
+          ctx.fillStyle = backgroundColor
+          ctx.fillRect(0, 0, finalWidth, finalHeight)
+        }
+
+        // Desenhar a imagem vetorial escalada com anti-aliasing de alta qualidade
+        ctx.imageSmoothingEnabled = true
+        ctx.imageSmoothingQuality = 'high'
+        ctx.drawImage(img, 0, 0, finalWidth, finalHeight)
+
+        URL.revokeObjectURL(url)
+
+        const mimeType = format === 'jpeg' ? 'image/jpeg' : 'image/png'
+        const ext = format === 'jpeg' ? '.jpg' : '.png'
+
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) {
+              reject(new Error('Falha ao gerar o blob da imagem'))
+              return
+            }
+
+            const downloadUrl = URL.createObjectURL(blob)
+            const link = document.createElement('a')
+            const cleanName = fileName.replace(/\.(svg|png|jpg|jpeg)$/i, '')
+            link.href = downloadUrl
+            link.download = `${cleanName}${ext}`
+            document.body.appendChild(link)
+            link.click()
+            document.body.removeChild(link)
+            URL.revokeObjectURL(downloadUrl)
+            resolve()
+          },
+          mimeType,
+          quality,
+        )
+      } catch (err) {
+        URL.revokeObjectURL(url)
+        reject(err)
+      }
+    }
+
+    img.onerror = (e) => {
+      URL.revokeObjectURL(url)
+      reject(new Error('Erro ao carregar o SVG na imagem para renderização: ' + String(e)))
+    }
+
+    img.src = url
+  })
+}
