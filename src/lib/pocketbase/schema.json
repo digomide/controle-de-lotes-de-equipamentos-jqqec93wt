@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-12T16:57:51.839Z",
+  "generatedAt": "2026-09-12T17:09:48.480Z",
   "collections": [
     {
       "name": "users",
@@ -4395,6 +4395,53 @@
       "indexes": [
         "CREATE UNIQUE INDEX idx_tax_rules_categoria ON tax_rules (categoria)",
         "CREATE INDEX idx_tax_rules_ativo ON tax_rules (ativo)"
+      ]
+    },
+    {
+      "name": "ncm_cest",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "ncm",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "cest",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "descricao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "segmento",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "item_anexo",
+          "type": "text",
+          "required": false,
+          "system": false
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_ncm_cest_ncm ON ncm_cest (ncm)",
+        "CREATE INDEX idx_ncm_cest_cest ON ncm_cest (cest)"
       ]
     }
   ]

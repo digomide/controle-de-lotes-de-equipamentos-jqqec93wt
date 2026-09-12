@@ -23,6 +23,8 @@ import {
   type EmitNFInput,
 } from '@/services/nfService'
 import { taxRulesService, type TaxRule } from '@/services/taxRulesService'
+import { ncmCestService, normalizeNcm } from '@/services/ncmCestService'
+import { NcmAutocomplete } from '@/components/NcmAutocomplete'
 import {
   FileCheck,
   Send,
@@ -464,6 +466,48 @@ export function EmitirNFModal({
         return updated
       }),
     )
+  }
+
+  /**
+   * Trata a alteração do NCM de um item no modal de emissão:
+   * 1. Atualiza o NCM no item.
+   * 2. Se o NCM atingir 8 dígitos (exato), consulta a tabela de referência NCM->CEST.
+   * 3. Se encontrar CEST correspondente e o CEST atual estiver vazio ou compatível,
+   *    auto-preenche automaticamente igual o Bling faz.
+   * 4. Se o NCM não possuir CEST na tabela oficial (ex: Notebook 84713012 ou HD 84717090),
+   *    mantém livre (e limpa caso fosse herança não confirmada).
+   */
+  const handleItemNcmChange = async (index: number, newNcm: string) => {
+    handleUpdateItem(index, 'ncm', newNcm)
+
+    const clean = normalizeNcm(newNcm)
+    if (clean.length === 8) {
+      try {
+        const found = await ncmCestService.findByNcm(clean)
+        if (found && found.cest) {
+          // Preenche automaticamente o CEST se estiver vazio ou com valor anterior
+          setItens((prev) =>
+            prev.map((it, i) => {
+              if (i !== index) return it
+              // Se já tiver CEST e for diferente, não sobrescreve sem intenção, exceto se estiver vazio
+              if (!it.cest || it.cest.trim() === '') {
+                return { ...it, cest: found.cest }
+              }
+              return it
+            }),
+          )
+        }
+      } catch (err) {
+        console.error('Erro ao consultar NCM/CEST:', err)
+      }
+    }
+  }
+
+  /**
+   * Aplica explicitamente um CEST selecionado via autocomplete de NCM
+   */
+  const handleApplyItemCest = (index: number, cest: string) => {
+    setItens((prev) => prev.map((it, i) => (i === index ? { ...it, cest } : it)))
   }
 
   const valorTotalGeral = itens.reduce((acc, it) => acc + (it.valor_total || 0), 0)
@@ -1139,19 +1183,22 @@ export function EmitirNFModal({
 
                       <div className="md:col-span-3">
                         <Label className="text-[11px]">
-                          NCM <span className="text-slate-400 font-normal">(Sugestão livre)</span>
+                          NCM{' '}
+                          <span className="text-slate-400 font-normal">(Auto-completa CEST)</span>
                         </Label>
-                        <Input
-                          className="h-8 text-xs font-mono bg-white"
-                          value={it.ncm}
-                          onChange={(e) => handleUpdateItem(idx, 'ncm', e.target.value)}
-                          placeholder="84713012"
+                        <NcmAutocomplete
+                          value={it.ncm || ''}
+                          currentCest={it.cest}
+                          onChange={(val) => handleItemNcmChange(idx, val)}
+                          onSelectCest={(cest) => handleApplyItemCest(idx, cest)}
+                          className="h-8 text-xs bg-white"
+                          placeholder="84733042"
                         />
                       </div>
 
                       <div className="md:col-span-2">
                         <Label className="text-[11px]">
-                          CEST <span className="text-slate-400 font-normal">(Opcional)</span>
+                          CEST <span className="text-slate-400 font-normal">(Editável)</span>
                         </Label>
                         <Input
                           className="h-8 text-xs font-mono bg-white"
@@ -1427,11 +1474,26 @@ export function EmitirNFModal({
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <Label className="text-xs">NCM Sugerido</Label>
-                <Input
-                  className="h-8 mt-1 text-xs font-mono"
+                <NcmAutocomplete
                   value={ruleToSave.ncm_sugerido}
-                  onChange={(e) => setRuleToSave((p) => ({ ...p, ncm_sugerido: e.target.value }))}
-                  placeholder="84713012"
+                  currentCest={ruleToSave.cest_sugerido}
+                  onChange={(val) => {
+                    setRuleToSave((p) => ({ ...p, ncm_sugerido: val }))
+                    const clean = normalizeNcm(val)
+                    if (clean.length === 8) {
+                      ncmCestService.findByNcm(clean).then((entry) => {
+                        if (entry?.cest) {
+                          setRuleToSave((p) => ({
+                            ...p,
+                            cest_sugerido: p.cest_sugerido || entry.cest,
+                          }))
+                        }
+                      })
+                    }
+                  }}
+                  onSelectCest={(cest) => setRuleToSave((p) => ({ ...p, cest_sugerido: cest }))}
+                  className="h-8 mt-1 text-xs"
+                  placeholder="84733042"
                 />
               </div>
 

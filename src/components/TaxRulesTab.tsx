@@ -33,6 +33,8 @@ import {
 } from '@/components/ui/alert-dialog'
 import { toast } from '@/hooks/use-toast'
 import { taxRulesService, type TaxRule, type CreateTaxRuleInput } from '@/services/taxRulesService'
+import { ncmCestService, normalizeNcm } from '@/services/ncmCestService'
+import { NcmAutocomplete } from '@/components/NcmAutocomplete'
 import {
   Sliders,
   Plus,
@@ -470,27 +472,46 @@ export function TaxRulesTab({ rules, loading, onReload }: TaxRulesTabProps) {
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label className="text-xs font-semibold">NCM Sugerido (Editável por item)</Label>
-                <Input
-                  className="mt-1 h-9 text-xs font-mono"
-                  value={form.ncm_sugerido || ''}
-                  onChange={(e) => setForm((p) => ({ ...p, ncm_sugerido: e.target.value }))}
-                  placeholder="Ex: 84733042"
-                />
+                <Label className="text-xs font-semibold">NCM Sugerido (Auto-completa CEST)</Label>
+                <div className="mt-1">
+                  <NcmAutocomplete
+                    value={form.ncm_sugerido || ''}
+                    currentCest={form.cest_sugerido}
+                    onChange={(val) => {
+                      setForm((p) => ({ ...p, ncm_sugerido: val }))
+                      const clean = normalizeNcm(val)
+                      if (clean.length === 8) {
+                        ncmCestService.findByNcm(clean).then((entry) => {
+                          if (entry?.cest) {
+                            setForm((p) => ({
+                              ...p,
+                              cest_sugerido: p.cest_sugerido || entry.cest,
+                            }))
+                          }
+                        })
+                      }
+                    }}
+                    onSelectCest={(cest) => setForm((p) => ({ ...p, cest_sugerido: cest }))}
+                    className="h-9 text-xs"
+                    placeholder="Ex: 84733042"
+                  />
+                </div>
                 <span className="text-[10px] text-slate-500">
-                  Sugestão automática ao selecionar a regra
+                  Sugestão automática oficial ao selecionar a regra
                 </span>
               </div>
 
               <div>
-                <Label className="text-xs font-semibold">CEST Sugerido (Opcional)</Label>
+                <Label className="text-xs font-semibold">CEST Sugerido (Editável)</Label>
                 <Input
                   className="mt-1 h-9 text-xs font-mono"
                   value={form.cest_sugerido || ''}
                   onChange={(e) => setForm((p) => ({ ...p, cest_sugerido: e.target.value }))}
                   placeholder="Ex: 21.035.00"
                 />
-                <span className="text-[10px] text-slate-500">Código CEST se sujeito a ST</span>
+                <span className="text-[10px] text-slate-500">
+                  Auto-preenchido pelo NCM oficial ou editável livremente
+                </span>
               </div>
             </div>
 

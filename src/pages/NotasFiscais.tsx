@@ -21,6 +21,7 @@ import { nfService, type NFConfig, type NFInvoice } from '@/services/nfService'
 import { taxRulesService, type TaxRule } from '@/services/taxRulesService'
 import { EmitirNFModal } from '@/components/EmitirNFModal'
 import { TaxRulesTab } from '@/components/TaxRulesTab'
+import { NcmAutocomplete } from '@/components/NcmAutocomplete'
 import {
   FileCheck,
   Building,
@@ -1015,14 +1016,15 @@ export default function NotasFiscais() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
                   <div>
                     <Label className="text-xs">NCM Padrão Fallback</Label>
-                    <Input
-                      className="mt-1 h-9 text-xs font-mono"
-                      value={config.default_ncm || ''}
-                      onChange={(e) =>
-                        setConfig((prev) => ({ ...prev, default_ncm: e.target.value }))
-                      }
-                      placeholder="84713012"
-                    />
+                    <div className="mt-1">
+                      <NcmAutocomplete
+                        value={config.default_ncm || ''}
+                        onChange={(val) => setConfig((prev) => ({ ...prev, default_ncm: val }))}
+                        showBadge={false}
+                        className="h-9 text-xs font-mono"
+                        placeholder="84713012"
+                      />
+                    </div>
                     <span className="text-[10px] text-slate-500">
                       Usado se o produto não tiver regra (padrão 84713012)
                     </span>
