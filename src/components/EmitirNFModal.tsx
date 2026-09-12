@@ -24,6 +24,8 @@ import {
 } from '@/services/nfService'
 import { taxRulesService, type TaxRule } from '@/services/taxRulesService'
 import { ncmCestService, normalizeNcm } from '@/services/ncmCestService'
+import { mlOrdersService } from '@/services/mlOrdersService'
+import { validateFiscalDocument, formatDocument } from '@/utils/documentValidator'
 import { NcmAutocomplete } from '@/components/NcmAutocomplete'
 import {
   FileCheck,
@@ -40,6 +42,10 @@ import {
   BookmarkPlus,
   Sliders,
   Sparkles,
+  Search,
+  Check,
+  XCircle,
+  Info,
 } from 'lucide-react'
 
 interface EmitirNFModalProps {
@@ -80,6 +86,7 @@ export function EmitirNFModal({
   const [naturezaOperacao, setNaturezaOperacao] = useState('')
   const [informacoesComplementares, setInformacoesComplementares] = useState('')
   const [valorIbpt, setValorIbpt] = useState<number>(0)
+  const [lookingUpFiscal, setLookingUpFiscal] = useState<boolean>(false)
 
   // Destinatário
   const [destinatario, setDestinatario] = useState<NFDestinatario>({
@@ -198,14 +205,21 @@ export function EmitirNFModal({
         if (originType === 'ml_order' && mlOrder) {
           const buyer = mlOrder.buyer || {}
           const shipping = mlOrder.shipping || {}
-          const receiver = shipping.receiver_address || {}
+          const receiver = shipping.receiver_address || mlOrder.receiver_address || {}
 
           const buyerName =
+            mlOrder.buyer_name ||
             receiver.receiver_name ||
             [buyer.first_name, buyer.last_name].filter(Boolean).join(' ') ||
+            mlOrder.buyer_nickname ||
             buyer.nickname ||
             ''
-          const buyerDoc = (buyer.billing_info?.doc_number || '').replace(/\D/g, '')
+          const buyerDoc = (
+            mlOrder.buyer_document ||
+            buyer.billing_info?.doc_number ||
+            buyer.doc_number ||
+            ''
+          ).replace(/\D/g, '')
           const isCnpj = buyerDoc.length === 14
 
           const destUf = (receiver.state?.name || receiver.state?.id || 'SP')
@@ -604,6 +618,45 @@ export function EmitirNFModal({
     }
   }
 
+  // Buscar automaticamente CPF/CNPJ na API oficial do Mercado Livre
+  const handleLookupFiscalFromML = async () => {
+    if (!mlOrder?.order_id) return
+    setLookingUpFiscal(true)
+    try {
+      const res = await mlOrdersService.lookupFiscalData(mlOrder.order_id)
+      if (res.found && res.document) {
+        const cleanDoc = res.document.replace(/\D/g, '')
+        const isCnpj = cleanDoc.length === 14
+        setDestinatario((prev) => ({
+          ...prev,
+          nome_completo: res.buyer_name || prev.nome_completo,
+          cpf: !isCnpj ? cleanDoc : '',
+          cnpj: isCnpj ? cleanDoc : '',
+        }))
+        toast({
+          title: 'Dados fiscais encontrados!',
+          description: `Documento: ${formatDocument(cleanDoc)}${res.buyer_name ? ` · ${res.buyer_name}` : ''}. Gravado no cadastro do cliente!`,
+        })
+      } else {
+        toast({
+          title: 'Não retornado pela API do ML',
+          description:
+            res.message ||
+            'O ML não expôs o CPF para este pedido. Digite o CPF da etiqueta de envio.',
+          variant: 'destructive',
+        })
+      }
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao consultar API do ML',
+        description: err.message || 'Falha na comunicação com o Mercado Livre.',
+        variant: 'destructive',
+      })
+    } finally {
+      setLookingUpFiscal(false)
+    }
+  }
+
   // Transmitir NF-e
   const handleTransmitir = async () => {
     if (!config?.focus_token) {
@@ -629,13 +682,29 @@ export function EmitirNFModal({
       /\D/g,
       '',
     )
-    if (!doc) {
+    const docVal = validateFiscalDocument(doc)
+    if (!docVal.valid) {
       toast({
-        title: 'CPF ou CNPJ obrigatório',
-        description: 'Preencha o CPF ou CNPJ do comprador para emissão da nota fiscal.',
+        title: 'CPF ou CNPJ inválido',
+        description:
+          docVal.error || 'Verifique o número do documento e os dígitos verificadores (Módulo 11).',
         variant: 'destructive',
       })
       return
+    }
+
+    // Se a emissão for de pedido ML, salvar automaticamente os dados no pedido e no ml_customers
+    if (originType === 'ml_order' && mlOrder) {
+      try {
+        await mlOrdersService.updateOrderFiscalData(mlOrder.id, {
+          buyer_document: docVal.clean,
+          buyer_name: destinatario.nome_completo,
+          buyer_id: mlOrder.buyer_id,
+          buyer_nickname: mlOrder.buyer_nickname,
+        })
+      } catch (saveErr) {
+        console.error('Erro ao salvar documento em ml_customers:', saveErr)
+      }
     }
 
     if (itens.length === 0) {
@@ -805,6 +874,24 @@ export function EmitirNFModal({
                   </div>
                 </CardContent>
               </Card>
+            )}
+
+            {/* Dica visual sobre a etiqueta ML caso o CPF esteja em branco */}
+            {originType === 'ml_order' && !(destinatario.cpf || destinatario.cnpj) && (
+              <div className="p-3 rounded-lg bg-amber-50/70 border border-amber-200 text-xs text-amber-950 flex items-start gap-2.5">
+                <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <p className="font-semibold text-amber-900">
+                    CPF não veio preenchido pela API do Mercado Livre?
+                  </p>
+                  <p className="text-slate-700 text-[11px]">
+                    Clique em <strong>Buscar no ML</strong> ao lado do campo CPF ou consulte a
+                    etiqueta de envio no painel do Mercado Livre onde o CPF sempre vem impresso. Ao
+                    preencher e transmitir, o CPF fica gravado permanentemente neste pedido e no CRM
+                    (ml_customers).
+                  </p>
+                </div>
+              </div>
             )}
 
             {/* Painel de Resultado SEFAZ se houve tentativa */}
@@ -978,7 +1065,25 @@ export function EmitirNFModal({
                 </div>
 
                 <div>
-                  <Label className="text-xs">CPF ou CNPJ *</Label>
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs">CPF ou CNPJ *</Label>
+                    {originType === 'ml_order' && mlOrder?.order_id && (
+                      <button
+                        type="button"
+                        onClick={handleLookupFiscalFromML}
+                        disabled={lookingUpFiscal}
+                        className="text-[11px] text-blue-700 hover:text-blue-900 font-medium flex items-center gap-1 hover:underline"
+                        title="Buscar dados fiscais na API do ML"
+                      >
+                        {lookingUpFiscal ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <Search className="w-3 h-3" />
+                        )}
+                        Buscar no ML
+                      </button>
+                    )}
+                  </div>
                   <Input
                     className="h-9 mt-1 text-xs font-mono"
                     value={destinatario.cpf || destinatario.cnpj || ''}
@@ -992,6 +1097,22 @@ export function EmitirNFModal({
                     }}
                     placeholder="Somente dígitos"
                   />
+                  {/* Validador de documento em tempo real */}
+                  {destinatario.cpf || destinatario.cnpj ? (
+                    <div className="mt-1">
+                      {validateFiscalDocument(destinatario.cpf || destinatario.cnpj).valid ? (
+                        <span className="text-[10px] text-emerald-700 font-medium flex items-center gap-1">
+                          <Check className="w-3 h-3" /> Documento válido:{' '}
+                          {validateFiscalDocument(destinatario.cpf || destinatario.cnpj).formatted}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-rose-600 font-medium flex items-center gap-1">
+                          <XCircle className="w-3 h-3" />{' '}
+                          {validateFiscalDocument(destinatario.cpf || destinatario.cnpj).error}
+                        </span>
+                      )}
+                    </div>
+                  ) : null}
                 </div>
 
                 <div>

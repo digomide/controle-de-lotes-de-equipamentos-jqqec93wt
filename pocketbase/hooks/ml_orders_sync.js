@@ -187,10 +187,53 @@ onRecordAfterCreateSuccess((e) => {
         const buyer = rawOrder.buyer || {}
         const buyerId = buyer.id ? String(buyer.id) : ''
         const buyerNickname = buyer.nickname || ''
-        const buyerName = [buyer.first_name, buyer.last_name].filter(Boolean).join(' ')
+        let buyerName = [buyer.first_name, buyer.last_name].filter(Boolean).join(' ')
         let buyerDoc = ''
         if (buyer.billing_info && buyer.billing_info.doc_number) {
           buyerDoc = buyer.billing_info.doc_number
+        }
+
+        // Consultar /orders/:id/billing_info caso doc ou nome estejam vazios
+        if (!buyerDoc || !buyerName) {
+          try {
+            const bRes = $http.send({
+              url:
+                'https://api.mercadolibre.com/orders/' +
+                encodeURIComponent(orderIdStr) +
+                '/billing_info',
+              method: 'GET',
+              headers: {
+                Authorization: 'Bearer ' + accessToken,
+                Accept: 'application/json',
+              },
+              timeout: 10,
+            })
+            if (bRes.statusCode === 200 && bRes.json && bRes.json.billing_info) {
+              const bInfo = bRes.json.billing_info
+              if (bInfo.doc_number && !buyerDoc) {
+                buyerDoc = String(bInfo.doc_number).trim()
+              }
+              const addInfo = bInfo.additional_info || []
+              let fName = ''
+              let lName = ''
+              for (let aIdx = 0; aIdx < addInfo.length; aIdx++) {
+                const add = addInfo[aIdx]
+                if (add.type === 'DOC_NUMBER' && !buyerDoc) {
+                  buyerDoc = String(add.value).trim()
+                }
+                if (add.type === 'FIRST_NAME') fName = String(add.value).trim()
+                if (add.type === 'LAST_NAME') lName = String(add.value).trim()
+              }
+              const builtName = [fName, lName].filter(Boolean).join(' ')
+              if (builtName && !buyerName) {
+                buyerName = builtName
+              }
+            }
+          } catch (bErr) {
+            console.log(
+              '[ml_orders_sync] Aviso ao buscar /orders/' + orderIdStr + '/billing_info: ' + bErr,
+            )
+          }
         }
 
         // Tags do pedido
@@ -537,7 +580,11 @@ onRecordAfterCreateSuccess((e) => {
                 $app.save(targetCustomer)
               } else {
                 // Cliente existente: atualizar dados se vierem preenchidos
-                if (buyerName && !customerRec.getString('name')) {
+                if (
+                  buyerName &&
+                  (!customerRec.getString('name') ||
+                    customerRec.getString('name') === buyerNickname)
+                ) {
                   targetCustomer.set('name', buyerName)
                 }
                 if (buyerNickname && !customerRec.getString('nickname')) {
@@ -559,6 +606,22 @@ onRecordAfterCreateSuccess((e) => {
                   targetCustomer.set('raw_address', receiverAddress)
                 }
                 $app.save(targetCustomer)
+              }
+
+              // SE o cliente existente já tem CPF/documento gravado e o pedido atual veio sem documento, retroalimentar o pedido!
+              if (!buyerDoc && customerRec && customerRec.getString('document')) {
+                const knownDoc = customerRec.getString('document').trim()
+                if (knownDoc) {
+                  targetRecord.set('buyer_document', knownDoc)
+                }
+              }
+              if (
+                (!buyerName || buyerName === buyerNickname) &&
+                customerRec &&
+                customerRec.getString('name') &&
+                customerRec.getString('name') !== buyerNickname
+              ) {
+                targetRecord.set('buyer_name', customerRec.getString('name'))
               }
             }
           } catch (custErr) {

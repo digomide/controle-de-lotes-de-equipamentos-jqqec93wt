@@ -56,6 +56,7 @@ import { useToast } from '@/hooks/use-toast'
 import { useAuth } from '@/contexts/AuthContext'
 import { mlCustomersService } from '@/services/mlCustomersService'
 import { mlOrdersService, type MLOrder } from '@/services/mlOrdersService'
+import { formatDocument, validateFiscalDocument } from '@/utils/documentValidator'
 import type { MLCustomer, MLCustomerOrigin, CustomerNoteEntry } from '@/types/customers'
 
 export default function Clientes() {
@@ -302,20 +303,33 @@ export default function Clientes() {
   // Salvar Edição de Contato
   const handleSaveContactEdit = async () => {
     if (!selectedCustomer) return
+    const cleanDoc = editDocument.replace(/\D/g, '')
+    if (cleanDoc) {
+      const docVal = validateFiscalDocument(cleanDoc)
+      if (!docVal.valid) {
+        toast({
+          title: 'Documento inválido',
+          description: docVal.error || 'Informe um CPF ou CNPJ válido com dígito verificador.',
+          variant: 'destructive',
+        })
+        return
+      }
+    }
+
     try {
       const updated = await mlCustomersService.updateCustomer(selectedCustomer.id, {
         name: editName.trim() || selectedCustomer.name,
         phone: editPhone.trim(),
         email: editEmail.trim(),
         address: editAddress.trim(),
-        document: editDocument.trim(),
+        document: cleanDoc,
       })
       setSelectedCustomer(updated)
       setCustomers((prev) => prev.map((c) => (c.id === updated.id ? updated : c)))
       setIsEditingContact(false)
       toast({
         title: 'Dados atualizados',
-        description: 'Informações de contato e endereço salvas com sucesso.',
+        description: 'Informações de contato, CPF/CNPJ e endereço salvas com sucesso.',
       })
     } catch (err: any) {
       toast({
@@ -1070,11 +1084,13 @@ export default function Clientes() {
                         <p className="flex items-center gap-2">
                           <span className="font-semibold text-slate-500 w-20">Documento:</span>
                           <span className="font-mono text-slate-900">
-                            {selectedCustomer.document || (
+                            {selectedCustomer.document ? (
+                              formatDocument(selectedCustomer.document)
+                            ) : (
                               <span className="text-slate-400 italic">Não informado</span>
                             )}
                           </span>
-                        </p>
+                        </p>{' '}
                         <p className="flex items-start gap-2 pt-1 border-t border-slate-100">
                           <span className="font-semibold text-slate-500 w-20 shrink-0">
                             Endereço:

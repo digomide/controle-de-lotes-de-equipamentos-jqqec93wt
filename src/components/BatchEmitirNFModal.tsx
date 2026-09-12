@@ -14,7 +14,10 @@ import { Progress } from '@/components/ui/progress'
 import { toast } from '@/hooks/use-toast'
 import { nfService, type NFConfig, type NFItem, type EmitNFInput } from '@/services/nfService'
 import { taxRulesService, type TaxRule } from '@/services/taxRulesService'
-import { type MLOrder } from '@/services/mlOrdersService'
+import { mlOrdersService, type MLOrder } from '@/services/mlOrdersService'
+import { validateFiscalDocument, formatDocument, cleanDocument } from '@/utils/documentValidator'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import {
   FileCheck,
   Send,
@@ -28,6 +31,11 @@ import {
   ShieldAlert,
   FileText,
   Clock,
+  Search,
+  Edit2,
+  Save,
+  Check,
+  Info,
 } from 'lucide-react'
 
 export interface OrderValidationResult {
@@ -88,6 +96,18 @@ export function BatchEmitirNFModal({
   const [executions, setExecutions] = useState<BatchItemExecution[]>([])
   const [currentIndex, setCurrentIndex] = useState<number>(0)
   const isCancelledRef = useRef<boolean>(false)
+
+  // Estado local para permitir edição rápida e enriquecimento direto de pedidos sem reload
+  const [currentOrders, setCurrentOrders] = useState<MLOrder[]>(orders)
+  const [editingOrderId, setEditingOrderId] = useState<string | null>(null)
+  const [editDocValue, setEditDocValue] = useState<string>('')
+  const [editNameValue, setEditNameValue] = useState<string>('')
+  const [savingEdit, setSavingEdit] = useState<boolean>(false)
+  const [lookingUpOrderId, setLookingUpOrderId] = useState<string | null>(null)
+
+  useEffect(() => {
+    setCurrentOrders(orders)
+  }, [orders])
 
   // CFOP helper baseado em regras e UF
   const resolveItemCfop = (
@@ -163,7 +183,7 @@ export function BatchEmitirNFModal({
   const validationResults: OrderValidationResult[] = useMemo(() => {
     const emitterUf = config?.uf || 'MG'
 
-    return orders.map((order) => {
+    return currentOrders.map((order) => {
       const existing = existingInvoicesMap[order.order_id]
       const isAlreadyAuthorized =
         existing && (existing.status === 'autorizada' || existing.status === 'processando')
@@ -175,25 +195,26 @@ export function BatchEmitirNFModal({
 
       // Comprador: busca de nome
       const buyerName = (
+        order.buyer_name ||
         receiver.receiver_name ||
         [buyer.first_name, buyer.last_name].filter(Boolean).join(' ') ||
-        order.buyer_name ||
         order.buyer_nickname ||
         buyer.nickname ||
         ''
       ).trim()
 
-      // Documento (CPF / CNPJ)
+      // Documento (CPF / CNPJ com validação de dígito verificador módulo 11)
       const rawDoc =
         order.buyer_document ||
         buyer.billing_info?.doc_number ||
         buyer.doc_number ||
         buyer.identification?.number ||
         ''
-      const cleanDoc = String(rawDoc).replace(/\D/g, '')
-      const isCpf = cleanDoc.length === 11
-      const isCnpj = cleanDoc.length === 14
-      const hasValidDoc = isCpf || isCnpj
+      const docVal = validateFiscalDocument(rawDoc)
+      const cleanDoc = docVal.clean
+      const isCpf = docVal.type === 'CPF'
+      const isCnpj = docVal.type === 'CNPJ'
+      const hasValidDoc = docVal.valid
 
       // Endereço e UF
       const destUf = (
@@ -284,12 +305,15 @@ export function BatchEmitirNFModal({
       if (isAlreadyAuthorized) {
         valid = false
         invalidReason = `NF-e já ${existing.status === 'autorizada' ? 'autorizada' : 'em processamento'} (Nº ${existing.numero || existing.ref || '-'})`
-      } else if (!buyerName) {
+      } else if (!buyerName || buyerName === order.buyer_nickname) {
         valid = false
-        invalidReason = 'Comprador sem nome / identificação'
-      } else if (!hasValidDoc) {
+        invalidReason = 'Comprador sem nome completo'
+      } else if (!cleanDoc) {
         valid = false
-        invalidReason = 'CPF ou CNPJ ausente / incompleto'
+        invalidReason = 'CPF ou CNPJ ausente'
+      } else if (!docVal.valid) {
+        valid = false
+        invalidReason = docVal.error || 'CPF ou CNPJ inválido (dígito verificador)'
       } else if (!hasValidAddress) {
         valid = false
         invalidReason = 'Endereço de entrega incompleto'
@@ -322,7 +346,7 @@ export function BatchEmitirNFModal({
         existingInvoice: existing,
       }
     })
-  }, [orders, config, taxRules, existingInvoicesMap])
+  }, [currentOrders, config, taxRules, existingInvoicesMap])
 
   // Pedidos elegíveis para emissão
   const eligibleOrders = useMemo(() => {
@@ -339,6 +363,116 @@ export function BatchEmitirNFModal({
       style: 'currency',
       currency: 'BRL',
     })
+  }
+
+  // Busca automática de CPF/CNPJ via API do Mercado Livre
+  const handleAutoLookupFiscal = async (orderId: string) => {
+    setLookingUpOrderId(orderId)
+    try {
+      const res = await mlOrdersService.lookupFiscalData(orderId)
+      if (res.found && res.document) {
+        toast({
+          title: 'CPF/CNPJ localizado com sucesso!',
+          description: `Documento: ${formatDocument(res.document)}${res.buyer_name ? ` · ${res.buyer_name}` : ''}. Atualizado no pedido e no CRM!`,
+        })
+
+        // Atualizar no estado local de pedidos
+        setCurrentOrders((prev) =>
+          prev.map((o) =>
+            o.order_id === orderId
+              ? {
+                  ...o,
+                  buyer_document: res.document,
+                  ...(res.buyer_name ? { buyer_name: res.buyer_name } : {}),
+                }
+              : o,
+          ),
+        )
+      } else {
+        toast({
+          title: 'Não retornado pela API do ML',
+          description:
+            res.message ||
+            'O ML não expôs o CPF neste endpoint (privacidade). Você pode preencher manualmente na edição rápida ou pegar na etiqueta.',
+          variant: 'destructive',
+        })
+      }
+    } catch (err: any) {
+      toast({
+        title: 'Erro na busca do ML',
+        description: err.message || 'Falha ao consultar API do Mercado Livre.',
+        variant: 'destructive',
+      })
+    } finally {
+      setLookingUpOrderId(null)
+    }
+  }
+
+  // Iniciar modo de edição rápida de um pedido inaptado
+  const handleStartEdit = (order: MLOrder) => {
+    setEditingOrderId(order.order_id)
+    setEditDocValue(formatDocument(order.buyer_document || ''))
+    setEditNameValue(
+      order.buyer_name || (order.buyer_nickname !== order.buyer_name ? order.buyer_name || '' : ''),
+    )
+  }
+
+  // Cancelar modo de edição rápida
+  const handleCancelEdit = () => {
+    setEditingOrderId(null)
+    setEditDocValue('')
+    setEditNameValue('')
+  }
+
+  // Salvar dados fiscais rápidos (CPF/CNPJ + Nome) no pedido E em ml_customers
+  const handleSaveFiscalEdit = async (order: MLOrder) => {
+    const docVal = validateFiscalDocument(editDocValue)
+    if (!docVal.valid) {
+      toast({
+        title: 'Documento inválido',
+        description: docVal.error || 'Digite um CPF ou CNPJ com dígito verificador válido.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    if (!editNameValue.trim()) {
+      toast({
+        title: 'Nome completo obrigatório',
+        description: 'Informe o nome do comprador para emissão da nota fiscal.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setSavingEdit(true)
+    try {
+      const updatedOrder = await mlOrdersService.updateOrderFiscalData(order.id, {
+        buyer_document: docVal.clean,
+        buyer_name: editNameValue.trim(),
+        buyer_id: order.buyer_id,
+        buyer_nickname: order.buyer_nickname,
+      })
+
+      // Atualizar lista local
+      setCurrentOrders((prev) =>
+        prev.map((o) => (o.order_id === order.order_id ? updatedOrder : o)),
+      )
+
+      toast({
+        title: 'Dados fiscais salvos!',
+        description: `CPF/CNPJ ${docVal.formatted} salvo no pedido e no cadastro permanente do cliente (ml_customers).`,
+      })
+      setEditingOrderId(null)
+    } catch (err: any) {
+      toast({
+        title: 'Erro ao salvar',
+        description: err.message || 'Falha ao atualizar dados do comprador.',
+        variant: 'destructive',
+      })
+    } finally {
+      setSavingEdit(false)
+    }
   }
 
   // Executar transmissão SEQUENCIAL do lote
@@ -620,7 +754,6 @@ export function BatchEmitirNFModal({
                     </CardContent>
                   </Card>
                 </div>
-
                 {/* Lista de Pedidos Elegíveis */}
                 <div>
                   <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-2 flex items-center gap-1.5">
@@ -680,42 +813,198 @@ export function BatchEmitirNFModal({
                     </div>
                   )}
                 </div>
-
                 {/* Lista de Inaptos / Alertas se houver */}
                 {ineligibleOrders.length > 0 && (
-                  <div>
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-rose-700 mb-2 flex items-center gap-1.5">
-                      <AlertCircle className="w-4 h-4 text-rose-600" />
-                      Pedidos que NÃO serão transmitidos ({ineligibleOrders.length})
-                    </h4>
-                    <div className="border border-rose-200 bg-rose-50/30 rounded-lg overflow-hidden divide-y divide-rose-100 max-h-48 overflow-y-auto">
-                      {ineligibleOrders.map((item) => (
-                        <div
-                          key={item.order.order_id}
-                          className="p-2.5 flex items-center justify-between gap-2 text-xs"
-                        >
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono font-bold text-slate-900">
-                                #{item.order.order_id}
-                              </span>
-                              <span className="text-slate-600 truncate max-w-[200px]">
-                                {item.destinatario.nome_completo || 'Sem nome'}
-                              </span>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-rose-700 flex items-center gap-1.5">
+                        <AlertCircle className="w-4 h-4 text-rose-600" />
+                        Pedidos que NÃO serão transmitidos ({ineligibleOrders.length})
+                      </h4>
+                      <span className="text-[11px] text-slate-500">
+                        Edite o CPF/nome ou busque na API do ML para destravar
+                      </span>
+                    </div>
+
+                    {/* Dica visual sobre a etiqueta */}
+                    <div className="p-2 rounded bg-amber-50/70 border border-amber-200 text-[11px] text-amber-900 flex items-start gap-2">
+                      <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <div>
+                        <strong>Dica para pedidos sem CPF da API do ML:</strong> O CPF do comprador
+                        aparece impresso na etiqueta de envio no painel do Mercado Livre. Basta
+                        clicar em <strong>Editar</strong> abaixo, informar o número uma única vez e
+                        ele ficará salvo tanto no pedido quanto no banco permanente do cliente
+                        (ml_customers)!
+                      </div>
+                    </div>
+
+                    <div className="border border-rose-200 bg-rose-50/30 rounded-lg overflow-hidden divide-y divide-rose-100 max-h-72 overflow-y-auto">
+                      {ineligibleOrders.map((item) => {
+                        const isEditing = editingOrderId === item.order.order_id
+                        const isLookingUp = lookingUpOrderId === item.order.order_id
+
+                        return (
+                          <div
+                            key={item.order.order_id}
+                            className="p-3 text-xs space-y-2 bg-white/70"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-mono font-bold text-slate-900">
+                                    #{item.order.order_id}
+                                  </span>
+                                  <span className="text-slate-700 font-medium truncate max-w-[220px]">
+                                    {item.destinatario.nome_completo ||
+                                      item.order.buyer_nickname ||
+                                      'Sem nome'}
+                                  </span>
+                                  {item.order.buyer_nickname && (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[10px] font-mono text-slate-500"
+                                    >
+                                      @{item.order.buyer_nickname}
+                                    </Badge>
+                                  )}
+                                  <Badge variant="outline" className="text-[10px] font-mono">
+                                    UF: {item.destinatario.uf}
+                                  </Badge>
+                                </div>
+                                <p className="text-[11px] text-rose-700 font-medium mt-1 flex items-center gap-1">
+                                  <XCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                                  {item.invalidReason}
+                                </p>
+                              </div>
+
+                              <div className="text-right shrink-0 flex items-center gap-2">
+                                <span className="font-mono text-slate-700 text-xs font-semibold">
+                                  {formatCurrency(item.valorTotal)}
+                                </span>
+
+                                {!isEditing && (
+                                  <div className="flex items-center gap-1.5">
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      disabled={isLookingUp}
+                                      onClick={() => handleAutoLookupFiscal(item.order.order_id)}
+                                      className="h-7 px-2 text-[11px] text-blue-700 border-blue-200 hover:bg-blue-50 gap-1"
+                                      title="Tenta puxar CPF e nome da API oficial do Mercado Livre"
+                                    >
+                                      {isLookingUp ? (
+                                        <Loader2 className="w-3 h-3 animate-spin" />
+                                      ) : (
+                                        <Search className="w-3 h-3" />
+                                      )}
+                                      Buscar no ML
+                                    </Button>
+
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => handleStartEdit(item.order)}
+                                      className="h-7 px-2 text-[11px] text-emerald-800 border-emerald-300 hover:bg-emerald-50 gap-1"
+                                      title="Preencher CPF/CNPJ e nome manualmente"
+                                    >
+                                      <Edit2 className="w-3 h-3" />
+                                      Editar
+                                    </Button>
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                            <p className="text-[11px] text-rose-700 font-medium mt-0.5 flex items-center gap-1">
-                              <XCircle className="w-3 h-3 text-rose-600 shrink-0" />
-                              {item.invalidReason}
-                            </p>
+
+                            {/* Form de edição rápida inline */}
+                            {isEditing && (
+                              <div className="p-3 rounded-lg bg-emerald-50/60 border border-emerald-200 space-y-3 mt-2">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[11px] font-bold text-emerald-950 flex items-center gap-1">
+                                    <Edit2 className="w-3.5 h-3.5 text-emerald-700" />
+                                    Edição Rápida Fiscal (Salva no Pedido e no ml_customers)
+                                  </span>
+                                  <span className="text-[10px] text-emerald-800">
+                                    Validação por Módulo 11
+                                  </span>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                  <div>
+                                    <Label className="text-[11px] font-semibold text-slate-700">
+                                      Nome Completo do Destinatário *
+                                    </Label>
+                                    <Input
+                                      value={editNameValue}
+                                      onChange={(e) => setEditNameValue(e.target.value)}
+                                      placeholder="Ex: Ademilson trindade da Silva"
+                                      className="h-8 text-xs bg-white mt-1"
+                                    />
+                                  </div>
+
+                                  <div>
+                                    <Label className="text-[11px] font-semibold text-slate-700">
+                                      CPF ou CNPJ (apenas dígitos) *
+                                    </Label>
+                                    <Input
+                                      value={editDocValue}
+                                      onChange={(e) => setEditDocValue(e.target.value)}
+                                      placeholder="Ex: 014.967.815-03"
+                                      className="h-8 text-xs font-mono bg-white mt-1"
+                                    />
+                                    {editDocValue && (
+                                      <div className="mt-1">
+                                        {validateFiscalDocument(editDocValue).valid ? (
+                                          <span className="text-[10px] text-emerald-700 font-medium flex items-center gap-1">
+                                            <Check className="w-3 h-3" /> Documento válido:{' '}
+                                            {validateFiscalDocument(editDocValue).formatted}
+                                          </span>
+                                        ) : (
+                                          <span className="text-[10px] text-rose-600 font-medium flex items-center gap-1">
+                                            <XCircle className="w-3 h-3" />{' '}
+                                            {validateFiscalDocument(editDocValue).error}
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center justify-end gap-2 pt-1 border-t border-emerald-200/60">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={handleCancelEdit}
+                                    disabled={savingEdit}
+                                    className="h-7 text-xs"
+                                  >
+                                    Cancelar
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    onClick={() => handleSaveFiscalEdit(item.order)}
+                                    disabled={savingEdit}
+                                    className="h-7 text-xs bg-emerald-700 hover:bg-emerald-800 text-white gap-1"
+                                  >
+                                    {savingEdit ? (
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                    ) : (
+                                      <Save className="w-3 h-3" />
+                                    )}
+                                    Salvar e Destravar
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
                           </div>
-                          <span className="font-mono text-slate-500 text-xs shrink-0">
-                            {formatCurrency(item.valorTotal)}
-                          </span>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   </div>
-                )}
+                )}{' '}
               </div>
             )}
 

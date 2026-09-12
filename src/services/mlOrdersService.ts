@@ -471,4 +471,104 @@ export const mlOrdersService = {
 
     throw new Error('Tempo limite excedido ao aguardar sincronização de pedidos no servidor.')
   },
+
+  /**
+   * Busca dados fiscais (CPF/CNPJ e nome) na API oficial do Mercado Livre
+   * e sincroniza automaticamente com o pedido e ml_customers
+   */
+  async lookupFiscalData(orderId: string): Promise<{
+    ok: boolean
+    found: boolean
+    order_id: string
+    document: string
+    buyer_name: string
+    source: string
+    message: string
+  }> {
+    const res = await pb.send<{
+      ok: boolean
+      found: boolean
+      order_id: string
+      document: string
+      buyer_name: string
+      source: string
+      message: string
+    }>(`/backend/v1/ml/orders/${encodeURIComponent(orderId)}/fiscal-lookup`, {
+      method: 'POST',
+    })
+    return res
+  },
+
+  /**
+   * Atualização rápida dos dados fiscais do comprador (CPF/CNPJ + Nome)
+   * Salva no pedido ml_orders E faz upsert no cadastro ml_customers
+   */
+  async updateOrderFiscalData(
+    orderRecordId: string,
+    data: {
+      buyer_document: string
+      buyer_name?: string
+      buyer_id?: string
+      buyer_nickname?: string
+    },
+  ): Promise<MLOrder> {
+    const cleanDoc = data.buyer_document.replace(/\D/g, '')
+
+    // 1. Atualizar ml_orders
+    const updatedOrder = await pb.collection('ml_orders').update<MLOrder>(orderRecordId, {
+      buyer_document: cleanDoc,
+      ...(data.buyer_name?.trim() ? { buyer_name: data.buyer_name.trim() } : {}),
+    })
+
+    // 2. Upsert no ml_customers
+    try {
+      let cust = null
+      if (data.buyer_id) {
+        try {
+          cust = await pb
+            .collection('ml_customers')
+            .getFirstListItem(`buyer_id = "${data.buyer_id}"`, { requestKey: null })
+        } catch {
+          /* intentionally ignored */
+        }
+      }
+      if (!cust && data.buyer_nickname) {
+        try {
+          cust = await pb
+            .collection('ml_customers')
+            .getFirstListItem(`nickname = "${data.buyer_nickname.replace(/"/g, '\\"')}"`, {
+              requestKey: null,
+            })
+        } catch {
+          /* intentionally ignored */
+        }
+      }
+
+      const finalName =
+        data.buyer_name?.trim() ||
+        cust?.name ||
+        data.buyer_nickname ||
+        'Cliente ML ' + (data.buyer_id || '')
+
+      if (cust) {
+        await pb.collection('ml_customers').update(cust.id, {
+          document: cleanDoc,
+          name: finalName,
+        })
+      } else if (data.buyer_id || data.buyer_nickname) {
+        await pb.collection('ml_customers').create({
+          buyer_id: data.buyer_id || '',
+          nickname: data.buyer_nickname || '',
+          name: finalName,
+          document: cleanDoc,
+          origin: 'ml',
+          tags: ['ml'],
+        })
+      }
+    } catch (cErr) {
+      console.error('Erro ao atualizar ml_customers na edição rápida:', cErr)
+    }
+
+    return updatedOrder
+  },
 }
