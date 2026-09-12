@@ -88,7 +88,6 @@ export function getRecommendedLogoSvgString(
   const tagStroke = isMono ? (isDark ? '#FFFFFF' : '#000000') : '#10B981'
   const arrowFill = isMono ? (isDark ? '#FFFFFF' : '#000000') : '#00E676'
   const subtextColor = isMono ? (isDark ? '#94A3B8' : '#64748B') : isDark ? '#94A3B8' : '#64748B'
-  const ambicorpOrange = isMono ? (isDark ? '#FFFFFF' : '#000000') : '#F97316'
   const bgRect = isDark ? `<rect width="640" height="160" fill="#090D16" rx="16" />` : ''
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 160" width="100%" height="100%">
@@ -155,7 +154,7 @@ export function getRecommendedLogoSvgString(
     <!-- Ponto de exclamação tech / Badge de Preço -->
     <circle cx="438" cy="22" r="5" fill="${arrowFill}" />
 
-    <!-- Linha Secundária: Descritivo de Mercado & Parceria Ambicorp -->
+    <!-- Linha Secundária: Subtítulo / Chancela Oficial -->
     ${
       showSubtext
         ? `
@@ -165,30 +164,11 @@ export function getRecommendedLogoSvgString(
       
       <text x="26" y="9" 
             font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" 
-            font-size="12.5" 
+            font-size="13" 
             font-weight="700" 
-            letter-spacing="1.2" 
-            text-transform="uppercase" 
+            letter-spacing="0.8" 
             fill="${subtextColor}">
-        NOTEBOOKS RECONDICIONADOS
-      </text>
-
-      <text x="246" y="9" 
-            font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" 
-            font-size="11" 
-            font-weight="500" 
-            fill="${subtextColor}">
-        •
-      </text>
-
-      <!-- Selo de ligação com Ambicorp -->
-      <text x="260" y="9" 
-            font-family="system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" 
-            font-size="12" 
-            font-weight="800" 
-            letter-spacing="0.5" 
-            fill="${ambicorpOrange}">
-        AMBICORP FLOW TECH
+        Hub de Ofertas e Tecnologia
       </text>
     </g>`
         : ''
