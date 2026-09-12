@@ -80,9 +80,24 @@ routerAdd(
     // 1. Obter configuração do emissor (nf_config)
     var configRecords = []
     try {
-      configRecords = $app.findRecordsByFilter('nf_config', '1=1', '-created', 1, 0)
+      configRecords = $app.findRecordsByFilter('nf_config', '1=1', '', 1, 0)
     } catch (errCfg) {
-      console.log('[nf_emit] Erro ao buscar nf_config: ' + errCfg)
+      console.log('[nf_emit] Erro ao buscar nf_config com sort vazio: ' + errCfg)
+      try {
+        configRecords = $app.findRecordsByFilter('nf_config', '1=1', '-created', 1, 0)
+      } catch (errCfg2) {
+        console.log('[nf_emit] Erro no fallback de nf_config: ' + errCfg2)
+      }
+    }
+
+    // Fallback caso findRecordsByFilter falhe ou venha vazio: tentar findRecordById com ID conhecido ou busca direta
+    if (!configRecords || configRecords.length === 0) {
+      try {
+        var directRec = $app.findRecordById('nf_config', 'febicvnoy5756vb')
+        if (directRec) {
+          configRecords = [directRec]
+        }
+      } catch (_) {}
     }
 
     if (!configRecords || configRecords.length === 0) {
@@ -431,7 +446,20 @@ routerAdd(
     }
 
     // Se estiver processando, consulta a Focus NFe
-    var configRecords = $app.findRecordsByFilter('nf_config', '1=1', '-created', 1, 0)
+    var configRecords = []
+    try {
+      configRecords = $app.findRecordsByFilter('nf_config', '1=1', '', 1, 0)
+    } catch (_) {
+      try {
+        configRecords = $app.findRecordsByFilter('nf_config', '1=1', '-created', 1, 0)
+      } catch (_) {}
+    }
+    if (!configRecords || configRecords.length === 0) {
+      try {
+        var directRec = $app.findRecordById('nf_config', 'febicvnoy5756vb')
+        if (directRec) configRecords = [directRec]
+      } catch (_) {}
+    }
     var config = configRecords && configRecords.length > 0 ? configRecords[0] : null
     var focusToken = config ? (config.getString('focus_token') || '').trim() : ''
 
