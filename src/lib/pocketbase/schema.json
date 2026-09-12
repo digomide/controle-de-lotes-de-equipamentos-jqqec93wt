@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-12T04:56:12.020Z",
+  "generatedAt": "2026-09-12T05:43:46.143Z",
   "collections": [
     {
       "name": "users",
@@ -3773,6 +3773,30 @@
         {
           "name": "raw_order",
           "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "shipping_handling_limit",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "shipping_date_shipped",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "shipping_date_delivered",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "shipping_delayed",
+          "type": "bool",
           "required": false,
           "system": false
         }

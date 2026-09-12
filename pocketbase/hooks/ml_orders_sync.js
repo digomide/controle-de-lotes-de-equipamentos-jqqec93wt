@@ -208,6 +208,11 @@ onRecordAfterCreateSuccess((e) => {
         // Consultada antes de qualquer fallback para garantir integridade absoluta de status e endereço.
         // A API oficial de shipments tem AUTORIDADE ABSOLUTA sobre qualquer tag legada do pedido.
         let statusFromShipmentsApi = false
+        let shippingHandlingLimit = null
+        let shippingDateShipped = null
+        let shippingDateDelivered = null
+        let shippingDelayed = false
+
         if (shippingId) {
           try {
             const shipRes = $http.send({
@@ -233,6 +238,102 @@ onRecordAfterCreateSuccess((e) => {
               }
               if (shipData.receiver_address) {
                 receiverAddress = shipData.receiver_address
+              }
+
+              // Extrair estimated_handling_limit
+              let rawLimit = ''
+              if (shipData.estimated_handling_limit && shipData.estimated_handling_limit.date) {
+                rawLimit = shipData.estimated_handling_limit.date
+              } else if (
+                shipData.shipping_option &&
+                shipData.shipping_option.estimated_handling_limit &&
+                shipData.shipping_option.estimated_handling_limit.date
+              ) {
+                rawLimit = shipData.shipping_option.estimated_handling_limit.date
+              } else if (
+                shipData.shipping_option &&
+                shipData.shipping_option.buffering &&
+                shipData.shipping_option.buffering.date
+              ) {
+                rawLimit = shipData.shipping_option.buffering.date
+              } else if (shipData.handling_limit) {
+                rawLimit = shipData.handling_limit
+              }
+
+              // SLA padrão de despacho caso a API de shipments não traga o campo explícito
+              if (!rawLimit && orderDate) {
+                const dt = new Date(orderDate)
+                const createdHourUTC = dt.getUTCHours()
+                let targetDate = new Date(dt.getTime())
+                if (createdHourUTC >= 16) {
+                  targetDate.setUTCDate(targetDate.getUTCDate() + 1)
+                }
+                while (targetDate.getUTCDay() === 0 || targetDate.getUTCDay() === 6) {
+                  targetDate.setUTCDate(targetDate.getUTCDate() + 1)
+                }
+                targetDate.setUTCHours(19, 0, 0, 0)
+                rawLimit = targetDate.toISOString()
+              }
+
+              if (rawLimit) {
+                shippingHandlingLimit = new Date(rawLimit).toISOString()
+              }
+
+              // Extrair data do bip (shipped) e entrega (delivered)
+              if (shipData.status_history) {
+                if (shipData.status_history.date_shipped) {
+                  shippingDateShipped = new Date(shipData.status_history.date_shipped).toISOString()
+                }
+                if (shipData.status_history.date_delivered) {
+                  shippingDateDelivered = new Date(
+                    shipData.status_history.date_delivered,
+                  ).toISOString()
+                }
+              }
+              if (!shippingDateShipped && shipData.date_shipped) {
+                shippingDateShipped = new Date(shipData.date_shipped).toISOString()
+              }
+              if (!shippingDateDelivered && shipData.date_delivered) {
+                shippingDateDelivered = new Date(shipData.date_delivered).toISOString()
+              }
+
+              // Extrair de substatus_history se ainda não preenchido
+              if (!shippingDateShipped && Array.isArray(shipData.substatus_history)) {
+                for (let sshIdx = 0; sshIdx < shipData.substatus_history.length; sshIdx++) {
+                  const ssh = shipData.substatus_history[sshIdx]
+                  if (ssh && ssh.status === 'shipped' && ssh.date) {
+                    shippingDateShipped = new Date(ssh.date).toISOString()
+                    break
+                  }
+                }
+              }
+
+              // Calcular shipping_delayed
+              const shipSub = (shippingSubstatus || '').toLowerCase()
+              if (
+                shipSub.includes('delayed') ||
+                shipSub.includes('delay') ||
+                shipSub.includes('handling_delayed')
+              ) {
+                shippingDelayed = true
+              }
+
+              if (shippingHandlingLimit) {
+                const limitMs = new Date(shippingHandlingLimit).getTime()
+                if (shippingDateShipped) {
+                  const shippedMs = new Date(shippingDateShipped).getTime()
+                  if (shippedMs > limitMs) {
+                    shippingDelayed = true
+                  }
+                } else if (
+                  shippingStatus !== 'shipped' &&
+                  shippingStatus !== 'delivered' &&
+                  shippingStatus !== 'cancelled'
+                ) {
+                  if (Date.now() > limitMs) {
+                    shippingDelayed = true
+                  }
+                }
               }
             }
           } catch (shipErr) {
@@ -333,6 +434,12 @@ onRecordAfterCreateSuccess((e) => {
         targetRecord.set('shipping_status', shippingStatus)
         targetRecord.set('shipping_substatus', shippingSubstatus)
         targetRecord.set('shipping_mode', shippingMode)
+        if (shippingHandlingLimit)
+          targetRecord.set('shipping_handling_limit', shippingHandlingLimit)
+        if (shippingDateShipped) targetRecord.set('shipping_date_shipped', shippingDateShipped)
+        if (shippingDateDelivered)
+          targetRecord.set('shipping_date_delivered', shippingDateDelivered)
+        targetRecord.set('shipping_delayed', shippingDelayed)
         if (receiverAddress) targetRecord.set('receiver_address', receiverAddress)
         targetRecord.set('items', orderItems)
         targetRecord.set('payments', paymentsList)

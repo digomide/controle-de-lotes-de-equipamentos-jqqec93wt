@@ -30,6 +30,7 @@ import {
   DollarSign,
   TrendingUp,
   Filter,
+  Clock,
 } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -52,14 +53,15 @@ import { MLOrdersTab } from '@/components/MLOrdersTab'
 import { MLPublishQueueTab } from '@/components/MLPublishQueueTab'
 import { MLAlertsBanner } from '@/components/MLAlertsBanner'
 import { MLBulkPriceModal } from '@/components/MLBulkPriceModal'
+import { MLDeadlinesTab } from '@/components/MLDeadlinesTab'
 
 export default function AnunciosML() {
   const { toast } = useToast()
 
-  // Aba ativa: 'anuncios' (padrão) | 'pedidos' | 'erros_publicacao'
-  const [activeTab, setActiveTab] = useState<'anuncios' | 'pedidos' | 'erros_publicacao'>(
-    'anuncios',
-  )
+  // Aba ativa: 'anuncios' (padrão) | 'envios' | 'pedidos' | 'erros_publicacao'
+  const [activeTab, setActiveTab] = useState<
+    'anuncios' | 'envios' | 'pedidos' | 'erros_publicacao'
+  >('anuncios')
 
   const [loading, setLoading] = useState(true)
   const [progressText, setProgressText] = useState<string>(
@@ -715,7 +717,7 @@ export default function AnunciosML() {
 
       {/* Abas Principais do Gestor ML */}
       <Tabs value={activeTab} onValueChange={(val: any) => setActiveTab(val)} className="space-y-6">
-        <TabsList className="bg-slate-100 p-1 rounded-xl h-11 border border-slate-200 grid grid-cols-3 max-w-lg">
+        <TabsList className="bg-slate-100 p-1 rounded-xl h-11 border border-slate-200 grid grid-cols-4 max-w-2xl">
           <TabsTrigger
             value="anuncios"
             className="text-xs font-bold gap-1.5 data-[state=active]:bg-white data-[state=active]:shadow-xs"
@@ -724,11 +726,18 @@ export default function AnunciosML() {
             Meus Anúncios ({stats.total})
           </TabsTrigger>
           <TabsTrigger
+            value="envios"
+            className="text-xs font-bold gap-1.5 data-[state=active]:bg-white data-[state=active]:shadow-xs"
+          >
+            <Clock className="w-4 h-4 text-blue-600" />
+            Envios & Prazos
+          </TabsTrigger>
+          <TabsTrigger
             value="pedidos"
             className="text-xs font-bold gap-1.5 data-[state=active]:bg-white data-[state=active]:shadow-xs"
           >
             <DollarSign className="w-4 h-4 text-emerald-600" />
-            Vendas & Pedidos ML
+            Vendas & Pedidos
           </TabsTrigger>
           <TabsTrigger
             value="erros_publicacao"
@@ -1758,12 +1767,17 @@ export default function AnunciosML() {
           )}
         </TabsContent>
 
-        {/* ==================== ABA 2: PAINEL DE VENDAS & PEDIDOS ML ==================== */}
+        {/* ==================== ABA 2: ENVIOS & PRAZOS (DESPACHO E REPUTAÇÃO) ==================== */}
+        <TabsContent value="envios" className="space-y-6 focus-visible:outline-hidden">
+          <MLDeadlinesTab />
+        </TabsContent>
+
+        {/* ==================== ABA 3: PAINEL DE VENDAS & PEDIDOS ML ==================== */}
         <TabsContent value="pedidos" className="space-y-6 focus-visible:outline-hidden">
           <MLOrdersTab />
         </TabsContent>
 
-        {/* ==================== ABA 3: FILA DE PUBLICAÇÃO & ERROS ==================== */}
+        {/* ==================== ABA 4: FILA DE PUBLICAÇÃO & ERROS ==================== */}
         <TabsContent value="erros_publicacao" className="space-y-6 focus-visible:outline-hidden">
           <MLPublishQueueTab />
         </TabsContent>

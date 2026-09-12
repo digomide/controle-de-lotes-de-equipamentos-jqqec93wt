@@ -47,6 +47,10 @@ export interface MLOrder {
     | string
   shipping_substatus?: string
   shipping_mode?: string
+  shipping_handling_limit?: string | null
+  shipping_date_shipped?: string | null
+  shipping_date_delivered?: string | null
+  shipping_delayed?: boolean
   receiver_address?: {
     street_name?: string
     street_number?: string
@@ -73,6 +77,24 @@ export interface MLOrderKPIs {
   ticketMedio30dias: number
   pedidosProntosEnvio: number
   pedidosEntregues30dias: number
+}
+
+export interface MLReputationRisk {
+  totalSalesInWindow: number
+  delayedSalesCount: number
+  delayedRatePercent: number
+  maxAllowedRatePercent: number // 10%
+  windowDescription: string
+  claimsCount: number
+  isAtRisk: boolean
+  riskLevel: 'safe' | 'warning' | 'danger'
+}
+
+export interface MLDeadlinesKPIs {
+  totalToScanToday: number
+  totalDelayed: number
+  totalInvoicePending: number
+  totalOnTime: number
 }
 
 export const mlOrdersService = {
@@ -211,6 +233,152 @@ export const mlOrdersService = {
       ticketMedio30dias,
       pedidosProntosEnvio,
       pedidosEntregues30dias,
+    }
+  },
+
+  /**
+   * Calcula o risco de reputação do Mercado Livre baseado na régua oficial dos 10%
+   * Janela: 3 meses anteriores + mês atual (ou últimos 5 anos se volume < 50 vendas).
+   */
+  calculateReputationRisk(orders: MLOrder[]): MLReputationRisk {
+    const now = new Date()
+    // Início da janela de 3 meses + mês atual: primeiro dia do mês correspondente a 3 meses atrás
+    const currentYear = now.getFullYear()
+    const currentMonth = now.getMonth() // 0-indexed
+    const startOfThreeMonthsAgo = new Date(currentYear, currentMonth - 3, 1).getTime()
+
+    // Filtrar pedidos válidos na janela de 3 meses + mês atual
+    const ordersIn3mWindow = orders.filter((o) => {
+      if (o.status === 'cancelled') return false
+      const dt = new Date(o.date_created).getTime()
+      return dt >= startOfThreeMonthsAgo
+    })
+
+    let windowOrders = ordersIn3mWindow
+    let windowDescription = 'Últimos 3 meses + mês atual'
+
+    // Se tiver menos de 50 vendas, a régua oficial do ML estende para 5 anos
+    if (ordersIn3mWindow.length < 50) {
+      const fiveYearsAgo = new Date(currentYear - 5, currentMonth, 1).getTime()
+      windowOrders = orders.filter((o) => {
+        if (o.status === 'cancelled') return false
+        const dt = new Date(o.date_created).getTime()
+        return dt >= fiveYearsAgo
+      })
+      windowDescription = 'Últimos 5 anos (< 50 vendas recentes)'
+    }
+
+    let delayedSalesCount = 0
+    let claimsCount = 0
+
+    for (const o of windowOrders) {
+      if (o.shipping_delayed) {
+        delayedSalesCount++
+      } else {
+        // Fallback: se tiver date_shipped e shipping_handling_limit
+        if (o.shipping_handling_limit && o.shipping_date_shipped) {
+          const limitMs = new Date(o.shipping_handling_limit).getTime()
+          const shippedMs = new Date(o.shipping_date_shipped).getTime()
+          if (shippedMs > limitMs) {
+            delayedSalesCount++
+          }
+        }
+      }
+
+      // Reclamações se disponíveis nas tags ou feedback
+      const tags = Array.isArray(o.tags) ? o.tags : []
+      if (
+        tags.includes('claim') ||
+        tags.includes('complaint') ||
+        tags.includes('has_claim') ||
+        (o.feedback && (o.feedback.rating === 'negative' || o.feedback.status === 'has_claim'))
+      ) {
+        claimsCount++
+      }
+    }
+
+    const totalSales = windowOrders.length
+    const delayedRatePercent = totalSales > 0 ? (delayedSalesCount / totalSales) * 100 : 0
+    const maxAllowedRatePercent = 10
+
+    let riskLevel: 'safe' | 'warning' | 'danger' = 'safe'
+    if (delayedRatePercent >= 10) {
+      riskLevel = 'danger'
+    } else if (delayedRatePercent >= 7) {
+      riskLevel = 'warning'
+    }
+
+    return {
+      totalSalesInWindow: totalSales,
+      delayedSalesCount,
+      delayedRatePercent,
+      maxAllowedRatePercent,
+      windowDescription,
+      claimsCount,
+      isAtRisk: delayedRatePercent >= 10,
+      riskLevel,
+    }
+  },
+
+  /**
+   * Calcula os KPIs de envios e prazos
+   */
+  calculateDeadlinesKPIs(orders: MLOrder[]): MLDeadlinesKPIs {
+    const now = new Date()
+    const nowMs = now.getTime()
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+    const endOfToday = startOfToday + 24 * 60 * 60 * 1000 - 1
+
+    let totalToScanToday = 0
+    let totalDelayed = 0
+    let totalInvoicePending = 0
+    let totalOnTime = 0
+
+    for (const o of orders) {
+      if (o.status === 'cancelled') continue
+
+      const effShipStatus = (o.shipping_status || '').toLowerCase()
+      const effSubstatus = (o.shipping_substatus || '').toLowerCase()
+      const isShipped = effShipStatus === 'shipped' || effShipStatus === 'delivered'
+
+      if (effSubstatus === 'invoice_pending') {
+        totalInvoicePending++
+      }
+
+      // Pedidos pendentes de despacho/bip:
+      // status ready_to_ship (substatus in_hub, in_packing_list, buffered) ou pending com NF ok
+      const isPendingScan =
+        !isShipped &&
+        (effShipStatus === 'ready_to_ship' || effShipStatus === 'pending') &&
+        effSubstatus !== 'invoice_pending'
+
+      if (isPendingScan) {
+        const limitMs = o.shipping_handling_limit
+          ? new Date(o.shipping_handling_limit).getTime()
+          : 0
+        if (limitMs > 0) {
+          if (nowMs > limitMs) {
+            totalDelayed++
+          } else {
+            totalOnTime++
+          }
+          if (limitMs >= startOfToday && limitMs <= endOfToday) {
+            totalToScanToday++
+          }
+        } else {
+          totalToScanToday++
+        }
+      } else if (isShipped && o.shipping_delayed) {
+        // Envio que foi bipado atrasado
+        totalDelayed++
+      }
+    }
+
+    return {
+      totalToScanToday,
+      totalDelayed,
+      totalInvoicePending,
+      totalOnTime,
     }
   },
 
