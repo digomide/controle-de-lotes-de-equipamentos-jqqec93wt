@@ -20,6 +20,9 @@ import {
   FileCheck,
 } from 'lucide-react'
 import { EmitirNFModal } from '@/components/EmitirNFModal'
+import { BatchEmitirNFModal } from '@/components/BatchEmitirNFModal'
+import { Checkbox } from '@/components/ui/checkbox'
+import { useAuth } from '@/contexts/AuthContext'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -43,6 +46,8 @@ import { mlOrdersService, type MLOrder, type MLOrderKPIs } from '@/services/mlOr
 
 export function MLOrdersTab() {
   const { toast } = useToast()
+  const { hasModule } = useAuth()
+  const canEmitNF = hasModule('notas_fiscais')
 
   const [orders, setOrders] = useState<MLOrder[]>([])
   const [loading, setLoading] = useState(true)
@@ -52,13 +57,19 @@ export function MLOrdersTab() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [shippingFilter, setShippingFilter] = useState('all')
 
+  // Seleção múltipla de pedidos
+  const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set())
+
   // Modal de Detalhes do Pedido
   const [selectedOrder, setSelectedOrder] = useState<MLOrder | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
 
-  // Modal de Emissão de Nota Fiscal
+  // Modal de Emissão Individual de Nota Fiscal
   const [emitNFOpen, setEmitNFOpen] = useState(false)
   const [orderToEmitNF, setOrderToEmitNF] = useState<MLOrder | null>(null)
+
+  // Modal de Emissão em Lote de Nota Fiscal
+  const [batchEmitNFOpen, setBatchEmitNFOpen] = useState(false)
 
   const loadOrders = async (silent = false) => {
     if (!silent) setLoading(true)
@@ -162,6 +173,39 @@ export function MLOrdersTab() {
       return true
     })
   }, [orders, search, statusFilter, shippingFilter])
+
+  // Pedidos selecionados como objetos
+  const selectedOrdersList = useMemo(() => {
+    return orders.filter((o) => selectedOrderIds.has(o.order_id))
+  }, [orders, selectedOrderIds])
+
+  // Handlers de Seleção Múltipla
+  const handleToggleSelectAll = (checked: boolean) => {
+    if (checked) {
+      const allFilteredIds = new Set(filteredOrders.map((o) => o.order_id))
+      setSelectedOrderIds(allFilteredIds)
+    } else {
+      setSelectedOrderIds(new Set())
+    }
+  }
+
+  const handleToggleOrderSelect = (orderId: string, checked: boolean) => {
+    setSelectedOrderIds((prev) => {
+      const next = new Set(prev)
+      if (checked) {
+        next.add(orderId)
+      } else {
+        next.delete(orderId)
+      }
+      return next
+    })
+  }
+
+  const isAllFilteredSelected =
+    filteredOrders.length > 0 && filteredOrders.every((o) => selectedOrderIds.has(o.order_id))
+
+  const isSomeFilteredSelected =
+    filteredOrders.some((o) => selectedOrderIds.has(o.order_id)) && !isAllFilteredSelected
 
   // Badge de Status do Pedido
   const renderOrderStatusBadge = (status: string) => {
@@ -391,7 +435,7 @@ export function MLOrdersTab() {
 
       {/* Filtros da Tabela de Pedidos */}
       <Card className="border-slate-200 shadow-xs bg-white">
-        <CardContent className="p-4">
+        <CardContent className="p-4 space-y-3">
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
             <div className="relative flex-1">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -447,6 +491,49 @@ export function MLOrdersTab() {
               )}
             </div>
           </div>
+
+          {/* Barra flutuante de ações em lote quando há pedidos selecionados */}
+          {selectedOrderIds.size > 0 && (
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 rounded-lg bg-emerald-50 border border-emerald-200 animate-in fade-in duration-200">
+              <div className="flex items-center gap-2">
+                <Badge className="bg-emerald-600 text-white font-mono text-xs px-2.5 py-0.5">
+                  {selectedOrderIds.size} selecionado{selectedOrderIds.size > 1 ? 's' : ''}
+                </Badge>
+                <span className="text-xs font-semibold text-emerald-950">
+                  Ações em lote para os pedidos selecionados
+                </span>
+                <span className="text-xs text-emerald-700 hidden md:inline">
+                  (Total:{' '}
+                  {formatCurrency(
+                    selectedOrdersList.reduce((acc, o) => acc + (Number(o.total_amount) || 0), 0),
+                  )}
+                  )
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSelectedOrderIds(new Set())}
+                  className="text-xs h-8 text-slate-600 hover:text-slate-900 bg-white"
+                >
+                  Desmarcar todos
+                </Button>
+
+                {canEmitNF && (
+                  <Button
+                    size="sm"
+                    onClick={() => setBatchEmitNFOpen(true)}
+                    className="text-xs h-8 bg-emerald-600 hover:bg-emerald-700 text-white font-bold gap-1.5 shadow-sm"
+                  >
+                    <FileCheck className="w-4 h-4" />
+                    Emitir NF-e ({selectedOrderIds.size})
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -489,7 +576,20 @@ export function MLOrdersTab() {
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 text-slate-600 uppercase text-[10px] tracking-wider border-b border-slate-200">
                 <tr>
-                  <th className="py-3 px-4 font-bold">Pedido</th>
+                  <th className="py-3 px-3 w-10 text-center">
+                    <Checkbox
+                      checked={
+                        isAllFilteredSelected
+                          ? true
+                          : isSomeFilteredSelected
+                            ? 'indeterminate'
+                            : false
+                      }
+                      onCheckedChange={(checked) => handleToggleSelectAll(Boolean(checked))}
+                      aria-label="Selecionar todos os pedidos visíveis"
+                    />
+                  </th>
+                  <th className="py-3 px-3 font-bold">Pedido</th>
                   <th className="py-3 px-4 font-bold">Data</th>
                   <th className="py-3 px-4 font-bold">Comprador</th>
                   <th className="py-3 px-4 font-bold">Itens</th>
@@ -504,10 +604,27 @@ export function MLOrdersTab() {
                   const firstItem = order.items?.[0]
                   const itemsCount =
                     order.items?.reduce((acc, it) => acc + (it.quantity || 1), 0) || 1
+                  const isSelected = selectedOrderIds.has(order.order_id)
 
                   return (
-                    <tr key={order.id} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="py-3 px-4 font-mono font-bold text-slate-900">
+                    <tr
+                      key={order.id}
+                      className={`transition-colors ${
+                        isSelected
+                          ? 'bg-emerald-50/60 hover:bg-emerald-50/90'
+                          : 'hover:bg-slate-50/80'
+                      }`}
+                    >
+                      <td className="py-3 px-3 text-center">
+                        <Checkbox
+                          checked={isSelected}
+                          onCheckedChange={(checked) =>
+                            handleToggleOrderSelect(order.order_id, Boolean(checked))
+                          }
+                          aria-label={`Selecionar pedido #${order.order_id}`}
+                        />
+                      </td>
+                      <td className="py-3 px-3 font-mono font-bold text-slate-900">
                         <span>#{order.order_id}</span>
                       </td>
                       <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
@@ -552,19 +669,21 @@ export function MLOrdersTab() {
                       </td>
                       <td className="py-3 px-4 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-1">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => {
-                              setOrderToEmitNF(order)
-                              setEmitNFOpen(true)
-                            }}
-                            className="text-[11px] h-7 px-2 text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 border-emerald-200 font-semibold gap-1"
-                            title="Emitir Nota Fiscal Eletrônica (Focus NFe)"
-                          >
-                            <FileCheck className="w-3 h-3" />
-                            Emitir NF
-                          </Button>
+                          {canEmitNF && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setOrderToEmitNF(order)
+                                setEmitNFOpen(true)
+                              }}
+                              className="text-[11px] h-7 px-2 text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 border-emerald-200 font-semibold gap-1"
+                              title="Emitir Nota Fiscal Eletrônica (Focus NFe)"
+                            >
+                              <FileCheck className="w-3 h-3" />
+                              Emitir NF
+                            </Button>
+                          )}
 
                           <Button
                             variant="ghost"
@@ -733,13 +852,24 @@ export function MLOrdersTab() {
         </DialogContent>
       </Dialog>
 
-      {/* Modal de Emissão de NF-e */}
+      {/* Modal de Emissão Individual de NF-e */}
       <EmitirNFModal
         open={emitNFOpen}
         onOpenChange={setEmitNFOpen}
         originType="ml_order"
         mlOrder={orderToEmitNF}
         onSuccess={() => {
+          loadOrders(true)
+        }}
+      />
+
+      {/* Modal de Emissão em Lote de NF-e */}
+      <BatchEmitirNFModal
+        open={batchEmitNFOpen}
+        onOpenChange={setBatchEmitNFOpen}
+        orders={selectedOrdersList}
+        onSuccess={() => {
+          setSelectedOrderIds(new Set())
           loadOrders(true)
         }}
       />
