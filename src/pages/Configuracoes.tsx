@@ -22,6 +22,7 @@ import {
   Eye,
   EyeOff,
   Loader2,
+  Sparkles,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { MercadoLivreConfigCard } from '@/components/MercadoLivreConfigCard'
@@ -308,6 +309,40 @@ export default function Configuracoes() {
                 </Button>
               </div>
             </form>
+          </div>
+
+          {/* Seção Nova Logomarca INFOPRECOBAIXO */}
+          <div className="mt-4 pt-4 border-t border-slate-200">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-emerald-50/50 rounded-xl border border-emerald-200/80">
+              <div className="flex items-start gap-3">
+                <div className="p-2 bg-emerald-600 text-white rounded-lg flex-shrink-0">
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-xs font-bold text-slate-900">
+                      Identidade Visual & Logomarca INFOPRECOBAIXO
+                    </h4>
+                    <Badge className="bg-emerald-600 text-white text-[10px] py-0 px-1.5 h-4">
+                      Nova
+                    </Badge>
+                  </div>
+                  <p className="text-[11px] text-slate-600 mt-0.5">
+                    Acesse as variantes da logo oficial em SVG puro (fundo claro para Mercado Livre,
+                    escuro e monocromático para etiquetas de caixa), paleta de cores e downloads.
+                  </p>
+                </div>
+              </div>
+              <Link to="/logo" className="sm:self-center flex-shrink-0">
+                <Button
+                  size="sm"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8 gap-1.5 shadow-xs"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Ver Logomarcas (/logo)
+                </Button>
+              </Link>
+            </div>
           </div>
 
           {/* Seção Usuários & Acessos (Acesso Admin) */}

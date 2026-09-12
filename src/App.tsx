@@ -33,6 +33,7 @@ import Marketing from './pages/Marketing'
 import Pedido6849 from './pages/Pedido6849'
 import Clientes from './pages/Clientes'
 import NotasFiscais from './pages/NotasFiscais'
+import LogoPage from './pages/LogoPage'
 import { AuthProvider } from './contexts/AuthContext'
 import { ProtectedRoute } from './components/ProtectedRoute'
 
@@ -259,6 +260,15 @@ const App = () => (
               element={
                 <ProtectedRoute requireAdmin requiredModule="configuracoes">
                   <Configuracoes />
+                </ProtectedRoute>
+              }
+            />
+            {/* Identidade Visual / Logomarca INFOPRECOBAIXO */}
+            <Route
+              path="/logo"
+              element={
+                <ProtectedRoute>
+                  <LogoPage />
                 </ProtectedRoute>
               }
             />
