@@ -81,15 +81,15 @@ export function MLOrdersTab() {
   // Sincronização manual com a API oficial do Mercado Livre
   const handleSyncOrders = async () => {
     setSyncing(true)
-    setSyncProgress('Iniciando sincronização de pedidos...')
+    setSyncProgress('Iniciando sincronização de pedidos e status de entrega...')
     try {
       const res = await mlOrdersService.syncOrders({
-        daysBack: 60,
+        daysBack: 180,
         onProgress: (p) => setSyncProgress(p),
       })
       toast({
         title: 'Pedidos sincronizados!',
-        description: `${res.ordersSaved} pedido(s) processado(s) com sucesso.`,
+        description: `${res.ordersSaved} pedido(s) processado(s) e atualizados com sucesso.`,
       })
       await loadOrders(true)
     } catch (err: any) {
@@ -105,6 +105,18 @@ export function MLOrdersTab() {
     }
   }
 
+  // Resolver status de envio real do pedido (com suporte a tags como fallback)
+  const resolveEffectiveShippingStatus = (o: MLOrder): string => {
+    if (o.shipping_status && o.shipping_status !== 'pending') {
+      return o.shipping_status
+    }
+    if (Array.isArray(o.tags)) {
+      if (o.tags.includes('delivered')) return 'delivered'
+      if (o.tags.includes('shipped')) return 'shipped'
+    }
+    return o.shipping_status || 'pending'
+  }
+
   // KPIs consolidados
   const kpis: MLOrderKPIs = useMemo(() => {
     return mlOrdersService.calculateKPIs(orders)
@@ -114,7 +126,10 @@ export function MLOrdersTab() {
   const filteredOrders = useMemo(() => {
     return orders.filter((o) => {
       if (statusFilter !== 'all' && o.status !== statusFilter) return false
-      if (shippingFilter !== 'all' && o.shipping_status !== shippingFilter) return false
+      if (shippingFilter !== 'all') {
+        const effShipping = resolveEffectiveShippingStatus(o)
+        if (effShipping !== shippingFilter) return false
+      }
       if (search.trim()) {
         const q = search.toLowerCase()
         const matchesId = o.order_id?.toLowerCase().includes(q)
@@ -514,7 +529,7 @@ export function MLOrdersTab() {
                         {renderOrderStatusBadge(order.status)}
                       </td>
                       <td className="py-3 px-4 whitespace-nowrap">
-                        {renderShippingStatusBadge(order.shipping_status)}
+                        {renderShippingStatusBadge(resolveEffectiveShippingStatus(order))}
                       </td>
                       <td className="py-3 px-4 text-right whitespace-nowrap">
                         <Button
@@ -588,7 +603,7 @@ export function MLOrdersTab() {
                     <Truck className="w-3.5 h-3.5 text-slate-500" /> Logística & Envio
                   </h4>
                   <div className="flex items-center gap-2">
-                    {renderShippingStatusBadge(selectedOrder.shipping_status)}
+                    {renderShippingStatusBadge(resolveEffectiveShippingStatus(selectedOrder))}
                     {selectedOrder.shipping_mode && (
                       <Badge variant="outline" className="text-[10px] font-mono">
                         Modo: {selectedOrder.shipping_mode}

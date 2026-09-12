@@ -92,11 +92,10 @@ onRecordAfterCreateSuccess((e) => {
     }
   }
 
-  // 3. Montar janela de busca (padrão 60 dias para cobrir histórico recente completo)
+  // 3. Montar janela de busca (padrão 180 dias / 6 meses para cobrir todo o histórico recente e pedidos passados enviados/entregues)
   const rawDays = syncJob.getInt('days_back')
-  const daysBack = rawDays && rawDays > 0 ? rawDays : 60
+  const daysBack = rawDays && rawDays > 0 ? rawDays : 180
   const dateFrom = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000).toISOString()
-
   let ordersCollection = null
   try {
     ordersCollection = $app.findCollectionByNameOrId('ml_orders')
@@ -194,14 +193,71 @@ onRecordAfterCreateSuccess((e) => {
           buyerDoc = buyer.billing_info.doc_number
         }
 
-        // Envio / Shipping
+        // Tags do pedido
+        const orderTags = Array.isArray(rawOrder.tags) ? rawOrder.tags : []
+
+        // Envio / Shipping do payload do pedido
         const shipping = rawOrder.shipping || {}
         const shippingId = shipping.id ? String(shipping.id) : ''
-        const shippingStatus =
-          shipping.status || (shipping.shipping_mode ? 'to_be_agreed' : 'pending')
-        const shippingSubstatus = shipping.substatus || ''
-        const shippingMode = shipping.shipping_mode || shipping.mode || ''
-        const receiverAddress = shipping.receiver_address || null
+        let shippingStatus = shipping.status || ''
+        let shippingSubstatus = shipping.substatus || ''
+        let shippingMode = shipping.shipping_mode || shipping.mode || ''
+        let receiverAddress = shipping.receiver_address || null
+
+        // 1º Fallback: inferência de entrega a partir das tags do Mercado Livre se shipping.status vier vazio
+        if (!shippingStatus) {
+          if (orderTags.indexOf('delivered') !== -1) {
+            shippingStatus = 'delivered'
+          } else if (orderTags.indexOf('shipped') !== -1) {
+            shippingStatus = 'shipped'
+          }
+        }
+
+        // 2º Enriquecimento via endpoint oficial /shipments/:id do Mercado Livre quando disponível
+        if (shippingId && (!shippingStatus || shippingStatus === 'pending' || !receiverAddress)) {
+          try {
+            const shipRes = $http.send({
+              url: 'https://api.mercadolibre.com/shipments/' + encodeURIComponent(shippingId),
+              method: 'GET',
+              headers: {
+                Authorization: 'Bearer ' + accessToken,
+                Accept: 'application/json',
+              },
+              timeout: 10,
+            })
+            if (shipRes.statusCode === 200 && shipRes.json) {
+              const shipData = shipRes.json
+              if (shipData.status) {
+                shippingStatus = String(shipData.status)
+              }
+              if (shipData.substatus) {
+                shippingSubstatus = String(shipData.substatus)
+              }
+              if (shipData.mode || shipData.shipping_mode) {
+                shippingMode = String(shipData.mode || shipData.shipping_mode)
+              }
+              if (shipData.receiver_address && !receiverAddress) {
+                receiverAddress = shipData.receiver_address
+              }
+            }
+          } catch (shipErr) {
+            // Não interrompe o fluxo geral em caso de timeout pontual em /shipments
+            console.log(
+              '[ml_orders_sync] Aviso ao enriquecer shipment ' + shippingId + ': ' + shipErr,
+            )
+          }
+        }
+
+        // Fallback final coerente caso ainda não haja status de envio
+        if (!shippingStatus) {
+          if (orderTags.indexOf('delivered') !== -1) {
+            shippingStatus = 'delivered'
+          } else if (shippingMode === 'custom' || shippingMode === 'not_specified') {
+            shippingStatus = 'to_be_agreed'
+          } else {
+            shippingStatus = 'pending'
+          }
+        }
 
         // Itens do pedido
         const orderItems = []

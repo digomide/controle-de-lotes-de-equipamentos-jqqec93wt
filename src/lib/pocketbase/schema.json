@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-12T01:04:21.623Z",
+  "generatedAt": "2026-09-12T04:07:24.335Z",
   "collections": [
     {
       "name": "users",
@@ -3838,6 +3838,20 @@
           "required": false,
           "system": false,
           "collectionRef": "users"
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
         }
       ],
       "indexes": ["CREATE INDEX idx_ml_orders_sync_status ON ml_orders_sync_jobs (status)"]

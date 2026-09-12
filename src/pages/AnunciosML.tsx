@@ -29,7 +29,9 @@ import {
   List,
   DollarSign,
   TrendingUp,
+  Filter,
 } from 'lucide-react'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -76,6 +78,14 @@ export default function AnunciosML() {
   const [refurbishedGradeFilter, setRefurbishedGradeFilter] = useState<
     'all' | 'Excelente' | 'Bom' | 'Aceitável'
   >('all')
+
+  // Filtros rápidos nos cabeçalhos da tabela (Colunas)
+  const [colSearchTitle, setColSearchTitle] = useState('')
+  const [colFilterStatus, setColFilterStatus] = useState<string>('all')
+  const [colFilterCondition, setColFilterCondition] = useState<string>('all')
+  const [colFilterStock, setColFilterStock] = useState<string>('all') // 'all' | 'in_stock' | 'zero_stock'
+  const [colFilterVinculo, setColFilterVinculo] = useState<string>('all') // 'all' | 'matched' | 'unmatched' | 'catalog'
+  const [colFilterListingType, setColFilterListingType] = useState<string>('all') // 'all' | 'gold_special' | 'gold_pro'
 
   // Visualização Tabela vs Cards
   const [viewMode, setViewMode] = useState<'table' | 'grid'>('table')
@@ -143,7 +153,7 @@ export default function AnunciosML() {
   const filteredItems = useMemo(() => {
     if (!data?.items) return []
     return data.items.filter((item) => {
-      // Filtro de texto (título, ID, GTIN, modelo, SKU do match, catalog_product_id)
+      // Filtro global de busca por texto (título, ID, GTIN, modelo, SKU do match, catalog_product_id)
       if (search.trim()) {
         const q = search.toLowerCase()
         const matchesTitle = item.title?.toLowerCase().includes(q)
@@ -169,12 +179,12 @@ export default function AnunciosML() {
         }
       }
 
-      // Filtro de status ML (active, paused, closed)
+      // Filtro global de status ML (active, paused, closed)
       if (statusFilter !== 'all' && item.status !== statusFilter) {
         return false
       }
 
-      // Filtro de condição ML
+      // Filtro global de condição ML
       if (conditionFilter !== 'all') {
         const itemCond = (item.condition || '').toLowerCase()
         if (conditionFilter === 'refurbished') {
@@ -207,11 +217,11 @@ export default function AnunciosML() {
         }
       }
 
-      // Filtro de vínculo ao catálogo local
+      // Filtro global de vínculo ao catálogo local
       if (matchedFilter === 'matched' && !item.matchedProduct) return false
       if (matchedFilter === 'unmatched' && item.matchedProduct) return false
 
-      // Filtro de tipo de anúncio
+      // Filtro global de tipo de anúncio
       if (catalogOnlyFilter === 'catalog' && !item.catalog_product_id && !item.catalog_listing) {
         return false
       }
@@ -220,6 +230,52 @@ export default function AnunciosML() {
         (item.catalog_product_id || item.catalog_listing)
       ) {
         return false
+      }
+
+      // ================= FILTROS DE CABEÇALHO DE COLUNA =================
+      // 1. Coluna Anúncio: Título / ID / SKU
+      if (colSearchTitle.trim()) {
+        const cTerm = colSearchTitle.toLowerCase()
+        const mTitle = item.title?.toLowerCase().includes(cTerm)
+        const mId = item.id?.toLowerCase().includes(cTerm)
+        const mSku = item.matchedProduct?.sku?.toLowerCase().includes(cTerm)
+        if (!mTitle && !mId && !mSku) return false
+      }
+
+      // 2. Coluna Status
+      if (colFilterStatus !== 'all' && item.status !== colFilterStatus) {
+        return false
+      }
+
+      // 3. Coluna Condição
+      if (colFilterCondition !== 'all') {
+        const itemCond = (item.condition || '').toLowerCase()
+        if (colFilterCondition === 'refurbished') {
+          if (itemCond !== 'refurbished') return false
+        } else if (colFilterCondition === 'new') {
+          if (itemCond !== 'new') return false
+        } else if (colFilterCondition === 'used') {
+          if (itemCond !== 'used') return false
+        }
+      }
+
+      // 4. Coluna Estoque
+      if (colFilterStock === 'in_stock' && (item.available_quantity ?? 0) <= 0) {
+        return false
+      }
+      if (colFilterStock === 'zero_stock' && (item.available_quantity ?? 0) > 0) {
+        return false
+      }
+
+      // 5. Coluna Vínculo / Catálogo
+      if (colFilterVinculo === 'matched' && !item.matchedProduct) return false
+      if (colFilterVinculo === 'unmatched' && item.matchedProduct) return false
+      if (colFilterVinculo === 'catalog' && !item.catalog_product_id && !item.catalog_listing)
+        return false
+
+      // 6. Coluna Tipo de anúncio (Clássico / Premium)
+      if (colFilterListingType !== 'all') {
+        if (item.listing_type_id !== colFilterListingType) return false
       }
 
       return true
@@ -232,7 +288,41 @@ export default function AnunciosML() {
     catalogOnlyFilter,
     conditionFilter,
     refurbishedGradeFilter,
+    colSearchTitle,
+    colFilterStatus,
+    colFilterCondition,
+    colFilterStock,
+    colFilterVinculo,
+    colFilterListingType,
   ])
+
+  // Contagem de filtros ativos no cabeçalho
+  const activeHeaderFiltersCount = useMemo(() => {
+    let count = 0
+    if (colSearchTitle.trim()) count++
+    if (colFilterStatus !== 'all') count++
+    if (colFilterCondition !== 'all') count++
+    if (colFilterStock !== 'all') count++
+    if (colFilterVinculo !== 'all') count++
+    if (colFilterListingType !== 'all') count++
+    return count
+  }, [
+    colSearchTitle,
+    colFilterStatus,
+    colFilterCondition,
+    colFilterStock,
+    colFilterVinculo,
+    colFilterListingType,
+  ])
+
+  const handleClearHeaderFilters = () => {
+    setColSearchTitle('')
+    setColFilterStatus('all')
+    setColFilterCondition('all')
+    setColFilterStock('all')
+    setColFilterVinculo('all')
+    setColFilterListingType('all')
+  }
 
   const stats = useMemo(() => {
     if (!data?.items) {
@@ -790,6 +880,27 @@ export default function AnunciosML() {
                 </div>
               </div>
 
+              {/* Indicador de Filtros de Cabeçalho Ativos */}
+              {activeHeaderFiltersCount > 0 && (
+                <div className="p-2 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center gap-2">
+                    <Filter className="w-3.5 h-3.5 text-blue-700" />
+                    <span className="font-medium text-blue-950">
+                      <strong>{activeHeaderFiltersCount}</strong> filtro(s) ativo(s) nos cabeçalhos
+                      da tabela.
+                    </span>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleClearHeaderFilters}
+                    className="text-xs h-7 px-2 text-blue-700 hover:text-blue-900 hover:bg-blue-100"
+                  >
+                    Limpar filtros das colunas
+                  </Button>
+                </div>
+              )}
+
               {/* Barra de Ações em Massa quando houver seleção */}
               {selectedItemIds.size > 0 && (
                 <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-300 flex items-center justify-between gap-3 text-xs">
@@ -848,7 +959,7 @@ export default function AnunciosML() {
             <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50 text-slate-600 uppercase text-[10px] tracking-wider border-b border-slate-200">
+                  <thead className="bg-slate-50 text-slate-600 uppercase text-[10px] tracking-wider border-b border-slate-200 select-none">
                     <tr>
                       <th className="py-3 px-3 w-8">
                         <input
@@ -861,12 +972,443 @@ export default function AnunciosML() {
                           className="rounded border-slate-300 text-amber-600 focus:ring-amber-500"
                         />
                       </th>
-                      <th className="py-3 px-3">Anúncio</th>
-                      <th className="py-3 px-3">Status</th>
-                      <th className="py-3 px-3">Condição</th>
-                      <th className="py-3 px-3">Preço no ML (Edição Direta)</th>
-                      <th className="py-3 px-3">Estoque no ML</th>
-                      <th className="py-3 px-3">Vínculo Catálogo</th>
+
+                      {/* Header Coluna: Anúncio */}
+                      <th className="py-3 px-3">
+                        <div className="flex items-center gap-1.5">
+                          <span>Anúncio</span>
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <button
+                                type="button"
+                                className={`p-1 rounded hover:bg-slate-200 transition-colors ${
+                                  colSearchTitle.trim()
+                                    ? 'text-amber-600 bg-amber-100 font-bold'
+                                    : 'text-slate-400 hover:text-slate-700'
+                                }`}
+                                title="Filtrar por Título ou ID"
+                              >
+                                <Filter className="w-3 h-3" />
+                              </button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-64 p-3 text-xs space-y-2" align="start">
+                              <p className="font-bold text-slate-800">Filtrar por Anúncio / SKU</p>
+                              <Input
+                                placeholder="Digite título, ID MLB ou SKU..."
+                                value={colSearchTitle}
+                                onChange={(e) => setColSearchTitle(e.target.value)}
+                                className="h-8 text-xs"
+                                autoFocus
+                              />
+                              {colSearchTitle && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setColSearchTitle('')}
+                                  className="w-full h-7 text-xs text-slate-500 hover:text-slate-800"
+                                >
+                                  Limpar filtro
+                                </Button>
+                              )}
+                            </PopoverContent>
+                          </Popover>
+                        </div>
+                      </th>
+
+                      {/* Header Coluna: Status */}
+                      <th className="py-3 px-3">
+                        <div className="flex items-center gap-1.5">
+                          <span>Status</span>
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <button
+                                type="button"
+                                className={`p-1 rounded hover:bg-slate-200 transition-colors ${
+                                  colFilterStatus !== 'all'
+                                    ? 'text-amber-600 bg-amber-100 font-bold'
+                                    : 'text-slate-400 hover:text-slate-700'
+                                }`}
+                                title="Filtrar por Status"
+                              >
+                                <Filter className="w-3 h-3" />
+                              </button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-48 p-2 text-xs space-y-1" align="start">
+                              <p className="font-bold text-slate-800 px-2 py-1">Status no ML</p>
+                              <button
+                                type="button"
+                                onClick={() => setColFilterStatus('all')}
+                                className={`w-full text-left px-2 py-1.5 rounded flex items-center justify-between hover:bg-slate-100 ${
+                                  colFilterStatus === 'all'
+                                    ? 'bg-amber-50 font-bold text-amber-900'
+                                    : 'text-slate-700'
+                                }`}
+                              >
+                                <span>Todos</span>
+                                {colFilterStatus === 'all' && (
+                                  <Check className="w-3.5 h-3.5 text-amber-600" />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setColFilterStatus('active')}
+                                className={`w-full text-left px-2 py-1.5 rounded flex items-center justify-between hover:bg-slate-100 ${
+                                  colFilterStatus === 'active'
+                                    ? 'bg-amber-50 font-bold text-amber-900'
+                                    : 'text-slate-700'
+                                }`}
+                              >
+                                <span className="flex items-center gap-1.5">
+                                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                                  Ativo
+                                </span>
+                                {colFilterStatus === 'active' && (
+                                  <Check className="w-3.5 h-3.5 text-amber-600" />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setColFilterStatus('paused')}
+                                className={`w-full text-left px-2 py-1.5 rounded flex items-center justify-between hover:bg-slate-100 ${
+                                  colFilterStatus === 'paused'
+                                    ? 'bg-amber-50 font-bold text-amber-900'
+                                    : 'text-slate-700'
+                                }`}
+                              >
+                                <span className="flex items-center gap-1.5">
+                                  <span className="w-2 h-2 rounded-full bg-amber-500" />
+                                  Pausado
+                                </span>
+                                {colFilterStatus === 'paused' && (
+                                  <Check className="w-3.5 h-3.5 text-amber-600" />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setColFilterStatus('closed')}
+                                className={`w-full text-left px-2 py-1.5 rounded flex items-center justify-between hover:bg-slate-100 ${
+                                  colFilterStatus === 'closed'
+                                    ? 'bg-amber-50 font-bold text-amber-900'
+                                    : 'text-slate-700'
+                                }`}
+                              >
+                                <span className="flex items-center gap-1.5">
+                                  <span className="w-2 h-2 rounded-full bg-slate-400" />
+                                  Encerrado
+                                </span>
+                                {colFilterStatus === 'closed' && (
+                                  <Check className="w-3.5 h-3.5 text-amber-600" />
+                                )}
+                              </button>
+                            </PopoverContent>
+                          </Popover>
+                        </div>
+                      </th>
+
+                      {/* Header Coluna: Condição */}
+                      <th className="py-3 px-3">
+                        <div className="flex items-center gap-1.5">
+                          <span>Condição</span>
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <button
+                                type="button"
+                                className={`p-1 rounded hover:bg-slate-200 transition-colors ${
+                                  colFilterCondition !== 'all'
+                                    ? 'text-amber-600 bg-amber-100 font-bold'
+                                    : 'text-slate-400 hover:text-slate-700'
+                                }`}
+                                title="Filtrar por Condição"
+                              >
+                                <Filter className="w-3 h-3" />
+                              </button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-52 p-2 text-xs space-y-1" align="start">
+                              <p className="font-bold text-slate-800 px-2 py-1">Condição do Item</p>
+                              <button
+                                type="button"
+                                onClick={() => setColFilterCondition('all')}
+                                className={`w-full text-left px-2 py-1.5 rounded flex items-center justify-between hover:bg-slate-100 ${
+                                  colFilterCondition === 'all'
+                                    ? 'bg-amber-50 font-bold text-amber-900'
+                                    : 'text-slate-700'
+                                }`}
+                              >
+                                <span>Todas</span>
+                                {colFilterCondition === 'all' && (
+                                  <Check className="w-3.5 h-3.5 text-amber-600" />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setColFilterCondition('refurbished')}
+                                className={`w-full text-left px-2 py-1.5 rounded flex items-center justify-between hover:bg-slate-100 ${
+                                  colFilterCondition === 'refurbished'
+                                    ? 'bg-amber-50 font-bold text-amber-900'
+                                    : 'text-slate-700'
+                                }`}
+                              >
+                                <span>Recondicionado</span>
+                                {colFilterCondition === 'refurbished' && (
+                                  <Check className="w-3.5 h-3.5 text-amber-600" />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setColFilterCondition('new')}
+                                className={`w-full text-left px-2 py-1.5 rounded flex items-center justify-between hover:bg-slate-100 ${
+                                  colFilterCondition === 'new'
+                                    ? 'bg-amber-50 font-bold text-amber-900'
+                                    : 'text-slate-700'
+                                }`}
+                              >
+                                <span>Novo</span>
+                                {colFilterCondition === 'new' && (
+                                  <Check className="w-3.5 h-3.5 text-amber-600" />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setColFilterCondition('used')}
+                                className={`w-full text-left px-2 py-1.5 rounded flex items-center justify-between hover:bg-slate-100 ${
+                                  colFilterCondition === 'used'
+                                    ? 'bg-amber-50 font-bold text-amber-900'
+                                    : 'text-slate-700'
+                                }`}
+                              >
+                                <span>Usado</span>
+                                {colFilterCondition === 'used' && (
+                                  <Check className="w-3.5 h-3.5 text-amber-600" />
+                                )}
+                              </button>
+                            </PopoverContent>
+                          </Popover>
+                        </div>
+                      </th>
+
+                      {/* Header Coluna: Preço / Tipo */}
+                      <th className="py-3 px-3">
+                        <div className="flex items-center gap-1.5">
+                          <span>Preço ML</span>
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <button
+                                type="button"
+                                className={`p-1 rounded hover:bg-slate-200 transition-colors ${
+                                  colFilterListingType !== 'all'
+                                    ? 'text-amber-600 bg-amber-100 font-bold'
+                                    : 'text-slate-400 hover:text-slate-700'
+                                }`}
+                                title="Filtrar por Tipo de Anúncio"
+                              >
+                                <Filter className="w-3 h-3" />
+                              </button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-52 p-2 text-xs space-y-1" align="start">
+                              <p className="font-bold text-slate-800 px-2 py-1">Tipo de Anúncio</p>
+                              <button
+                                type="button"
+                                onClick={() => setColFilterListingType('all')}
+                                className={`w-full text-left px-2 py-1.5 rounded flex items-center justify-between hover:bg-slate-100 ${
+                                  colFilterListingType === 'all'
+                                    ? 'bg-amber-50 font-bold text-amber-900'
+                                    : 'text-slate-700'
+                                }`}
+                              >
+                                <span>Todos os tipos</span>
+                                {colFilterListingType === 'all' && (
+                                  <Check className="w-3.5 h-3.5 text-amber-600" />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setColFilterListingType('gold_special')}
+                                className={`w-full text-left px-2 py-1.5 rounded flex items-center justify-between hover:bg-slate-100 ${
+                                  colFilterListingType === 'gold_special'
+                                    ? 'bg-amber-50 font-bold text-amber-900'
+                                    : 'text-slate-700'
+                                }`}
+                              >
+                                <span>Clássico (gold_special)</span>
+                                {colFilterListingType === 'gold_special' && (
+                                  <Check className="w-3.5 h-3.5 text-amber-600" />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setColFilterListingType('gold_pro')}
+                                className={`w-full text-left px-2 py-1.5 rounded flex items-center justify-between hover:bg-slate-100 ${
+                                  colFilterListingType === 'gold_pro'
+                                    ? 'bg-amber-50 font-bold text-amber-900'
+                                    : 'text-slate-700'
+                                }`}
+                              >
+                                <span>Premium (gold_pro)</span>
+                                {colFilterListingType === 'gold_pro' && (
+                                  <Check className="w-3.5 h-3.5 text-amber-600" />
+                                )}
+                              </button>
+                            </PopoverContent>
+                          </Popover>
+                        </div>
+                      </th>
+
+                      {/* Header Coluna: Estoque */}
+                      <th className="py-3 px-3">
+                        <div className="flex items-center gap-1.5">
+                          <span>Estoque ML</span>
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <button
+                                type="button"
+                                className={`p-1 rounded hover:bg-slate-200 transition-colors ${
+                                  colFilterStock !== 'all'
+                                    ? 'text-amber-600 bg-amber-100 font-bold'
+                                    : 'text-slate-400 hover:text-slate-700'
+                                }`}
+                                title="Filtrar por Disponibilidade"
+                              >
+                                <Filter className="w-3 h-3" />
+                              </button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-48 p-2 text-xs space-y-1" align="start">
+                              <p className="font-bold text-slate-800 px-2 py-1">Disponibilidade</p>
+                              <button
+                                type="button"
+                                onClick={() => setColFilterStock('all')}
+                                className={`w-full text-left px-2 py-1.5 rounded flex items-center justify-between hover:bg-slate-100 ${
+                                  colFilterStock === 'all'
+                                    ? 'bg-amber-50 font-bold text-amber-900'
+                                    : 'text-slate-700'
+                                }`}
+                              >
+                                <span>Todos</span>
+                                {colFilterStock === 'all' && (
+                                  <Check className="w-3.5 h-3.5 text-amber-600" />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setColFilterStock('in_stock')}
+                                className={`w-full text-left px-2 py-1.5 rounded flex items-center justify-between hover:bg-slate-100 ${
+                                  colFilterStock === 'in_stock'
+                                    ? 'bg-amber-50 font-bold text-amber-900'
+                                    : 'text-slate-700'
+                                }`}
+                              >
+                                <span className="text-emerald-700 font-semibold">
+                                  Com estoque (&gt; 0)
+                                </span>
+                                {colFilterStock === 'in_stock' && (
+                                  <Check className="w-3.5 h-3.5 text-amber-600" />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setColFilterStock('zero_stock')}
+                                className={`w-full text-left px-2 py-1.5 rounded flex items-center justify-between hover:bg-slate-100 ${
+                                  colFilterStock === 'zero_stock'
+                                    ? 'bg-amber-50 font-bold text-amber-900'
+                                    : 'text-slate-700'
+                                }`}
+                              >
+                                <span className="text-slate-500">Sem estoque (0)</span>
+                                {colFilterStock === 'zero_stock' && (
+                                  <Check className="w-3.5 h-3.5 text-amber-600" />
+                                )}
+                              </button>
+                            </PopoverContent>
+                          </Popover>
+                        </div>
+                      </th>
+
+                      {/* Header Coluna: Vínculo */}
+                      <th className="py-3 px-3">
+                        <div className="flex items-center gap-1.5">
+                          <span>Vínculo Catálogo</span>
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <button
+                                type="button"
+                                className={`p-1 rounded hover:bg-slate-200 transition-colors ${
+                                  colFilterVinculo !== 'all'
+                                    ? 'text-amber-600 bg-amber-100 font-bold'
+                                    : 'text-slate-400 hover:text-slate-700'
+                                }`}
+                                title="Filtrar por Vínculo / Catálogo"
+                              >
+                                <Filter className="w-3 h-3" />
+                              </button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-52 p-2 text-xs space-y-1" align="start">
+                              <p className="font-bold text-slate-800 px-2 py-1">
+                                Vínculo Local & Catálogo
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => setColFilterVinculo('all')}
+                                className={`w-full text-left px-2 py-1.5 rounded flex items-center justify-between hover:bg-slate-100 ${
+                                  colFilterVinculo === 'all'
+                                    ? 'bg-amber-50 font-bold text-amber-900'
+                                    : 'text-slate-700'
+                                }`}
+                              >
+                                <span>Todos</span>
+                                {colFilterVinculo === 'all' && (
+                                  <Check className="w-3.5 h-3.5 text-amber-600" />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setColFilterVinculo('matched')}
+                                className={`w-full text-left px-2 py-1.5 rounded flex items-center justify-between hover:bg-slate-100 ${
+                                  colFilterVinculo === 'matched'
+                                    ? 'bg-amber-50 font-bold text-amber-900'
+                                    : 'text-slate-700'
+                                }`}
+                              >
+                                <span className="text-emerald-700 font-semibold">
+                                  Vinculado ao Estoque
+                                </span>
+                                {colFilterVinculo === 'matched' && (
+                                  <Check className="w-3.5 h-3.5 text-amber-600" />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setColFilterVinculo('unmatched')}
+                                className={`w-full text-left px-2 py-1.5 rounded flex items-center justify-between hover:bg-slate-100 ${
+                                  colFilterVinculo === 'unmatched'
+                                    ? 'bg-amber-50 font-bold text-amber-900'
+                                    : 'text-slate-700'
+                                }`}
+                              >
+                                <span>Sem vínculo local</span>
+                                {colFilterVinculo === 'unmatched' && (
+                                  <Check className="w-3.5 h-3.5 text-amber-600" />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setColFilterVinculo('catalog')}
+                                className={`w-full text-left px-2 py-1.5 rounded flex items-center justify-between hover:bg-slate-100 ${
+                                  colFilterVinculo === 'catalog'
+                                    ? 'bg-amber-50 font-bold text-amber-900'
+                                    : 'text-slate-700'
+                                }`}
+                              >
+                                <span className="text-blue-700 font-semibold">
+                                  Anúncio de Catálogo ML
+                                </span>
+                                {colFilterVinculo === 'catalog' && (
+                                  <Check className="w-3.5 h-3.5 text-amber-600" />
+                                )}
+                              </button>
+                            </PopoverContent>
+                          </Popover>
+                        </div>
+                      </th>
+
                       <th className="py-3 px-3 text-right">Ações</th>
                     </tr>
                   </thead>

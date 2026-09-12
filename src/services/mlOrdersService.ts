@@ -56,6 +56,9 @@ export interface MLOrder {
   } | null
   items: MLOrderItem[]
   payments: MLOrderPayment[]
+  tags?: string[]
+  feedback?: any
+  raw_order?: any
   created: string
   updated: string
 }
@@ -139,11 +142,21 @@ export const mlOrdersService = {
       const isPaid = order.status === 'paid' || order.status === 'confirmed'
       const amount = Number(order.total_amount) || 0
 
-      // Envio pronto para despachar
+      // Envio pronto para despachar (somente se não foi cancelado nem entregue nem enviado)
+      const isDelivered =
+        order.shipping_status === 'delivered' ||
+        (Array.isArray(order.tags) && order.tags.includes('delivered'))
+
+      const isShipped =
+        order.shipping_status === 'shipped' ||
+        (Array.isArray(order.tags) && order.tags.includes('shipped'))
+
       if (
-        order.shipping_status === 'ready_to_ship' ||
-        order.shipping_status === 'pending' ||
-        order.shipping_status === 'to_be_agreed'
+        !isDelivered &&
+        !isShipped &&
+        (order.shipping_status === 'ready_to_ship' ||
+          order.shipping_status === 'pending' ||
+          order.shipping_status === 'to_be_agreed')
       ) {
         if (order.status !== 'cancelled') {
           pedidosProntosEnvio++
@@ -154,7 +167,7 @@ export const mlOrdersService = {
         if (isPaid) {
           faturamento30dias += amount
           pedidos30dias++
-          if (order.shipping_status === 'delivered') {
+          if (isDelivered) {
             pedidosEntregues30dias++
           }
         }
@@ -193,7 +206,7 @@ export const mlOrdersService = {
     daysBack?: number
     onProgress?: (message: string) => void
   }): Promise<{ success: boolean; ordersFetched: number; ordersSaved: number; message: string }> {
-    const daysBack = options?.daysBack || 60
+    const daysBack = options?.daysBack || 180
     const onProgress = options?.onProgress
 
     if (onProgress) {
