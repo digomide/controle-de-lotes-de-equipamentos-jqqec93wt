@@ -17,7 +17,9 @@ import {
   User,
   MapPin,
   Calendar,
+  FileCheck,
 } from 'lucide-react'
+import { EmitirNFModal } from '@/components/EmitirNFModal'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -53,6 +55,10 @@ export function MLOrdersTab() {
   // Modal de Detalhes do Pedido
   const [selectedOrder, setSelectedOrder] = useState<MLOrder | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
+
+  // Modal de Emissão de Nota Fiscal
+  const [emitNFOpen, setEmitNFOpen] = useState(false)
+  const [orderToEmitNF, setOrderToEmitNF] = useState<MLOrder | null>(null)
 
   const loadOrders = async (silent = false) => {
     if (!silent) setLoading(true)
@@ -545,18 +551,34 @@ export function MLOrdersTab() {
                         {renderShippingStatusBadge(resolveEffectiveShippingStatus(order))}
                       </td>
                       <td className="py-3 px-4 text-right whitespace-nowrap">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            setSelectedOrder(order)
-                            setDetailOpen(true)
-                          }}
-                          className="text-xs h-7 px-2 text-blue-700 hover:text-blue-900 hover:bg-blue-50 font-semibold"
-                        >
-                          Ver Detalhes
-                          <ChevronRight className="w-3 h-3 ml-0.5" />
-                        </Button>
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setOrderToEmitNF(order)
+                              setEmitNFOpen(true)
+                            }}
+                            className="text-[11px] h-7 px-2 text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 border-emerald-200 font-semibold gap-1"
+                            title="Emitir Nota Fiscal Eletrônica (Focus NFe)"
+                          >
+                            <FileCheck className="w-3 h-3" />
+                            Emitir NF
+                          </Button>
+
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setSelectedOrder(order)
+                              setDetailOpen(true)
+                            }}
+                            className="text-xs h-7 px-2 text-blue-700 hover:text-blue-900 hover:bg-blue-50 font-semibold"
+                          >
+                            Detalhes
+                            <ChevronRight className="w-3 h-3 ml-0.5" />
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   )
@@ -710,6 +732,17 @@ export function MLOrdersTab() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Modal de Emissão de NF-e */}
+      <EmitirNFModal
+        open={emitNFOpen}
+        onOpenChange={setEmitNFOpen}
+        originType="ml_order"
+        mlOrder={orderToEmitNF}
+        onSuccess={() => {
+          loadOrders(true)
+        }}
+      />
     </div>
   )
 }

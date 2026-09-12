@@ -32,6 +32,7 @@ import CotacoesCorporativas from './pages/CotacoesCorporativas'
 import Marketing from './pages/Marketing'
 import Pedido6849 from './pages/Pedido6849'
 import Clientes from './pages/Clientes'
+import NotasFiscais from './pages/NotasFiscais'
 import { AuthProvider } from './contexts/AuthContext'
 import { ProtectedRoute } from './components/ProtectedRoute'
 
@@ -86,6 +87,16 @@ const App = () => (
               element={
                 <ProtectedRoute requiredModule="vendas">
                   <Vendas />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Notas Fiscais (NF-e) */}
+            <Route
+              path="/notas-fiscais"
+              element={
+                <ProtectedRoute requiredModule="notas_fiscais">
+                  <NotasFiscais />
                 </ProtectedRoute>
               }
             />

@@ -24,6 +24,7 @@ import {
   Video,
   Radar,
   Compass,
+  FileCheck,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -78,6 +79,7 @@ export default function Layout() {
     { title: 'Post TikTok', path: '/post-tiktok', icon: Video, moduleId: 'post_tiktok' },
     { title: 'Cotações Corporativas', path: '/cotacoes', icon: Building2, moduleId: 'cotacoes' },
     { title: 'Vendas', path: '/vendas', icon: ShoppingCart, moduleId: 'vendas' },
+    { title: 'Notas Fiscais', path: '/notas-fiscais', icon: FileCheck, moduleId: 'notas_fiscais' },
     { title: 'Estoque Geral', path: '/estoque-geral', icon: Boxes, moduleId: 'estoque_geral' },
     { title: 'Estoque / Lotes', path: '/estoque', icon: Layers, moduleId: 'estoque_lotes' },
     { title: 'Ajustes', path: '/ajustes', icon: SlidersHorizontal, moduleId: 'ajustes' },

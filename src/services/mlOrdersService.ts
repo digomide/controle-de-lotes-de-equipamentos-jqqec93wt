@@ -275,11 +275,20 @@ export const mlOrdersService = {
       if (o.shipping_delayed) {
         delayedSalesCount++
       } else {
-        // Fallback: se tiver date_shipped e shipping_handling_limit
+        // Fallback: se tiver date_shipped e shipping_handling_limit, calcula com ajuste de fim de semana
         if (o.shipping_handling_limit && o.shipping_date_shipped) {
-          const limitMs = new Date(o.shipping_handling_limit).getTime()
-          const shippedMs = new Date(o.shipping_date_shipped).getTime()
-          if (shippedMs > limitMs) {
+          const originalLimit = new Date(o.shipping_handling_limit)
+          const shippedDate = new Date(o.shipping_date_shipped)
+
+          // Desloca fim de semana (sábado/domingo) para a segunda-feira seguinte
+          const dayOfWeek = originalLimit.getDay()
+          let daysToAdd = 0
+          if (dayOfWeek === 6)
+            daysToAdd = 2 // Sábado -> Segunda
+          else if (dayOfWeek === 0) daysToAdd = 1 // Domingo -> Segunda
+
+          const adjustedLimitMs = originalLimit.getTime() + daysToAdd * 24 * 60 * 60 * 1000
+          if (shippedDate.getTime() - adjustedLimitMs > 60000) {
             delayedSalesCount++
           }
         }
@@ -353,24 +362,46 @@ export const mlOrdersService = {
         effSubstatus !== 'invoice_pending'
 
       if (isPendingScan) {
-        const limitMs = o.shipping_handling_limit
-          ? new Date(o.shipping_handling_limit).getTime()
-          : 0
-        if (limitMs > 0) {
-          if (nowMs > limitMs) {
+        if (o.shipping_handling_limit) {
+          const originalLimit = new Date(o.shipping_handling_limit)
+          const dayOfWeek = originalLimit.getDay()
+          let daysToAdd = 0
+          if (dayOfWeek === 6)
+            daysToAdd = 2 // Sábado -> Segunda
+          else if (dayOfWeek === 0) daysToAdd = 1 // Domingo -> Segunda
+
+          const adjustedLimitMs = originalLimit.getTime() + daysToAdd * 24 * 60 * 60 * 1000
+          const nowDayOfWeek = now.getDay()
+          const isWeekendNow = nowDayOfWeek === 0 || nowDayOfWeek === 6
+
+          // Fim de semana NÃO marca atraso no semáforo
+          if (!isWeekendNow && nowMs > adjustedLimitMs) {
             totalDelayed++
           } else {
             totalOnTime++
           }
-          if (limitMs >= startOfToday && limitMs <= endOfToday) {
+
+          if (adjustedLimitMs >= startOfToday && adjustedLimitMs <= endOfToday) {
             totalToScanToday++
           }
         } else {
           totalToScanToday++
         }
-      } else if (isShipped && o.shipping_delayed) {
-        // Envio que foi bipado atrasado
-        totalDelayed++
+      } else if (isShipped) {
+        if (o.shipping_delayed) {
+          totalDelayed++
+        } else if (o.shipping_handling_limit && o.shipping_date_shipped) {
+          const originalLimit = new Date(o.shipping_handling_limit)
+          const shippedDate = new Date(o.shipping_date_shipped)
+          const dayOfWeek = originalLimit.getDay()
+          let daysToAdd = 0
+          if (dayOfWeek === 6) daysToAdd = 2
+          else if (dayOfWeek === 0) daysToAdd = 1
+          const adjustedLimitMs = originalLimit.getTime() + daysToAdd * 24 * 60 * 60 * 1000
+          if (shippedDate.getTime() - adjustedLimitMs > 60000) {
+            totalDelayed++
+          }
+        }
       }
     }
 

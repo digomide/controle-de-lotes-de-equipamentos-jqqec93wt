@@ -9,6 +9,7 @@ import {
   RefreshCw,
   Search,
   ExternalLink,
+  FileCheck,
   ShieldAlert,
   ShieldCheck,
   Package,
@@ -35,6 +36,13 @@ import {
   type MLReputationRisk,
   type MLDeadlinesKPIs,
 } from '@/services/mlOrdersService'
+import {
+  evaluateBusinessDeadline,
+  adjustLimitToBusinessDay,
+  isWeekendSP,
+  isShippedOrderDelayed,
+} from '@/utils/businessDays'
+import { EmitirNFModal } from '@/components/EmitirNFModal'
 
 export function MLDeadlinesTab() {
   const { toast } = useToast()
@@ -45,9 +53,12 @@ export function MLDeadlinesTab() {
   const [syncProgress, setSyncProgress] = useState('')
   const [search, setSearch] = useState('')
   const [activeFilter, setActiveFilter] = useState<
-    'pending_scan' | 'invoice_pending' | 'shipped' | 'all'
+    'all' | 'pending_scan' | 'invoice_pending' | 'shipped'
   >('pending_scan')
 
+  // Modal de Emissão de NF
+  const [emitNFOpen, setEmitNFOpen] = useState(false)
+  const [orderToEmitNF, setOrderToEmitNF] = useState<MLOrder | null>(null)
   // Relógio ao vivo atualizado a cada minuto
   const [currentTime, setCurrentTime] = useState<number>(Date.now())
 
@@ -216,7 +227,7 @@ export function MLDeadlinesTab() {
     })
   }
 
-  // Semáforo e Contagem Regressiva para envios pendentes
+  // Semáforo e Contagem Regressiva para envios pendentes considerando DIAS ÚTEIS
   const getDeadlineStatus = (handlingLimitIso?: string | null) => {
     if (!handlingLimitIso) {
       return {
@@ -227,15 +238,20 @@ export function MLDeadlinesTab() {
       }
     }
 
-    const limitMs = new Date(handlingLimitIso).getTime()
-    const diffMs = limitMs - currentTime
-    const diffHours = diffMs / (1000 * 60 * 60)
+    const evalResult = evaluateBusinessDeadline(handlingLimitIso, new Date(currentTime))
+    const {
+      adjustedLimit,
+      isWeekendAdjusted,
+      isOverdue,
+      isDueToday,
+      remainingMs,
+      diffHours,
+      overdueMinutes,
+    } = evalResult
 
-    if (diffMs <= 0) {
-      // Passou do limite sem bip: atrasado!
-      const overdueMins = Math.abs(Math.floor(diffMs / (1000 * 60)))
-      const overdueHours = Math.floor(overdueMins / 60)
-      const remMins = overdueMins % 60
+    if (isOverdue) {
+      const overdueHours = Math.floor(overdueMinutes / 60)
+      const remMins = overdueMinutes % 60
       const delayText =
         overdueHours > 0 ? `${overdueHours}h ${remMins}m atrasado` : `${remMins} min atrasado`
 
@@ -246,13 +262,27 @@ export function MLDeadlinesTab() {
         remainingText: delayText,
         timeColor: 'text-rose-600',
         dotColor: 'bg-rose-500',
+        isWeekendAdjusted,
       }
     }
 
-    if (diffHours < 12) {
-      // Vence hoje (< 12h)
-      const hours = Math.floor(diffHours)
-      const mins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
+    // Se é fim de semana (sábado/domingo), o Mercado Livre não conta atraso
+    if (isWeekendSP(new Date(currentTime))) {
+      return {
+        type: 'ontime',
+        label: 'Fim de semana (coleta 2ª feira)',
+        badgeClass: 'bg-blue-50 text-blue-800 border-blue-300 font-medium',
+        remainingText: `Coleta na 2ª feira às ${formatTimeSP(adjustedLimit.toISOString())}`,
+        timeColor: 'text-blue-700',
+        dotColor: 'bg-blue-500',
+        isWeekendAdjusted: true,
+      }
+    }
+
+    if (isDueToday || diffHours < 12) {
+      // Vence hoje (< 12h ou mesma data de SP)
+      const hours = Math.max(0, Math.floor(diffHours))
+      const mins = Math.max(0, Math.floor((remainingMs % (1000 * 60 * 60)) / (1000 * 60)))
       return {
         type: 'warning',
         label: 'Vence hoje',
@@ -260,6 +290,7 @@ export function MLDeadlinesTab() {
         remainingText: `Faltam ${hours}h ${mins}m`,
         timeColor: 'text-amber-700',
         dotColor: 'bg-amber-500',
+        isWeekendAdjusted,
       }
     }
 
@@ -267,11 +298,12 @@ export function MLDeadlinesTab() {
     const hours = Math.floor(diffHours)
     return {
       type: 'ontime',
-      label: 'No prazo',
+      label: isWeekendAdjusted ? 'No prazo (2ª feira)' : 'No prazo',
       badgeClass: 'bg-emerald-50 text-emerald-800 border-emerald-300 font-medium',
       remainingText: `Faltam ${hours}h`,
       timeColor: 'text-emerald-700',
       dotColor: 'bg-emerald-500',
+      isWeekendAdjusted,
     }
   }
 
@@ -298,11 +330,12 @@ export function MLDeadlinesTab() {
       )
     }
 
-    const limitMs = new Date(limitIso).getTime()
+    const isDelayed = isShippedOrderDelayed(limitIso, shippedIso, order.shipping_delayed)
+    const { adjustedDate: adjustedLimit } = adjustLimitToBusinessDay(new Date(limitIso))
     const shippedMs = new Date(shippedIso).getTime()
-    const diffMs = shippedMs - limitMs
+    const diffMs = shippedMs - adjustedLimit.getTime()
 
-    if (diffMs > 60000 || order.shipping_delayed) {
+    if (isDelayed) {
       const overdueMins = Math.max(1, Math.floor(Math.abs(diffMs) / 60000))
       const overdueHours = Math.floor(overdueMins / 60)
       const remMins = overdueMins % 60
@@ -316,7 +349,7 @@ export function MLDeadlinesTab() {
             Bipado às {shippedTimeText} · {delayText}
           </Badge>
           <span className="text-[10px] text-slate-500">
-            Limite era {formatDateTimeSP(limitIso)}
+            Limite era {formatDateTimeSP(adjustedLimit.toISOString())}
           </span>
         </div>
       )
@@ -328,7 +361,9 @@ export function MLDeadlinesTab() {
           <CheckCircle2 className="w-3 h-3 text-emerald-600" />
           Bipado às {shippedTimeText} · no prazo
         </Badge>
-        <span className="text-[10px] text-slate-500">Limite era {formatTimeSP(limitIso)}</span>
+        <span className="text-[10px] text-slate-500">
+          Limite era {formatTimeSP(adjustedLimit.toISOString())}
+        </span>
       </div>
     )
   }
@@ -691,10 +726,23 @@ export function MLDeadlinesTab() {
                       <td className="py-3 px-3">
                         <div className="space-y-1">
                           {isInvoicePending ? (
-                            <Badge className="bg-rose-100 text-rose-800 border-rose-300 font-bold text-[11px] gap-1">
-                              <FileText className="w-3 h-3 text-rose-600" />
-                              Nota Fiscal Pendente
-                            </Badge>
+                            <div className="flex flex-col items-start gap-1">
+                              <Badge className="bg-rose-100 text-rose-800 border-rose-300 font-bold text-[11px] gap-1">
+                                <FileText className="w-3 h-3 text-rose-600" />
+                                Nota Fiscal Pendente
+                              </Badge>
+                              <Button
+                                size="sm"
+                                onClick={() => {
+                                  setOrderToEmitNF(order)
+                                  setEmitNFOpen(true)
+                                }}
+                                className="h-6 px-2 text-[10px] bg-emerald-600 hover:bg-emerald-700 text-white font-bold gap-1 shadow-xs"
+                              >
+                                <FileCheck className="w-3 h-3" />
+                                Emitir NF
+                              </Button>
+                            </div>
                           ) : isShipped ? (
                             <Badge className="bg-emerald-50 text-emerald-700 border-emerald-300 text-[11px] gap-1 font-medium">
                               <Truck className="w-3 h-3 text-emerald-600" />
@@ -815,14 +863,30 @@ export function MLDeadlinesTab() {
 
                       {/* 6. Ação */}
                       <td className="py-3 px-3 text-right">
-                        <a
-                          href={`https://myaccount.mercadolivre.com.br/vendas/lista?order_id=${order.order_id}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline"
-                        >
-                          Ver no ML <ExternalLink className="w-3 h-3" />
-                        </a>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setOrderToEmitNF(order)
+                              setEmitNFOpen(true)
+                            }}
+                            className="h-7 px-2 text-[11px] text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 border-emerald-200 font-semibold gap-1"
+                            title="Emitir Nota Fiscal Eletrônica"
+                          >
+                            <FileCheck className="w-3 h-3" />
+                            NF-e
+                          </Button>
+
+                          <a
+                            href={`https://myaccount.mercadolivre.com.br/vendas/lista?order_id=${order.order_id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline"
+                          >
+                            Ver ML <ExternalLink className="w-3 h-3" />
+                          </a>
+                        </div>
                       </td>
                     </tr>
                   )
@@ -832,6 +896,17 @@ export function MLDeadlinesTab() {
           </div>
         </div>
       )}
+
+      {/* Modal de Emissão de NF */}
+      <EmitirNFModal
+        open={emitNFOpen}
+        onOpenChange={setEmitNFOpen}
+        originType="ml_order"
+        mlOrder={orderToEmitNF}
+        onSuccess={() => {
+          loadOrders(true)
+        }}
+      />
     </div>
   )
 }

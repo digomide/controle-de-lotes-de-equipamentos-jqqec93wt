@@ -15,6 +15,7 @@ import {
   Radar,
   Compass,
   Store,
+  FileCheck,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -35,6 +36,7 @@ export type AppModuleId =
   | 'estoque_geral'
   | 'estoque_lotes'
   | 'ajustes'
+  | 'notas_fiscais'
   | 'usuarios'
   | 'configuracoes'
   | 'loja'
@@ -187,6 +189,14 @@ export const APP_MODULES: AppModuleDefinition[] = [
     paths: ['/ajustes'],
   },
   {
+    id: 'notas_fiscais',
+    label: 'Notas Fiscais (NF-e)',
+    description: 'Emissor próprio de NF-e via Focus NFe, DANFE e status SEFAZ',
+    category: 'vendas_mkt',
+    icon: FileCheck,
+    paths: ['/notas-fiscais'],
+  },
+  {
     id: 'usuarios',
     label: 'Usuários & Acessos',
     description: 'Gestão de usuários, senhas e permissões individuais por módulo',
@@ -234,6 +244,7 @@ export function getModuleIdByPath(pathname: string): AppModuleId | null {
   if (pathname.startsWith('/post-tiktok')) return 'post_tiktok'
   if (pathname.startsWith('/cotacoes')) return 'cotacoes'
   if (pathname.startsWith('/marketing')) return 'marketing'
+  if (pathname.startsWith('/notas-fiscais')) return 'notas_fiscais'
   if (pathname.startsWith('/ajustes')) return 'ajustes'
   if (pathname.startsWith('/usuarios')) return 'usuarios'
   if (pathname.startsWith('/configuracoes')) return 'configuracoes'

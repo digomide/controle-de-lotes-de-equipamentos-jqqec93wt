@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-12T05:43:46.143Z",
+  "generatedAt": "2026-09-12T09:04:47.891Z",
   "collections": [
     {
       "name": "users",
@@ -3978,6 +3978,352 @@
         "CREATE INDEX idx_ml_customers_phone ON ml_customers (phone)",
         "CREATE INDEX idx_ml_customers_origin ON ml_customers (origin)",
         "CREATE INDEX idx_ml_customers_next_contact ON ml_customers (next_contact_date)"
+      ]
+    },
+    {
+      "name": "nf_config",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "focus_token",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "environment",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["homologacao", "producao"]
+        },
+        {
+          "name": "certificate_file",
+          "type": "file",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "certificate_password",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "certificate_status",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "certificate_expires_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cnpj",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "razao_social",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "nome_fantasia",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "inscricao_estadual",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "regime_tributario",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["1", "2", "3"]
+        },
+        {
+          "name": "cnae",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "logradouro",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "numero",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "complemento",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "bairro",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "municipio",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "uf",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "cep",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "telefone",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "email",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "serie_nfe",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "proximo_numero_nfe",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "default_ncm",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "default_cfop_estadual",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "default_cfop_interestadual",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "default_csosn",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "natureza_operacao_padrao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "informacoes_complementares_padrao",
+          "type": "text",
+          "required": false,
+          "system": false
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "nf_invoices",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "ref",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "origin_type",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["ml_order", "sale_internal", "manual"]
+        },
+        {
+          "name": "ml_order_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "sale_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": [
+            "rascunho",
+            "processando",
+            "autorizada",
+            "rejeitada",
+            "cancelada",
+            "erro_transmissao"
+          ]
+        },
+        {
+          "name": "status_sefaz",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "mensagem_sefaz",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "numero",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "serie",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "chave_nfe",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "protocolo_autorizacao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "caminho_danfe",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "caminho_xml_nota_fiscal",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "natureza_operacao",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "valor_total",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "destinatario",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "itens",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "informacoes_complementares",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "focus_payload",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "focus_response",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created_by",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_nf_invoices_ref ON nf_invoices (ref)",
+        "CREATE INDEX idx_nf_invoices_status ON nf_invoices (status)",
+        "CREATE INDEX idx_nf_invoices_ml_order ON nf_invoices (ml_order_id)",
+        "CREATE INDEX idx_nf_invoices_sale ON nf_invoices (sale_id)",
+        "CREATE INDEX idx_nf_invoices_chave ON nf_invoices (chave_nfe)"
       ]
     }
   ]

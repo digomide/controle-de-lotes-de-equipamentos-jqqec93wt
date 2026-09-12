@@ -9,6 +9,7 @@ import {
   XCircle,
   Eye,
   Calendar,
+  FileCheck,
   Layers,
   ArrowRight,
   ArrowLeft,
@@ -48,6 +49,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useRealtime } from '@/hooks/use-realtime'
 import { salesService } from '@/services/sales'
 import { productsService } from '@/services/products'
+import { EmitirNFModal } from '@/components/EmitirNFModal'
 import { batchesService } from '@/services/batches'
 import { purchaseBatchesService } from '@/services/purchaseBatches'
 import { StoreOrdersTab } from '@/components/StoreOrdersTab'
@@ -116,6 +118,10 @@ export default function Vendas() {
   const [detailSale, setDetailSale] = useState<Sale | null>(null)
   const [detailItems, setDetailItems] = useState<SaleItem[]>([])
   const [loadingDetails, setLoadingDetails] = useState(false)
+
+  // Emissão de NF-e
+  const [emitNFOpen, setEmitNFOpen] = useState(false)
+  const [saleToEmitNF, setSaleToEmitNF] = useState<any>(null)
 
   const { toast } = useToast()
   const { user } = useAuth()
@@ -694,15 +700,36 @@ export default function Vendas() {
                           )}
                         </td>
                         <td className="py-3 px-4 text-right whitespace-nowrap">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleOpenDetails(sale.id)}
-                            className="h-8 text-xs gap-1 border-slate-200 hover:bg-slate-100"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                            Ver Itens
-                          </Button>
+                          <div className="flex items-center justify-end gap-1.5">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setSaleToEmitNF({
+                                  id: sale.id,
+                                  client_name: sale.customer_name,
+                                  total_value: sale.total_amount,
+                                  product_description: `Venda #${sale.id} - Equipamentos de Informática`,
+                                })
+                                setEmitNFOpen(true)
+                              }}
+                              className="h-8 text-xs gap-1 text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 border-emerald-200"
+                              title="Emitir Nota Fiscal Eletrônica"
+                            >
+                              <FileCheck className="w-3.5 h-3.5" />
+                              NF-e
+                            </Button>
+
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleOpenDetails(sale.id)}
+                              className="h-8 text-xs gap-1 border-slate-200 hover:bg-slate-100"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              Ver Itens
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -1590,6 +1617,17 @@ export default function Vendas() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Modal de Emissão de Nota Fiscal Eletrônica */}
+      <EmitirNFModal
+        open={emitNFOpen}
+        onOpenChange={setEmitNFOpen}
+        originType="sale_internal"
+        sale={saleToEmitNF}
+        onSuccess={() => {
+          loadData()
+        }}
+      />
     </div>
   )
 }
