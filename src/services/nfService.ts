@@ -113,16 +113,14 @@ export const nfService = {
   async getConfig(): Promise<NFConfig | null> {
     try {
       // Sempre buscar o primeiro registro existente (singleton de configuração)
-      const records = await pb.collection('nf_config').getList<NFConfig>(1, 1, {
-        sort: 'created',
-      })
+      const records = await pb.collection('nf_config').getList<NFConfig>(1, 1)
       if (records.items && records.items.length > 0) {
         return records.items[0]
       }
       return null
     } catch (err) {
       console.error('[nfService] Erro ao buscar nf_config:', err)
-      return null
+      throw err
     }
   },
 

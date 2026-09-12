@@ -16,6 +16,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { toast } from '@/hooks/use-toast'
+import pb from '@/lib/pocketbase/client'
 import { nfService, type NFConfig, type NFInvoice } from '@/services/nfService'
 import { taxRulesService, type TaxRule } from '@/services/taxRulesService'
 import { EmitirNFModal } from '@/components/EmitirNFModal'
@@ -34,6 +35,8 @@ import {
   Search,
   Sliders,
   Sparkles,
+  Eye,
+  EyeOff,
 } from 'lucide-react'
 
 export default function NotasFiscais() {
@@ -76,6 +79,8 @@ export default function NotasFiscais() {
   })
   const [certPassword, setCertPassword] = useState('')
   const [certFile, setCertFile] = useState<File | null>(null)
+  const [showToken, setShowToken] = useState(false)
+  const [showCertPassword, setShowCertPassword] = useState(false)
 
   // Histórico de Notas
   const [invoices, setInvoices] = useState<NFInvoice[]>([])
@@ -86,22 +91,58 @@ export default function NotasFiscais() {
   const [emitModalOpen, setEmitModalOpen] = useState(false)
 
   // Carregar Configuração
-  const loadConfig = async () => {
+  const loadConfig = async (silent = false) => {
     setLoadingConfig(true)
     try {
       const cfg = await nfService.getConfig()
       if (cfg) {
         setConfig((prev) => ({
           ...prev,
-          ...cfg,
+          id: cfg.id,
+          focus_token: cfg.focus_token ?? prev.focus_token,
+          environment: cfg.environment || prev.environment,
+          certificate_file: cfg.certificate_file ?? prev.certificate_file,
+          certificate_password: cfg.certificate_password ?? prev.certificate_password,
+          certificate_status: cfg.certificate_status ?? prev.certificate_status,
+          certificate_expires_at: cfg.certificate_expires_at ?? prev.certificate_expires_at,
+          cnpj: cfg.cnpj ?? prev.cnpj,
+          razao_social: cfg.razao_social ?? prev.razao_social,
+          nome_fantasia: cfg.nome_fantasia ?? prev.nome_fantasia,
+          inscricao_estadual: cfg.inscricao_estadual ?? prev.inscricao_estadual,
+          regime_tributario: cfg.regime_tributario || prev.regime_tributario,
+          cnae: cfg.cnae ?? prev.cnae,
+          logradouro: cfg.logradouro ?? prev.logradouro,
+          numero: cfg.numero ?? prev.numero,
+          complemento: cfg.complemento ?? prev.complemento,
+          bairro: cfg.bairro ?? prev.bairro,
+          municipio: cfg.municipio ?? prev.municipio,
+          uf: cfg.uf || prev.uf,
+          cep: cfg.cep ?? prev.cep,
+          telefone: cfg.telefone ?? prev.telefone,
+          email: cfg.email ?? prev.email,
+          serie_nfe: cfg.serie_nfe || prev.serie_nfe,
+          proximo_numero_nfe:
+            typeof cfg.proximo_numero_nfe === 'number'
+              ? cfg.proximo_numero_nfe
+              : prev.proximo_numero_nfe,
+          default_ncm: cfg.default_ncm || prev.default_ncm,
+          default_cfop_estadual: cfg.default_cfop_estadual || prev.default_cfop_estadual,
+          default_cfop_interestadual:
+            cfg.default_cfop_interestadual || prev.default_cfop_interestadual,
+          default_csosn: cfg.default_csosn || prev.default_csosn,
+          natureza_operacao_padrao: cfg.natureza_operacao_padrao || prev.natureza_operacao_padrao,
+          informacoes_complementares_padrao:
+            cfg.informacoes_complementares_padrao || prev.informacoes_complementares_padrao,
         }))
       }
     } catch (err: any) {
-      toast({
-        title: 'Erro ao carregar configurações',
-        description: err.message,
-        variant: 'destructive',
-      })
+      if (!silent) {
+        toast({
+          title: 'Erro ao carregar configurações do emissor',
+          description: err.message || 'Falha ao consultar parâmetros no banco.',
+          variant: 'destructive',
+        })
+      }
     } finally {
       setLoadingConfig(false)
     }
@@ -149,6 +190,23 @@ export default function NotasFiscais() {
     loadConfig()
     loadInvoices()
     loadTaxRules()
+
+    // Inscrever em atualizações em tempo real de nf_config
+    let unsub: (() => void) | undefined
+    pb.collection('nf_config')
+      .subscribe('*', (e) => {
+        if (e.action === 'update' || e.action === 'create') {
+          loadConfig(true)
+        }
+      })
+      .then((u) => {
+        unsub = u
+      })
+      .catch(() => {})
+
+    return () => {
+      if (unsub) unsub()
+    }
   }, [])
 
   // Salvar Configuração
@@ -563,18 +621,37 @@ export default function NotasFiscais() {
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="md:col-span-2">
-                    <Label className="text-xs font-semibold">
-                      Token de Acesso (API Focus NFe) *
-                    </Label>
-                    <Input
-                      type="password"
-                      className="mt-1 h-9 font-mono text-xs"
-                      value={config.focus_token || ''}
-                      onChange={(e) =>
-                        setConfig((prev) => ({ ...prev, focus_token: e.target.value }))
-                      }
-                      placeholder="Cole aqui seu token fornecido pela Focus NFe"
-                    />
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs font-semibold">
+                        Token de Acesso (API Focus NFe) *
+                      </Label>
+                      {config.focus_token && (
+                        <span className="text-[10px] font-medium text-emerald-700 flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Token gravado no
+                          banco
+                        </span>
+                      )}
+                    </div>
+                    <div className="relative mt-1">
+                      <Input
+                        type={showToken ? 'text' : 'password'}
+                        className="h-9 font-mono text-xs pr-10"
+                        value={config.focus_token || ''}
+                        onChange={(e) =>
+                          setConfig((prev) => ({ ...prev, focus_token: e.target.value }))
+                        }
+                        placeholder="Cole aqui seu token fornecido pela Focus NFe"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowToken(!showToken)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+                        title={showToken ? 'Ocultar token' : 'Visualizar token'}
+                        aria-label={showToken ? 'Ocultar token' : 'Visualizar token'}
+                      >
+                        {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
                     <p className="text-[11px] text-slate-500 mt-1">
                       Você pode deixar em branco enquanto aguarda o cadastro e salvar os outros
                       dados da empresa.
@@ -621,22 +698,72 @@ export default function NotasFiscais() {
                         }}
                         className="mt-1 text-xs file:mr-2 file:py-1 file:px-2 file:rounded-md file:border-0 file:text-xs file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100"
                       />
-                      {config.certificate_file && !certFile && (
-                        <p className="text-[11px] text-emerald-700 mt-1 flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3" /> Certificado salvo no sistema.
+                      {certFile ? (
+                        <p className="text-[11px] text-emerald-800 mt-1 flex items-center gap-1 font-medium font-mono">
+                          <Sparkles className="w-3 h-3 text-emerald-600 shrink-0" />
+                          Novo arquivo selecionado: {certFile.name} (será enviado ao salvar)
+                        </p>
+                      ) : config.certificate_file ? (
+                        <p className="text-[11px] text-emerald-700 mt-1 flex items-center gap-1.5 font-medium">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span
+                            className="font-mono text-[10.5px] truncate max-w-[340px]"
+                            title={config.certificate_file}
+                          >
+                            {config.certificate_file}
+                          </span>
+                          <span className="text-[10px] text-emerald-800 font-semibold bg-emerald-100 px-1.5 py-0.2 rounded shrink-0">
+                            salvo
+                          </span>
+                        </p>
+                      ) : (
+                        <p className="text-[11px] text-slate-400 mt-1">
+                          Nenhum certificado A1 anexado ainda.
                         </p>
                       )}
                     </div>
 
                     <div>
-                      <Label className="text-xs">Senha do Certificado A1</Label>
-                      <Input
-                        type="password"
-                        className="mt-1 h-9 text-xs"
-                        value={certPassword}
-                        onChange={(e) => setCertPassword(e.target.value)}
-                        placeholder="Digite a senha somente se for atualizar o .pfx"
-                      />
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs">Senha do Certificado A1</Label>
+                        {(config.certificate_password || certPassword) && (
+                          <span className="text-[10px] font-medium text-emerald-700 flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Senha gravada
+                          </span>
+                        )}
+                      </div>
+                      <div className="relative mt-1">
+                        <Input
+                          type={showCertPassword ? 'text' : 'password'}
+                          className="h-9 text-xs pr-10"
+                          value={certPassword}
+                          onChange={(e) => setCertPassword(e.target.value)}
+                          placeholder={
+                            config.certificate_password
+                              ? 'Digite a senha somente se for atualizar o .pfx'
+                              : 'Digite a senha do certificado'
+                          }
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowCertPassword(!showCertPassword)}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+                          title={showCertPassword ? 'Ocultar senha' : 'Visualizar senha'}
+                          aria-label={showCertPassword ? 'Ocultar senha' : 'Visualizar senha'}
+                        >
+                          {showCertPassword ? (
+                            <EyeOff className="w-4 h-4" />
+                          ) : (
+                            <Eye className="w-4 h-4" />
+                          )}
+                        </button>
+                      </div>
+                      {config.certificate_password && !certPassword && (
+                        <p className="text-[11px] text-slate-500 mt-1">
+                          A senha já está salva no banco. Não é necessário redigitá-la para alterar
+                          outros campos cadastrais.
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -711,7 +838,7 @@ export default function NotasFiscais() {
                     <Label className="text-xs font-semibold">Regime Tributário da Empresa</Label>
                     <select
                       aria-label="Regime Tributário da Empresa"
-                      value={config.regime_tributario || '1'}
+                      value={String(config.regime_tributario || '1')}
                       onChange={(e: any) =>
                         setConfig((prev) => ({ ...prev, regime_tributario: e.target.value }))
                       }
@@ -890,13 +1017,14 @@ export default function NotasFiscais() {
                     <Label className="text-xs">NCM Padrão Fallback</Label>
                     <Input
                       className="mt-1 h-9 text-xs font-mono"
-                      value={config.default_ncm || '84713012'}
+                      value={config.default_ncm || ''}
                       onChange={(e) =>
                         setConfig((prev) => ({ ...prev, default_ncm: e.target.value }))
                       }
+                      placeholder="84713012"
                     />
                     <span className="text-[10px] text-slate-500">
-                      Usado se o produto não tiver regra
+                      Usado se o produto não tiver regra (padrão 84713012)
                     </span>
                   </div>
 
@@ -904,27 +1032,69 @@ export default function NotasFiscais() {
                     <Label className="text-xs">CFOP Estadual Fallback</Label>
                     <Input
                       className="mt-1 h-9 text-xs font-mono"
-                      value={config.default_cfop_estadual || '5405'}
+                      value={config.default_cfop_estadual || ''}
                       onChange={(e) =>
                         setConfig((prev) => ({ ...prev, default_cfop_estadual: e.target.value }))
                       }
+                      placeholder="5405"
                     />
-                    <span className="text-[10px] text-slate-500">Dentro UF (fallback: 5405)</span>
+                    <span className="text-[10px] text-slate-500">Dentro UF (padrão 5405)</span>
                   </div>
 
                   <div>
                     <Label className="text-xs">CFOP Interestadual Fallback</Label>
                     <Input
                       className="mt-1 h-9 text-xs font-mono"
-                      value={config.default_cfop_interestadual || '6404'}
+                      value={config.default_cfop_interestadual || ''}
                       onChange={(e) =>
                         setConfig((prev) => ({
                           ...prev,
                           default_cfop_interestadual: e.target.value,
                         }))
                       }
+                      placeholder="6404"
                     />
-                    <span className="text-[10px] text-slate-500">Fora UF (fallback: 6404)</span>
+                    <span className="text-[10px] text-slate-500">Fora UF (padrão 6404)</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+                  <div>
+                    <Label className="text-xs">CSOSN Fallback</Label>
+                    <Input
+                      className="mt-1 h-9 text-xs font-mono"
+                      value={config.default_csosn || ''}
+                      onChange={(e) =>
+                        setConfig((prev) => ({ ...prev, default_csosn: e.target.value }))
+                      }
+                      placeholder="102"
+                    />
+                    <span className="text-[10px] text-slate-500">
+                      Padrão Simples Nacional (ex: 102 ou 500)
+                    </span>
+                  </div>
+
+                  <div>
+                    <Label className="text-xs">Telefone de Contato</Label>
+                    <Input
+                      className="mt-1 h-9 text-xs font-mono"
+                      value={config.telefone || ''}
+                      onChange={(e) => setConfig((prev) => ({ ...prev, telefone: e.target.value }))}
+                      placeholder="(31) 99999-9999"
+                    />
+                    <span className="text-[10px] text-slate-500">Contato da empresa</span>
+                  </div>
+
+                  <div>
+                    <Label className="text-xs">E-mail de Notificação Fiscal</Label>
+                    <Input
+                      type="email"
+                      className="mt-1 h-9 text-xs"
+                      value={config.email || ''}
+                      onChange={(e) => setConfig((prev) => ({ ...prev, email: e.target.value }))}
+                      placeholder="fiscal@empresa.com.br"
+                    />
+                    <span className="text-[10px] text-slate-500">E-mail do emissor</span>
                   </div>
                 </div>
 
@@ -935,20 +1105,17 @@ export default function NotasFiscais() {
                   <Textarea
                     className="mt-1 text-xs"
                     rows={3}
-                    value={
-                      config.informacoes_complementares_padrao ||
-                      'Empresa optante pelo Simples Nacional. Não gera direito a crédito fiscal de IPI. Tributos aprox.: R$ 0,00 (fonte IBPT)'
-                    }
+                    value={config.informacoes_complementares_padrao || ''}
                     onChange={(e) =>
                       setConfig((prev) => ({
                         ...prev,
                         informacoes_complementares_padrao: e.target.value,
                       }))
                     }
+                    placeholder="Documento emitido por ME ou EPP optante pelo Simples Nacional."
                   />
                   <span className="text-[10px] text-slate-500">
-                    Padrão Bling para optantes pelo Simples Nacional com menção à lei e valor IBPT
-                    editável por nota.
+                    Padrão inserido nos dados adicionais da NF-e transmitida à SEFAZ.
                   </span>
                 </div>
               </CardContent>
