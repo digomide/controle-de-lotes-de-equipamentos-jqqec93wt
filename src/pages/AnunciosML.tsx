@@ -32,6 +32,7 @@ import {
   Filter,
   Clock,
   MessageSquare,
+  Users,
 } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -57,14 +58,15 @@ import { MLAlertsBanner } from '@/components/MLAlertsBanner'
 import { MLBulkPriceModal } from '@/components/MLBulkPriceModal'
 import { MLDeadlinesTab } from '@/components/MLDeadlinesTab'
 import { MLQuestionsInsightsPanel } from '@/components/MLQuestionsInsightsPanel'
+import { MLSellersMonitorTab } from '@/components/MLSellersMonitorTab'
 import { mlQuestionsService, type MLQuestionMetrics } from '@/services/mlQuestionsService'
 
 export default function AnunciosML() {
   const { toast } = useToast()
 
-  // Aba ativa: 'anuncios' (padrão) | 'perguntas' | 'envios' | 'pedidos' | 'erros_publicacao'
+  // Aba ativa: 'anuncios' (padrão) | 'perguntas' | 'envios' | 'pedidos' | 'sellers' | 'erros_publicacao'
   const [activeTab, setActiveTab] = useState<
-    'anuncios' | 'perguntas' | 'envios' | 'pedidos' | 'erros_publicacao'
+    'anuncios' | 'perguntas' | 'envios' | 'pedidos' | 'sellers' | 'erros_publicacao'
   >('anuncios')
 
   const [loading, setLoading] = useState(true)
@@ -719,6 +721,9 @@ export default function AnunciosML() {
             setActiveTab('anuncios')
             setMatchedFilter('unmatched')
           }}
+          onNavigateToSellers={() => {
+            setActiveTab('sellers')
+          }}
         />
       )}
 
@@ -735,7 +740,7 @@ export default function AnunciosML() {
 
       {/* Abas Principais do Gestor ML */}
       <Tabs value={activeTab} onValueChange={(val: any) => setActiveTab(val)} className="space-y-6">
-        <TabsList className="bg-slate-100 p-1 rounded-xl h-11 border border-slate-200 grid grid-cols-5 max-w-3xl">
+        <TabsList className="bg-slate-100 p-1 rounded-xl h-11 border border-slate-200 grid grid-cols-6 max-w-4xl">
           <TabsTrigger
             value="anuncios"
             className="text-xs font-bold gap-1.5 data-[state=active]:bg-white data-[state=active]:shadow-xs"
@@ -763,6 +768,13 @@ export default function AnunciosML() {
           >
             <DollarSign className="w-4 h-4 text-emerald-600" />
             Vendas & Pedidos
+          </TabsTrigger>
+          <TabsTrigger
+            value="sellers"
+            className="text-xs font-bold gap-1.5 data-[state=active]:bg-white data-[state=active]:shadow-xs text-orange-700"
+          >
+            <Users className="w-4 h-4 text-orange-600" />
+            Monitor de Sellers
           </TabsTrigger>
           <TabsTrigger
             value="erros_publicacao"
@@ -1805,6 +1817,11 @@ export default function AnunciosML() {
         {/* ==================== ABA 3: PAINEL DE VENDAS & PEDIDOS ML ==================== */}
         <TabsContent value="pedidos" className="space-y-6 focus-visible:outline-hidden">
           <MLOrdersTab />
+        </TabsContent>
+
+        {/* ==================== ABA: MONITOR DE SELLERS & PARCEIROS ==================== */}
+        <TabsContent value="sellers" className="space-y-6 focus-visible:outline-hidden">
+          <MLSellersMonitorTab />
         </TabsContent>
 
         {/* ==================== ABA 4: FILA DE PUBLICAÇÃO & ERROS ==================== */}

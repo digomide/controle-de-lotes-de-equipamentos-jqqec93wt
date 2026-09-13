@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-13T03:00:52.261Z",
+  "generatedAt": "2026-09-13T11:14:26.481Z",
   "collections": [
     {
       "name": "users",
@@ -4915,6 +4915,193 @@
         "CREATE INDEX idx_ml_qcorr_item ON ml_question_corrections (item_id)",
         "CREATE INDEX idx_ml_qcorr_status ON ml_question_corrections (status)",
         "CREATE INDEX idx_ml_qcorr_applied ON ml_question_corrections (applied_at)"
+      ]
+    },
+    {
+      "name": "ml_monitored_sellers",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "seller_id",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "nickname",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "seller_type",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "auth_status",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status_message",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "access_token",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "refresh_token",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "client_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "client_secret",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "token_expires_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "reputation_level",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "power_seller_status",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "active_ads_count",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "paused_ads_count",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "closed_ads_count",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "total_ads_count",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "sales_7d_count",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "sales_30d_count",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "sales_30d_amount",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "pending_questions_count",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "avg_response_time_minutes",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "paused_spike_alert",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "reputation_drop_alert",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "metrics_snapshot",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "last_synced_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_ml_monitored_sellers_seller_id ON ml_monitored_sellers (seller_id)",
+        "CREATE INDEX idx_ml_monitored_sellers_nickname ON ml_monitored_sellers (nickname)"
       ]
     }
   ]

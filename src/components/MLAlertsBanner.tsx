@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React, { useMemo, useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import {
   AlertTriangle,
@@ -11,12 +11,14 @@ import {
   ExternalLink,
   Layers,
   ArrowRight,
+  Users,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import type { MLSellerItem } from '@/services/mlService'
 import type { MLCompetitorAd } from '@/services/mlCompetitorService'
+import { mlSellersService } from '@/services/mlSellersService'
 
 export interface AdAlert {
   id: string
@@ -34,6 +36,7 @@ interface MLAlertsBannerProps {
   competitorAds?: MLCompetitorAd[]
   onFilterUnmatched?: () => void
   onFilterPaused?: () => void
+  onNavigateToSellers?: () => void
 }
 
 export function MLAlertsBanner({
@@ -41,7 +44,25 @@ export function MLAlertsBanner({
   competitorAds = [],
   onFilterUnmatched,
   onFilterPaused,
+  onNavigateToSellers,
 }: MLAlertsBannerProps) {
+  const [sellerAlertCount, setSellerAlertCount] = useState<number>(0)
+  const [tayAlert, setTayAlert] = useState<boolean>(false)
+
+  useEffect(() => {
+    mlSellersService
+      .listSellers()
+      .then((res) => {
+        if (res.ok) {
+          setSellerAlertCount(res.kpis?.alert_count || 0)
+          const hasTay = (res.sellers || []).some(
+            (s) => s.nickname.includes('TAY') && s.auth_status === 'unauthorized',
+          )
+          setTayAlert(hasTay)
+        }
+      })
+      .catch(() => {})
+  }, [])
   const alerts: AdAlert[] = useMemo(() => {
     const list: AdAlert[] = []
 
@@ -184,6 +205,28 @@ export function MLAlertsBanner({
               >
                 <PackageX className="w-3 h-3 text-slate-500" />
                 {unmatchedCount} sem vínculo
+              </button>
+            )}
+
+            {sellerAlertCount > 0 && (
+              <button
+                type="button"
+                onClick={onNavigateToSellers}
+                className="text-xs px-2.5 py-1 rounded-md bg-rose-100 border border-rose-300 text-rose-950 font-bold hover:bg-rose-200 transition-colors inline-flex items-center gap-1"
+              >
+                <Users className="w-3 h-3 text-rose-600" />
+                {sellerAlertCount} alerta(s) de Sellers {tayAlert ? '(TAY TECH 401)' : ''}
+              </button>
+            )}
+
+            {sellerAlertCount > 0 && (
+              <button
+                type="button"
+                onClick={onNavigateToSellers}
+                className="text-xs px-2.5 py-1 rounded-md bg-rose-100 border border-rose-300 text-rose-950 font-bold hover:bg-rose-200 transition-colors inline-flex items-center gap-1"
+              >
+                <Users className="w-3 h-3 text-rose-600" />
+                {sellerAlertCount} alerta(s) de Sellers {tayAlert ? '(TAY TECH 401)' : ''}
               </button>
             )}
 
