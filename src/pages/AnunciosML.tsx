@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   ShoppingBag,
   RefreshCw,
@@ -63,11 +63,22 @@ import { mlQuestionsService, type MLQuestionMetrics } from '@/services/mlQuestio
 
 export default function AnunciosML() {
   const { toast } = useToast()
+  const [searchParams, setSearchParams] = useSearchParams()
 
   // Aba ativa: 'anuncios' (padrão) | 'perguntas' | 'envios' | 'pedidos' | 'sellers' | 'erros_publicacao'
+  const initialTab = (searchParams.get('tab') as any) || 'anuncios'
+  const validTabs = ['anuncios', 'perguntas', 'envios', 'pedidos', 'sellers', 'erros_publicacao']
   const [activeTab, setActiveTab] = useState<
     'anuncios' | 'perguntas' | 'envios' | 'pedidos' | 'sellers' | 'erros_publicacao'
-  >('anuncios')
+  >(validTabs.includes(initialTab) ? initialTab : 'anuncios')
+
+  // Sincroniza se o query param mudar na URL
+  useEffect(() => {
+    const tabParam = searchParams.get('tab')
+    if (tabParam && validTabs.includes(tabParam) && tabParam !== activeTab) {
+      setActiveTab(tabParam as any)
+    }
+  }, [searchParams])
 
   const [loading, setLoading] = useState(true)
   const [progressText, setProgressText] = useState<string>(
@@ -739,7 +750,22 @@ export default function AnunciosML() {
       )}
 
       {/* Abas Principais do Gestor ML */}
-      <Tabs value={activeTab} onValueChange={(val: any) => setActiveTab(val)} className="space-y-6">
+      <Tabs
+        value={activeTab}
+        onValueChange={(val: any) => {
+          setActiveTab(val)
+          setSearchParams((prev) => {
+            const next = new URLSearchParams(prev)
+            if (val === 'anuncios') {
+              next.delete('tab')
+            } else {
+              next.set('tab', val)
+            }
+            return next
+          })
+        }}
+        className="space-y-6"
+      >
         <TabsList className="bg-slate-100 p-1 rounded-xl h-11 border border-slate-200 grid grid-cols-6 max-w-4xl">
           <TabsTrigger
             value="anuncios"

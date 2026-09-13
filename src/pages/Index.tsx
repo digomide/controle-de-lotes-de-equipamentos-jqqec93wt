@@ -13,8 +13,15 @@ import {
   AlertCircle,
   XCircle,
   MessageSquare,
+  Users,
+  ShieldAlert,
 } from 'lucide-react'
 import { mlQuestionsService, type MLQuestionMetrics } from '@/services/mlQuestionsService'
+import {
+  mlSellersService,
+  type MLSellersKPIs,
+  type MLSellerRecord,
+} from '@/services/mlSellersService'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -40,19 +47,30 @@ export default function Dashboard() {
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [questionsMetrics, setQuestionsMetrics] = useState<MLQuestionMetrics | null>(null)
+  const [sellersKpis, setSellersKpis] = useState<MLSellersKPIs | null>(null)
+  const [sellersWithAlerts, setSellersWithAlerts] = useState<MLSellerRecord[]>([])
 
   const loadData = async () => {
     try {
-      const [salesData, batchesData, productsData, qMetrics] = await Promise.all([
+      const [salesData, batchesData, productsData, qMetrics, sellersRes] = await Promise.all([
         salesService.getAll(),
         batchesService.getAll(),
         productsService.getAll(),
         mlQuestionsService.getMetrics().catch(() => null),
+        mlSellersService.listSellers().catch(() => null),
       ])
       setSales(salesData)
       setBatches(batchesData)
       setProducts(productsData)
       if (qMetrics) setQuestionsMetrics(qMetrics)
+      if (sellersRes && sellersRes.ok) {
+        setSellersKpis(sellersRes.kpis || null)
+        const alerting = (sellersRes.sellers || []).filter(
+          (s) =>
+            s.auth_status === 'unauthorized' || s.paused_spike_alert || s.reputation_drop_alert,
+        )
+        setSellersWithAlerts(alerting)
+      }
     } catch (err) {
       console.error('Erro ao carregar dados do dashboard:', err)
     } finally {
@@ -164,8 +182,101 @@ export default function Dashboard() {
               Inventário
             </Button>
           </Link>
+          <Link to="/anuncios-ml?tab=sellers">
+            <Button
+              variant="outline"
+              className={`gap-2 border-slate-300 hover:bg-orange-50 hover:border-orange-300 text-slate-700 hover:text-orange-900 ${
+                sellersKpis && sellersKpis.alert_count > 0
+                  ? 'border-orange-300 bg-orange-50/60 font-semibold'
+                  : ''
+              }`}
+            >
+              <Users className="w-4 h-4 text-orange-600" />
+              <span>Sellers ML</span>
+              {sellersKpis && sellersKpis.alert_count > 0 && (
+                <Badge
+                  variant={sellersKpis.unauthorized_count > 0 ? 'destructive' : 'secondary'}
+                  className="px-1.5 py-0 text-[10px] font-bold h-4 ml-0.5"
+                >
+                  {sellersKpis.alert_count}
+                </Badge>
+              )}
+            </Button>
+          </Link>
         </div>
       </div>
+
+      {/* Alerta do Monitor de Sellers ML no Dashboard (sellers com erro 401 ou alertas ativos) */}
+      {sellersKpis && sellersKpis.alert_count > 0 && (
+        <div
+          className={`p-4 rounded-xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs ${
+            sellersKpis.unauthorized_count > 0
+              ? 'bg-rose-500/10 border-rose-300'
+              : 'bg-orange-500/10 border-orange-300'
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <div
+              className={`p-2.5 rounded-lg shrink-0 ${
+                sellersKpis.unauthorized_count > 0
+                  ? 'bg-rose-600 text-white animate-pulse'
+                  : 'bg-orange-500 text-slate-950'
+              }`}
+            >
+              {sellersKpis.unauthorized_count > 0 ? (
+                <ShieldAlert className="w-5 h-5" />
+              ) : (
+                <Users className="w-5 h-5" />
+              )}
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-bold text-sm text-slate-900">
+                  Monitor de Sellers: {sellersKpis.alert_count} alerta(s) ativo(s)
+                </span>
+                {sellersKpis.unauthorized_count > 0 && (
+                  <Badge variant="destructive" className="font-bold text-xs animate-bounce">
+                    🚨 {sellersKpis.unauthorized_count} Reautenticação (401)
+                  </Badge>
+                )}
+                {sellersWithAlerts.some((s) => s.nickname.includes('TAY')) && (
+                  <Badge
+                    variant="outline"
+                    className="bg-rose-100 text-rose-900 border-rose-300 text-xs font-semibold"
+                  >
+                    TAY TECH desconectado
+                  </Badge>
+                )}
+                {sellersKpis.alert_count > sellersKpis.unauthorized_count && (
+                  <Badge
+                    variant="outline"
+                    className="bg-amber-100 text-amber-800 border-amber-300 text-xs font-semibold"
+                  >
+                    ⚠️ Picos ou reputação
+                  </Badge>
+                )}
+              </div>
+              <p className="text-xs text-slate-600 mt-0.5">
+                {sellersKpis.unauthorized_count > 0
+                  ? 'Contas parceiras estão com sessão expirada no ML (HTTP 401). Abra o Monitor de Sellers para reautenticar em 1 clique.'
+                  : 'Existem contas parceiras com picos anormais de anúncios pausados ou risco de queda no termômetro.'}
+              </p>
+            </div>
+          </div>
+          <Link to="/anuncios-ml?tab=sellers">
+            <Button
+              size="sm"
+              className={`font-bold text-xs shrink-0 shadow-xs text-white ${
+                sellersKpis.unauthorized_count > 0
+                  ? 'bg-rose-600 hover:bg-rose-700'
+                  : 'bg-orange-600 hover:bg-orange-700'
+              }`}
+            >
+              Abrir Monitor de Sellers <ArrowRight className="w-3.5 h-3.5 ml-1" />
+            </Button>
+          </Link>
+        </div>
+      )}
 
       {/* Alerta de Perguntas Críticas ML no Dashboard */}
       {questionsMetrics &&

@@ -219,17 +219,6 @@ export function MLAlertsBanner({
               </button>
             )}
 
-            {sellerAlertCount > 0 && (
-              <button
-                type="button"
-                onClick={onNavigateToSellers}
-                className="text-xs px-2.5 py-1 rounded-md bg-rose-100 border border-rose-300 text-rose-950 font-bold hover:bg-rose-200 transition-colors inline-flex items-center gap-1"
-              >
-                <Users className="w-3 h-3 text-rose-600" />
-                {sellerAlertCount} alerta(s) de Sellers {tayAlert ? '(TAY TECH 401)' : ''}
-              </button>
-            )}
-
             {radarAlerts.length > 0 && (
               <Link to="/radar-ml">
                 <span className="text-xs px-2.5 py-1 rounded-md bg-orange-100 border border-orange-300 text-orange-950 font-semibold hover:bg-orange-200 transition-colors inline-flex items-center gap-1">
