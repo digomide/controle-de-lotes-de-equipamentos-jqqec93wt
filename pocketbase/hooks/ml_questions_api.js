@@ -886,11 +886,104 @@ routerAdd(
       console.log('[ml_questions_api] Aviso ao carregar ml_question_corrections: ' + corrErr)
     }
 
+    // Carregar templates ativos para sintetizar a proposta rápida já no objeto de cada produto
+    var activeTemplates = []
+    try {
+      activeTemplates = $app.findRecordsByFilter(
+        'ml_question_templates',
+        'active = true',
+        '-times_used,-created',
+        50,
+        0,
+      )
+    } catch (_) {}
+
     var productList = []
     for (var k in productQuestionsMap) {
       var pObj = productQuestionsMap[k]
       pObj.is_corrected = Boolean(correctedMap[pObj.item_id])
       pObj.last_correction = correctedMap[pObj.item_id] || null
+
+      // Buscar estoque real direto de forma rápida
+      var pStock = 0
+      try {
+        var directProds = $app.findRecordsByFilter(
+          'products',
+          "ml_listing_id = '" + pObj.item_id + "' && status = 'Disponível'",
+          '-created',
+          100,
+          0,
+        )
+        if (directProds && directProds.length > 0) {
+          pStock = directProds.length
+        }
+      } catch (_) {}
+      pObj.matching_stock = pStock
+
+      // Síntese local imediata da proposta de correção
+      var pFaqItems = []
+      var pQuestionsList = pObj.sample_texts || []
+      for (var tIdx = 0; tIdx < activeTemplates.length; tIdx++) {
+        var tpl = activeTemplates[tIdx]
+        var kwRaw = tpl.get('keywords') || []
+        var kws = Array.isArray(kwRaw) ? kwRaw : []
+        var tTitle = tpl.getString('title') || ''
+        var tContent = tpl.getString('content') || ''
+
+        var matchedQ = []
+        for (var qIdx = 0; qIdx < pQuestionsList.length; qIdx++) {
+          var qTextLower = String(pQuestionsList[qIdx]).toLowerCase()
+          var hasMatch = false
+          for (var kwI = 0; kwI < kws.length; kwI++) {
+            var kw = String(kws[kwI]).toLowerCase()
+            if (kw.length >= 3 && qTextLower.indexOf(kw) !== -1) {
+              hasMatch = true
+              break
+            }
+          }
+          if (hasMatch) {
+            matchedQ.push(pQuestionsList[qIdx])
+          }
+        }
+
+        if (matchedQ.length > 0) {
+          var stockStr = pStock > 0 ? String(pStock) : 'unidades a pronta entrega'
+          var cleanContent = tContent
+            .replace(/\{estoque_real\}/g, stockStr)
+            .replace(/\{saudacao\}\!?\s*/gi, '')
+            .replace(/Olá\!\s*/gi, '')
+            .replace(/Bom dia\!\s*/gi, '')
+            .replace(/Boa tarde\!\s*/gi, '')
+            .replace(/Boa noite\!\s*/gi, '')
+            .trim()
+
+          pFaqItems.push({
+            topic: tTitle,
+            answer: cleanContent,
+          })
+        }
+      }
+
+      var pProposedText = ''
+      if (pFaqItems.length > 0) {
+        var pLines = []
+        pLines.push('📌 INFORMAÇÕES FREQUENTES E DÚVIDAS ESCLARECIDAS:')
+        for (var pf = 0; pf < pFaqItems.length; pf++) {
+          pLines.push('• ' + pFaqItems[pf].topic.toUpperCase() + ': ' + pFaqItems[pf].answer)
+        }
+        pLines.push(
+          '✔ Equipamento revisado com garantia Ambicorp e envio imediato com Nota Fiscal (NF-e).',
+        )
+        pProposedText = pLines.join('\n')
+      } else {
+        pProposedText =
+          '📌 ESCLARECIMENTOS SOBRE O PRODUTO (Dúvidas frequentes atendidas):\n' +
+          '• Compatibilidade e Condição: equipamento testado e revisado em bancada técnica especializada Ambicorp.\n' +
+          '• Garantia e Procedência: emitimos Nota Fiscal (NF-e) e oferecemos garantia de 90 dias com suporte direto.\n' +
+          '• Envio Rápido: produto em estoque com despacho ágil e embalagem segura via Mercado Envios.'
+      }
+
+      pObj.proposed_text = pProposedText
       productList.push(pObj)
     }
     productList.sort(function (a, b) {

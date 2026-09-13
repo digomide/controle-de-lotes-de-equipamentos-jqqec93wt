@@ -60,11 +60,13 @@ export interface MLQuestionInsightProduct {
   pending_questions: number
   sample_texts: string[]
   is_corrected?: boolean
+  matching_stock?: number
+  proposed_text?: string
   last_correction?: {
-    id: string
-    item_id: string
+    id?: string
+    item_id?: string
     applied_at: string
-    applied_by: string
+    applied_by?: string
     proposed_text: string
   } | null
 }
