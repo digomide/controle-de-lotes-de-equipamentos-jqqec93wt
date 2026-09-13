@@ -412,7 +412,7 @@ export const mlCollectorService = {
    * observado na vitrine do Mercado Livre.
    */
   // Cache em memória na sessão para evitar varreduras repetidas
-  _fallbackMapCache: Map<
+  _fallbackMapCache: new Map<
     string,
     {
       timestamp: number
@@ -422,7 +422,7 @@ export const mlCollectorService = {
         adByMlbId: Map<string, CollectorDeduplicatedAd>
       }
     }
-  > = new Map(),
+  >(),
 
   /**
    * Constrói mapa cruzado de histórico de vendas (sold_quantity) por MLB ID e por título
