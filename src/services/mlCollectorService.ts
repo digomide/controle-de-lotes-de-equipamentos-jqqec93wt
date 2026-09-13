@@ -411,11 +411,38 @@ export const mlCollectorService = {
    * Permite que produtos de catálogo cuja API omitiu sold_quantity recuperem o número exato
    * observado na vitrine do Mercado Livre.
    */
+  // Cache em memória na sessão para evitar varreduras repetidas
+  _fallbackMapCache: Map<
+    string,
+    {
+      timestamp: number
+      data: {
+        byMlbId: Map<string, number>
+        byTitle: Map<string, number>
+        adByMlbId: Map<string, CollectorDeduplicatedAd>
+      }
+    }
+  > = new Map(),
+
+  /**
+   * Constrói mapa cruzado de histórico de vendas (sold_quantity) por MLB ID e por título
+   * normalizado a partir das coletas salvas do navegador.
+   * Permite que produtos de catálogo cuja API omitiu sold_quantity recuperem o número exato
+   * observado na vitrine do Mercado Livre.
+   * Otimizado: filtra registros recentes no PocketBase e memoiza por termo na sessão.
+   */
   async buildSalesFallbackMap(searchTerm?: string): Promise<{
     byMlbId: Map<string, number>
     byTitle: Map<string, number>
     adByMlbId: Map<string, CollectorDeduplicatedAd>
   }> {
+    const cacheKey = searchTerm ? normalizeSearchTerm(searchTerm) : '__general__'
+    const cached = this._fallbackMapCache.get(cacheKey)
+    const CACHE_TTL_MS = 3 * 60 * 1000 // 3 minutos
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+      return cached.data
+    }
+
     const byMlbId = new Map<string, number>()
     const byTitle = new Map<string, number>()
     const adByMlbId = new Map<string, CollectorDeduplicatedAd>()
@@ -427,10 +454,10 @@ export const mlCollectorService = {
             const softened = normalizeSearchTerm(softenSearchTerm(term))
             const effectiveTerm = softened || term
 
-            // 1. Tentar busca direta pelo termo normalizado ou suavizado
+            // 1. Tentar busca direta pelo termo normalizado ou suavizado (limitado aos 10 registros mais recentes)
             let list = await pb
               .collection('ml_collector_imports')
-              .getList<MLCollectorImportRecord>(1, 20, {
+              .getList<MLCollectorImportRecord>(1, 10, {
                 filter: `search_term ~ "${effectiveTerm}"`,
                 sort: '-imported_at',
               })
@@ -442,7 +469,7 @@ export const mlCollectorService = {
                 const tokenFilter = tokens.map((t) => `search_term ~ "${t}"`).join(' && ')
                 list = await pb
                   .collection('ml_collector_imports')
-                  .getList<MLCollectorImportRecord>(1, 20, {
+                  .getList<MLCollectorImportRecord>(1, 10, {
                     filter: tokenFilter,
                     sort: '-imported_at',
                   })
@@ -457,7 +484,7 @@ export const mlCollectorService = {
             )
             return list
           })()
-        : await pb.collection('ml_collector_imports').getList<MLCollectorImportRecord>(1, 20, {
+        : await pb.collection('ml_collector_imports').getList<MLCollectorImportRecord>(1, 10, {
             filter: 'search_term != "busca mercado livre" && search_term != "pl"',
             sort: '-imported_at',
           })
@@ -539,7 +566,9 @@ export const mlCollectorService = {
       console.warn('[mlCollectorService] Falha ao construir fallback de vendas das coletas:', err)
     }
 
-    return { byMlbId, byTitle, adByMlbId }
+    const result = { byMlbId, byTitle, adByMlbId }
+    this._fallbackMapCache.set(cacheKey, { timestamp: Date.now(), data: result })
+    return result
   },
 
   /**
