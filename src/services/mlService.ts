@@ -48,15 +48,144 @@ export interface MLSellerItem {
   catalog_listing?: boolean
   domain_id?: string
   // Dados de correspondência com catálogo local
-  matchedProduct?: {
-    id: string
-    name: string
-    sku: string
-    serial_number?: string
-    status: string
-    unit_price: number
-    cost_price?: number
-    match_type: 'ml_listing_id' | 'gtin'
+  matchedProduct?: MLMatchedProduct
+  matchedProducts?: MLMatchedProduct[]
+}
+
+export interface MLMatchedProduct {
+  id: string
+  name: string
+  sku: string
+  serial_number?: string
+  status: string
+  unit_price: number
+  cost_price?: number
+  brand?: string
+  model?: string
+  processor?: string
+  ram?: string
+  storage?: string
+  screen_size?: string
+  condition?: string
+  match_type: 'ml_listing_id' | 'gtin'
+}
+
+/**
+ * Extrai e compacta especificações de hardware (processador, memória, armazenamento, tela)
+ * a partir dos campos do produto ou por extração textual do nome caso os campos estejam vazios.
+ * Exemplo de retorno: "Latitude 3420 · i5 · 8GB · SSD 256GB" ou apenas as specs "i5 · 8GB · SSD 256GB"
+ */
+export function formatProductConfigSpecs(
+  product: {
+    name?: string
+    brand?: string
+    model?: string
+    processor?: string
+    ram?: string
+    storage?: string
+    screen_size?: string
+  },
+  options?: {
+    includeModel?: boolean
+    separator?: string
+  },
+): {
+  model: string
+  processor: string
+  ram: string
+  storage: string
+  screen: string
+  compactSummary: string
+  specsOnly: string
+} {
+  const pName = (product.name || '').trim()
+  const sep = options?.separator || ' · '
+
+  // 1. Modelo / Linha
+  let model = (product.model || '').trim()
+  if (!model && pName) {
+    const m = pName.match(
+      /(?:Notebook\s+)?(?:Dell|Lenovo|HP|Apple|Acer|Asus|Samsung|Positivo)?\s*([A-Za-z0-9-]+(?:\s+[A-Za-z0-9-]+)?)/i,
+    )
+    if (m && m[1]) model = m[1].trim()
+  }
+
+  // 2. Processador curto (i5, i7, Ryzen 5, etc.)
+  const rawProc = (product.processor || '' + ' ' + pName).trim()
+  let processor = ''
+  if (/i7|core\s*i7/i.test(rawProc)) processor = 'i7'
+  else if (/i5|core\s*i5/i.test(rawProc)) processor = 'i5'
+  else if (/i3|core\s*i3/i.test(rawProc)) processor = 'i3'
+  else if (/i9|core\s*i9/i.test(rawProc)) processor = 'i9'
+  else if (/ryzen\s*7/i.test(rawProc)) processor = 'Ryzen 7'
+  else if (/ryzen\s*5/i.test(rawProc)) processor = 'Ryzen 5'
+  else if (/ryzen\s*3/i.test(rawProc)) processor = 'Ryzen 3'
+  else if (/ryzen\s*9/i.test(rawProc)) processor = 'Ryzen 9'
+  else if (/celeron/i.test(rawProc)) processor = 'Celeron'
+  else if (/xeon/i.test(rawProc)) processor = 'Xeon'
+  else if (/\bm3\b/i.test(rawProc)) processor = 'M3'
+  else if (/\bm2\b/i.test(rawProc)) processor = 'M2'
+  else if (/\bm1\b/i.test(rawProc)) processor = 'M1'
+  else if (product.processor) {
+    processor = product.processor.replace(/geração|geracao|gen\b/gi, '').trim()
+  }
+
+  // 3. RAM (8GB, 16GB, etc.)
+  const rawRam = (product.ram || '' + ' ' + pName).trim()
+  let ram = ''
+  const ramMatch = rawRam.match(/(\d+)\s*GB/i)
+  if (ramMatch && ramMatch[1]) {
+    ram = `${ramMatch[1]}GB`
+  } else if (product.ram) {
+    ram = product.ram.trim()
+  }
+
+  // 4. Armazenamento (SSD 256GB, SSD 512GB, HD 500GB, etc.)
+  const rawStorage = (product.storage || '' + ' ' + pName).trim()
+  let storage = ''
+  const storageCapMatch = rawStorage.match(/(\d+)\s*(GB|TB)?/i)
+  const isHD = /HD\b|Hard\s*Drive/i.test(rawStorage) && !/SSD/i.test(rawStorage)
+  if (storageCapMatch && storageCapMatch[1]) {
+    const typeLabel = isHD ? 'HD' : 'SSD'
+    const unit = storageCapMatch[2] ? storageCapMatch[2].toUpperCase() : 'GB'
+    storage = `${typeLabel} ${storageCapMatch[1]}${unit === 'GB' || unit === 'TB' ? unit : 'GB'}`
+  } else if (product.storage) {
+    storage = product.storage.trim()
+  }
+
+  // 5. Tela (14", 15.6", etc.)
+  const rawScreen = (product.screen_size || '' + ' ' + pName).trim()
+  let screen = ''
+  const screenMatch = rawScreen.match(/(\d{2}(?:\.\d)?)\s*(?:["”']|pol|polegadas)?/i)
+  if (screenMatch && screenMatch[1]) {
+    const val = parseFloat(screenMatch[1])
+    if (val >= 10 && val <= 21) {
+      screen = `${screenMatch[1]}"`
+    }
+  } else if (product.screen_size) {
+    screen = product.screen_size.trim()
+  }
+
+  const specsList = [processor, ram, storage, screen].filter(Boolean)
+  const specsOnly = specsList.join(sep)
+
+  const summaryTokens = []
+  if (options?.includeModel && model) {
+    summaryTokens.push(model)
+  }
+  summaryTokens.push(...specsList)
+
+  const compactSummary =
+    summaryTokens.length > 0 ? summaryTokens.join(sep) : product.name || 'Configuração padrão'
+
+  return {
+    model,
+    processor,
+    ram,
+    storage,
+    screen,
+    compactSummary,
+    specsOnly,
   }
 }
 
@@ -1567,46 +1696,89 @@ export const mlService = {
     // Cruzar com catálogo local (somente leitura) para indicar quais já correspondem a produtos
     try {
       const products = await pb.collection('products').getFullList({
-        fields: 'id,name,sku,serial_number,status,unit_price,cost_price,ml_listing_id,gtin',
+        fields:
+          'id,name,sku,serial_number,status,unit_price,cost_price,ml_listing_id,gtin,brand,model,processor,ram,storage,screen_size,condition',
       })
 
-      const mapByListingId = new Map<string, any>()
-      const mapByGtin = new Map<string, any>()
+      const mapByListingId = new Map<string, any[]>()
+      const mapByGtin = new Map<string, any[]>()
 
       for (const p of products) {
         if (p.ml_listing_id) {
-          mapByListingId.set(String(p.ml_listing_id).trim(), p)
+          const listingKey = String(p.ml_listing_id).trim()
+          if (!mapByListingId.has(listingKey)) {
+            mapByListingId.set(listingKey, [])
+          }
+          mapByListingId.get(listingKey)!.push(p)
         }
         if (p.gtin) {
-          mapByGtin.set(String(p.gtin).trim(), p)
+          const gtinKey = String(p.gtin).trim()
+          if (!mapByGtin.has(gtinKey)) {
+            mapByGtin.set(gtinKey, [])
+          }
+          mapByGtin.get(gtinKey)!.push(p)
         }
       }
 
       for (const item of items) {
+        const matchesList: any[] = []
+        const addedIds = new Set<string>()
+
+        // 1. Match por ml_listing_id
         if (mapByListingId.has(item.id)) {
-          const match = mapByListingId.get(item.id)
-          item.matchedProduct = {
-            id: match.id,
-            name: match.name,
-            sku: match.sku,
-            serial_number: match.serial_number,
-            status: match.status,
-            unit_price: Number(match.unit_price) || 0,
-            cost_price: Number(match.cost_price) || 0,
-            match_type: 'ml_listing_id',
+          for (const match of mapByListingId.get(item.id)!) {
+            if (!addedIds.has(match.id)) {
+              addedIds.add(match.id)
+              matchesList.push({
+                id: match.id,
+                name: match.name,
+                sku: match.sku,
+                serial_number: match.serial_number,
+                status: match.status,
+                unit_price: Number(match.unit_price) || 0,
+                cost_price: Number(match.cost_price) || 0,
+                brand: match.brand,
+                model: match.model,
+                processor: match.processor,
+                ram: match.ram,
+                storage: match.storage,
+                screen_size: match.screen_size,
+                condition: match.condition,
+                match_type: 'ml_listing_id',
+              })
+            }
           }
-        } else if (item.gtin && mapByGtin.has(item.gtin)) {
-          const match = mapByGtin.get(item.gtin)
-          item.matchedProduct = {
-            id: match.id,
-            name: match.name,
-            sku: match.sku,
-            serial_number: match.serial_number,
-            status: match.status,
-            unit_price: Number(match.unit_price) || 0,
-            cost_price: Number(match.cost_price) || 0,
-            match_type: 'gtin',
+        }
+
+        // 2. Match por gtin
+        if (item.gtin && mapByGtin.has(item.gtin)) {
+          for (const match of mapByGtin.get(item.gtin)!) {
+            if (!addedIds.has(match.id)) {
+              addedIds.add(match.id)
+              matchesList.push({
+                id: match.id,
+                name: match.name,
+                sku: match.sku,
+                serial_number: match.serial_number,
+                status: match.status,
+                unit_price: Number(match.unit_price) || 0,
+                cost_price: Number(match.cost_price) || 0,
+                brand: match.brand,
+                model: match.model,
+                processor: match.processor,
+                ram: match.ram,
+                storage: match.storage,
+                screen_size: match.screen_size,
+                condition: match.condition,
+                match_type: 'gtin',
+              })
+            }
           }
+        }
+
+        if (matchesList.length > 0) {
+          item.matchedProducts = matchesList
+          item.matchedProduct = matchesList[0]
         }
       }
     } catch (cErr) {

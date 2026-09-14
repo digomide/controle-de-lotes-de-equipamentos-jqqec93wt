@@ -60,6 +60,7 @@ import { MLDeadlinesTab } from '@/components/MLDeadlinesTab'
 import { MLQuestionsInsightsPanel } from '@/components/MLQuestionsInsightsPanel'
 import { MLSellersMonitorTab } from '@/components/MLSellersMonitorTab'
 import { mlQuestionsService, type MLQuestionMetrics } from '@/services/mlQuestionsService'
+import { MLItemMatchedProductsDisplay } from '@/components/MLItemMatchedProductsDisplay'
 
 export default function AnunciosML() {
   const { toast } = useToast()
@@ -184,8 +185,18 @@ export default function AnunciosML() {
         const matchesGtin = item.gtin?.toLowerCase().includes(q)
         const matchesBrand = item.brand?.toLowerCase().includes(q)
         const matchesModel = item.model?.toLowerCase().includes(q)
-        const matchesSku = item.matchedProduct?.sku?.toLowerCase().includes(q)
-        const matchesProductName = item.matchedProduct?.name?.toLowerCase().includes(q)
+        const matchesSku =
+          item.matchedProduct?.sku?.toLowerCase().includes(q) ||
+          item.matchedProducts?.some((p) => p.sku?.toLowerCase().includes(q))
+        const matchesProductName =
+          item.matchedProduct?.name?.toLowerCase().includes(q) ||
+          item.matchedProducts?.some((p) => p.name?.toLowerCase().includes(q))
+        const matchesSpecs =
+          item.matchedProducts?.some((p) => {
+            const specSummary =
+              `${p.processor || ''} ${p.ram || ''} ${p.storage || ''} ${p.screen_size || ''}`.toLowerCase()
+            return specSummary.includes(q)
+          }) || false
 
         if (
           !matchesTitle &&
@@ -195,7 +206,8 @@ export default function AnunciosML() {
           !matchesBrand &&
           !matchesModel &&
           !matchesSku &&
-          !matchesProductName
+          !matchesProductName &&
+          !matchesSpecs
         ) {
           return false
         }
@@ -260,7 +272,9 @@ export default function AnunciosML() {
         const cTerm = colSearchTitle.toLowerCase()
         const mTitle = item.title?.toLowerCase().includes(cTerm)
         const mId = item.id?.toLowerCase().includes(cTerm)
-        const mSku = item.matchedProduct?.sku?.toLowerCase().includes(cTerm)
+        const mSku =
+          item.matchedProduct?.sku?.toLowerCase().includes(cTerm) ||
+          item.matchedProducts?.some((p) => p.sku?.toLowerCase().includes(cTerm))
         if (!mTitle && !mId && !mSku) return false
       }
 
@@ -1686,26 +1700,13 @@ export default function AnunciosML() {
                             )}
                           </td>
 
-                          {/* Vínculo Catálogo */}
+                          {/* Vínculo Catálogo & Configurações */}
                           <td className="py-3 px-3">
-                            {item.matchedProduct ? (
-                              <div className="text-[11px] max-w-[180px]">
-                                <span className="font-bold text-emerald-800 block truncate">
-                                  {item.matchedProduct.name}
-                                </span>
-                                <div className="flex items-center gap-1 text-[10px] text-slate-400 font-mono">
-                                  <span>SKU: {item.matchedProduct.sku}</span>
-                                  <Link
-                                    to={`/catalogo/${item.matchedProduct.id}`}
-                                    className="text-blue-600 hover:underline"
-                                  >
-                                    Ver
-                                  </Link>
-                                </div>
-                              </div>
-                            ) : (
-                              <span className="text-[10px] text-slate-400 italic">Sem match</span>
-                            )}
+                            <MLItemMatchedProductsDisplay
+                              item={item}
+                              variant="table"
+                              maxVisible={2}
+                            />
                           </td>
 
                           {/* Link ML */}
@@ -1783,23 +1784,16 @@ export default function AnunciosML() {
                         </div>
                       </div>
 
-                      <div className="p-3 bg-slate-50/60 text-[11px] space-y-1 border-b border-slate-100 font-mono">
-                        <div className="flex items-center justify-between text-slate-600">
+                      <div className="p-3 bg-slate-50/60 text-[11px] space-y-2 border-b border-slate-100">
+                        <div className="flex items-center justify-between text-slate-600 font-mono">
                           <span className="text-slate-400 uppercase text-[10px] font-sans font-bold">
                             ID Anúncio:
                           </span>
                           <span className="font-bold text-slate-800">{item.id}</span>
                         </div>
-                        {item.matchedProduct && (
-                          <div className="flex items-center justify-between text-emerald-800">
-                            <span className="text-emerald-950 uppercase text-[10px] font-sans font-bold">
-                              Estoque:
-                            </span>
-                            <span className="font-bold truncate max-w-[140px]">
-                              {item.matchedProduct.name}
-                            </span>
-                          </div>
-                        )}
+
+                        {/* Produtos Internos Vinculados com Configurações */}
+                        <MLItemMatchedProductsDisplay item={item} variant="card" maxVisible={2} />
                       </div>
                     </div>
 
