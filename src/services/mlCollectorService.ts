@@ -411,7 +411,7 @@ export const mlCollectorService = {
    * Permite que produtos de catálogo cuja API omitiu sold_quantity recuperem o número exato
    * observado na vitrine do Mercado Livre.
    */
-  // Cache em memória na sessão para evitar varreduras repetidas
+  // Cache em memória com limite LRU de 10 entradas e TTL de 3 minutos
   _fallbackMapCache: new Map<
     string,
     {
@@ -423,13 +423,15 @@ export const mlCollectorService = {
       }
     }
   >(),
+  _MAX_CACHE_ENTRIES: 10,
+  _CACHE_TTL_MS: 3 * 60 * 1000, // 3 minutos
 
   /**
    * Constrói mapa cruzado de histórico de vendas (sold_quantity) por MLB ID e por título
    * normalizado a partir das coletas salvas do navegador.
    * Permite que produtos de catálogo cuja API omitiu sold_quantity recuperem o número exato
    * observado na vitrine do Mercado Livre.
-   * Otimizado: filtra registros recentes no PocketBase e memoiza por termo na sessão.
+   * Otimizado: filtra registros recentes no PocketBase e memoiza com cache LRU (10 entradas, TTL 3 min).
    */
   async buildSalesFallbackMap(searchTerm?: string): Promise<{
     byMlbId: Map<string, number>
@@ -438,8 +440,11 @@ export const mlCollectorService = {
   }> {
     const cacheKey = searchTerm ? normalizeSearchTerm(searchTerm) : '__general__'
     const cached = this._fallbackMapCache.get(cacheKey)
-    const CACHE_TTL_MS = 3 * 60 * 1000 // 3 minutos
+    const CACHE_TTL_MS = this._CACHE_TTL_MS
     if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+      // LRU refresh: re-insere para manter a chave no final (mais recentemente usada)
+      this._fallbackMapCache.delete(cacheKey)
+      this._fallbackMapCache.set(cacheKey, cached)
       return cached.data
     }
 
@@ -567,6 +572,15 @@ export const mlCollectorService = {
     }
 
     const result = { byMlbId, byTitle, adByMlbId }
+    // Aplicação da política LRU: se o cache excedeu o limite máximo, remove o item mais antigo
+    if (this._fallbackMapCache.has(cacheKey)) {
+      this._fallbackMapCache.delete(cacheKey)
+    } else if (this._fallbackMapCache.size >= this._MAX_CACHE_ENTRIES) {
+      const oldestKey = this._fallbackMapCache.keys().next().value
+      if (oldestKey !== undefined) {
+        this._fallbackMapCache.delete(oldestKey)
+      }
+    }
     this._fallbackMapCache.set(cacheKey, { timestamp: Date.now(), data: result })
     return result
   },
