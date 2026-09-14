@@ -25,6 +25,24 @@ export interface MLItemResponse {
   sold_quantity: number
 }
 
+export interface MLItemVariationAttribute {
+  id?: string
+  name?: string
+  value_id?: string
+  value_name?: string
+}
+
+export interface MLItemVariation {
+  id: string
+  price: number
+  available_quantity: number
+  sold_quantity?: number
+  attribute_combinations?: MLItemVariationAttribute[]
+  attributes?: MLItemVariationAttribute[]
+  label?: string
+  specsSummary?: string
+}
+
 export interface MLSellerItem {
   id: string
   title: string
@@ -48,9 +66,78 @@ export interface MLSellerItem {
   catalog_product_id?: string
   catalog_listing?: boolean
   domain_id?: string
+  parent_item_id?: string
+  variations?: MLItemVariation[]
+  attributes?: MLItemVariationAttribute[]
   // Dados de correspondência com catálogo local
   matchedProduct?: MLMatchedProduct
   matchedProducts?: MLMatchedProduct[]
+}
+
+/**
+ * Formata um resumo compacto das especificações técnicas de uma variação do ML
+ * Exemplo: "16GB · SSD 256GB — R$ 1.899 (5 un.)"
+ */
+export function formatMLVariationSummary(variation: MLItemVariation, currencyId = 'BRL'): string {
+  const parts: string[] = []
+
+  const combs = [...(variation.attribute_combinations || []), ...(variation.attributes || [])]
+
+  let ram = ''
+  let storage = ''
+  let proc = ''
+  let color = ''
+  const others: string[] = []
+
+  combs.forEach((c) => {
+    const cid = (c.id || '').toUpperCase()
+    const cname = (c.name || '').toLowerCase()
+    const val = (c.value_name || '').trim()
+    if (!val) return
+
+    if (cid.includes('RAM') || cname.includes('ram') || cname.includes('memória')) {
+      ram = val
+    } else if (
+      cid.includes('STORAGE') ||
+      cid.includes('SSD') ||
+      cid.includes('HARD_DRIVE') ||
+      cname.includes('armazenamento') ||
+      cname.includes('disco') ||
+      cname.includes('ssd') ||
+      cname.includes('hd')
+    ) {
+      storage = val
+    } else if (
+      cid.includes('PROCESSOR') ||
+      cname.includes('processador') ||
+      cname.includes('cpu')
+    ) {
+      proc = val
+    } else if (cid.includes('COLOR') || cname.includes('cor')) {
+      color = val
+    } else if (!cid.includes('GTIN') && !cname.includes('código')) {
+      others.push(val)
+    }
+  })
+
+  if (proc) parts.push(proc)
+  if (ram) parts.push(ram)
+  if (storage) parts.push(storage)
+  if (color && parts.length === 0) parts.push(color)
+  if (parts.length === 0 && others.length > 0) parts.push(...others.slice(0, 2))
+
+  const specLabel =
+    parts.length > 0
+      ? parts.join(' · ')
+      : variation.label || `Variação #${variation.id.slice(-4) || variation.id}`
+  const priceFormatted = Number(variation.price || 0).toLocaleString('pt-BR', {
+    style: 'currency',
+    currency: currencyId || 'BRL',
+    maximumFractionDigits: 0,
+  })
+  const stockText = `${variation.available_quantity ?? 0} un.`
+
+  return `${specLabel} — ${priceFormatted} (${stockText})`
 }
 
 export interface MLMatchedProduct {
@@ -1695,7 +1782,110 @@ export const mlService = {
     }
 
     const rawItems = finalJobData.items
-    const items: MLSellerItem[] = Array.isArray(rawItems) ? rawItems : []
+    let items: MLSellerItem[] = Array.isArray(rawItems) ? rawItems : []
+
+    // -------------------------------------------------------------------------
+    // AGRUPAMENTO DE VARIAÇÕES DE CATÁLOGO / ANÚNCIOS DO MERCADO LIVRE
+    // -------------------------------------------------------------------------
+    // Quando o mesmo listing de catálogo chega como múltiplos registros de item
+    // (ex.: itens vinculados ao mesmo catalog_product_id ou parent_item_id),
+    // ou quando um item já traz suas variações no array `variations`, consolidamos
+    // tudo sob um único anúncio pai para que a listagem exiba UM único card/linha
+    // com a listagem expansível de todas as variações e estoques/preços reais do ML.
+    // -------------------------------------------------------------------------
+    const groupedItemsMap = new Map<string, MLSellerItem>()
+    const directItems: MLSellerItem[] = []
+
+    for (const rawItem of items) {
+      // Normaliza variações que já vieram no item
+      const itemVariations: MLItemVariation[] = Array.isArray(rawItem.variations)
+        ? [...rawItem.variations]
+        : []
+
+      // Chave de agrupamento: se for anúncio de catálogo com catalog_product_id, agrupa por ele.
+      // Ou se tiver parent_item_id explicitado pela API do ML.
+      const catalogKey = rawItem.catalog_product_id ? `catalog_${rawItem.catalog_product_id}` : ''
+      const parentKey = rawItem.parent_item_id ? `parent_${rawItem.parent_item_id}` : ''
+      const groupKey = catalogKey || parentKey
+
+      if (groupKey) {
+        if (!groupedItemsMap.has(groupKey)) {
+          // Cria o registro pai inicial
+          const parentItem: MLSellerItem = {
+            ...rawItem,
+            variations: [...itemVariations],
+          }
+
+          // Se o item não tem variations mas tem atributos próprios (ou é uma variação de catálogo),
+          // cria uma entrada sintética representando esta oferta caso haja mais de um anúncio associado
+          if (parentItem.variations!.length === 0) {
+            parentItem.variations!.push({
+              id: rawItem.id,
+              price: rawItem.price,
+              available_quantity: rawItem.available_quantity,
+              sold_quantity: rawItem.sold_quantity,
+              attribute_combinations: rawItem.attributes || [],
+              label: rawItem.title,
+            })
+          }
+
+          groupedItemsMap.set(groupKey, parentItem)
+        } else {
+          // Já existe um pai para este produto de catálogo: consolidar!
+          const existingParent = groupedItemsMap.get(groupKey)!
+          existingParent.available_quantity += rawItem.available_quantity || 0
+          existingParent.sold_quantity += rawItem.sold_quantity || 0
+
+          // Se o preço do item atual for menor ou mais relevante, mantém menor preço no pai
+          if (rawItem.price && (!existingParent.price || rawItem.price < existingParent.price)) {
+            existingParent.price = rawItem.price
+          }
+
+          // Adiciona ou mescla as variações do item atual
+          if (itemVariations.length > 0) {
+            for (const v of itemVariations) {
+              const alreadyHas = (existingParent.variations || []).some((ev) => ev.id === v.id)
+              if (!alreadyHas) {
+                existingParent.variations = existingParent.variations || []
+                existingParent.variations.push(v)
+              }
+            }
+          } else {
+            // Variação representada por este item irmão
+            const alreadyHas = (existingParent.variations || []).some((ev) => ev.id === rawItem.id)
+            if (!alreadyHas) {
+              existingParent.variations = existingParent.variations || []
+              existingParent.variations.push({
+                id: rawItem.id,
+                price: rawItem.price,
+                available_quantity: rawItem.available_quantity,
+                sold_quantity: rawItem.sold_quantity,
+                attribute_combinations: rawItem.attributes || [],
+                label: rawItem.title,
+              })
+            }
+          }
+        }
+      } else {
+        // Item regular sem agrupamento por catalog_product_id
+        directItems.push({
+          ...rawItem,
+          variations: itemVariations.length > 0 ? itemVariations : undefined,
+        })
+      }
+    }
+
+    // Unifica itens agrupados + itens diretos
+    items = [...Array.from(groupedItemsMap.values()), ...directItems]
+
+    // Formata o resumo specsSummary para cada variação dos itens
+    for (const it of items) {
+      if (Array.isArray(it.variations) && it.variations.length > 0) {
+        for (const v of it.variations) {
+          v.specsSummary = formatMLVariationSummary(v, it.currency_id)
+        }
+      }
+    }
 
     // Cruzar com catálogo local (somente leitura) para indicar quais já correspondem a produtos
     try {

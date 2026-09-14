@@ -203,6 +203,21 @@ export default function AnunciosML() {
             return specSummary.includes(q)
           }) || false
 
+        // Busca também dentro das variações reais do Mercado Livre (ex: 16GB, 256GB, i5, etc.)
+        const matchesVariations =
+          item.variations?.some((v) => {
+            if (v.specsSummary && v.specsSummary.toLowerCase().includes(q)) return true
+            if (v.label && v.label.toLowerCase().includes(q)) return true
+            if (v.id && v.id.toLowerCase().includes(q)) return true
+            const combMatches = (v.attribute_combinations || []).some((c) => {
+              return (
+                (c.name && c.name.toLowerCase().includes(q)) ||
+                (c.value_name && c.value_name.toLowerCase().includes(q))
+              )
+            })
+            return combMatches
+          }) || false
+
         if (
           !matchesTitle &&
           !matchesId &&
@@ -212,7 +227,8 @@ export default function AnunciosML() {
           !matchesModel &&
           !matchesSku &&
           !matchesProductName &&
-          !matchesSpecs
+          !matchesSpecs &&
+          !matchesVariations
         ) {
           return false
         }
@@ -283,7 +299,13 @@ export default function AnunciosML() {
         const mSku =
           item.matchedProduct?.sku?.toLowerCase().includes(cTerm) ||
           item.matchedProducts?.some((p) => p.sku?.toLowerCase().includes(cTerm))
-        if (!mTitle && !mId && !mSku) return false
+        const mVar = item.variations?.some((v) => {
+          if (v.specsSummary && v.specsSummary.toLowerCase().includes(cTerm)) return true
+          return (v.attribute_combinations || []).some(
+            (c) => c.value_name && c.value_name.toLowerCase().includes(cTerm),
+          )
+        })
+        if (!mTitle && !mId && !mSku && !mVar) return false
       }
 
       // 2. Coluna Status
@@ -315,6 +337,8 @@ export default function AnunciosML() {
       if (colFilterVinculo === 'matched' && !hasAnyMatch) return false
       if (colFilterVinculo === 'unmatched' && hasAnyMatch) return false
       if (colFilterVinculo === 'catalog' && !item.catalog_product_id && !item.catalog_listing)
+        return false
+      if (colFilterVinculo === 'variations' && (!item.variations || item.variations.length === 0))
         return false
 
       // 6. Coluna Tipo de anúncio (Clássico / Premium)
@@ -1577,6 +1601,22 @@ export default function AnunciosML() {
                                   Anúncio de Catálogo ML
                                 </span>
                                 {colFilterVinculo === 'catalog' && (
+                                  <Check className="w-3.5 h-3.5 text-amber-600" />
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setColFilterVinculo('variations')}
+                                className={`w-full text-left px-2 py-1.5 rounded flex items-center justify-between hover:bg-slate-100 ${
+                                  colFilterVinculo === 'variations'
+                                    ? 'bg-amber-50 font-bold text-amber-900'
+                                    : 'text-slate-700'
+                                }`}
+                              >
+                                <span className="text-indigo-700 font-semibold">
+                                  Com Variações ML
+                                </span>
+                                {colFilterVinculo === 'variations' && (
                                   <Check className="w-3.5 h-3.5 text-amber-600" />
                                 )}
                               </button>

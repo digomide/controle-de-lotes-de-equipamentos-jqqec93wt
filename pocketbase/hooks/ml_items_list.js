@@ -325,7 +325,7 @@ onRecordAfterCreateSuccess((e) => {
     const multigetUrl =
       'https://api.mercadolibre.com/items?ids=' +
       slice.join(',') +
-      '&attributes=id,title,price,currency_id,available_quantity,sold_quantity,condition,status,permalink,thumbnail,pictures,attributes,date_created,last_updated,listing_type_id,catalog_product_id,catalog_listing,domain_id'
+      '&attributes=id,title,price,currency_id,available_quantity,sold_quantity,condition,status,permalink,thumbnail,pictures,attributes,variations,date_created,last_updated,listing_type_id,catalog_product_id,catalog_listing,domain_id,parent_item_id'
 
     try {
       const progressMsg =
@@ -427,6 +427,67 @@ onRecordAfterCreateSuccess((e) => {
               }
             }
 
+            // Extrair variações de forma compacta (id, price, available_quantity, sold_quantity, attribute_combinations)
+            var extractedVariations = []
+            if (Array.isArray(body.variations) && body.variations.length > 0) {
+              for (var vIdx = 0; vIdx < body.variations.length; vIdx++) {
+                var rawV = body.variations[vIdx]
+                if (!rawV) continue
+                var combList = []
+                var rawCombs = Array.isArray(rawV.attribute_combinations)
+                  ? rawV.attribute_combinations
+                  : []
+                for (var cIdx = 0; cIdx < rawCombs.length; cIdx++) {
+                  var comb = rawCombs[cIdx]
+                  if (comb && (comb.name || comb.id)) {
+                    combList.push({
+                      id: comb.id || '',
+                      name: comb.name || '',
+                      value_id: comb.value_id || '',
+                      value_name: comb.value_name || '',
+                    })
+                  }
+                }
+                extractedVariations.push({
+                  id: rawV.id ? String(rawV.id) : '',
+                  price: typeof rawV.price === 'number' ? rawV.price : body.price,
+                  available_quantity:
+                    typeof rawV.available_quantity === 'number' ? rawV.available_quantity : 0,
+                  sold_quantity: typeof rawV.sold_quantity === 'number' ? rawV.sold_quantity : 0,
+                  attribute_combinations: combList,
+                })
+              }
+            }
+
+            // Extrair atributos relevantes de hardware do item pai (RAM, SSD, PROCESSOR, etc.) para enriquecer caso variações precisem
+            var itemAttrs = []
+            if (Array.isArray(body.attributes)) {
+              for (var atIdx = 0; atIdx < body.attributes.length; atIdx++) {
+                var aItem = body.attributes[atIdx]
+                var aid = (aItem.id || '').toUpperCase()
+                if (
+                  aid === 'RAM' ||
+                  aid === 'RAM_MEMORY_MODULE_TOTAL_CAPACITY' ||
+                  aid === 'DATA_STORAGE_CAPACITY' ||
+                  aid === 'SSD_DATA_STORAGE_CAPACITY' ||
+                  aid === 'HARD_DRIVE_DATA_STORAGE_CAPACITY' ||
+                  aid === 'PROCESSOR' ||
+                  aid === 'PROCESSOR_MODEL' ||
+                  aid === 'PROCESSOR_BRAND' ||
+                  aid === 'DISPLAY_SIZE' ||
+                  aid === 'SCREEN_SIZE' ||
+                  aid === 'COLOR' ||
+                  aid === 'MAIN_COLOR'
+                ) {
+                  itemAttrs.push({
+                    id: aItem.id,
+                    name: aItem.name,
+                    value_name: aItem.value_name || '',
+                  })
+                }
+              }
+            }
+
             detailedItems.push({
               id: body.id,
               title: body.title,
@@ -450,6 +511,9 @@ onRecordAfterCreateSuccess((e) => {
               catalog_product_id: body.catalog_product_id || '',
               catalog_listing: Boolean(body.catalog_listing || body.catalog_product_id),
               domain_id: body.domain_id || '',
+              parent_item_id: body.parent_item_id || '',
+              variations: extractedVariations.length > 0 ? extractedVariations : undefined,
+              attributes: itemAttrs.length > 0 ? itemAttrs : undefined,
             })
           }
         }
@@ -501,6 +565,35 @@ onRecordAfterCreateSuccess((e) => {
       }
       if (it.condition_grade) {
         base.condition_grade = it.condition_grade
+      }
+      if (it.parent_item_id) {
+        base.parent_item_id = it.parent_item_id
+      }
+      if (Array.isArray(it.variations) && it.variations.length > 0) {
+        base.variations = it.variations.map(function (v) {
+          return {
+            id: v.id,
+            price: v.price,
+            available_quantity: v.available_quantity,
+            sold_quantity: v.sold_quantity || 0,
+            attribute_combinations: (v.attribute_combinations || []).map(function (c) {
+              return {
+                id: c.id,
+                name: c.name,
+                value_name: c.value_name,
+              }
+            }),
+          }
+        })
+      }
+      if (Array.isArray(it.attributes) && it.attributes.length > 0 && level <= 2) {
+        base.attributes = it.attributes.map(function (a) {
+          return {
+            id: a.id,
+            name: a.name,
+            value_name: a.value_name,
+          }
+        })
       }
       if (level === 1) {
         base.brand = it.brand
@@ -589,8 +682,8 @@ onRecordAfterCreateSuccess((e) => {
   e.next()
 }, 'ml_ads_fetch_jobs')
 
-// Mantém endpoint HTTP legado em routerAdd caso o runtime passe a suportar rotas personalizadas
-routerAdd('GET', '/api/ml/items', (e) => {
+// Endpoint HTTP sob namespace /backend/v1/ml/items
+routerAdd('GET', '/backend/v1/ml/items', (e) => {
   let settings = null
   try {
     const sRecords = $app.findRecordsByFilter('ml_settings', '1=1', '-created', 1, 0)
