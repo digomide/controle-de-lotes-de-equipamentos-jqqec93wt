@@ -1,6 +1,7 @@
 import pb from '@/lib/pocketbase/client'
 import type { Product } from '@/types/inventory'
 import { getMLItemCondition, getMLGradeLabel } from '@/lib/condition'
+import { ProductSimilarityMatcher, LocalProductCandidate } from './productMatchingService'
 export { getMLItemCondition, getMLGradeLabel }
 
 export interface MLStatusResponse {
@@ -67,7 +68,10 @@ export interface MLMatchedProduct {
   storage?: string
   screen_size?: string
   condition?: string
-  match_type: 'ml_listing_id' | 'gtin'
+  match_type: 'ml_listing_id' | 'gtin' | 'similarity'
+  match_score?: number
+  match_reasons?: string[]
+  is_suggested?: boolean
 }
 
 /**
@@ -1781,6 +1785,63 @@ export const mlService = {
           item.matchedProduct = matchesList[0]
         }
       }
+
+      // 3. Match inteligente por similaridade para anúncios ainda sem produto vinculado
+      const candidateList: LocalProductCandidate[] = products.map((p) => ({
+        id: p.id,
+        name: p.name,
+        sku: p.sku,
+        serial_number: p.serial_number,
+        status: p.status,
+        unit_price: Number(p.unit_price) || 0,
+        cost_price: Number(p.cost_price) || 0,
+        brand: p.brand,
+        model: p.model,
+        processor: p.processor,
+        ram: p.ram,
+        storage: p.storage,
+        screen_size: p.screen_size,
+        condition: p.condition,
+        ml_listing_id: p.ml_listing_id,
+        gtin: p.gtin,
+      }))
+
+      const matcher = new ProductSimilarityMatcher(candidateList)
+
+      for (const item of items) {
+        if (!item.matchedProduct || !item.matchedProducts || item.matchedProducts.length === 0) {
+          const suggestedMatches = matcher.findBestMatches(item, {
+            maxMatches: 3,
+            minConfidenceScore: 48,
+          })
+
+          if (suggestedMatches.length > 0) {
+            const mappedSuggested: MLMatchedProduct[] = suggestedMatches.map((sm) => ({
+              id: sm.candidate.id,
+              name: sm.candidate.name,
+              sku: sm.candidate.sku,
+              serial_number: sm.candidate.serial_number,
+              status: sm.candidate.status,
+              unit_price: sm.candidate.unit_price,
+              cost_price: sm.candidate.cost_price,
+              brand: sm.candidate.brand,
+              model: sm.candidate.model,
+              processor: sm.candidate.processor,
+              ram: sm.candidate.ram,
+              storage: sm.candidate.storage,
+              screen_size: sm.candidate.screen_size,
+              condition: sm.candidate.condition,
+              match_type: 'similarity',
+              match_score: sm.score,
+              match_reasons: sm.reasons,
+              is_suggested: true,
+            }))
+
+            item.matchedProducts = mappedSuggested
+            item.matchedProduct = mappedSuggested[0]
+          }
+        }
+      }
     } catch (cErr) {
       console.warn('Não foi possível cruzar com o catálogo local:', cErr)
     }
@@ -1792,5 +1853,32 @@ export const mlService = {
       items,
       total: finalJobData.items_count !== undefined ? finalJobData.items_count : items.length,
     }
+  },
+
+  /**
+   * Vincula um produto do catálogo interno a um anúncio do Mercado Livre,
+   * atualizando o campo ml_listing_id no produto interno.
+   * Não chama a API do ML — apenas atualiza o banco interno PocketBase.
+   */
+  async linkProductToAd(productId: string, mlItemId: string): Promise<void> {
+    if (!productId || !mlItemId) {
+      throw new Error('ID do produto e ID do anúncio são obrigatórios.')
+    }
+    await pb.collection('products').update(productId, {
+      ml_listing_id: mlItemId,
+    })
+  },
+
+  /**
+   * Desvincula um produto do catálogo interno do anúncio do Mercado Livre,
+   * limpando o campo ml_listing_id no produto interno.
+   */
+  async unlinkProductFromAd(productId: string): Promise<void> {
+    if (!productId) {
+      throw new Error('ID do produto é obrigatório.')
+    }
+    await pb.collection('products').update(productId, {
+      ml_listing_id: '',
+    })
   },
 }

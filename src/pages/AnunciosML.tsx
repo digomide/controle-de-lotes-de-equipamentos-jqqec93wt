@@ -61,6 +61,7 @@ import { MLQuestionsInsightsPanel } from '@/components/MLQuestionsInsightsPanel'
 import { MLSellersMonitorTab } from '@/components/MLSellersMonitorTab'
 import { mlQuestionsService, type MLQuestionMetrics } from '@/services/mlQuestionsService'
 import { MLItemMatchedProductsDisplay } from '@/components/MLItemMatchedProductsDisplay'
+import { MLManualProductSelectorModal } from '@/components/MLManualProductSelectorModal'
 
 export default function AnunciosML() {
   const { toast } = useToast()
@@ -110,6 +111,10 @@ export default function AnunciosML() {
 
   // Visualização Tabela vs Cards
   const [viewMode, setViewMode] = useState<'table' | 'grid'>('table')
+
+  // Modal de seleção manual de produto
+  const [manualSelectorOpen, setManualSelectorOpen] = useState(false)
+  const [selectedAdForManualLink, setSelectedAdForManualLink] = useState<MLSellerItem | null>(null)
 
   // Seleção de itens para ações em massa
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set())
@@ -251,9 +256,12 @@ export default function AnunciosML() {
         }
       }
 
-      // Filtro global de vínculo ao catálogo local
-      if (matchedFilter === 'matched' && !item.matchedProduct) return false
-      if (matchedFilter === 'unmatched' && item.matchedProduct) return false
+      // Filtro global de vínculo ao catálogo local (considera tanto confirmados quanto sugeridos)
+      const hasAnyMatch = Boolean(
+        item.matchedProduct || (item.matchedProducts && item.matchedProducts.length > 0),
+      )
+      if (matchedFilter === 'matched' && !hasAnyMatch) return false
+      if (matchedFilter === 'unmatched' && hasAnyMatch) return false
 
       // Filtro global de tipo de anúncio
       if (catalogOnlyFilter === 'catalog' && !item.catalog_product_id && !item.catalog_listing) {
@@ -304,8 +312,8 @@ export default function AnunciosML() {
       }
 
       // 5. Coluna Vínculo / Catálogo
-      if (colFilterVinculo === 'matched' && !item.matchedProduct) return false
-      if (colFilterVinculo === 'unmatched' && item.matchedProduct) return false
+      if (colFilterVinculo === 'matched' && !hasAnyMatch) return false
+      if (colFilterVinculo === 'unmatched' && hasAnyMatch) return false
       if (colFilterVinculo === 'catalog' && !item.catalog_product_id && !item.catalog_listing)
         return false
 
@@ -406,7 +414,9 @@ export default function AnunciosML() {
       active: items.filter((i) => i.status === 'active').length,
       paused: items.filter((i) => i.status === 'paused').length,
       closed: items.filter((i) => i.status === 'closed').length,
-      matched: items.filter((i) => !!i.matchedProduct).length,
+      matched: items.filter((i) =>
+        Boolean(i.matchedProduct || (i.matchedProducts && i.matchedProducts.length > 0)),
+      ).length,
       catalogListings: items.filter((i) => !!i.catalog_product_id || !!i.catalog_listing).length,
       condAll: items.length,
       condNew: items.filter((i) => (i.condition || '').toLowerCase() === 'new').length,
@@ -421,6 +431,86 @@ export default function AnunciosML() {
       refurbGradeAceitavel: countAceitavel,
     }
   }, [data])
+
+  // Ação de confirmar vínculo do produto interno ao anúncio
+  const handleConfirmLink = async (productId: string, mlItemId: string) => {
+    try {
+      await mlService.linkProductToAd(productId, mlItemId)
+      toast({
+        title: 'Produto vinculado com sucesso!',
+        description: `O produto foi vinculado ao anúncio ${mlItemId}.`,
+      })
+
+      // Atualização otimista no estado local
+      if (data) {
+        const updated = data.items.map((i) => {
+          if (i.id === mlItemId) {
+            const updatedMatched = (i.matchedProducts || []).map((m) =>
+              m.id === productId
+                ? { ...m, is_suggested: false, match_type: 'ml_listing_id' as const }
+                : m,
+            )
+            return {
+              ...i,
+              matchedProducts: updatedMatched,
+              matchedProduct: updatedMatched.find((m) => m.id === productId) || i.matchedProduct,
+            }
+          }
+          return i
+        })
+        setData({ ...data, items: updated })
+      }
+    } catch (err: any) {
+      console.error('Erro ao vincular produto:', err)
+      toast({
+        title: 'Falha ao vincular produto',
+        description: err.message || 'Erro ao gravar vínculo no banco de dados.',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  // Ação de desvincular produto interno do anúncio
+  const handleUnlink = async (productId: string) => {
+    try {
+      await mlService.unlinkProductFromAd(productId)
+      toast({
+        title: 'Produto desvinculado!',
+        description: 'O vínculo do anúncio foi removido do catálogo.',
+      })
+
+      // Atualização otimista
+      if (data) {
+        const updated = data.items.map((i) => {
+          if (
+            i.matchedProducts?.some((m) => m.id === productId) ||
+            i.matchedProduct?.id === productId
+          ) {
+            const rem = (i.matchedProducts || []).filter((m) => m.id !== productId)
+            return {
+              ...i,
+              matchedProducts: rem,
+              matchedProduct: rem[0] || undefined,
+            }
+          }
+          return i
+        })
+        setData({ ...data, items: updated })
+      }
+    } catch (err: any) {
+      console.error('Erro ao desvincular:', err)
+      toast({
+        title: 'Falha ao desvincular',
+        description: err.message || 'Erro ao remover vínculo.',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleOpenManualSelector = (item: MLSellerItem) => {
+    setSelectedAdForManualLink(item)
+    setManualSelectorOpen(true)
+  }
 
   // Salvar Edição Direta de Preço na Linha
   const handleSavePrice = async (item: MLSellerItem) => {
@@ -1706,6 +1796,9 @@ export default function AnunciosML() {
                               item={item}
                               variant="table"
                               maxVisible={2}
+                              onConfirmLink={handleConfirmLink}
+                              onUnlink={handleUnlink}
+                              onOpenManualSelector={handleOpenManualSelector}
                             />
                           </td>
 
@@ -1793,7 +1886,14 @@ export default function AnunciosML() {
                         </div>
 
                         {/* Produtos Internos Vinculados com Configurações */}
-                        <MLItemMatchedProductsDisplay item={item} variant="card" maxVisible={2} />
+                        <MLItemMatchedProductsDisplay
+                          item={item}
+                          variant="card"
+                          maxVisible={2}
+                          onConfirmLink={handleConfirmLink}
+                          onUnlink={handleUnlink}
+                          onOpenManualSelector={handleOpenManualSelector}
+                        />
                       </div>
                     </div>
 
@@ -1858,6 +1958,17 @@ export default function AnunciosML() {
         onSuccess={() => {
           setSelectedItemIds(new Set())
           fetchItems(false)
+        }}
+      />
+
+      {/* Mini-seletor manual de produtos */}
+      <MLManualProductSelectorModal
+        open={manualSelectorOpen}
+        onOpenChange={setManualSelectorOpen}
+        item={selectedAdForManualLink}
+        onSelectProduct={async (productId, mlItemId) => {
+          await handleConfirmLink(productId, mlItemId)
+          await fetchItems(false)
         }}
       />
     </div>
