@@ -83,12 +83,12 @@ export function MLItemMatchedProductsDisplay({
 
   const isCatalog = Boolean(item.catalog_product_id || item.catalog_listing)
 
-  // Para anúncios de catálogo, o indicador agora mora na célula ANÚNCIO.
+  // Para anúncios de catálogo, o indicador mora na célula ANÚNCIO.
   // Esta coluna exibe um traço discreto (—) quando for anúncio de catálogo no modo tabela,
   // ou os produtos vinculados caso existam.
   if (isCatalog) {
     if (variant === 'table') {
-      if (products.length === 0) {
+      if (!products || products.length === 0) {
         return (
           <span
             className="text-slate-300 text-xs font-mono select-none"
@@ -99,7 +99,7 @@ export function MLItemMatchedProductsDisplay({
         )
       }
       // Se houver produto vinculado no catálogo local, permite visualizar/confirmar
-    } else if (products.length === 0) {
+    } else if (!products || products.length === 0) {
       // No modo card, não exibe o bloco se não houver produto interno vinculado
       return null
     }
