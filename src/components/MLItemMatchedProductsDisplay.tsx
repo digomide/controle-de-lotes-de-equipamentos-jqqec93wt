@@ -16,7 +16,12 @@ import {
   Loader2,
   Unlink,
 } from 'lucide-react'
-import { MLSellerItem, MLMatchedProduct, formatProductConfigSpecs } from '@/services/mlService'
+import {
+  MLSellerItem,
+  MLMatchedProduct,
+  formatProductConfigSpecs,
+  formatMLVariationSummary,
+} from '@/services/mlService'
 
 export type MatchedProductItem = MLMatchedProduct
 
@@ -87,28 +92,238 @@ export function MLItemMatchedProductsDisplay({
     (Array.isArray(item.variations) && item.variations.length > 0),
   )
 
-  // Para anúncios de catálogo, o indicador mora na célula ANÚNCIO.
-  // Esta coluna exibe um traço discreto (—) quando for anúncio de catálogo no modo tabela,
-  // ou os produtos vinculados caso existam.
-  if (isCatalog) {
+  const variations = Array.isArray(item.variations) ? item.variations.filter(Boolean) : []
+  const hasVariations = variations.length > 0
+
+  // ===================== CASO 1: ANÚNCIO DE CATÁLOGO / COM VARIAÇÕES ML =====================
+  // No checkpoint v0.0.222: para anúncios de catálogo, a coluna "VÍNCULO CATÁLOGO" exibe
+  // DIRETAMENTE as variações do Mercado Livre:
+  // - Badge "Catálogo ML" (+ ID do catálogo se houver)
+  // - Cada variação formatada via formatMLVariationSummary (ex.: "16GB · SSD 256GB — R$ 1.899 (5 un.)")
+  // - Botão "+N variações" / "Recolher" quando houver 3 ou mais
+  // - Se também houver produtos internos vinculados, exibe abaixo como complemento
+  if (isCatalog || hasVariations) {
+    const visibleVars = expanded ? variations : variations.slice(0, maxVisible)
+    const remainingVarCount = variations.length - maxVisible
+
     if (variant === 'table') {
-      if (!products || products.length === 0) {
-        return (
-          <span
-            className="text-slate-300 text-xs font-mono select-none"
-            title="Anúncio de catálogo ML (indicador de variações exibido na coluna Anúncio)"
-          >
-            —
-          </span>
-        )
-      }
-      // Se houver produto vinculado no catálogo local, permite visualizar/confirmar
-    } else if (!products || products.length === 0) {
-      // No modo card, não exibe o bloco se não houver produto interno vinculado
-      return null
+      return (
+        <div className="text-[11px] max-w-[320px] space-y-1.5">
+          {/* Badge de cabeçalho da coluna */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 shrink-0"
+              title={
+                item.catalog_product_id
+                  ? `Catálogo ML · ID: ${item.catalog_product_id}`
+                  : 'Anúncio de Catálogo ML'
+              }
+            >
+              <Layers className="w-3 h-3 text-blue-600" />
+              <span>Catálogo ML</span>
+            </span>
+
+            {item.catalog_product_id && (
+              <span
+                className="text-[10px] text-slate-500 font-mono truncate max-w-[140px]"
+                title={item.catalog_product_id}
+              >
+                {item.catalog_product_id}
+              </span>
+            )}
+
+            {hasVariations && (
+              <span className="text-[10px] font-semibold text-slate-500 ml-auto">
+                {variations.length} {variations.length === 1 ? 'variação' : 'variações'}
+              </span>
+            )}
+          </div>
+
+          {/* Lista de variações do ML */}
+          {hasVariations ? (
+            <div className="space-y-1">
+              {visibleVars.map((v, idx) => {
+                const summary =
+                  v.specsSummary ||
+                  (() => {
+                    try {
+                      return formatMLVariationSummary(v, item.currency_id)
+                    } catch {
+                      return v.label || v.id || `Variação ${idx + 1}`
+                    }
+                  })()
+
+                return (
+                  <div
+                    key={v.id || `v-${idx}`}
+                    className="p-1.5 rounded bg-blue-50/50 border border-blue-100 text-[10.5px] flex items-center justify-between gap-1.5 transition-colors"
+                  >
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
+                      <span className="font-medium text-slate-800 truncate" title={summary}>
+                        {summary}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })}
+
+              {/* Botão de expansão quando houver mais de maxVisible variações */}
+              {variations.length > maxVisible && (
+                <div className="pt-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setExpanded(!expanded)}
+                    className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100/80 px-1.5 py-0.5 rounded transition-colors cursor-pointer"
+                  >
+                    {expanded ? (
+                      <>
+                        <ChevronUp className="w-3 h-3" />
+                        <span>Recolher</span>
+                      </>
+                    ) : (
+                      <>
+                        <ChevronDown className="w-3 h-3" />
+                        <span>+{remainingVarCount} variações</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-[10px] text-slate-400 italic flex items-center gap-1">
+              <span>Oferta única no catálogo ML (sem variações cadastradas)</span>
+            </div>
+          )}
+
+          {/* Se houver produto interno vinculado além do catálogo, exibe discretamente */}
+          {products.length > 0 && (
+            <div className="pt-1 border-t border-slate-100 space-y-1">
+              <span className="text-[9.5px] font-bold uppercase tracking-wider text-slate-500 block">
+                Produto interno vinculado:
+              </span>
+              {products.slice(0, 1).map((prod) => (
+                <div
+                  key={prod.id}
+                  className="p-1 rounded bg-emerald-50/70 border border-emerald-100 text-[10px] flex items-center justify-between gap-1"
+                >
+                  <span className="font-semibold text-emerald-950 truncate max-w-[180px]">
+                    {prod.name}
+                  </span>
+                  <Link
+                    to={`/catalogo/${prod.id}`}
+                    className="text-blue-600 hover:text-blue-800 shrink-0 inline-flex items-center gap-0.5"
+                    title="Ver no catálogo"
+                  >
+                    <ExternalLink className="w-2.5 h-2.5" />
+                  </Link>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )
     }
+
+    // Modo card para catálogo / variações
+    return (
+      <div className="space-y-1.5 text-xs">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] font-sans font-bold uppercase tracking-wider flex items-center gap-1 text-blue-700">
+            <Layers className="w-3 h-3 text-blue-600" />
+            Catálogo ML {hasVariations ? `(${variations.length} variações)` : ''}
+          </span>
+
+          {variations.length > maxVisible && (
+            <button
+              type="button"
+              onClick={() => setExpanded(!expanded)}
+              className="text-[10px] font-bold text-blue-700 hover:text-blue-900 flex items-center gap-0.5 transition-colors cursor-pointer"
+            >
+              {expanded ? (
+                <>
+                  <span>Recolher</span>
+                  <ChevronUp className="w-3 h-3" />
+                </>
+              ) : (
+                <>
+                  <span>+{remainingVarCount} variações</span>
+                  <ChevronDown className="w-3 h-3" />
+                </>
+              )}
+            </button>
+          )}
+        </div>
+
+        {item.catalog_product_id && (
+          <div className="text-[10px] text-slate-500 font-mono">
+            ID Catálogo: <strong className="text-slate-700">{item.catalog_product_id}</strong>
+          </div>
+        )}
+
+        {hasVariations ? (
+          <div className="space-y-1">
+            {visibleVars.map((v, idx) => {
+              const summary =
+                v.specsSummary ||
+                (() => {
+                  try {
+                    return formatMLVariationSummary(v, item.currency_id)
+                  } catch {
+                    return v.label || v.id || `Variação ${idx + 1}`
+                  }
+                })()
+
+              return (
+                <div
+                  key={v.id || `v-${idx}`}
+                  className="p-1.5 rounded bg-blue-50/60 border border-blue-100 text-[11px] flex items-center justify-between gap-1.5"
+                >
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
+                    <span className="font-medium text-slate-800 truncate" title={summary}>
+                      {summary}
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="text-[10px] text-slate-400 italic">
+            Oferta única no catálogo ML (sem variações cadastradas)
+          </div>
+        )}
+
+        {products.length > 0 && (
+          <div className="pt-1 border-t border-slate-100">
+            <span className="text-[10px] font-bold text-slate-500 block mb-1">
+              Produto interno vinculado:
+            </span>
+            {products.slice(0, 1).map((prod) => (
+              <div
+                key={prod.id}
+                className="p-1.5 rounded bg-emerald-50/70 border border-emerald-100 text-[10.5px] flex items-center justify-between gap-1"
+              >
+                <span className="font-semibold text-emerald-950 truncate">{prod.name}</span>
+                <Link
+                  to={`/catalogo/${prod.id}`}
+                  className="text-blue-600 hover:text-blue-800 font-mono text-[10px] inline-flex items-center gap-0.5"
+                >
+                  <span>#{prod.sku || prod.id.slice(0, 6)}</span>
+                  <ExternalLink className="w-2.5 h-2.5" />
+                </Link>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    )
   }
 
+  // ===================== CASO 2: ANÚNCIO TRADICIONAL (SEM CATÁLOGO/VARIAÇÕES) =====================
+  // Mantém vínculo com produtos internos (Sugerido/Confirmado, Vincular/Desvincular)
   const visibleProducts = expanded ? products : products.slice(0, maxVisible)
   const remainingCount = products.length - maxVisible
 

@@ -772,94 +772,17 @@ export default function AnunciosML() {
       const vars = Array.isArray(item.variations) ? item.variations.filter(Boolean) : []
       const count = vars.length
 
-      // Se tiver variações, mostramos com Popover para ver os detalhes
-      if (count > 0) {
-        return (
-          <Popover>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                onClick={(e) => e.stopPropagation()}
-                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-colors cursor-pointer shrink-0"
-                title={`Catálogo · ${count} variaç${count > 1 ? 'ões' : 'ão'} — clique para ver`}
-              >
-                <Layers className="w-3 h-3 text-blue-600" />
-                <span>
-                  Catálogo · {count} {count === 1 ? 'variação' : 'variações'}
-                </span>
-              </button>
-            </PopoverTrigger>
-            <PopoverContent
-              className="w-80 p-3 text-xs space-y-2 shadow-lg border-blue-100"
-              align="start"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                <div className="flex items-center gap-1.5 font-bold text-slate-800 text-xs">
-                  <Layers className="w-3.5 h-3.5 text-blue-600" />
-                  <span>Variações de Catálogo ML</span>
-                </div>
-                <Badge
-                  variant="outline"
-                  className="text-[10px] font-mono bg-blue-50 text-blue-700 border-blue-200"
-                >
-                  {count} {count === 1 ? 'variação' : 'variações'}
-                </Badge>
-              </div>
-              {item.catalog_product_id && (
-                <div className="text-[10px] text-slate-500 font-mono">
-                  ID Catálogo: <strong className="text-slate-700">{item.catalog_product_id}</strong>
-                </div>
-              )}
-              <div className="space-y-1.5 max-h-56 overflow-y-auto pt-1 pr-1">
-                {vars.map((v, idx) => {
-                  try {
-                    let summary = v.specsSummary
-                    if (!summary) {
-                      try {
-                        summary = formatMLVariationSummary(v, item.currency_id)
-                      } catch {
-                        summary = v.label || v.id || `Variação ${idx + 1}`
-                      }
-                    }
-                    return (
-                      <div
-                        key={v.id || `v-${idx}`}
-                        className="p-1.5 rounded bg-slate-50 border border-slate-200/70 text-[11px] flex items-center justify-between gap-1.5"
-                      >
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
-                          <span className="font-medium text-slate-800 truncate" title={summary}>
-                            {summary}
-                          </span>
-                        </div>
-                      </div>
-                    )
-                  } catch {
-                    return (
-                      <div
-                        key={v?.id || `v-${idx}`}
-                        className="p-1.5 rounded bg-slate-50 border border-slate-200/70 text-[11px] text-slate-700 truncate"
-                      >
-                        Variação #{v?.id ? String(v.id).slice(-4) : idx + 1}
-                      </div>
-                    )
-                  }
-                })}
-              </div>
-            </PopoverContent>
-          </Popover>
-        )
-      }
-
-      // Catálogo simples sem variações cadastradas
       return (
         <span
           className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 shrink-0"
-          title="Anúncio de Catálogo ML"
+          title={
+            count > 0
+              ? `Catálogo ML · ${count} ${count === 1 ? 'variação' : 'variações'} (detalhes na coluna Vínculo Catálogo)`
+              : 'Anúncio de Catálogo ML'
+          }
         >
           <Layers className="w-3 h-3 text-blue-600" />
-          <span>Catálogo</span>
+          <span>{count > 0 ? `Catálogo (${count})` : 'Catálogo'}</span>
         </span>
       )
     } catch (e) {
