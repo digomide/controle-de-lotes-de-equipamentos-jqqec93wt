@@ -84,21 +84,23 @@ export function MLItemMatchedProductsDisplay({
   const isCatalog = Boolean(item.catalog_product_id || item.catalog_listing)
 
   // Para anúncios de catálogo, o indicador agora mora na célula ANÚNCIO.
-  // Esta coluna volta ao comportamento simples (vínculo com produto interno no estoque)
-  // e exibe um traço discreto (—) quando for anúncio de catálogo.
+  // Esta coluna exibe um traço discreto (—) quando for anúncio de catálogo no modo tabela,
+  // ou os produtos vinculados caso existam.
   if (isCatalog) {
     if (variant === 'table') {
-      return (
-        <span
-          className="text-slate-300 text-xs font-mono select-none"
-          title="Anúncio de catálogo ML (indicador de variações exibido na coluna Anúncio)"
-        >
-          —
-        </span>
-      )
-    }
-    // No modo card, não exibe o bloco se não houver produto interno vinculado
-    if (products.length === 0) {
+      if (products.length === 0) {
+        return (
+          <span
+            className="text-slate-300 text-xs font-mono select-none"
+            title="Anúncio de catálogo ML (indicador de variações exibido na coluna Anúncio)"
+          >
+            —
+          </span>
+        )
+      }
+      // Se houver produto vinculado no catálogo local, permite visualizar/confirmar
+    } else if (products.length === 0) {
+      // No modo card, não exibe o bloco se não houver produto interno vinculado
       return null
     }
   }

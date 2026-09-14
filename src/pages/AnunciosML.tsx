@@ -111,7 +111,7 @@ export default function AnunciosML() {
   const [colFilterStatus, setColFilterStatus] = useState<string>('all')
   const [colFilterCondition, setColFilterCondition] = useState<string>('all')
   const [colFilterStock, setColFilterStock] = useState<string>('all') // 'all' | 'in_stock' | 'zero_stock'
-  const [colFilterVinculo, setColFilterVinculo] = useState<string>('all') // 'all' | 'matched' | 'unmatched' | 'catalog'
+  const [colFilterVinculo, setColFilterVinculo] = useState<string>('all') // 'all' | 'matched' | 'unmatched' | 'catalog' | 'variations'
   const [colFilterListingType, setColFilterListingType] = useState<string>('all') // 'all' | 'gold_special' | 'gold_pro'
 
   // Visualização Tabela vs Cards
@@ -184,174 +184,196 @@ export default function AnunciosML() {
   }, [])
 
   const filteredItems = useMemo(() => {
-    if (!data?.items) return []
+    if (!data?.items || !Array.isArray(data.items)) return []
     return data.items.filter((item) => {
-      // Filtro global de busca por texto (título, ID, GTIN, modelo, SKU do match, catalog_product_id)
-      if (search.trim()) {
-        const q = search.toLowerCase()
-        const matchesTitle = item.title?.toLowerCase().includes(q)
-        const matchesId = item.id?.toLowerCase().includes(q)
-        const matchesCatalogId = item.catalog_product_id?.toLowerCase().includes(q)
-        const matchesGtin = item.gtin?.toLowerCase().includes(q)
-        const matchesBrand = item.brand?.toLowerCase().includes(q)
-        const matchesModel = item.model?.toLowerCase().includes(q)
-        const matchesSku =
-          item.matchedProduct?.sku?.toLowerCase().includes(q) ||
-          item.matchedProducts?.some((p) => p.sku?.toLowerCase().includes(q))
-        const matchesProductName =
-          item.matchedProduct?.name?.toLowerCase().includes(q) ||
-          item.matchedProducts?.some((p) => p.name?.toLowerCase().includes(q))
-        const matchesSpecs =
-          item.matchedProducts?.some((p) => {
-            const specSummary =
-              `${p.processor || ''} ${p.ram || ''} ${p.storage || ''} ${p.screen_size || ''}`.toLowerCase()
-            return specSummary.includes(q)
-          }) || false
+      if (!item) return false
 
-        // Busca também dentro das variações reais do Mercado Livre (ex: 16GB, 256GB, i5, etc.)
-        const matchesVariations =
-          item.variations?.some((v) => {
-            if (v.specsSummary && v.specsSummary.toLowerCase().includes(q)) return true
-            if (v.label && v.label.toLowerCase().includes(q)) return true
-            if (v.id && v.id.toLowerCase().includes(q)) return true
-            const combMatches = (v.attribute_combinations || []).some((c) => {
-              return (
-                (c.name && c.name.toLowerCase().includes(q)) ||
-                (c.value_name && c.value_name.toLowerCase().includes(q))
-              )
+      try {
+        // Filtro global de busca por texto (título, ID, GTIN, modelo, SKU do match, catalog_product_id)
+        if (search.trim()) {
+          const q = search.toLowerCase()
+          const matchesTitle = item.title ? item.title.toLowerCase().includes(q) : false
+          const matchesId = item.id ? item.id.toLowerCase().includes(q) : false
+          const matchesCatalogId = item.catalog_product_id
+            ? item.catalog_product_id.toLowerCase().includes(q)
+            : false
+          const matchesGtin = item.gtin ? item.gtin.toLowerCase().includes(q) : false
+          const matchesBrand = item.brand ? item.brand.toLowerCase().includes(q) : false
+          const matchesModel = item.model ? item.model.toLowerCase().includes(q) : false
+          const matchesSku =
+            (item.matchedProduct?.sku
+              ? item.matchedProduct.sku.toLowerCase().includes(q)
+              : false) ||
+            (Array.isArray(item.matchedProducts) &&
+              item.matchedProducts.some((p) => p.sku?.toLowerCase().includes(q)))
+          const matchesProductName =
+            (item.matchedProduct?.name
+              ? item.matchedProduct.name.toLowerCase().includes(q)
+              : false) ||
+            (Array.isArray(item.matchedProducts) &&
+              item.matchedProducts.some((p) => p.name?.toLowerCase().includes(q)))
+          const matchesSpecs =
+            Array.isArray(item.matchedProducts) &&
+            item.matchedProducts.some((p) => {
+              const specSummary =
+                `${p.processor || ''} ${p.ram || ''} ${p.storage || ''} ${p.screen_size || ''}`.toLowerCase()
+              return specSummary.includes(q)
             })
-            return combMatches
-          }) || false
 
-        if (
-          !matchesTitle &&
-          !matchesId &&
-          !matchesCatalogId &&
-          !matchesGtin &&
-          !matchesBrand &&
-          !matchesModel &&
-          !matchesSku &&
-          !matchesProductName &&
-          !matchesSpecs &&
-          !matchesVariations
-        ) {
-          return false
-        }
-      }
+          // Busca também dentro das variações reais do Mercado Livre (ex: 16GB, 256GB, i5, etc.)
+          const matchesVariations =
+            Array.isArray(item.variations) &&
+            item.variations.some((v) => {
+              if (v.specsSummary && v.specsSummary.toLowerCase().includes(q)) return true
+              if (v.label && v.label.toLowerCase().includes(q)) return true
+              if (v.id && String(v.id).toLowerCase().includes(q)) return true
+              const combMatches = (v.attribute_combinations || []).some((c) => {
+                return (
+                  (c.name && c.name.toLowerCase().includes(q)) ||
+                  (c.value_name && c.value_name.toLowerCase().includes(q))
+                )
+              })
+              return combMatches
+            })
 
-      // Filtro global de status ML (active, paused, closed)
-      if (statusFilter !== 'all' && item.status !== statusFilter) {
-        return false
-      }
-
-      // Filtro global de condição ML
-      if (conditionFilter !== 'all') {
-        const itemCond = (item.condition || '').toLowerCase()
-        if (conditionFilter === 'refurbished') {
-          if (itemCond !== 'refurbished') return false
-          if (refurbishedGradeFilter !== 'all') {
-            const rawG = String(item.condition_grade || '')
-              .normalize('NFD')
-              .replace(/[\u0300-\u036f]/g, '')
-              .toLowerCase()
-              .trim()
-            let normalizedG: 'Excelente' | 'Bom' | 'Aceitável' | null = null
-            if (rawG === 'excelente' || rawG.includes('excelent') || rawG === '40108830') {
-              normalizedG = 'Excelente'
-            } else if (rawG === 'bom' || rawG.includes('good') || rawG === '40108831') {
-              normalizedG = 'Bom'
-            } else if (rawG === 'aceitavel' || rawG.includes('accept') || rawG === '40108832') {
-              normalizedG = 'Aceitável'
-            }
-            const effectiveGrade = normalizedG || 'Excelente'
-            if (effectiveGrade !== refurbishedGradeFilter) return false
-          }
-        } else if (conditionFilter === 'new') {
-          if (itemCond !== 'new') return false
-        } else if (conditionFilter === 'used') {
-          if (itemCond !== 'used') return false
-        } else if (conditionFilter === 'not_specified') {
-          if (itemCond && itemCond !== 'not_specified' && itemCond !== 'unknown') {
+          if (
+            !matchesTitle &&
+            !matchesId &&
+            !matchesCatalogId &&
+            !matchesGtin &&
+            !matchesBrand &&
+            !matchesModel &&
+            !matchesSku &&
+            !matchesProductName &&
+            !matchesSpecs &&
+            !matchesVariations
+          ) {
             return false
           }
         }
-      }
 
-      // Filtro global de vínculo ao catálogo local (considera tanto confirmados quanto sugeridos)
-      const hasAnyMatch = Boolean(
-        item.matchedProduct || (item.matchedProducts && item.matchedProducts.length > 0),
-      )
-      if (matchedFilter === 'matched' && !hasAnyMatch) return false
-      if (matchedFilter === 'unmatched' && hasAnyMatch) return false
-
-      // Filtro global de tipo de anúncio
-      if (catalogOnlyFilter === 'catalog' && !item.catalog_product_id && !item.catalog_listing) {
-        return false
-      }
-      if (
-        catalogOnlyFilter === 'traditional' &&
-        (item.catalog_product_id || item.catalog_listing)
-      ) {
-        return false
-      }
-
-      // ================= FILTROS DE CABEÇALHO DE COLUNA =================
-      // 1. Coluna Anúncio: Título / ID / SKU
-      if (colSearchTitle.trim()) {
-        const cTerm = colSearchTitle.toLowerCase()
-        const mTitle = item.title?.toLowerCase().includes(cTerm)
-        const mId = item.id?.toLowerCase().includes(cTerm)
-        const mSku =
-          item.matchedProduct?.sku?.toLowerCase().includes(cTerm) ||
-          item.matchedProducts?.some((p) => p.sku?.toLowerCase().includes(cTerm))
-        const mVar = item.variations?.some((v) => {
-          if (v.specsSummary && v.specsSummary.toLowerCase().includes(cTerm)) return true
-          return (v.attribute_combinations || []).some(
-            (c) => c.value_name && c.value_name.toLowerCase().includes(cTerm),
-          )
-        })
-        if (!mTitle && !mId && !mSku && !mVar) return false
-      }
-
-      // 2. Coluna Status
-      if (colFilterStatus !== 'all' && item.status !== colFilterStatus) {
-        return false
-      }
-
-      // 3. Coluna Condição
-      if (colFilterCondition !== 'all') {
-        const itemCond = (item.condition || '').toLowerCase()
-        if (colFilterCondition === 'refurbished') {
-          if (itemCond !== 'refurbished') return false
-        } else if (colFilterCondition === 'new') {
-          if (itemCond !== 'new') return false
-        } else if (colFilterCondition === 'used') {
-          if (itemCond !== 'used') return false
+        // Filtro global de status ML (active, paused, closed)
+        if (statusFilter !== 'all' && item.status !== statusFilter) {
+          return false
         }
-      }
 
-      // 4. Coluna Estoque
-      if (colFilterStock === 'in_stock' && (item.available_quantity ?? 0) <= 0) {
-        return false
-      }
-      if (colFilterStock === 'zero_stock' && (item.available_quantity ?? 0) > 0) {
-        return false
-      }
+        // Filtro global de condição ML
+        if (conditionFilter !== 'all') {
+          const itemCond = (item.condition || '').toLowerCase()
+          if (conditionFilter === 'refurbished') {
+            if (itemCond !== 'refurbished') return false
+            if (refurbishedGradeFilter !== 'all') {
+              const rawG = String(item.condition_grade || '')
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .toLowerCase()
+                .trim()
+              let normalizedG: 'Excelente' | 'Bom' | 'Aceitável' | null = null
+              if (rawG === 'excelente' || rawG.includes('excelent') || rawG === '40108830') {
+                normalizedG = 'Excelente'
+              } else if (rawG === 'bom' || rawG.includes('good') || rawG === '40108831') {
+                normalizedG = 'Bom'
+              } else if (rawG === 'aceitavel' || rawG.includes('accept') || rawG === '40108832') {
+                normalizedG = 'Aceitável'
+              }
+              const effectiveGrade = normalizedG || 'Excelente'
+              if (effectiveGrade !== refurbishedGradeFilter) return false
+            }
+          } else if (conditionFilter === 'new') {
+            if (itemCond !== 'new') return false
+          } else if (conditionFilter === 'used') {
+            if (itemCond !== 'used') return false
+          } else if (conditionFilter === 'not_specified') {
+            if (itemCond && itemCond !== 'not_specified' && itemCond !== 'unknown') {
+              return false
+            }
+          }
+        }
 
-      // 5. Coluna Vínculo / Catálogo
-      if (colFilterVinculo === 'matched' && !hasAnyMatch) return false
-      if (colFilterVinculo === 'unmatched' && hasAnyMatch) return false
-      if (colFilterVinculo === 'catalog' && !item.catalog_product_id && !item.catalog_listing)
-        return false
-      if (colFilterVinculo === 'variations' && (!item.variations || item.variations.length === 0))
-        return false
+        // Filtro global de vínculo ao catálogo local (considera tanto confirmados quanto sugeridos)
+        const hasAnyMatch = Boolean(
+          item.matchedProduct || (item.matchedProducts && item.matchedProducts.length > 0),
+        )
+        if (matchedFilter === 'matched' && !hasAnyMatch) return false
+        if (matchedFilter === 'unmatched' && hasAnyMatch) return false
 
-      // 6. Coluna Tipo de anúncio (Clássico / Premium)
-      if (colFilterListingType !== 'all') {
-        if (item.listing_type_id !== colFilterListingType) return false
+        // Filtro global de tipo de anúncio
+        if (catalogOnlyFilter === 'catalog' && !item.catalog_product_id && !item.catalog_listing) {
+          return false
+        }
+        if (
+          catalogOnlyFilter === 'traditional' &&
+          (item.catalog_product_id || item.catalog_listing)
+        ) {
+          return false
+        }
+
+        // ================= FILTROS DE CABEÇALHO DE COLUNA =================
+        // 1. Coluna Anúncio: Título / ID / SKU
+        if (colSearchTitle.trim()) {
+          const cTerm = colSearchTitle.toLowerCase()
+          const mTitle = item.title?.toLowerCase().includes(cTerm)
+          const mId = item.id?.toLowerCase().includes(cTerm)
+          const mSku =
+            (item.matchedProduct?.sku
+              ? item.matchedProduct.sku.toLowerCase().includes(cTerm)
+              : false) ||
+            (Array.isArray(item.matchedProducts) &&
+              item.matchedProducts.some((p) => p.sku?.toLowerCase().includes(cTerm)))
+          const mVar =
+            Array.isArray(item.variations) &&
+            item.variations.some((v) => {
+              if (v.specsSummary && v.specsSummary.toLowerCase().includes(cTerm)) return true
+              return (v.attribute_combinations || []).some(
+                (c) => c.value_name && c.value_name.toLowerCase().includes(cTerm),
+              )
+            })
+          if (!mTitle && !mId && !mSku && !mVar) return false
+        }
+
+        // 2. Coluna Status
+        if (colFilterStatus !== 'all' && item.status !== colFilterStatus) {
+          return false
+        }
+
+        // 3. Coluna Condição
+        if (colFilterCondition !== 'all') {
+          const itemCond = (item.condition || '').toLowerCase()
+          if (colFilterCondition === 'refurbished') {
+            if (itemCond !== 'refurbished') return false
+          } else if (colFilterCondition === 'new') {
+            if (itemCond !== 'new') return false
+          } else if (colFilterCondition === 'used') {
+            if (itemCond !== 'used') return false
+          }
+        }
+
+        // 4. Coluna Estoque
+        if (colFilterStock === 'in_stock' && (item.available_quantity ?? 0) <= 0) {
+          return false
+        }
+        if (colFilterStock === 'zero_stock' && (item.available_quantity ?? 0) > 0) {
+          return false
+        }
+
+        // 5. Coluna Vínculo / Catálogo
+        if (colFilterVinculo === 'matched' && !hasAnyMatch) return false
+        if (colFilterVinculo === 'unmatched' && hasAnyMatch) return false
+        if (colFilterVinculo === 'catalog' && !item.catalog_product_id && !item.catalog_listing)
+          return false
+        if (colFilterVinculo === 'variations' && (!item.variations || item.variations.length === 0))
+          return false
+
+        // 6. Coluna Tipo de anúncio (Clássico / Premium)
+        if (colFilterListingType !== 'all') {
+          if (item.listing_type_id !== colFilterListingType) return false
+        }
+
+        return true
+      } catch (fErr) {
+        console.warn('Erro ao filtrar item ML:', fErr, item)
+        return true
       }
-
-      return true
     })
   }, [
     data,
@@ -398,7 +420,7 @@ export default function AnunciosML() {
   }
 
   const stats = useMemo(() => {
-    if (!data?.items) {
+    if (!data?.items || !Array.isArray(data.items)) {
       return {
         total: 0,
         active: 0,
@@ -417,14 +439,14 @@ export default function AnunciosML() {
       }
     }
     const items = data.items
-    const refurbs = items.filter((i) => (i.condition || '').toLowerCase() === 'refurbished')
+    const refurbs = items.filter((i) => (i?.condition || '').toLowerCase() === 'refurbished')
 
     let countExcelente = 0
     let countBom = 0
     let countAceitavel = 0
 
     refurbs.forEach((i) => {
-      const g = String(i.condition_grade || '')
+      const g = String(i?.condition_grade || '')
         .normalize('NFD')
         .replace(/[\u0300-\u036f]/g, '')
         .toLowerCase()
@@ -440,19 +462,19 @@ export default function AnunciosML() {
 
     return {
       total: items.length,
-      active: items.filter((i) => i.status === 'active').length,
-      paused: items.filter((i) => i.status === 'paused').length,
-      closed: items.filter((i) => i.status === 'closed').length,
+      active: items.filter((i) => i?.status === 'active').length,
+      paused: items.filter((i) => i?.status === 'paused').length,
+      closed: items.filter((i) => i?.status === 'closed').length,
       matched: items.filter((i) =>
-        Boolean(i.matchedProduct || (i.matchedProducts && i.matchedProducts.length > 0)),
+        Boolean(i?.matchedProduct || (i?.matchedProducts && i.matchedProducts.length > 0)),
       ).length,
-      catalogListings: items.filter((i) => !!i.catalog_product_id || !!i.catalog_listing).length,
+      catalogListings: items.filter((i) => !!i?.catalog_product_id || !!i?.catalog_listing).length,
       condAll: items.length,
-      condNew: items.filter((i) => (i.condition || '').toLowerCase() === 'new').length,
+      condNew: items.filter((i) => (i?.condition || '').toLowerCase() === 'new').length,
       condRefurbished: refurbs.length,
-      condUsed: items.filter((i) => (i.condition || '').toLowerCase() === 'used').length,
+      condUsed: items.filter((i) => (i?.condition || '').toLowerCase() === 'used').length,
       condNotSpecified: items.filter((i) => {
-        const c = (i.condition || '').toLowerCase()
+        const c = (i?.condition || '').toLowerCase()
         return !c || c === 'not_specified' || c === 'unknown'
       }).length,
       refurbGradeExcelente: countExcelente,
@@ -732,10 +754,11 @@ export default function AnunciosML() {
 
   // Resolução da URL no Mercado Livre com fallback por ID ou ID do item pai
   const getAdMLUrl = (item: MLSellerItem): string => {
+    if (!item) return ''
     if (item.permalink && item.permalink.trim().length > 0) return item.permalink.trim()
     const rawId = item.parent_item_id || item.id
     if (rawId) {
-      const cleanId = rawId.trim()
+      const cleanId = String(rawId).trim()
       const formattedId = cleanId.toUpperCase().startsWith('MLB') ? cleanId : `MLB${cleanId}`
       return `https://produto.mercadolivre.com.br/${formattedId}`
     }
@@ -743,10 +766,11 @@ export default function AnunciosML() {
   }
 
   const renderCatalogAdIndicator = (item: MLSellerItem) => {
+    if (!item) return null
     const isCatalog = Boolean(item.catalog_product_id || item.catalog_listing)
     if (!isCatalog) return null
 
-    const vars = item.variations || []
+    const vars = Array.isArray(item.variations) ? item.variations : []
     const count = vars.length
 
     // Se tiver variações, mostramos com Popover para ver os detalhes
@@ -758,12 +782,11 @@ export default function AnunciosML() {
               type="button"
               onClick={(e) => e.stopPropagation()}
               className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-colors cursor-pointer shrink-0"
-              title={`Anúncio de Catálogo ML (${count} variação${count > 1 ? 'ões' : ''}) — clique para ver`}
+              title={`Catálogo · ${count} variaç${count > 1 ? 'ões' : 'ão'} — clique para ver`}
             >
               <Layers className="w-3 h-3 text-blue-600" />
-              <span>Catálogo</span>
-              <span className="text-[9px] bg-blue-200/80 text-blue-900 px-1 py-0.2 rounded-full font-mono">
-                {count}
+              <span>
+                Catálogo · {count} {count === 1 ? 'variação' : 'variações'}
               </span>
             </button>
           </PopoverTrigger>
@@ -791,7 +814,14 @@ export default function AnunciosML() {
             )}
             <div className="space-y-1.5 max-h-56 overflow-y-auto pt-1 pr-1">
               {vars.map((v, idx) => {
-                const summary = v.specsSummary || formatMLVariationSummary(v, item.currency_id)
+                let summary = v.specsSummary
+                if (!summary) {
+                  try {
+                    summary = formatMLVariationSummary(v, item.currency_id)
+                  } catch {
+                    summary = v.label || v.id || `Variação ${idx + 1}`
+                  }
+                }
                 return (
                   <div
                     key={v.id || `v-${idx}`}

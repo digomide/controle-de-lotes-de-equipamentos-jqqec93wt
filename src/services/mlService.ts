@@ -1793,96 +1793,121 @@ export const mlService = {
     // tudo sob um único anúncio pai para que a listagem exiba UM único card/linha
     // com a listagem expansível de todas as variações e estoques/preços reais do ML.
     // -------------------------------------------------------------------------
-    const groupedItemsMap = new Map<string, MLSellerItem>()
-    const directItems: MLSellerItem[] = []
+    try {
+      const groupedItemsMap = new Map<string, MLSellerItem>()
+      const directItems: MLSellerItem[] = []
 
-    for (const rawItem of items) {
-      // Normaliza variações que já vieram no item
-      const itemVariations: MLItemVariation[] = Array.isArray(rawItem.variations)
-        ? [...rawItem.variations]
-        : []
+      for (const rawItem of items) {
+        if (!rawItem || !rawItem.id) continue
 
-      // Chave de agrupamento: se for anúncio de catálogo com catalog_product_id, agrupa por ele.
-      // Ou se tiver parent_item_id explicitado pela API do ML.
-      const catalogKey = rawItem.catalog_product_id ? `catalog_${rawItem.catalog_product_id}` : ''
-      const parentKey = rawItem.parent_item_id ? `parent_${rawItem.parent_item_id}` : ''
-      const groupKey = catalogKey || parentKey
+        // Normaliza variações que já vieram no item
+        const itemVariations: MLItemVariation[] = Array.isArray(rawItem.variations)
+          ? [...rawItem.variations]
+          : []
 
-      if (groupKey) {
-        if (!groupedItemsMap.has(groupKey)) {
-          // Cria o registro pai inicial
-          const parentItem: MLSellerItem = {
-            ...rawItem,
-            variations: [...itemVariations],
-          }
+        // Chave de agrupamento:
+        // Agrupa por catalog_product_id ou parent_item_id se presentes
+        const catalogKey = rawItem.catalog_product_id ? `catalog_${rawItem.catalog_product_id}` : ''
+        const parentKey = rawItem.parent_item_id ? `parent_${rawItem.parent_item_id}` : ''
+        const groupKey = catalogKey || parentKey
 
-          // Se o item não tem variations mas tem atributos próprios (ou é uma variação de catálogo),
-          // cria uma entrada sintética representando esta oferta caso haja mais de um anúncio associado
-          if (parentItem.variations!.length === 0) {
-            parentItem.variations!.push({
-              id: rawItem.id,
-              price: rawItem.price,
-              available_quantity: rawItem.available_quantity,
-              sold_quantity: rawItem.sold_quantity,
-              attribute_combinations: rawItem.attributes || [],
-              label: rawItem.title,
-            })
-          }
-
-          groupedItemsMap.set(groupKey, parentItem)
-        } else {
-          // Já existe um pai para este produto de catálogo: consolidar!
-          const existingParent = groupedItemsMap.get(groupKey)!
-          existingParent.available_quantity += rawItem.available_quantity || 0
-          existingParent.sold_quantity += rawItem.sold_quantity || 0
-
-          // Se o preço do item atual for menor ou mais relevante, mantém menor preço no pai
-          if (rawItem.price && (!existingParent.price || rawItem.price < existingParent.price)) {
-            existingParent.price = rawItem.price
-          }
-
-          // Adiciona ou mescla as variações do item atual
-          if (itemVariations.length > 0) {
-            for (const v of itemVariations) {
-              const alreadyHas = (existingParent.variations || []).some((ev) => ev.id === v.id)
-              if (!alreadyHas) {
-                existingParent.variations = existingParent.variations || []
-                existingParent.variations.push(v)
-              }
+        if (groupKey) {
+          if (!groupedItemsMap.has(groupKey)) {
+            // Cria o registro pai inicial clonado com segurança
+            const parentItem: MLSellerItem = {
+              ...rawItem,
+              available_quantity: Number(rawItem.available_quantity) || 0,
+              sold_quantity: Number(rawItem.sold_quantity) || 0,
+              variations: [...itemVariations],
             }
-          } else {
-            // Variação representada por este item irmão
-            const alreadyHas = (existingParent.variations || []).some((ev) => ev.id === rawItem.id)
-            if (!alreadyHas) {
-              existingParent.variations = existingParent.variations || []
-              existingParent.variations.push({
+
+            // Se o item não tem variations mas tem atributos próprios (ou é uma variação de catálogo),
+            // cria uma entrada sintética representando esta oferta caso haja mais de um anúncio associado
+            if (parentItem.variations.length === 0) {
+              parentItem.variations.push({
                 id: rawItem.id,
                 price: rawItem.price,
-                available_quantity: rawItem.available_quantity,
-                sold_quantity: rawItem.sold_quantity,
-                attribute_combinations: rawItem.attributes || [],
-                label: rawItem.title,
+                available_quantity: Number(rawItem.available_quantity) || 0,
+                sold_quantity: Number(rawItem.sold_quantity) || 0,
+                attribute_combinations: Array.isArray(rawItem.attributes) ? rawItem.attributes : [],
+                label: rawItem.title || rawItem.id,
               })
             }
+
+            groupedItemsMap.set(groupKey, parentItem)
+          } else {
+            // Já existe um pai para este produto de catálogo: consolidar com segurança numérica!
+            const existingParent = groupedItemsMap.get(groupKey)!
+            existingParent.available_quantity =
+              (Number(existingParent.available_quantity) || 0) +
+              (Number(rawItem.available_quantity) || 0)
+            existingParent.sold_quantity =
+              (Number(existingParent.sold_quantity) || 0) + (Number(rawItem.sold_quantity) || 0)
+
+            // Se o preço do item atual for menor ou mais relevante, mantém menor preço no pai
+            if (rawItem.price && (!existingParent.price || rawItem.price < existingParent.price)) {
+              existingParent.price = rawItem.price
+            }
+
+            // Se o pai original não tinha thumbnail e o irmão tem, aproveita
+            if (!existingParent.thumbnail && rawItem.thumbnail) {
+              existingParent.thumbnail = rawItem.thumbnail
+            }
+
+            // Adiciona ou mescla as variações do item atual
+            existingParent.variations = existingParent.variations || []
+            if (itemVariations.length > 0) {
+              for (const v of itemVariations) {
+                const alreadyHas = existingParent.variations.some((ev) => ev.id === v.id)
+                if (!alreadyHas) {
+                  existingParent.variations.push(v)
+                }
+              }
+            } else {
+              // Variação representada por este item irmão
+              const alreadyHas = existingParent.variations.some((ev) => ev.id === rawItem.id)
+              if (!alreadyHas) {
+                existingParent.variations.push({
+                  id: rawItem.id,
+                  price: rawItem.price,
+                  available_quantity: Number(rawItem.available_quantity) || 0,
+                  sold_quantity: Number(rawItem.sold_quantity) || 0,
+                  attribute_combinations: Array.isArray(rawItem.attributes)
+                    ? rawItem.attributes
+                    : [],
+                  label: rawItem.title || rawItem.id,
+                })
+              }
+            }
           }
+        } else {
+          // Item regular sem agrupamento por catalog_product_id
+          directItems.push({
+            ...rawItem,
+            available_quantity: Number(rawItem.available_quantity) || 0,
+            sold_quantity: Number(rawItem.sold_quantity) || 0,
+            variations: itemVariations.length > 0 ? itemVariations : undefined,
+          })
         }
-      } else {
-        // Item regular sem agrupamento por catalog_product_id
-        directItems.push({
-          ...rawItem,
-          variations: itemVariations.length > 0 ? itemVariations : undefined,
-        })
       }
+
+      // Unifica itens agrupados + itens diretos
+      items = [...Array.from(groupedItemsMap.values()), ...directItems]
+    } catch (grpErr) {
+      console.warn('Erro ao agrupar anúncios de catálogo ML, usando itens originais:', grpErr)
+      // Degradação graciosa: se o agrupamento falhar por qualquer motivo, mantém a lista de rawItems original
+      items = Array.isArray(rawItems) ? [...rawItems] : []
     }
 
-    // Unifica itens agrupados + itens diretos
-    items = [...Array.from(groupedItemsMap.values()), ...directItems]
-
-    // Formata o resumo specsSummary para cada variação dos itens
+    // Formata o resumo specsSummary para cada variação dos itens com tratamento defensivo
     for (const it of items) {
       if (Array.isArray(it.variations) && it.variations.length > 0) {
         for (const v of it.variations) {
-          v.specsSummary = formatMLVariationSummary(v, it.currency_id)
+          try {
+            v.specsSummary = formatMLVariationSummary(v, it.currency_id)
+          } catch {
+            v.specsSummary = v.label || v.id || ''
+          }
         }
       }
     }
