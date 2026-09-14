@@ -51,9 +51,19 @@ import { useToast } from '@/hooks/use-toast'
 import {
   mlService,
   formatMLVariationSummary,
+  normalizeMlbId,
+  buildMLAdUrl,
   type MLSellerItem,
   type MLSellerItemsResult,
 } from '@/services/mlService'
+
+export function isItemCatalog(item: MLSellerItem | null | undefined): boolean {
+  if (!item) return false
+  if (item.catalog_product_id && String(item.catalog_product_id).trim().length > 0) return true
+  if (item.catalog_listing === true) return true
+  if (Array.isArray(item.variations) && item.variations.length > 0) return true
+  return false
+}
 import { mlCompetitorService, type MLCompetitorAd } from '@/services/mlCompetitorService'
 import { formatMLSoldQuantity } from '@/services/mlCatalogService'
 import { MLOrdersTab } from '@/components/MLOrdersTab'
@@ -298,13 +308,10 @@ export default function AnunciosML() {
         if (matchedFilter === 'unmatched' && hasAnyMatch) return false
 
         // Filtro global de tipo de anúncio
-        if (catalogOnlyFilter === 'catalog' && !item.catalog_product_id && !item.catalog_listing) {
+        if (catalogOnlyFilter === 'catalog' && !isItemCatalog(item)) {
           return false
         }
-        if (
-          catalogOnlyFilter === 'traditional' &&
-          (item.catalog_product_id || item.catalog_listing)
-        ) {
+        if (catalogOnlyFilter === 'traditional' && isItemCatalog(item)) {
           return false
         }
 
@@ -359,8 +366,7 @@ export default function AnunciosML() {
         // 5. Coluna Vínculo / Catálogo
         if (colFilterVinculo === 'matched' && !hasAnyMatch) return false
         if (colFilterVinculo === 'unmatched' && hasAnyMatch) return false
-        if (colFilterVinculo === 'catalog' && !item.catalog_product_id && !item.catalog_listing)
-          return false
+        if (colFilterVinculo === 'catalog' && !isItemCatalog(item)) return false
         if (colFilterVinculo === 'variations' && (!item.variations || item.variations.length === 0))
           return false
 
@@ -468,7 +474,7 @@ export default function AnunciosML() {
       matched: items.filter((i) =>
         Boolean(i?.matchedProduct || (i?.matchedProducts && i.matchedProducts.length > 0)),
       ).length,
-      catalogListings: items.filter((i) => !!i?.catalog_product_id || !!i?.catalog_listing).length,
+      catalogListings: items.filter((i) => isItemCatalog(i)).length,
       condAll: items.length,
       condNew: items.filter((i) => (i?.condition || '').toLowerCase() === 'new').length,
       condRefurbished: refurbs.length,
@@ -752,23 +758,15 @@ export default function AnunciosML() {
     )
   }
 
-  // Resolução da URL no Mercado Livre com fallback por ID ou ID do item pai
+  // Resolução da URL no Mercado Livre com fallback por ID ou ID do item pai normalizados
   const getAdMLUrl = (item: MLSellerItem): string => {
-    if (!item) return ''
-    if (item.permalink && item.permalink.trim().length > 0) return item.permalink.trim()
-    const rawId = item.parent_item_id || item.id
-    if (rawId) {
-      const cleanId = String(rawId).trim()
-      const formattedId = cleanId.toUpperCase().startsWith('MLB') ? cleanId : `MLB${cleanId}`
-      return `https://produto.mercadolivre.com.br/${formattedId}`
-    }
-    return ''
+    return buildMLAdUrl(item)
   }
 
   const renderCatalogAdIndicator = (item: MLSellerItem) => {
     try {
       if (!item) return null
-      const isCatalog = Boolean(item.catalog_product_id || item.catalog_listing)
+      const isCatalog = isItemCatalog(item)
       if (!isCatalog) return null
 
       const vars = Array.isArray(item.variations) ? item.variations.filter(Boolean) : []
@@ -2013,7 +2011,7 @@ export default function AnunciosML() {
             /* ==================== MODO GRID / CARDS ==================== */
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {filteredItems.map((item) => {
-                const isCatalog = Boolean(item.catalog_product_id || item.catalog_listing)
+                const isCatalog = isItemCatalog(item)
                 return (
                   <Card
                     key={item.id}

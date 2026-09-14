@@ -81,7 +81,11 @@ export function MLItemMatchedProductsDisplay({
     }
   }
 
-  const isCatalog = Boolean(item.catalog_product_id || item.catalog_listing)
+  const isCatalog = Boolean(
+    (item.catalog_product_id && String(item.catalog_product_id).trim().length > 0) ||
+    item.catalog_listing === true ||
+    (Array.isArray(item.variations) && item.variations.length > 0),
+  )
 
   // Para anúncios de catálogo, o indicador mora na célula ANÚNCIO.
   // Esta coluna exibe um traço discreto (—) quando for anúncio de catálogo no modo tabela,

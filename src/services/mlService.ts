@@ -75,9 +75,53 @@ export interface MLSellerItem {
 }
 
 /**
- * Formata um resumo compacto das especificações técnicas de uma variação do ML
- * Exemplo: "16GB · SSD 256GB — R$ 1.899 (5 un.)"
+ * Normaliza um identificador do Mercado Livre para o padrão canônico MLB123456789.
+ * Remove pontuações, traços de sufixos de variação e adiciona o prefixo MLB caso ausente.
  */
+export function normalizeMlbId(rawId: string | undefined | null): string {
+  if (!rawId) return ''
+  const trimmed = String(rawId).trim()
+  if (!trimmed) return ''
+
+  // Se houver sufixos de variação (ex.: MLB123456789-01 ou 123456789_01), isola a raiz do anúncio
+  const basePart = trimmed.split(/[-_]/)[0] || trimmed
+
+  // Extrai dígitos numéricos ou padrão MLB
+  const mlbMatch = basePart.match(/^MLB-?([0-9]+)/i)
+  if (mlbMatch && mlbMatch[1]) {
+    return `MLB${mlbMatch[1]}`
+  }
+
+  const digitsOnly = basePart.replace(/\D/g, '')
+  if (digitsOnly.length >= 6) {
+    return `MLB${digitsOnly}`
+  }
+
+  return basePart.toUpperCase().startsWith('MLB') ? basePart.toUpperCase() : `MLB${basePart}`
+}
+
+/**
+ * Gera URL de navegação direta para o anúncio no Mercado Livre com garantia de permalink válido.
+ */
+export function buildMLAdUrl(item: {
+  permalink?: string
+  id?: string
+  parent_item_id?: string
+}): string {
+  if (!item) return ''
+  const permalink = (item.permalink || '').trim()
+  if (permalink.startsWith('http://') || permalink.startsWith('https://')) {
+    return permalink
+  }
+
+  const normalizedId = normalizeMlbId(item.id || item.parent_item_id)
+  if (normalizedId) {
+    return `https://produto.mercadolivre.com.br/${normalizedId}`
+  }
+
+  return ''
+}
+
 /**
  * Helper reutilizável para validação e parse defensivo de itens retornados pela fila ml_ads_fetch_jobs.
  * O PocketBase e o SDK ora retornam o campo JSON `items` já desserializado (Array),
@@ -130,6 +174,25 @@ export function parseItemsPayload(raw: any): MLSellerItem[] {
     const id = it.id ? String(it.id).trim() : ''
     if (!id) continue
 
+    // Verifica presença de variações
+    const rawVars = Array.isArray(it.variations)
+      ? it.variations.filter((v: any) => v && typeof v === 'object')
+      : []
+
+    // Regra de catálogo: catalog_product_id OU flag catalog_listing OU variações preenchidas (> 0)
+    const isCatalog = Boolean(
+      (typeof it.catalog_product_id === 'string' && it.catalog_product_id.trim().length > 0) ||
+      it.catalog_listing === true ||
+      rawVars.length > 0,
+    )
+
+    // Permalink com fallback imediato baseado em id normalizado
+    const permalink = buildMLAdUrl({
+      permalink: it.permalink,
+      id,
+      parent_item_id: it.parent_item_id,
+    })
+
     validItems.push({
       ...it,
       id,
@@ -139,8 +202,10 @@ export function parseItemsPayload(raw: any): MLSellerItem[] {
       available_quantity: Number(it.available_quantity) || 0,
       sold_quantity: Number(it.sold_quantity) || 0,
       status: it.status || 'active',
-      permalink: it.permalink || '',
+      permalink,
       thumbnail: it.thumbnail || '',
+      catalog_listing: isCatalog,
+      variations: rawVars.length > 0 ? rawVars : it.variations || undefined,
     })
   }
 
@@ -1892,8 +1957,16 @@ export const mlService = {
           if (groupKey) {
             if (!groupedItemsMap.has(groupKey)) {
               // Cria o registro pai inicial clonado com segurança
+              const parentPermalink = buildMLAdUrl({
+                permalink: rawItem.permalink,
+                id: rawItem.id,
+                parent_item_id: rawItem.parent_item_id,
+              })
+
               const parentItem: MLSellerItem = {
                 ...rawItem,
+                permalink: parentPermalink,
+                catalog_listing: true,
                 available_quantity: Number(rawItem.available_quantity) || 0,
                 sold_quantity: Number(rawItem.sold_quantity) || 0,
                 variations: [...itemVariations],
@@ -1937,6 +2010,17 @@ export const mlService = {
                 existingParent.thumbnail = rawItem.thumbnail
               }
 
+              // Garante permalink válido no pai consolidado
+              if (!existingParent.permalink && rawItem.permalink) {
+                existingParent.permalink = rawItem.permalink
+              } else if (!existingParent.permalink) {
+                existingParent.permalink = buildMLAdUrl({
+                  permalink: existingParent.permalink,
+                  id: existingParent.id,
+                  parent_item_id: existingParent.parent_item_id,
+                })
+              }
+
               // Adiciona ou mescla as variações do item atual
               existingParent.variations = existingParent.variations || []
               if (itemVariations.length > 0) {
@@ -1968,9 +2052,22 @@ export const mlService = {
             }
           } else {
             // NUNCA descartar: anúncio regular ou de catálogo sem catalog_product_id válido
-            // é mantido como linha individual completa
+            // é mantido como linha individual completa.
+            // Se tiver variações ou flag de catálogo, preserva catalog_listing: true e permalink garantido
+            const isCatalogDirect = Boolean(
+              rawItem.catalog_listing || rawItem.catalog_product_id || itemVariations.length > 0,
+            )
+
+            const directPermalink = buildMLAdUrl({
+              permalink: rawItem.permalink,
+              id: rawItem.id,
+              parent_item_id: rawItem.parent_item_id,
+            })
+
             directItems.push({
               ...rawItem,
+              permalink: directPermalink,
+              catalog_listing: isCatalogDirect ? true : rawItem.catalog_listing,
               available_quantity: Number(rawItem.available_quantity) || 0,
               sold_quantity: Number(rawItem.sold_quantity) || 0,
               variations: itemVariations.length > 0 ? itemVariations : undefined,
@@ -1979,10 +2076,22 @@ export const mlService = {
         } catch (itemErr) {
           console.warn('Erro ao processar item individual no agrupamento ML:', itemErr, rawItem?.id)
           // Blindagem por item: se der erro no agrupamento deste item, nunca descartar! Adiciona como item direto
+          const fallbackPermalink = buildMLAdUrl({
+            permalink: rawItem?.permalink,
+            id: rawItem?.id,
+            parent_item_id: rawItem?.parent_item_id,
+          })
+          const isCatalogFallback = Boolean(
+            rawItem?.catalog_listing ||
+            rawItem?.catalog_product_id ||
+            (Array.isArray(rawItem?.variations) && rawItem.variations.length > 0),
+          )
           directItems.push({
             ...rawItem,
-            available_quantity: Number(rawItem.available_quantity) || 0,
-            sold_quantity: Number(rawItem.sold_quantity) || 0,
+            permalink: fallbackPermalink,
+            catalog_listing: isCatalogFallback ? true : rawItem?.catalog_listing,
+            available_quantity: Number(rawItem?.available_quantity) || 0,
+            sold_quantity: Number(rawItem?.sold_quantity) || 0,
           })
         }
       }
