@@ -725,6 +725,18 @@ export default function AnunciosML() {
     )
   }
 
+  // Resolução da URL no Mercado Livre com fallback por ID ou ID do item pai
+  const getAdMLUrl = (item: MLSellerItem): string => {
+    if (item.permalink && item.permalink.trim().length > 0) return item.permalink.trim()
+    const rawId = item.parent_item_id || item.id
+    if (rawId) {
+      const cleanId = rawId.trim()
+      const formattedId = cleanId.toUpperCase().startsWith('MLB') ? cleanId : `MLB${cleanId}`
+      return `https://produto.mercadolivre.com.br/${formattedId}`
+    }
+    return ''
+  }
+
   const renderConditionBadge = (item: MLSellerItem) => {
     const cond = (item.condition || '').toLowerCase()
     const rawG = String(item.condition_grade || '')
@@ -1844,15 +1856,19 @@ export default function AnunciosML() {
 
                           {/* Link ML */}
                           <td className="py-3 px-3 text-right whitespace-nowrap">
-                            {item.permalink && (
+                            {getAdMLUrl(item) ? (
                               <a
-                                href={item.permalink}
+                                href={getAdMLUrl(item)}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline"
+                                title="Abrir anúncio no Mercado Livre em nova aba"
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 hover:text-blue-900 rounded-md transition-colors"
                               >
-                                ML <ExternalLink className="w-3 h-3" />
+                                <span>Ver no ML</span>
+                                <ExternalLink className="w-3.5 h-3.5" />
                               </a>
+                            ) : (
+                              <span className="text-slate-300 text-xs">—</span>
                             )}
                           </td>
                         </tr>
@@ -1937,7 +1953,7 @@ export default function AnunciosML() {
                       </div>
                     </div>
 
-                    <div className="p-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
+                    <div className="p-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-2">
                       <Button
                         variant="outline"
                         size="sm"
@@ -1946,14 +1962,16 @@ export default function AnunciosML() {
                       >
                         {item.status === 'active' ? 'Pausar' : 'Reativar'}
                       </Button>
-                      {item.permalink && (
+                      {getAdMLUrl(item) && (
                         <a
-                          href={item.permalink}
+                          href={getAdMLUrl(item)}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:underline"
+                          title="Abrir anúncio no Mercado Livre em nova aba"
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 hover:text-blue-900 rounded-md transition-colors"
                         >
-                          Abrir no ML <ExternalLink className="w-3 h-3" />
+                          <span>Abrir no ML</span>
+                          <ExternalLink className="w-3.5 h-3.5" />
                         </a>
                       )}
                     </div>
