@@ -34,9 +34,10 @@ export default function Login() {
     try {
       await login(email, password)
       navigate(from, { replace: true })
-    } catch (err: unknown) {
+    } catch (err: any) {
       console.error(err)
-      setError('Credenciais inválidas. Verifique seu e-mail e senha.')
+      const msg = err?.message || 'Credenciais inválidas. Verifique seu e-mail e senha.'
+      setError(msg)
     } finally {
       setIsLoading(false)
     }
@@ -50,8 +51,10 @@ export default function Login() {
     try {
       await login(quickEmail, 'Skip@Pass')
       navigate(from, { replace: true })
-    } catch {
-      setError('Falha ao autenticar com as credenciais rápidas.')
+    } catch (err: any) {
+      console.error(err)
+      const msg = err?.message || 'Falha ao autenticar com as credenciais rápidas.'
+      setError(msg)
     } finally {
       setIsLoading(false)
     }
