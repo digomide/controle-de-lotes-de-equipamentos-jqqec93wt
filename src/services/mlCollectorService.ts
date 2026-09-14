@@ -453,35 +453,36 @@ export const mlCollectorService = {
     const adByMlbId = new Map<string, CollectorDeduplicatedAd>()
 
     try {
+      const FALLBACK_QUERY_LIMIT = 30
       const records = searchTerm
         ? await (async () => {
             const term = normalizeSearchTerm(searchTerm)
             const softened = normalizeSearchTerm(softenSearchTerm(term))
             const effectiveTerm = softened || term
 
-            // 1. Tentar busca direta pelo termo normalizado ou suavizado (limitado aos 10 registros mais recentes)
+            // 1. Tentar busca direta pelo termo normalizado ou suavizado (até 30 registros relevantes)
             let list = await pb
               .collection('ml_collector_imports')
-              .getList<MLCollectorImportRecord>(1, 10, {
+              .getList<MLCollectorImportRecord>(1, FALLBACK_QUERY_LIMIT, {
                 filter: `search_term ~ "${effectiveTerm}"`,
                 sort: '-imported_at',
               })
 
-            // 2. Se vazio, buscar por tokens significativos com AND estrito
+            // 2. Se vazio ou com poucos registros, buscar por tokens significativos com AND estrito
             if (list.items.length === 0) {
               const tokens = effectiveTerm.split(/\s+/).filter((t) => t.length >= 3)
               if (tokens.length > 0) {
                 const tokenFilter = tokens.map((t) => `search_term ~ "${t}"`).join(' && ')
                 list = await pb
                   .collection('ml_collector_imports')
-                  .getList<MLCollectorImportRecord>(1, 10, {
+                  .getList<MLCollectorImportRecord>(1, FALLBACK_QUERY_LIMIT, {
                     filter: tokenFilter,
                     sort: '-imported_at',
                   })
               }
             }
 
-            // Filtrar apenas registros não-sujos e compatíveis estritamente com o termo buscado
+            // Filtrar apenas registros não-sujos e compatíveis com o termo buscado
             list.items = list.items.filter(
               (item) =>
                 !isDirtyCollectorTerm(item.search_term) &&
@@ -489,12 +490,18 @@ export const mlCollectorService = {
             )
             return list
           })()
-        : await pb.collection('ml_collector_imports').getList<MLCollectorImportRecord>(1, 10, {
-            filter: 'search_term != "busca mercado livre" && search_term != "pl"',
-            sort: '-imported_at',
-          })
+        : await pb
+            .collection('ml_collector_imports')
+            .getList<MLCollectorImportRecord>(1, FALLBACK_QUERY_LIMIT, {
+              filter: 'search_term != "busca mercado livre" && search_term != "pl"',
+              sort: '-imported_at',
+            })
 
+      // Processamento em microtarefas assíncronas para não travar a thread principal da UI
       for (const rec of records.items) {
+        // Ceder a thread caso haja carga pesada
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
         const payload = this.decodePayload(rec.payload)
         const items = payload && Array.isArray(payload.results) ? payload.results : []
         for (const it of items) {

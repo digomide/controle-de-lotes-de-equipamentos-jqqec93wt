@@ -284,13 +284,27 @@ export function AnunciosCatalogoTab() {
           })
         } else {
           // 2. Se NÃO tem ficha oficial (ou a consulta oficial retornou 0 concorrentes),
-          // buscar sob demanda no Coletor pelo termo da busca
+          // buscar sob demanda no Coletor pelo termo da busca ou pelo título do produto
           const termToSearch = activeSearchTerm || query
-          if (termToSearch) {
+          if (termToSearch || cat.title) {
             try {
-              const collectorReport =
-                await mlCollectorService.getCollectorSummaryReport(termToSearch)
-              const rawCollectorAds = collectorReport?.all_deduplicated_ads || []
+              let rawCollectorAds: CollectorDeduplicatedAd[] = []
+
+              // Tentar coletor pelo termo da busca ativo
+              if (termToSearch) {
+                const collectorReport =
+                  await mlCollectorService.getCollectorSummaryReport(termToSearch)
+                rawCollectorAds = collectorReport?.all_deduplicated_ads || []
+              }
+
+              // Se não encontrou anúncios no relatório direto do termo, verificar se o fallback map já tem anúncios
+              if (
+                rawCollectorAds.length === 0 &&
+                collectorFallbackMap.adByMlbId &&
+                collectorFallbackMap.adByMlbId.size > 0
+              ) {
+                rawCollectorAds = Array.from(collectorFallbackMap.adByMlbId.values())
+              }
 
               if (rawCollectorAds.length > 0) {
                 // Identificar MLB id da própria posição para excluir da lista de concorrentes
@@ -298,7 +312,10 @@ export function AnunciosCatalogoTab() {
                   .replace(/[^0-9A-Za-z]/g, '')
                   .toUpperCase()
 
-                // Filtrar anúncios coletados excluindo o próprio anúncio
+                // Filtrar anúncios coletados:
+                // 1) Excluindo o próprio anúncio
+                // 2) Filtrando por similaridade de modelo/título do produto do catálogo
+                const productTitle = cat.title || ''
                 const candidateAds = rawCollectorAds.filter((ad) => {
                   const adMlbClean = String(ad.mlb_id || ad.id || '')
                     .replace(/[^0-9A-Za-z]/g, '')
@@ -306,6 +323,21 @@ export function AnunciosCatalogoTab() {
                   if (posMlbClean && adMlbClean && posMlbClean === adMlbClean) {
                     return false
                   }
+
+                  // Se temos o título do produto do catálogo, validar similaridade de modelo
+                  if (productTitle && ad.title) {
+                    // Checar se o modelo exigido no título do produto está presente no anúncio do coletor
+                    const modelCheck = matchesExactModelInTitle(ad.title, productTitle)
+                    if (modelCheck.requiredModelTokens.length > 0 && !modelCheck.matches) {
+                      return false
+                    }
+                  } else if (termToSearch && ad.title) {
+                    const termModelCheck = matchesExactModelInTitle(ad.title, termToSearch)
+                    if (termModelCheck.requiredModelTokens.length > 0 && !termModelCheck.matches) {
+                      return false
+                    }
+                  }
+
                   return true
                 })
 
@@ -692,6 +724,19 @@ export function AnunciosCatalogoTab() {
           : 'Vasculhando posições com resultados progressivos em tempo real.',
       })
 
+      // Pré-carrega ou reutiliza mapa de fallback para o streaming
+      let streamFallback = collectorFallbackMap
+      if (streamFallback.byMlbId.size === 0 && streamFallback.byTitle.size === 0) {
+        try {
+          streamFallback = await mlCollectorService.buildSalesFallbackMap(q)
+          if (activeSearchIdRef.current === searchGenId) {
+            setCollectorFallbackMap(streamFallback)
+          }
+        } catch {
+          /* intentionally ignored */
+        }
+      }
+
       const isDirectCodeQuery = isDirectCatalogCodeQuery(q)
       const condParamForApi = isDirectCodeQuery ? 'all' : condToUse
       const jobInit = await mlCatalogService.searchCatalog(
@@ -715,11 +760,13 @@ export function AnunciosCatalogoTab() {
         // STREAMING / RESULTADOS PROGRESSIVOS:
         // Conforme as varreduras avançam ou ao término do job com chunks consolidados,
         // preenche a grade com os resultados recebidos!
+        // IMPORTANTE: passa streamFallback (ou collectorFallbackMap) para não sobrescrever
+        // com mapa vazio e perder os dados de concorrência e vendas.
         if (Array.isArray(j.results) && j.results.length > 0) {
           setCatalogItems((prev) => {
             if (activeSearchIdRef.current !== searchGenId) return prev
             if (prev.length === 0 || (j.results && j.results.length >= prev.length)) {
-              return processCatalogResults(j.results, q, condToUse)
+              return processCatalogResults(j.results, q, condToUse, streamFallback)
             }
             return prev
           })
