@@ -15,15 +15,8 @@ import {
   Sparkles,
   Loader2,
   Unlink,
-  Tag,
-  Boxes,
 } from 'lucide-react'
-import {
-  MLSellerItem,
-  MLMatchedProduct,
-  formatProductConfigSpecs,
-  formatMLVariationSummary,
-} from '@/services/mlService'
+import { MLSellerItem, MLMatchedProduct, formatProductConfigSpecs } from '@/services/mlService'
 
 export type MatchedProductItem = MLMatchedProduct
 
@@ -88,21 +81,32 @@ export function MLItemMatchedProductsDisplay({
     }
   }
 
-  const mlVariations = item.variations || []
-  const isCatalogItemWithVariations =
-    Boolean(item.catalog_listing || item.catalog_product_id) && mlVariations.length > 0
-  const hasMLVariationsOnly = mlVariations.length > 0
+  const isCatalog = Boolean(item.catalog_product_id || item.catalog_listing)
 
-  const visibleVariations = expanded ? mlVariations : mlVariations.slice(0, maxVisible)
-  const remainingVariationsCount = mlVariations.length - maxVisible
+  // Para anúncios de catálogo, o indicador agora mora na célula ANÚNCIO.
+  // Esta coluna volta ao comportamento simples (vínculo com produto interno no estoque)
+  // e exibe um traço discreto (—) quando for anúncio de catálogo.
+  if (isCatalog) {
+    if (variant === 'table') {
+      return (
+        <span
+          className="text-slate-300 text-xs font-mono select-none"
+          title="Anúncio de catálogo ML (indicador de variações exibido na coluna Anúncio)"
+        >
+          —
+        </span>
+      )
+    }
+    // No modo card, não exibe o bloco se não houver produto interno vinculado
+    if (products.length === 0) {
+      return null
+    }
+  }
 
   const visibleProducts = expanded ? products : products.slice(0, maxVisible)
   const remainingCount = products.length - maxVisible
 
-  // Se não houver produtos do estoque vinculados, mas tem variações do ML
-  if (isCatalogItemWithVariations || hasMLVariationsOnly) {
-    // Deixa seguir para a renderização de variações do ML abaixo!
-  } else if (products.length === 0) {
+  if (products.length === 0) {
     return (
       <div
         className={
@@ -134,70 +138,6 @@ export function MLItemMatchedProductsDisplay({
 
   // ===================== MODO TABELA =====================
   if (variant === 'table') {
-    // SE FOR ANÚNCIO DE CATÁLOGO / OU TIVER VARIAÇÕES DIRETAS DO MERCADO LIVRE
-    // FONTE DA VERDADE = MERCADO LIVRE (specs extraídas de attribute_combinations/attributes, preço e estoque real do ML)
-    if (isCatalogItemWithVariations || hasMLVariationsOnly) {
-      return (
-        <div className="space-y-1.5 py-0.5 min-w-[210px] max-w-[340px]">
-          {/* Header com badge indicando Catálogo ML */}
-          <div className="flex items-center justify-between gap-1">
-            <div className="inline-flex items-center gap-1">
-              <Badge
-                variant="outline"
-                className="h-4 px-1 text-[9px] font-bold bg-amber-50 text-amber-900 border-amber-300 gap-0.5 shrink-0"
-              >
-                <Tag className="w-2.5 h-2.5 text-amber-700" />
-                <span>Catálogo ML</span>
-              </Badge>
-              <span className="text-[10px] font-semibold text-slate-600">
-                {mlVariations.length} {mlVariations.length === 1 ? 'variação' : 'variações'}
-              </span>
-            </div>
-
-            {mlVariations.length > maxVisible && (
-              <button
-                type="button"
-                onClick={() => setExpanded(!expanded)}
-                className="inline-flex items-center gap-0.5 text-[9.5px] font-bold text-blue-700 hover:text-blue-900 bg-blue-50 px-1 py-0.5 rounded cursor-pointer transition-colors"
-              >
-                {expanded ? (
-                  <>
-                    <ChevronUp className="w-2.5 h-2.5" />
-                    <span>Recolher</span>
-                  </>
-                ) : (
-                  <>
-                    <ChevronDown className="w-2.5 h-2.5" />
-                    <span>+{remainingVariationsCount}</span>
-                  </>
-                )}
-              </button>
-            )}
-          </div>
-
-          {/* Lista compacta de variações do ML */}
-          <div className="space-y-1">
-            {visibleVariations.map((v, idx) => {
-              const summary = v.specsSummary || formatMLVariationSummary(v, item.currency_id)
-              return (
-                <div
-                  key={v.id || `v-${idx}`}
-                  className="px-1.5 py-1 rounded bg-slate-50 border border-slate-200/80 text-[10px] flex items-center justify-between gap-1.5 hover:bg-slate-100/70 transition-colors"
-                >
-                  <div className="flex items-center gap-1 min-w-0">
-                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
-                    <span className="font-medium text-slate-800 truncate" title={summary}>
-                      {summary}
-                    </span>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )
-    }
-
     return (
       <div className="text-[11px] max-w-[280px] space-y-1.5">
         <div className="space-y-1.5">
@@ -360,69 +300,6 @@ export function MLItemMatchedProductsDisplay({
   }
 
   // ===================== MODO CARD =====================
-  // Caso de anúncio com variações do Mercado Livre
-  if (isCatalogItemWithVariations || hasMLVariationsOnly) {
-    return (
-      <div className="space-y-1.5 text-xs">
-        <div className="flex items-center justify-between">
-          <span className="text-[10px] font-sans font-bold uppercase tracking-wider flex items-center gap-1 text-amber-900">
-            <Boxes className="w-3.5 h-3.5 text-amber-600" />
-            Variações Catálogo ML ({mlVariations.length})
-          </span>
-
-          {mlVariations.length > maxVisible && (
-            <button
-              type="button"
-              onClick={() => setExpanded(!expanded)}
-              className="text-[10px] font-bold text-slate-600 hover:text-slate-900 flex items-center gap-0.5 transition-colors cursor-pointer"
-            >
-              {expanded ? (
-                <>
-                  <span>Menos</span>
-                  <ChevronUp className="w-3 h-3" />
-                </>
-              ) : (
-                <>
-                  <span>+{remainingVariationsCount} variações</span>
-                  <ChevronDown className="w-3 h-3" />
-                </>
-              )}
-            </button>
-          )}
-        </div>
-
-        <div className="space-y-1.5">
-          {visibleVariations.map((v, idx) => {
-            const summary = v.specsSummary || formatMLVariationSummary(v, item.currency_id)
-            return (
-              <div
-                key={v.id || `card-v-${idx}`}
-                className="p-2 rounded-md text-[11px] bg-amber-50/70 border border-amber-200/80 space-y-1 transition-colors"
-              >
-                <div className="flex items-center justify-between gap-1.5">
-                  <div className="flex items-center gap-1 min-w-0">
-                    <Badge
-                      variant="outline"
-                      className="h-4 px-1 text-[9px] font-bold bg-amber-200/70 text-amber-900 border-amber-300 shrink-0"
-                    >
-                      ML
-                    </Badge>
-                    <span className="font-semibold text-slate-800 truncate" title={summary}>
-                      {summary}
-                    </span>
-                  </div>
-                  <span className="text-[10px] font-mono font-medium text-slate-600 shrink-0">
-                    {v.available_quantity ?? 0} em estoque
-                  </span>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="space-y-1.5 text-xs">
       <div className="flex items-center justify-between">

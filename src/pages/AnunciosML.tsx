@@ -48,7 +48,12 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useToast } from '@/hooks/use-toast'
-import { mlService, type MLSellerItem, type MLSellerItemsResult } from '@/services/mlService'
+import {
+  mlService,
+  formatMLVariationSummary,
+  type MLSellerItem,
+  type MLSellerItemsResult,
+} from '@/services/mlService'
 import { mlCompetitorService, type MLCompetitorAd } from '@/services/mlCompetitorService'
 import { formatMLSoldQuantity } from '@/services/mlCatalogService'
 import { MLOrdersTab } from '@/components/MLOrdersTab'
@@ -735,6 +740,88 @@ export default function AnunciosML() {
       return `https://produto.mercadolivre.com.br/${formattedId}`
     }
     return ''
+  }
+
+  const renderCatalogAdIndicator = (item: MLSellerItem) => {
+    const isCatalog = Boolean(item.catalog_product_id || item.catalog_listing)
+    if (!isCatalog) return null
+
+    const vars = item.variations || []
+    const count = vars.length
+
+    // Se tiver variações, mostramos com Popover para ver os detalhes
+    if (count > 0) {
+      return (
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              onClick={(e) => e.stopPropagation()}
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-colors cursor-pointer shrink-0"
+              title={`Anúncio de Catálogo ML (${count} variação${count > 1 ? 'ões' : ''}) — clique para ver`}
+            >
+              <Layers className="w-3 h-3 text-blue-600" />
+              <span>Catálogo</span>
+              <span className="text-[9px] bg-blue-200/80 text-blue-900 px-1 py-0.2 rounded-full font-mono">
+                {count}
+              </span>
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            className="w-80 p-3 text-xs space-y-2 shadow-lg border-blue-100"
+            align="start"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+              <div className="flex items-center gap-1.5 font-bold text-slate-800 text-xs">
+                <Layers className="w-3.5 h-3.5 text-blue-600" />
+                <span>Variações de Catálogo ML</span>
+              </div>
+              <Badge
+                variant="outline"
+                className="text-[10px] font-mono bg-blue-50 text-blue-700 border-blue-200"
+              >
+                {count} {count === 1 ? 'variação' : 'variações'}
+              </Badge>
+            </div>
+            {item.catalog_product_id && (
+              <div className="text-[10px] text-slate-500 font-mono">
+                ID Catálogo: <strong className="text-slate-700">{item.catalog_product_id}</strong>
+              </div>
+            )}
+            <div className="space-y-1.5 max-h-56 overflow-y-auto pt-1 pr-1">
+              {vars.map((v, idx) => {
+                const summary = v.specsSummary || formatMLVariationSummary(v, item.currency_id)
+                return (
+                  <div
+                    key={v.id || `v-${idx}`}
+                    className="p-1.5 rounded bg-slate-50 border border-slate-200/70 text-[11px] flex items-center justify-between gap-1.5"
+                  >
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
+                      <span className="font-medium text-slate-800 truncate" title={summary}>
+                        {summary}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </PopoverContent>
+        </Popover>
+      )
+    }
+
+    // Catálogo simples sem variações cadastradas
+    return (
+      <span
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 shrink-0"
+        title="Anúncio de Catálogo ML"
+      >
+        <Layers className="w-3 h-3 text-blue-600" />
+        <span>Catálogo</span>
+      </span>
+    )
   }
 
   const renderConditionBadge = (item: MLSellerItem) => {
@@ -1686,11 +1773,9 @@ export default function AnunciosML() {
                                 >
                                   {item.title}
                                 </p>
-                                <div className="flex items-center gap-2 text-[10px] text-slate-400 font-mono mt-0.5">
+                                <div className="flex items-center gap-2 text-[10px] text-slate-400 font-mono mt-0.5 flex-wrap">
                                   <span>{item.id}</span>
-                                  {item.catalog_product_id && (
-                                    <span className="text-blue-600 font-bold">Catálogo</span>
-                                  )}
+                                  {renderCatalogAdIndicator(item)}
                                   {renderSoldBadge(item.sold_quantity)}
                                 </div>
                               </div>
@@ -1908,6 +1993,7 @@ export default function AnunciosML() {
                           <div>
                             <div className="flex items-center gap-1.5 flex-wrap mb-1">
                               {renderStatusBadge(item.status)}
+                              {renderCatalogAdIndicator(item)}
                               {renderConditionBadge(item)}
                               {renderSoldBadge(item.sold_quantity)}
                             </div>
