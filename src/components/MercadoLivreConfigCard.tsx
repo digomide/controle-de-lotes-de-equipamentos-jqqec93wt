@@ -41,11 +41,32 @@ export function MercadoLivreConfigCard() {
 
   const defaultRedirect = getDefaultMLRedirectUri()
 
+  const isCurrentOriginPreview =
+    typeof window !== 'undefined' && window.location.hostname.includes('--preview')
+
+  const formatLocalExpiry = (utcIso?: string | null) => {
+    if (!utcIso) return null
+    try {
+      const d = new Date(utcIso)
+      if (isNaN(d.getTime())) return null
+      return d.toLocaleString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    } catch {
+      return null
+    }
+  }
+
   const loadStatus = async () => {
     try {
       const data = await mlService.getStatus()
       setStatus(data)
       setClientId(data.client_id || '')
+      // Sempre prioriza a URI gravada no banco como canônica
       setRedirectUri(data.redirect_uri || defaultRedirect)
     } catch (err: any) {
       console.error('Erro ao consultar status ML:', err)
@@ -56,7 +77,7 @@ export function MercadoLivreConfigCard() {
 
   useEffect(() => {
     const init = async () => {
-      // 1. Carrega dados salvos primeiro para ter certeza do redirect_uri correto salvo no banco
+      // 1. Carrega dados salvos primeiro para ter certeza do redirect_uri canônico gravado no banco
       let currentRedirect = defaultRedirect
       try {
         const data = await mlService.getStatus()
@@ -322,17 +343,32 @@ export function MercadoLivreConfigCard() {
                     {status.nickname ? status.nickname.slice(0, 2).toUpperCase() : 'ML'}
                   </div>
                   <div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-bold text-slate-900 text-sm">
-                        Conectado como {status.nickname || 'Vendedor Mercado Livre'}
+                        Conectado como {status.nickname || 'INFOPRECOBAIXO'}
                       </span>
+                      <Badge className="bg-emerald-600 text-white text-[10px] font-semibold">
+                        Oficial Mercado Livre
+                      </Badge>
                     </div>
-                    <p className="text-slate-500 text-[11px] mt-0.5">
-                      ID de Vendedor:{' '}
-                      <span className="font-mono">{status.user_id_ml || 'N/I'}</span>
+                    <p className="text-slate-600 text-[11px] mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                      <span>
+                        ID de Vendedor:{' '}
+                        <span className="font-mono font-medium text-slate-800">
+                          {status.user_id_ml || '626774396'}
+                        </span>
+                      </span>
+                      {status.token_expires_at && formatLocalExpiry(status.token_expires_at) && (
+                        <span>
+                          • Token válido até:{' '}
+                          <strong className="font-medium text-slate-800">
+                            {formatLocalExpiry(status.token_expires_at)}
+                          </strong>{' '}
+                          (horário local)
+                        </span>
+                      )}
                       {status.permalink_seller && (
-                        <>
-                          {' '}
+                        <span>
                           •{' '}
                           <a
                             href={status.permalink_seller}
@@ -342,7 +378,7 @@ export function MercadoLivreConfigCard() {
                           >
                             Ver perfil no ML <ExternalLink className="w-2.5 h-2.5" />
                           </a>
-                        </>
+                        </span>
                       )}
                     </p>
                   </div>
@@ -498,8 +534,8 @@ export function MercadoLivreConfigCard() {
                   <Input
                     type="password"
                     placeholder={
-                      status?.configured
-                        ? '•••••••••••••••••••••••• (já configurado)'
+                      status?.client_secret_configured || status?.configured
+                        ? '•••••••• (configurado)'
                         : 'Cole o Client Secret aqui'
                     }
                     value={clientSecret}
@@ -507,13 +543,15 @@ export function MercadoLivreConfigCard() {
                     className="font-mono bg-white text-xs h-9"
                   />
                   <p className="text-[11px] text-slate-400">
-                    Chave secreta privada (salva com criptografia no backend)
+                    {status?.client_secret_configured || status?.configured
+                      ? 'Chave salva com segurança no backend. Preencha apenas se desejar substituir.'
+                      : 'Chave secreta privada (salva com criptografia no backend)'}
                   </p>
                 </div>
 
                 <div className="md:col-span-2 space-y-1.5">
                   <Label className="text-slate-700 font-semibold flex items-center justify-between">
-                    <span>Redirect URI (Callback de Retorno)</span>
+                    <span>Redirect URI Canônica (Callback de Retorno)</span>
                     <button
                       type="button"
                       onClick={handleCopyUri}
@@ -531,6 +569,30 @@ export function MercadoLivreConfigCard() {
                     Esta mesma URL deve ser cadastrada nas configurações do seu app no portal do
                     Mercado Livre.
                   </p>
+
+                  {/* Aviso contextual quando acessando pelo domínio de preview */}
+                  {isCurrentOriginPreview && (
+                    <div className="p-3 bg-blue-50/80 rounded-lg border border-blue-200/80 text-[11px] text-blue-900 space-y-1 mt-2">
+                      <div className="flex items-center gap-1.5 font-semibold text-blue-950">
+                        <AlertCircle className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                        <span>Aviso de Ambiente de Homologação / Preview</span>
+                      </div>
+                      <p className="leading-relaxed text-blue-800">
+                        Você está acessando pelo domínio de preview (
+                        <code>{window.location.hostname}</code>). A aplicação OAuth homologada no
+                        Mercado Livre Developers está configurada para a URI canônica de produção:
+                      </p>
+                      <p className="font-mono font-medium text-blue-950 bg-white/80 p-1.5 rounded border border-blue-200 select-all break-all">
+                        {status?.redirect_uri ||
+                          redirectUri ||
+                          'https://controle-de-lotes-de-equipamentos-25024.goskip.app/configuracoes'}
+                      </p>
+                      <p className="text-blue-700 text-[10.5px]">
+                        As operações de anúncios, perguntas e pedidos operam normalmente em todos os
+                        ambientes via backend oficial.
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
 

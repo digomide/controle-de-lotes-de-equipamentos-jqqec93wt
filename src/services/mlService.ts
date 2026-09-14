@@ -8,9 +8,12 @@ export interface MLStatusResponse {
   configured: boolean
   connected: boolean
   client_id?: string
+  client_secret_configured?: boolean
   redirect_uri?: string
+  redirect_uri_is_production?: boolean
   nickname?: string
   user_id_ml?: string
+  token_expires_at?: string | null
   permalink_seller?: string
 }
 
@@ -1300,9 +1303,60 @@ export const mlService = {
   },
 
   /**
-   * Consulta status da conexão e configuração do Mercado Livre lendo a coleção ml_settings
+   * Consulta status da conexão e configuração do Mercado Livre.
+   * Chama prioritariamente a rota segura do backend (/backend/v1/ml/status ou /ml/status),
+   * acessível a qualquer usuário autenticado sem esbarrar nas regras restritas de ml_settings.
+   * Mantém fallback seguro para leitura direta da coleção caso o endpoint customizado falhe.
    */
   async getStatus(): Promise<MLStatusResponse> {
+    // 1. Tenta rota segura do backend (/backend/v1/ml/status com fallback /ml/status)
+    try {
+      const endpoints = ['/backend/v1/ml/status', '/ml/status']
+      for (const ep of endpoints) {
+        try {
+          const res: any = await pb.send(ep, {
+            method: 'GET',
+          })
+          if (res && typeof res === 'object') {
+            const clientId = (res.client_id || '').toString().trim()
+            const redirectUri = (res.redirect_uri || '').toString().trim()
+            const isConnected = Boolean(res.connected)
+            const isConfigured = Boolean(res.configured || clientId)
+            const redirectIsProd =
+              typeof res.redirect_uri_is_production === 'boolean'
+                ? res.redirect_uri_is_production
+                : Boolean(redirectUri && !redirectUri.includes('--preview'))
+
+            return {
+              configured: isConfigured,
+              connected: isConnected,
+              client_id: clientId,
+              client_secret_configured: Boolean(res.client_secret_configured),
+              redirect_uri: redirectUri,
+              redirect_uri_is_production: redirectIsProd,
+              nickname: (res.nickname || '').toString().trim(),
+              user_id_ml: (res.user_id_ml || '').toString().trim(),
+              token_expires_at: res.token_expires_at || null,
+              permalink_seller: (res.permalink_seller || '').toString().trim(),
+            }
+          }
+        } catch (callErr: any) {
+          // Se for 404 tenta o próximo endpoint
+          if (callErr?.status === 404) {
+            continue
+          }
+          // Se for outro erro, propaga para fallback
+          throw callErr
+        }
+      }
+    } catch (routeErr: any) {
+      console.warn(
+        '[mlService.getStatus] Rota segura indisponível, usando fallback de coleção:',
+        routeErr?.message || routeErr,
+      )
+    }
+
+    // 2. Fallback: Leitura direta da coleção ml_settings (funciona se for usuário admin)
     try {
       const settings = await getSettingsRecord()
       if (!settings) {
@@ -1310,34 +1364,50 @@ export const mlService = {
           configured: false,
           connected: false,
           client_id: '',
+          client_secret_configured: false,
           redirect_uri: '',
+          redirect_uri_is_production: false,
           nickname: '',
           user_id_ml: '',
+          token_expires_at: null,
           permalink_seller: '',
         }
       }
 
       const clientId = (settings.client_id || '').toString().trim()
+      const clientSecret = (settings.client_secret || '').toString().trim()
       const accessToken = (settings.access_token || '').toString().trim()
+      const redirectUri = (settings.redirect_uri || '').toString().trim()
+      const tokenExpiresAt = settings.token_expires_at || null
 
       return {
         configured: Boolean(clientId),
-        connected: Boolean(accessToken),
+        connected: Boolean(accessToken && clientId),
         client_id: clientId,
-        redirect_uri: settings.redirect_uri || '',
+        client_secret_configured: Boolean(clientSecret),
+        redirect_uri: redirectUri,
+        redirect_uri_is_production: Boolean(redirectUri && !redirectUri.includes('--preview')),
         nickname: settings.nickname || '',
         user_id_ml: settings.user_id_ml || '',
+        token_expires_at: tokenExpiresAt,
         permalink_seller: settings.permalink_seller || '',
       }
-    } catch (err) {
-      console.error('Erro ao ler ml_settings:', err)
+    } catch (err: any) {
+      // Se tomou 403 da coleção e não conseguimos resposta da rota, logamos aviso informativo
+      console.error(
+        '[mlService.getStatus] Erro ao consultar status ML no fallback:',
+        err?.message || err,
+      )
       return {
         configured: false,
         connected: false,
         client_id: '',
+        client_secret_configured: false,
         redirect_uri: '',
+        redirect_uri_is_production: false,
         nickname: '',
         user_id_ml: '',
+        token_expires_at: null,
         permalink_seller: '',
       }
     }
