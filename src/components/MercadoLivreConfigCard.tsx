@@ -65,9 +65,15 @@ export function MercadoLivreConfigCard() {
     try {
       const data = await mlService.getStatus()
       setStatus(data)
-      setClientId(data.client_id || '')
-      // Sempre prioriza a URI gravada no banco como canônica
-      setRedirectUri(data.redirect_uri || defaultRedirect)
+      if (data.client_id) {
+        setClientId(data.client_id)
+      }
+      // Sempre prioriza a URI gravada no banco como canônica (ou defaultRedirect)
+      const finalUri =
+        data.redirect_uri && !data.redirect_uri.includes('--preview')
+          ? data.redirect_uri
+          : defaultRedirect
+      setRedirectUri(finalUri)
     } catch (err: any) {
       console.error('Erro ao consultar status ML:', err)
     } finally {
@@ -82,8 +88,10 @@ export function MercadoLivreConfigCard() {
       try {
         const data = await mlService.getStatus()
         setStatus(data)
-        setClientId(data.client_id || '')
-        if (data.redirect_uri) {
+        if (data.client_id) {
+          setClientId(data.client_id)
+        }
+        if (data.redirect_uri && !data.redirect_uri.includes('--preview')) {
           currentRedirect = data.redirect_uri
           setRedirectUri(data.redirect_uri)
         } else {
@@ -91,6 +99,7 @@ export function MercadoLivreConfigCard() {
         }
       } catch (err) {
         console.error('Erro ao consultar status ML inicial:', err)
+        setRedirectUri(defaultRedirect)
       } finally {
         setLoading(false)
       }
@@ -583,9 +592,9 @@ export function MercadoLivreConfigCard() {
                         Mercado Livre Developers está configurada para a URI canônica de produção:
                       </p>
                       <p className="font-mono font-medium text-blue-950 bg-white/80 p-1.5 rounded border border-blue-200 select-all break-all">
-                        {status?.redirect_uri ||
-                          redirectUri ||
-                          'https://controle-de-lotes-de-equipamentos-25024.goskip.app/configuracoes'}
+                        {status?.redirect_uri && !status.redirect_uri.includes('--preview')
+                          ? status.redirect_uri
+                          : defaultRedirect}
                       </p>
                       <p className="text-blue-700 text-[10.5px]">
                         As operações de anúncios, perguntas e pedidos operam normalmente em todos os

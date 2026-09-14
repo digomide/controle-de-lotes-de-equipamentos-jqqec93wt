@@ -1228,10 +1228,18 @@ export function validateProductForML(
 }
 
 /**
- * Obtém a URL padrão de callback OAuth no frontend do app
+ * URI canônica oficial homologada no Mercado Livre Developers (ambiente de produção)
+ */
+export const CANONICAL_ML_REDIRECT_URI =
+  'https://controle-de-lotes-de-equipamentos-25024.goskip.app/configuracoes'
+
+/**
+ * Obtém a URL padrão de callback OAuth no frontend do app.
+ * Sempre retorna a URI canônica de produção para evitar que acessos via preview
+ * desconfigurem ou gerem discrepâncias no registro do Mercado Livre.
  */
 export function getDefaultMLRedirectUri(): string {
-  return `${window.location.origin}/configuracoes`
+  return CANONICAL_ML_REDIRECT_URI
 }
 
 /**
@@ -1356,7 +1364,7 @@ export const mlService = {
       )
     }
 
-    // 2. Fallback: Leitura direta da coleção ml_settings (funciona se for usuário admin)
+    // 2. Fallback: Leitura direta da coleção ml_settings
     try {
       const settings = await getSettingsRecord()
       if (!settings) {
@@ -1365,8 +1373,8 @@ export const mlService = {
           connected: false,
           client_id: '',
           client_secret_configured: false,
-          redirect_uri: '',
-          redirect_uri_is_production: false,
+          redirect_uri: CANONICAL_ML_REDIRECT_URI,
+          redirect_uri_is_production: true,
           nickname: '',
           user_id_ml: '',
           token_expires_at: null,
@@ -1377,7 +1385,12 @@ export const mlService = {
       const clientId = (settings.client_id || '').toString().trim()
       const clientSecret = (settings.client_secret || '').toString().trim()
       const accessToken = (settings.access_token || '').toString().trim()
-      const redirectUri = (settings.redirect_uri || '').toString().trim()
+      const rawRedirectUri = (settings.redirect_uri || '').toString().trim()
+      // Se a redirect_uri do banco contiver preview ou estiver vazia, normaliza para a canônica
+      const redirectUri =
+        rawRedirectUri && !rawRedirectUri.includes('--preview')
+          ? rawRedirectUri
+          : CANONICAL_ML_REDIRECT_URI
       const tokenExpiresAt = settings.token_expires_at || null
 
       return {
@@ -1386,14 +1399,13 @@ export const mlService = {
         client_id: clientId,
         client_secret_configured: Boolean(clientSecret),
         redirect_uri: redirectUri,
-        redirect_uri_is_production: Boolean(redirectUri && !redirectUri.includes('--preview')),
+        redirect_uri_is_production: true,
         nickname: settings.nickname || '',
         user_id_ml: settings.user_id_ml || '',
         token_expires_at: tokenExpiresAt,
         permalink_seller: settings.permalink_seller || '',
       }
     } catch (err: any) {
-      // Se tomou 403 da coleção e não conseguimos resposta da rota, logamos aviso informativo
       console.error(
         '[mlService.getStatus] Erro ao consultar status ML no fallback:',
         err?.message || err,
@@ -1403,8 +1415,8 @@ export const mlService = {
         connected: false,
         client_id: '',
         client_secret_configured: false,
-        redirect_uri: '',
-        redirect_uri_is_production: false,
+        redirect_uri: CANONICAL_ML_REDIRECT_URI,
+        redirect_uri_is_production: true,
         nickname: '',
         user_id_ml: '',
         token_expires_at: null,
