@@ -34,10 +34,51 @@ export interface CreateSaleWithBatchesInput {
   batchLines?: BatchSaleLineInput[]
 }
 
+export interface UpdateSaleInput {
+  customer_name?: string
+  customer_contact?: string
+  notes?: string
+  status?: 'draft' | 'completed' | 'cancelled'
+}
+
+export interface CancelSaleInput {
+  sale_id: string
+  reason?: string
+  force_fiscal?: boolean
+}
+
+export interface CancelSaleResult {
+  ok: boolean
+  sale_id?: string
+  status?: string
+  restored_items_count?: number
+  restored_units_count?: number
+  message?: string
+  has_authorized_nf?: boolean
+  invoices?: Array<{
+    id: string
+    ref: string
+    numero?: string
+    status: string
+  }>
+  error?: string
+}
+
+export interface SaleFiscalStatus {
+  hasInvoices: boolean
+  hasAuthorized: boolean
+  invoices: Array<{
+    id: string
+    ref: string
+    numero?: string
+    status: string
+  }>
+}
+
 export const salesService = {
   async getAll(): Promise<Sale[]> {
     return await pb.collection('sales').getFullList<Sale>({
-      expand: 'user_id',
+      expand: 'user_id,cancelled_by',
       sort: '-created',
     })
   },
@@ -310,5 +351,89 @@ export const salesService = {
 
   async updateStatus(id: string, status: 'draft' | 'completed' | 'cancelled'): Promise<Sale> {
     return await pb.collection('sales').update<Sale>(id, { status })
+  },
+
+  /**
+   * Atualiza dados cadastrais da venda (cliente, contato, observações, status).
+   */
+  async updateSale(id: string, data: UpdateSaleInput): Promise<Sale> {
+    const payload: Record<string, any> = {}
+    if (data.customer_name !== undefined) payload.customer_name = data.customer_name.trim()
+    if (data.customer_contact !== undefined) payload.customer_contact = data.customer_contact.trim()
+    if (data.notes !== undefined) payload.notes = data.notes.trim()
+    if (data.status !== undefined) payload.status = data.status
+
+    return await pb.collection('sales').update<Sale>(id, payload, {
+      expand: 'user_id,cancelled_by',
+    })
+  },
+
+  /**
+   * Verifica se há Notas Fiscais vinculadas à venda (e se alguma está autorizada na SEFAZ).
+   */
+  async checkFiscalStatus(saleId: string): Promise<SaleFiscalStatus> {
+    try {
+      const records = await pb.collection('nf_invoices').getFullList<any>({
+        filter: `sale_id = '${saleId}' && status != 'cancelada' && status != 'rejeitada'`,
+        sort: '-created',
+      })
+
+      const hasAuthorized = records.some((r) => r.status === 'autorizada')
+      return {
+        hasInvoices: records.length > 0,
+        hasAuthorized,
+        invoices: records.map((r) => ({
+          id: r.id,
+          ref: r.ref,
+          numero: r.numero,
+          status: r.status,
+        })),
+      }
+    } catch (err) {
+      console.warn('[salesService.checkFiscalStatus] Erro ao consultar NFs vinculadas:', err)
+      return {
+        hasInvoices: false,
+        hasAuthorized: false,
+        invoices: [],
+      }
+    }
+  },
+
+  /**
+   * Cancela a venda de forma atômica, restaurando as quantidades nos lotes
+   * e marcando os equipamentos como "Disponível", com histórico e auditoria.
+   */
+  async cancelSale(input: CancelSaleInput): Promise<CancelSaleResult> {
+    const token = pb.authStore.token
+    const headers: Record<string, string> = {}
+    if (token) {
+      headers.Authorization = token
+    }
+
+    try {
+      const res = await pb.send<CancelSaleResult>('/backend/v1/sales/cancel', {
+        method: 'POST',
+        headers,
+        body: {
+          sale_id: input.sale_id,
+          reason: input.reason || '',
+          force_fiscal: Boolean(input.force_fiscal),
+        },
+      })
+      return res
+    } catch (err: any) {
+      // Se retornou código 409 (conflito fiscal com NF autorizada)
+      if (err?.status === 409 && err?.data) {
+        return {
+          ok: false,
+          has_authorized_nf: true,
+          invoices: err.data.invoices || [],
+          error: err.data.error || 'Existe Nota Fiscal autorizada vinculada a esta venda.',
+        }
+      }
+
+      const msg = err?.data?.error || err?.message || 'Falha ao cancelar venda no servidor.'
+      throw new Error(msg)
+    }
   },
 }

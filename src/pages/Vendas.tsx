@@ -51,11 +51,21 @@ import { useRealtime } from '@/hooks/use-realtime'
 import { salesService } from '@/services/sales'
 import { productsService } from '@/services/products'
 import { EmitirNFModal } from '@/components/EmitirNFModal'
+import { EditSaleModal } from '@/components/EditSaleModal'
+import { CancelSaleModal } from '@/components/CancelSaleModal'
 import { batchesService } from '@/services/batches'
 import { purchaseBatchesService } from '@/services/purchaseBatches'
 import { StoreOrdersTab } from '@/components/StoreOrdersTab'
 import { PurchaseOrdersTab } from '@/components/PurchaseOrdersTab'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { MoreHorizontal, Edit, Ban } from 'lucide-react'
 import type { Sale, Product, Batch, SaleItem, PurchaseBatch } from '@/types/inventory'
 
 interface CartItem {
@@ -120,6 +130,14 @@ export default function Vendas() {
   const [detailSale, setDetailSale] = useState<Sale | null>(null)
   const [detailItems, setDetailItems] = useState<SaleItem[]>([])
   const [loadingDetails, setLoadingDetails] = useState(false)
+
+  // Edit Sale Modal
+  const [editModalOpen, setEditModalOpen] = useState(false)
+  const [saleToEdit, setSaleToEdit] = useState<Sale | null>(null)
+
+  // Cancel Sale Modal
+  const [cancelModalOpen, setCancelModalOpen] = useState(false)
+  const [saleToCancel, setSaleToCancel] = useState<Sale | null>(null)
 
   // Emissão de NF-e
   const [emitNFOpen, setEmitNFOpen] = useState(false)
@@ -736,6 +754,7 @@ export default function Vendas() {
                               }}
                               className="h-8 text-xs gap-1 text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 border-emerald-200"
                               title="Emitir Nota Fiscal Eletrônica"
+                              disabled={sale.status === 'cancelled'}
                             >
                               <FileCheck className="w-3.5 h-3.5" />
                               NF-e
@@ -750,6 +769,54 @@ export default function Vendas() {
                               <Eye className="w-3.5 h-3.5" />
                               Ver Itens
                             </Button>
+
+                            {/* Menu de Ações: Editar e Cancelar */}
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 p-0 text-slate-500 hover:text-slate-900 hover:bg-slate-100"
+                                  title="Mais ações"
+                                >
+                                  <MoreHorizontal className="w-4 h-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-44">
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setSaleToEdit(sale)
+                                    setEditModalOpen(true)
+                                  }}
+                                  className="text-xs gap-2 cursor-pointer"
+                                >
+                                  <Edit className="w-3.5 h-3.5 text-blue-600" />
+                                  <span>Editar Venda</span>
+                                </DropdownMenuItem>
+
+                                <DropdownMenuSeparator />
+
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setSaleToCancel(sale)
+                                    setCancelModalOpen(true)
+                                  }}
+                                  disabled={sale.status === 'cancelled'}
+                                  className={`text-xs gap-2 cursor-pointer ${
+                                    sale.status === 'cancelled'
+                                      ? 'text-slate-400 cursor-not-allowed'
+                                      : 'text-rose-600 focus:text-rose-700 focus:bg-rose-50'
+                                  }`}
+                                >
+                                  <Ban className="w-3.5 h-3.5" />
+                                  <span>
+                                    {sale.status === 'cancelled'
+                                      ? 'Já Cancelada'
+                                      : 'Cancelar Venda'}
+                                  </span>
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </div>
                         </td>
                       </tr>
@@ -1634,10 +1701,78 @@ export default function Vendas() {
                   })}
                 </span>
               </div>
+
+              {/* Ações dentro do modal de detalhe */}
+              <div className="pt-2 border-t border-slate-200 flex items-center justify-between">
+                <div className="text-xs text-slate-400">
+                  {detailSale.status === 'cancelled' ? (
+                    <span className="text-slate-500 italic">
+                      Venda com estoque devolvido aos lotes
+                    </span>
+                  ) : (
+                    <span>Ações de gestão da venda</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setSaleToEdit(detailSale)
+                      setEditModalOpen(true)
+                    }}
+                    className="h-8 text-xs gap-1.5 border-slate-300 hover:bg-slate-100"
+                  >
+                    <Edit className="w-3.5 h-3.5 text-blue-600" />
+                    Editar Dados
+                  </Button>
+
+                  {detailSale.status !== 'cancelled' && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setSaleToCancel(detailSale)
+                        setCancelModalOpen(true)
+                      }}
+                      className="h-8 text-xs gap-1.5 text-rose-600 border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+                    >
+                      <Ban className="w-3.5 h-3.5" />
+                      Cancelar Venda
+                    </Button>
+                  )}
+                </div>
+              </div>
             </div>
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Modal de Edição de Venda */}
+      <EditSaleModal
+        open={editModalOpen}
+        onOpenChange={setEditModalOpen}
+        sale={saleToEdit}
+        onSuccess={() => {
+          loadData()
+          if (detailSale && saleToEdit && detailSale.id === saleToEdit.id) {
+            handleOpenDetails(detailSale.id)
+          }
+        }}
+      />
+
+      {/* Modal de Confirmação de Cancelamento de Venda */}
+      <CancelSaleModal
+        open={cancelModalOpen}
+        onOpenChange={setCancelModalOpen}
+        sale={saleToCancel}
+        onSuccess={() => {
+          loadData()
+          if (detailSale && saleToCancel && detailSale.id === saleToCancel.id) {
+            handleOpenDetails(detailSale.id)
+          }
+        }}
+      />
 
       {/* Modal de Emissão de Nota Fiscal Eletrônica */}
       <EmitirNFModal

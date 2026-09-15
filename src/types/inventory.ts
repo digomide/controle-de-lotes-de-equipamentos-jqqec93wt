@@ -122,8 +122,12 @@ export interface Sale extends RecordModel {
   total_amount: number
   status: 'draft' | 'completed' | 'cancelled'
   notes?: string
+  cancel_reason?: string
+  cancelled_at?: string
+  cancelled_by?: string
   expand?: {
     user_id?: User
+    cancelled_by?: User
     sale_items_via_sale_id?: SaleItem[]
   }
 }
