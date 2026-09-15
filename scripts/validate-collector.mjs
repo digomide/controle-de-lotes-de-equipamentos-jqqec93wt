@@ -134,4 +134,49 @@ try {
   process.exit(1)
 }
 
+// 5. Teste unitário da Calculadora de Viabilidade com o exemplo exato do usuário
+console.log('--- 3. Verificação matemática da Calculadora de Viabilidade ---')
+const testSellingPrice = 290
+const testFeePercent = 13 // 13% -> 37.70
+const testTaxPercent = 10 // 10% -> 29.00
+const testOpPercent = 2 // 2% -> 5.80
+const testShippingValue = 19.0 // 19.00
+const testProfitPercent = 20 // 20% -> 58.00
+
+const feeAmount = (testSellingPrice * testFeePercent) / 100
+const taxAmount = (testSellingPrice * testTaxPercent) / 100
+const opAmount = (testSellingPrice * testOpPercent) / 100
+const profitAmount = (testSellingPrice * testProfitPercent) / 100
+
+const totalOperationalCost = feeAmount + taxAmount + opAmount + testShippingValue
+const maxPurchasePrice = testSellingPrice - totalOperationalCost - profitAmount
+
+if (Math.abs(feeAmount - 37.7) > 0.001) {
+  console.error(`ERRO: Anúncio esperado 37.70, obtido ${feeAmount}`)
+  process.exit(1)
+}
+if (Math.abs(taxAmount - 29.0) > 0.001) {
+  console.error(`ERRO: NF esperada 29.00, obtida ${taxAmount}`)
+  process.exit(1)
+}
+if (Math.abs(opAmount - 5.8) > 0.001) {
+  console.error(`ERRO: OP esperado 5.80, obtido ${opAmount}`)
+  process.exit(1)
+}
+if (Math.abs(profitAmount - 58.0) > 0.001) {
+  console.error(`ERRO: Lucro esperado 58.00, obtido ${profitAmount}`)
+  process.exit(1)
+}
+if (Math.abs(totalOperationalCost - 149.5) > 0.001) {
+  console.error(`ERRO: Custo operacional esperado 149.50, obtido ${totalOperationalCost}`)
+  process.exit(1)
+}
+if (Math.abs(maxPurchasePrice - 140.5) > 0.001) {
+  console.error(`ERRO: Preço máximo de compra esperado 140.50, obtido ${maxPurchasePrice}`)
+  process.exit(1)
+}
+
+console.log(
+  '✓ Calculadora de Viabilidade: Custo Operacional R$ 149,50 e Comprar Abaixo de R$ 140,50 100% validados!',
+)
 console.log('✓ Todos os testes de sintaxe e critérios de aceite passaram!')

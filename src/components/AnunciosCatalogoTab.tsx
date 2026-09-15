@@ -64,6 +64,7 @@ import {
   extractRequiredModelTokens,
 } from '@/lib/catalogFilter'
 import { CategorySelector } from '@/components/CategorySelector'
+import { CalculadoraViabilidade } from '@/components/CalculadoraViabilidade'
 import {
   formatSellerDisplayName,
   resolveMissingSellerNames,
@@ -211,6 +212,9 @@ export function AnunciosCatalogoTab() {
   // Controle de expansão da lista de concorrentes por item (chave: catalog_product_id ou id)
   const [expandedCompetitors, setExpandedCompetitors] = useState<Record<string, boolean>>({})
   const [loadingCompetitors, setLoadingCompetitors] = useState<Record<string, boolean>>({})
+
+  // Controle de expansão da Calculadora de Viabilidade por item (apenas um aberto por vez)
+  const [expandedViabilityKey, setExpandedViabilityKey] = useState<string | null>(null)
 
   // Alternar visualização da lista de concorrentes e buscar sob demanda se necessário
   async function toggleCompetitorsList(originalIndex: number) {
@@ -3711,6 +3715,33 @@ export function AnunciosCatalogoTab() {
                               <span>Posição recondicionada — compatível com seu estoque.</span>
                             </div>
                           )}
+
+                        {/* Calculadora de Viabilidade de Compra & Revenda (Camada Local e Segura) */}
+                        <CalculadoraViabilidade
+                          currentPrice={item.formPrice}
+                          buyBoxLeaderPrice={cat.buy_box_winner_price}
+                          leaderName={
+                            cat.buy_box_winner_seller_nickname ||
+                            (cat.buy_box_winner_seller_id
+                              ? `Seller #${cat.buy_box_winner_seller_id}`
+                              : null)
+                          }
+                          suggestedShipping={
+                            (cat as any).buy_box_winner_free_shipping === false
+                              ? 19.0
+                              : (cat as any).shipping_cost || null
+                          }
+                          disabled={!item.selected || isPublishing}
+                          onSyncCardPrice={(newPrice) => updatePrice(originalIndex, newPrice)}
+                          isOpen={
+                            expandedViabilityKey ===
+                            (cat.catalog_product_id || cat.id || `strict-${originalIndex}`)
+                          }
+                          onToggle={() => {
+                            const k = cat.catalog_product_id || cat.id || `strict-${originalIndex}`
+                            setExpandedViabilityKey((prev) => (prev === k ? null : k))
+                          }}
+                        />
                       </div>
                     </div>
                   </CardContent>
@@ -4237,6 +4268,34 @@ export function AnunciosCatalogoTab() {
                                   <span>Posição recondicionada — compatível com seu estoque.</span>
                                 </div>
                               )}
+
+                            {/* Calculadora de Viabilidade nos Parciais */}
+                            <CalculadoraViabilidade
+                              currentPrice={item.formPrice}
+                              buyBoxLeaderPrice={cat.buy_box_winner_price}
+                              leaderName={
+                                cat.buy_box_winner_seller_nickname ||
+                                (cat.buy_box_winner_seller_id
+                                  ? `Seller #${cat.buy_box_winner_seller_id}`
+                                  : null)
+                              }
+                              suggestedShipping={
+                                (cat as any).buy_box_winner_free_shipping === false
+                                  ? 19.0
+                                  : (cat as any).shipping_cost || null
+                              }
+                              disabled={!item.selected || isPublishing}
+                              onSyncCardPrice={(newPrice) => updatePrice(originalIndex, newPrice)}
+                              isOpen={
+                                expandedViabilityKey ===
+                                (cat.catalog_product_id || cat.id || `partial-${originalIndex}`)
+                              }
+                              onToggle={() => {
+                                const k =
+                                  cat.catalog_product_id || cat.id || `partial-${originalIndex}`
+                                setExpandedViabilityKey((prev) => (prev === k ? null : k))
+                              }}
+                            />
                           </div>
                         </div>
                       </CardContent>
