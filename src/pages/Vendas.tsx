@@ -15,6 +15,7 @@ import {
   ArrowLeft,
   Check,
   Package,
+  Boxes,
   Trash2,
   AlertTriangle,
   User,
@@ -53,6 +54,7 @@ import { EmitirNFModal } from '@/components/EmitirNFModal'
 import { batchesService } from '@/services/batches'
 import { purchaseBatchesService } from '@/services/purchaseBatches'
 import { StoreOrdersTab } from '@/components/StoreOrdersTab'
+import { PurchaseOrdersTab } from '@/components/PurchaseOrdersTab'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { Sale, Product, Batch, SaleItem, PurchaseBatch } from '@/types/inventory'
 
@@ -80,7 +82,7 @@ export default function Vendas() {
   const [batches, setBatches] = useState<Batch[]>([])
   const [purchaseBatches, setPurchaseBatches] = useState<PurchaseBatch[]>([])
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'vendas' | 'pedidos_loja'>('vendas')
+  const [activeTab, setActiveTab] = useState<'vendas' | 'pedidos_compra' | 'pedidos_loja'>('vendas')
 
   // Filters
   const [searchFilter, setSearchFilter] = useState('')
@@ -155,6 +157,13 @@ export default function Vendas() {
     const params = new URLSearchParams(location.search)
     if (params.get('aba') === 'loja' || params.get('tab') === 'loja') {
       setActiveTab('pedidos_loja')
+    } else if (
+      params.get('aba') === 'compras' ||
+      params.get('aba') === 'pedidos_compra' ||
+      params.get('tab') === 'compras' ||
+      params.get('tab') === 'pedidos_compra'
+    ) {
+      setActiveTab('pedidos_compra')
     }
     if (params.get('nova') === 'true') {
       openNewSaleWizard()
@@ -559,7 +568,7 @@ export default function Vendas() {
         )}
       </div>
 
-      {/* Tabs Vendas Internas vs Pedidos da Loja Pública (Mercado Pago) */}
+      {/* Tabs Vendas Internas vs Pedidos de Compra vs Pedidos da Loja Pública */}
       <Tabs
         value={activeTab}
         onValueChange={(val: any) => setActiveTab(val)}
@@ -574,6 +583,13 @@ export default function Vendas() {
             Vendas Internas & Bancada
           </TabsTrigger>
           <TabsTrigger
+            value="pedidos_compra"
+            className="data-[state=active]:bg-white data-[state=active]:text-[#d9532f] text-xs font-bold gap-2 px-4 py-2"
+          >
+            <Boxes className="w-4 h-4 text-[#d9532f]" />
+            Pedidos de Compra ({purchaseBatches.length})
+          </TabsTrigger>
+          <TabsTrigger
             value="pedidos_loja"
             className="data-[state=active]:bg-white data-[state=active]:text-slate-900 text-xs font-bold gap-2 px-4 py-2"
           >
@@ -582,7 +598,12 @@ export default function Vendas() {
           </TabsTrigger>
         </TabsList>
 
-        {/* CONTEÚDO DA ABA 2: PEDIDOS DA LOJA PÚBLICA */}
+        {/* CONTEÚDO DA ABA 2: PEDIDOS DE COMPRA */}
+        <TabsContent value="pedidos_compra" className="mt-0">
+          <PurchaseOrdersTab />
+        </TabsContent>
+
+        {/* CONTEÚDO DA ABA 3: PEDIDOS DA LOJA PÚBLICA */}
         <TabsContent value="pedidos_loja" className="mt-0">
           <StoreOrdersTab />
         </TabsContent>

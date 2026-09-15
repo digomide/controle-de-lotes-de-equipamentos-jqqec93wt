@@ -30,6 +30,7 @@ import {
 } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { EditBatchModal } from '@/components/EditBatchModal'
+import { DeletePurchaseBatchModal } from '@/components/DeletePurchaseBatchModal'
 import { TransferEquipmentModal } from '@/components/TransferEquipmentModal'
 import { CloneEquipmentModal } from '@/components/CloneEquipmentModal'
 import { EtiquetaModal, type EtiquetaData } from '@/components/EtiquetaModal'
@@ -101,8 +102,9 @@ export default function LoteEntradaDetalhe() {
   const [partToDelete, setPartToDelete] = useState<EquipmentPart | null>(null)
   const [deletingPart, setDeletingPart] = useState(false)
 
-  // 1. Edição Completa do Lote
+  // 1. Edição Completa do Lote e Exclusão Segura
   const [editBatchModalOpen, setEditBatchModalOpen] = useState(false)
+  const [deleteBatchModalOpen, setDeleteBatchModalOpen] = useState(false)
 
   // 2. Transferência de Equipamentos (Seleção Múltipla)
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([])
@@ -604,6 +606,17 @@ export default function LoteEntradaDetalhe() {
           >
             <Edit3 className="w-4 h-4 text-[#d9532f]" />
             Editar Lote
+          </Button>
+
+          {/* Botão Excluir Lote com Validação de Segurança */}
+          <Button
+            variant="outline"
+            onClick={() => setDeleteBatchModalOpen(true)}
+            className="text-xs h-10 border-rose-200 text-rose-600 hover:bg-rose-50 hover:text-rose-700 gap-1.5 font-medium"
+            title="Excluir este pedido de compra com verificação de segurança contábil"
+          >
+            <Trash2 className="w-4 h-4" />
+            Excluir Lote
           </Button>
 
           <Button
@@ -1575,6 +1588,16 @@ export default function LoteEntradaDetalhe() {
         batch={batch}
         onSuccess={() => {
           loadData()
+        }}
+      />
+
+      {/* MODAL: EXCLUSÃO SEGURA DO LOTE */}
+      <DeletePurchaseBatchModal
+        open={deleteBatchModalOpen}
+        onOpenChange={setDeleteBatchModalOpen}
+        batch={batch}
+        onSuccess={() => {
+          navigate('/lotes-entrada')
         }}
       />
 
