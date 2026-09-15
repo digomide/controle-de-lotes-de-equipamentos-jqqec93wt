@@ -46,6 +46,7 @@ import {
   Check,
   XCircle,
   Info,
+  FileCode2,
 } from 'lucide-react'
 
 interface EmitirNFModalProps {
@@ -994,7 +995,7 @@ export function EmitirNFModal({
                   )}
 
                   {danfeUrl && (
-                    <div className="pt-2">
+                    <div className="pt-2 flex flex-wrap items-center gap-2">
                       <Button
                         asChild
                         size="sm"
@@ -1005,6 +1006,62 @@ export function EmitirNFModal({
                           Visualizar / Imprimir DANFE (PDF)
                           <ExternalLink className="w-3 h-3 ml-1" />
                         </a>
+                      </Button>
+                    </div>
+                  )}
+
+                  {createdRef && (
+                    <div className="pt-2 border-t border-slate-200/70 flex items-center justify-between gap-2">
+                      <span className="text-[11px] text-slate-500 font-mono">
+                        Ref registrada: <strong className="text-slate-800">{createdRef}</strong>
+                      </span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={async () => {
+                          try {
+                            const res = await nfService.getInvoices({
+                              filter: `ref = '${createdRef}'`,
+                              perPage: 1,
+                            })
+                            if (res.items && res.items.length > 0) {
+                              const inv = res.items[0]
+                              if (inv.focus_payload) {
+                                const {
+                                  downloadJsonFile,
+                                  buildFocusPayloadFilename,
+                                  formatFocusPayload,
+                                } = await import('@/utils/focusPayload')
+                                downloadJsonFile(
+                                  buildFocusPayloadFilename(createdRef),
+                                  formatFocusPayload(inv.focus_payload),
+                                )
+                                toast({
+                                  title: 'Download concluído',
+                                  description: `Arquivo focus_payload_${createdRef}.json baixado para envio ao suporte.`,
+                                })
+                              } else {
+                                toast({
+                                  title: 'Payload não disponível',
+                                  description: 'O payload ainda está sendo gravado no banco.',
+                                  variant: 'destructive',
+                                })
+                              }
+                            }
+                          } catch {
+                            toast({
+                              title: 'Erro ao baixar payload',
+                              description: 'Consulte a lista em Notas Fiscais para baixar o JSON.',
+                              variant: 'destructive',
+                            })
+                          }
+                        }}
+                        className="h-7 px-2 text-[11px] text-blue-700 hover:text-blue-900 hover:bg-blue-50 font-semibold gap-1"
+                        title="Baixar JSON de envio enviado à Focus para suporte técnico"
+                      >
+                        <FileCode2 className="w-3 h-3" />
+                        Baixar JSON de envio (Focus)
                       </Button>
                     </div>
                   )}

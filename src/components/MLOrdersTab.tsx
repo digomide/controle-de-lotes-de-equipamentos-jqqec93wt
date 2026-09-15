@@ -21,6 +21,8 @@ import {
 } from 'lucide-react'
 import { EmitirNFModal } from '@/components/EmitirNFModal'
 import { BatchEmitirNFModal } from '@/components/BatchEmitirNFModal'
+import { FocusPayloadActions } from '@/components/FocusPayloadActions'
+import { nfService, type NFInvoice } from '@/services/nfService'
 import { Checkbox } from '@/components/ui/checkbox'
 import { useAuth } from '@/contexts/AuthContext'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -63,6 +65,34 @@ export function MLOrdersTab() {
   // Modal de Detalhes do Pedido
   const [selectedOrder, setSelectedOrder] = useState<MLOrder | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
+  const [selectedOrderInvoice, setSelectedOrderInvoice] = useState<NFInvoice | null>(null)
+  const [loadingOrderInvoice, setLoadingOrderInvoice] = useState(false)
+
+  // Ao abrir detalhes de um pedido, busca se já existe nota fiscal emitida para ele
+  useEffect(() => {
+    if (!detailOpen || !selectedOrder?.order_id) {
+      setSelectedOrderInvoice(null)
+      return
+    }
+
+    let isMounted = true
+    setLoadingOrderInvoice(true)
+    nfService
+      .getInvoiceByMLOrder(selectedOrder.order_id)
+      .then((inv) => {
+        if (isMounted) setSelectedOrderInvoice(inv)
+      })
+      .catch(() => {
+        if (isMounted) setSelectedOrderInvoice(null)
+      })
+      .finally(() => {
+        if (isMounted) setLoadingOrderInvoice(false)
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [detailOpen, selectedOrder?.order_id])
 
   // Modal de Emissão Individual de Nota Fiscal
   const [emitNFOpen, setEmitNFOpen] = useState(false)
@@ -729,6 +759,38 @@ export function MLOrdersTab() {
                   </span>
                 </div>
               </DialogHeader>
+
+              {/* Nota Fiscal Vinculada & Focus Payload (se já emitida) */}
+              {selectedOrderInvoice && (
+                <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-1.5">
+                      <FileCheck className="w-3.5 h-3.5 text-emerald-600" />
+                      <span className="font-bold text-slate-800">
+                        {selectedOrderInvoice.numero
+                          ? `Nota Fiscal Emitida: NF-e #${selectedOrderInvoice.numero}`
+                          : `NF Ref: ${selectedOrderInvoice.ref}`}
+                      </span>
+                      <span className="text-[10px] uppercase font-bold text-slate-500 font-mono">
+                        ({selectedOrderInvoice.status})
+                      </span>
+                    </div>
+                    {selectedOrderInvoice.mensagem_sefaz && (
+                      <p className="text-[11px] text-slate-500 truncate max-w-md">
+                        {selectedOrderInvoice.mensagem_sefaz}
+                      </p>
+                    )}
+                  </div>
+
+                  {selectedOrderInvoice.focus_payload && (
+                    <FocusPayloadActions
+                      payload={selectedOrderInvoice.focus_payload}
+                      refCode={selectedOrderInvoice.ref}
+                      variant="inline"
+                    />
+                  )}
+                </div>
+              )}
 
               {/* Comprador & Envio */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">

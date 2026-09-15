@@ -22,6 +22,8 @@ import { taxRulesService, type TaxRule } from '@/services/taxRulesService'
 import { EmitirNFModal } from '@/components/EmitirNFModal'
 import { TaxRulesTab } from '@/components/TaxRulesTab'
 import { NcmAutocomplete } from '@/components/NcmAutocomplete'
+import { FocusPayloadActions } from '@/components/FocusPayloadActions'
+import { InvoiceDetailModal } from '@/components/InvoiceDetailModal'
 import {
   FileCheck,
   Building,
@@ -38,6 +40,8 @@ import {
   Sparkles,
   Eye,
   EyeOff,
+  ChevronRight,
+  FileCode2,
 } from 'lucide-react'
 
 export default function NotasFiscais() {
@@ -90,6 +94,10 @@ export default function NotasFiscais() {
 
   // Modal de Emissão Avulsa
   const [emitModalOpen, setEmitModalOpen] = useState(false)
+
+  // Modal de Detalhes da Nota Fiscal e Inspeção de Payload Focus
+  const [selectedInvoice, setSelectedInvoice] = useState<NFInvoice | null>(null)
+  const [detailModalOpen, setDetailModalOpen] = useState(false)
 
   // Carregar Configuração
   const loadConfig = async (silent = false) => {
@@ -463,135 +471,183 @@ export default function NotasFiscais() {
                     <TableHead className="w-[120px]">Origem</TableHead>
                     <TableHead className="w-[110px] text-right">Valor</TableHead>
                     <TableHead className="w-[130px] text-center">Status SEFAZ</TableHead>
-                    <TableHead className="w-[140px] text-right">Ações</TableHead>
+                    <TableHead className="w-[170px] text-center">Payload Focus (JSON)</TableHead>
+                    <TableHead className="w-[150px] text-right">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {loadingInvoices ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-12 text-slate-500 text-xs">
+                      <TableCell colSpan={8} className="text-center py-12 text-slate-500 text-xs">
                         <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-emerald-600" />
                         Carregando notas fiscais...
                       </TableCell>
                     </TableRow>
                   ) : filteredInvoices.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-12 text-slate-500 text-xs">
+                      <TableCell colSpan={8} className="text-center py-12 text-slate-500 text-xs">
                         <FileText className="w-8 h-8 mx-auto mb-2 text-slate-300" />
                         Nenhuma nota fiscal encontrada no período.
                       </TableCell>
                     </TableRow>
                   ) : (
-                    filteredInvoices.map((inv) => (
-                      <TableRow key={inv.id} className="text-xs">
-                        <TableCell className="font-mono text-slate-600">
-                          {new Date(inv.created).toLocaleDateString('pt-BR', {
-                            day: '2-digit',
-                            month: '2-digit',
-                            year: '2-digit',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </TableCell>
-                        <TableCell>
-                          <div className="font-semibold text-slate-900 font-mono">
-                            {inv.numero ? `NF-e #${inv.numero}` : inv.ref}
-                          </div>
-                          {inv.serie && (
-                            <span className="text-[10px] text-slate-500">Série {inv.serie}</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <div className="font-medium text-slate-900 line-clamp-1">
-                            {inv.destinatario?.nome_completo || 'Sem nome'}
-                          </div>
-                          <div className="text-[11px] text-slate-500 font-mono">
-                            {inv.destinatario?.cpf || inv.destinatario?.cnpj || 'Sem documento'}
-                            {inv.destinatario?.uf ? ` · ${inv.destinatario.uf}` : ''}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {inv.origin_type === 'ml_order' ? (
-                            <Badge
-                              variant="outline"
-                              className="bg-amber-50 text-amber-800 text-[10px]"
-                            >
-                              ML #{inv.ml_order_id}
-                            </Badge>
-                          ) : inv.origin_type === 'sale_internal' ? (
-                            <Badge
-                              variant="outline"
-                              className="bg-blue-50 text-blue-800 text-[10px]"
-                            >
-                              Venda Interna
-                            </Badge>
-                          ) : (
-                            <Badge variant="outline" className="text-[10px]">
-                              Avulsa
-                            </Badge>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right font-mono font-semibold text-slate-900">
-                          {new Intl.NumberFormat('pt-BR', {
-                            style: 'currency',
-                            currency: 'BRL',
-                          }).format(inv.valor_total || 0)}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <div className="flex flex-col items-center gap-1">
-                            {getStatusBadge(inv.status)}
-                            {inv.mensagem_sefaz && inv.status !== 'autorizada' && (
-                              <span
-                                className="text-[10px] text-slate-500 max-w-[150px] truncate"
-                                title={inv.mensagem_sefaz}
-                              >
-                                {inv.mensagem_sefaz}
-                              </span>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            {inv.caminho_danfe && (
-                              <Button
-                                asChild
-                                size="sm"
-                                variant="outline"
-                                className="h-7 px-2 text-[11px] text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 gap-1"
-                              >
-                                <a
-                                  href={inv.caminho_danfe}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  title="Abrir DANFE"
-                                >
-                                  <FileText className="w-3.5 h-3.5" />
-                                  DANFE
-                                </a>
-                              </Button>
-                            )}
+                    filteredInvoices.map((inv) => {
+                      const hasPayload = Boolean(
+                        inv.focus_payload &&
+                        (typeof inv.focus_payload === 'object'
+                          ? Object.keys(inv.focus_payload).length > 0
+                          : String(inv.focus_payload).trim().length > 2),
+                      )
 
-                            {inv.status === 'processando' && (
+                      return (
+                        <TableRow
+                          key={inv.id}
+                          className="text-xs hover:bg-slate-50/70 cursor-pointer"
+                          onClick={() => {
+                            setSelectedInvoice(inv)
+                            setDetailModalOpen(true)
+                          }}
+                        >
+                          <TableCell className="font-mono text-slate-600">
+                            {new Date(inv.created).toLocaleDateString('pt-BR', {
+                              day: '2-digit',
+                              month: '2-digit',
+                              year: '2-digit',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </TableCell>
+                          <TableCell>
+                            <div className="font-semibold text-slate-900 font-mono">
+                              {inv.numero ? `NF-e #${inv.numero}` : inv.ref}
+                            </div>
+                            {inv.serie && (
+                              <span className="text-[10px] text-slate-500">Série {inv.serie}</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <div className="font-medium text-slate-900 line-clamp-1">
+                              {inv.destinatario?.nome_completo || 'Sem nome'}
+                            </div>
+                            <div className="text-[11px] text-slate-500 font-mono">
+                              {inv.destinatario?.cpf || inv.destinatario?.cnpj || 'Sem documento'}
+                              {inv.destinatario?.uf ? ` · ${inv.destinatario.uf}` : ''}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            {inv.origin_type === 'ml_order' ? (
+                              <Badge
+                                variant="outline"
+                                className="bg-amber-50 text-amber-800 text-[10px]"
+                              >
+                                ML #{inv.ml_order_id}
+                              </Badge>
+                            ) : inv.origin_type === 'sale_internal' ? (
+                              <Badge
+                                variant="outline"
+                                className="bg-blue-50 text-blue-800 text-[10px]"
+                              >
+                                Venda Interna
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-[10px]">
+                                Avulsa
+                              </Badge>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right font-mono font-semibold text-slate-900">
+                            {new Intl.NumberFormat('pt-BR', {
+                              style: 'currency',
+                              currency: 'BRL',
+                            }).format(inv.valor_total || 0)}
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <div className="flex flex-col items-center gap-1">
+                              {getStatusBadge(inv.status)}
+                              {inv.mensagem_sefaz && inv.status !== 'autorizada' && (
+                                <span
+                                  className="text-[10px] text-slate-500 max-w-[150px] truncate"
+                                  title={inv.mensagem_sefaz}
+                                >
+                                  {inv.mensagem_sefaz}
+                                </span>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell
+                            className="text-center whitespace-nowrap"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {hasPayload ? (
+                              <FocusPayloadActions
+                                payload={inv.focus_payload}
+                                refCode={inv.ref}
+                                variant="compact"
+                                onOpenViewer={() => {
+                                  setSelectedInvoice(inv)
+                                  setDetailModalOpen(true)
+                                }}
+                              />
+                            ) : (
+                              <span className="text-slate-300 text-xs">—</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center justify-end gap-1">
+                              {inv.caminho_danfe && (
+                                <Button
+                                  asChild
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 px-2 text-[11px] text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 gap-1"
+                                >
+                                  <a
+                                    href={inv.caminho_danfe}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    title="Abrir DANFE"
+                                  >
+                                    <FileText className="w-3.5 h-3.5" />
+                                    DANFE
+                                  </a>
+                                </Button>
+                              )}
+
+                              {inv.status === 'processando' && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleConsultarStatus(inv)}
+                                  disabled={consultingId === inv.id}
+                                  className="h-7 px-2 text-[11px] text-blue-700 hover:text-blue-800 gap-1"
+                                  title="Consultar status na SEFAZ"
+                                >
+                                  <RefreshCw
+                                    className={`w-3.5 h-3.5 ${
+                                      consultingId === inv.id ? 'animate-spin' : ''
+                                    }`}
+                                  />
+                                  Consultar
+                                </Button>
+                              )}
+
                               <Button
                                 size="sm"
-                                variant="outline"
-                                onClick={() => handleConsultarStatus(inv)}
-                                disabled={consultingId === inv.id}
-                                className="h-7 px-2 text-[11px] text-blue-700 hover:text-blue-800 gap-1"
-                                title="Consultar status na SEFAZ"
+                                variant="ghost"
+                                onClick={() => {
+                                  setSelectedInvoice(inv)
+                                  setDetailModalOpen(true)
+                                }}
+                                className="h-7 px-1.5 text-[11px] text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                                title="Ver detalhes completos e JSON da nota"
                               >
-                                <RefreshCw
-                                  className={`w-3.5 h-3.5 ${
-                                    consultingId === inv.id ? 'animate-spin' : ''
-                                  }`}
-                                />
-                                Consultar
+                                <ChevronRight className="w-3.5 h-3.5" />
                               </Button>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })
                   )}
                 </TableBody>
               </Table>
@@ -1154,6 +1210,15 @@ export default function NotasFiscais() {
         onSuccess={() => {
           loadInvoices()
         }}
+      />
+
+      {/* Modal de Detalhes da Nota Fiscal e JSON Focus */}
+      <InvoiceDetailModal
+        open={detailModalOpen}
+        onOpenChange={setDetailModalOpen}
+        invoice={selectedInvoice}
+        consulting={consultingId === selectedInvoice?.id}
+        onConsultStatus={handleConsultarStatus}
       />
     </div>
   )
