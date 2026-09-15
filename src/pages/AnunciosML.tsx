@@ -77,6 +77,7 @@ import { MLSellersMonitorTab } from '@/components/MLSellersMonitorTab'
 import { mlQuestionsService, type MLQuestionMetrics } from '@/services/mlQuestionsService'
 import { MLItemMatchedProductsDisplay } from '@/components/MLItemMatchedProductsDisplay'
 import { MLManualProductSelectorModal } from '@/components/MLManualProductSelectorModal'
+import { CalculadoraViabilidade } from '@/components/CalculadoraViabilidade'
 
 export default function AnunciosML() {
   const { toast } = useToast()
@@ -130,6 +131,9 @@ export default function AnunciosML() {
   // Modal de seleção manual de produto
   const [manualSelectorOpen, setManualSelectorOpen] = useState(false)
   const [selectedAdForManualLink, setSelectedAdForManualLink] = useState<MLSellerItem | null>(null)
+
+  // Calculadora de Viabilidade nos Cards (id do card expandido)
+  const [expandedCardViabilityId, setExpandedCardViabilityId] = useState<string | null>(null)
 
   // Seleção de itens para ações em massa
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set())
@@ -756,6 +760,66 @@ export default function AnunciosML() {
         <span>{label}</span>
       </Badge>
     )
+  }
+
+  // Resolução do menor preço efetivo do anúncio (considerando variações ou preço raiz)
+  const getItemEffectivePrice = (item: MLSellerItem): number => {
+    const rootPrice = Number(item.price) || 0
+    if (Array.isArray(item.variations) && item.variations.length > 0) {
+      const validVarPrices = item.variations.map((v) => Number(v.price) || 0).filter((p) => p > 0)
+      if (validVarPrices.length > 0) {
+        return Math.min(...validVarPrices)
+      }
+    }
+    return rootPrice
+  }
+
+  // Resolução do melhor concorrente / líder de Buy Box monitorado para este anúncio (se houver)
+  const getBestCompetitorMatch = (item: MLSellerItem): MLCompetitorAd | null => {
+    if (!competitorAds || competitorAds.length === 0) return null
+
+    // 1. Tentar correspondência exata por mlb_item_id se estiver vinculado diretamente
+    const directMatch = competitorAds.find(
+      (c) => c.mlb_item_id && normalizeMlbId(c.mlb_item_id) === normalizeMlbId(item.id),
+    )
+    if (directMatch && directMatch.current_price > 0) {
+      return directMatch
+    }
+
+    // 2. Tentar cruzamento por SKU com produto interno vinculado
+    const matchedSku =
+      item.matchedProduct?.sku ||
+      (Array.isArray(item.matchedProducts) ? item.matchedProducts[0]?.sku : '')
+    if (matchedSku && matchedSku.length >= 4) {
+      const skuMatch = competitorAds.find(
+        (c) =>
+          c.current_price > 0 &&
+          (c.matchedProduct?.sku?.toLowerCase() === matchedSku.toLowerCase() ||
+            c.title.toLowerCase().includes(matchedSku.toLowerCase())),
+      )
+      if (skuMatch) return skuMatch
+    }
+
+    // 3. Tentar cruzamento por sobreposição de palavras-chave do título
+    const itemWords = (item.title || '')
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((w) => w.length > 3)
+
+    let bestMatch: MLCompetitorAd | null = null
+    let maxOverlap = 0
+
+    for (const c of competitorAds) {
+      if (!c.current_price || c.current_price <= 0) continue
+      const cWords = (c.title || '').toLowerCase().split(/\s+/)
+      const overlap = itemWords.filter((w) => cWords.includes(w)).length
+      if (overlap >= 4 && overlap > maxOverlap) {
+        maxOverlap = overlap
+        bestMatch = c
+      }
+    }
+
+    return bestMatch
   }
 
   // Resolução da URL no Mercado Livre com fallback por ID ou ID do item pai normalizados
@@ -1779,7 +1843,7 @@ export default function AnunciosML() {
                             {renderConditionBadge(item)}
                           </td>
 
-                          {/* Preço (Edição Direta) */}
+                          {/* Preço (Edição Direta + Calculadora de Viabilidade On-demand) */}
                           <td className="py-3 px-3 whitespace-nowrap font-mono">
                             {isEditingPrice ? (
                               <div className="flex items-center gap-1">
@@ -1819,21 +1883,58 @@ export default function AnunciosML() {
                                 </Button>
                               </div>
                             ) : (
-                              <div
-                                onClick={() => {
-                                  setEditingPriceId(item.id)
-                                  setEditingPriceVal(Number(item.price || 0).toFixed(2))
-                                }}
-                                className="group inline-flex items-center gap-1.5 cursor-pointer py-1 px-1.5 rounded hover:bg-slate-100"
-                                title="Clique para editar o preço diretamente"
-                              >
-                                <span className="font-black text-slate-900 text-xs">
-                                  {Number(item.price || 0).toLocaleString('pt-BR', {
-                                    style: 'currency',
-                                    currency: item.currency_id || 'BRL',
-                                  })}
-                                </span>
-                                <Edit2 className="w-3 h-3 text-slate-400 group-hover:text-amber-600 transition-colors" />
+                              <div className="flex items-center gap-1.5">
+                                <div
+                                  onClick={() => {
+                                    setEditingPriceId(item.id)
+                                    setEditingPriceVal(Number(item.price || 0).toFixed(2))
+                                  }}
+                                  className="group inline-flex items-center gap-1.5 cursor-pointer py-1 px-1.5 rounded hover:bg-slate-100"
+                                  title="Clique para editar o preço diretamente"
+                                >
+                                  <span className="font-black text-slate-900 text-xs">
+                                    {Number(item.price || 0).toLocaleString('pt-BR', {
+                                      style: 'currency',
+                                      currency: item.currency_id || 'BRL',
+                                    })}
+                                  </span>
+                                  <Edit2 className="w-3 h-3 text-slate-400 group-hover:text-amber-600 transition-colors" />
+                                </div>
+
+                                {/* Popover da Calculadora de Viabilidade - Sem poluir a tabela */}
+                                {(() => {
+                                  const effectivePrice = getItemEffectivePrice(item)
+                                  const compMatch = getBestCompetitorMatch(item)
+                                  return (
+                                    <Popover>
+                                      <PopoverTrigger asChild>
+                                        <button
+                                          type="button"
+                                          className="p-1 rounded text-slate-400 hover:text-blue-700 hover:bg-blue-50 transition-colors cursor-pointer"
+                                          title={`Calculadora de Viabilidade (teto de compra para venda de ${effectivePrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})`}
+                                          aria-label={`Abrir calculadora de viabilidade para anúncio ${item.id}`}
+                                        >
+                                          <Calculator className="w-3.5 h-3.5" />
+                                        </button>
+                                      </PopoverTrigger>
+                                      <PopoverContent
+                                        side="right"
+                                        align="start"
+                                        sideOffset={8}
+                                        className="w-[360px] sm:w-[420px] p-2.5 shadow-xl border-blue-200 z-50"
+                                      >
+                                        <CalculadoraViabilidade
+                                          isPopover
+                                          currentPrice={effectivePrice}
+                                          buyBoxLeaderPrice={compMatch?.current_price || null}
+                                          leaderName={compMatch?.seller_nickname || null}
+                                          suggestedShipping={19.0}
+                                          itemTitle={item.title}
+                                        />
+                                      </PopoverContent>
+                                    </Popover>
+                                  )
+                                })()}
                               </div>
                             )}
                           </td>
@@ -2004,6 +2105,30 @@ export default function AnunciosML() {
                           onOpenManualSelector={handleOpenManualSelector}
                         />
                       </div>
+                    </div>
+
+                    {/* Bloco recolhido da Calculadora de Viabilidade no rodapé do Card (igual ao Explorador) */}
+                    <div className="px-3 pb-3 bg-white">
+                      {(() => {
+                        const effectivePrice = getItemEffectivePrice(item)
+                        const compMatch = getBestCompetitorMatch(item)
+                        const isExpanded = expandedCardViabilityId === item.id
+                        return (
+                          <CalculadoraViabilidade
+                            currentPrice={effectivePrice}
+                            buyBoxLeaderPrice={compMatch?.current_price || null}
+                            leaderName={compMatch?.seller_nickname || null}
+                            suggestedShipping={19.0}
+                            isOpen={isExpanded}
+                            onToggle={() =>
+                              setExpandedCardViabilityId((prev) =>
+                                prev === item.id ? null : item.id,
+                              )
+                            }
+                            itemTitle={item.title}
+                          />
+                        )
+                      })()}
                     </div>
 
                     <div className="p-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-2">
