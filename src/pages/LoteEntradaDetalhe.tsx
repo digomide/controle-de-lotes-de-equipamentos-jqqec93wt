@@ -40,6 +40,7 @@ import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { useToast } from '@/hooks/use-toast'
 import { useAuth } from '@/contexts/AuthContext'
+import { useTenant } from '@/contexts/TenantContext'
 import { purchaseBatchesService } from '@/services/purchaseBatches'
 import { productsService } from '@/services/products'
 import { equipmentService } from '@/services/equipment'
@@ -82,6 +83,7 @@ export default function LoteEntradaDetalhe() {
 
   const { toast } = useToast()
   const { isAdmin } = useAuth()
+  const { currentTenant } = useTenant()
   const navigate = useNavigate()
 
   // Modal de Adicionar / Editar Peça
@@ -137,8 +139,19 @@ export default function LoteEntradaDetalhe() {
 
   const loadData = async () => {
     if (!id) return
+    setLoading(true)
     try {
       const batchData = await purchaseBatchesService.getById(id)
+
+      // Verificação de isolamento multi-tenant: se o lote pertencer a outro tenant, bloquear exibição
+      const activeTenantId = currentTenant?.id
+      if (activeTenantId && batchData.tenant_id && batchData.tenant_id !== activeTenantId) {
+        setBatch(null)
+        setProducts([])
+        setParts([])
+        return
+      }
+
       setBatch(batchData)
 
       const batchProducts = await purchaseBatchesService.getProductsByBatchId(id)
@@ -178,7 +191,7 @@ export default function LoteEntradaDetalhe() {
 
   useEffect(() => {
     loadData()
-  }, [id])
+  }, [id, currentTenant?.id])
 
   // Calculations
   const expectedQty = Number(batch?.expected_quantity) || 1
@@ -448,6 +461,7 @@ export default function LoteEntradaDetalhe() {
         notes: partNotes.trim(),
         purchase_batch_id: id,
         product_id: partProductId !== 'batch' ? partProductId : null,
+        tenant_id: currentTenant?.id,
       }
 
       if (editingPart) {

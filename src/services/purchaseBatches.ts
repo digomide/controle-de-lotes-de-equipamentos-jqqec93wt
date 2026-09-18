@@ -10,6 +10,7 @@ export interface CreatePurchaseBatchInput {
   status?: 'em_processamento' | 'concluido'
   location?: string
   notes?: string
+  tenant_id?: string
 }
 
 export interface PurchaseBatchSafetyCheck {
@@ -24,8 +25,10 @@ export interface PurchaseBatchSafetyCheck {
 }
 
 export const purchaseBatchesService = {
-  async getAll(): Promise<PurchaseBatch[]> {
+  async getAll(tenantId?: string): Promise<PurchaseBatch[]> {
+    const filter = tenantId ? `tenant_id = '${tenantId}'` : ''
     return await pb.collection('purchase_batches').getFullList<PurchaseBatch>({
+      filter,
       sort: '-purchase_date,-created',
     })
   },
@@ -38,6 +41,7 @@ export const purchaseBatchesService = {
     return await pb.collection('purchase_batches').create<PurchaseBatch>({
       ...data,
       status: data.status || 'em_processamento',
+      ...(data.tenant_id ? { tenant_id: data.tenant_id } : {}),
     })
   },
 

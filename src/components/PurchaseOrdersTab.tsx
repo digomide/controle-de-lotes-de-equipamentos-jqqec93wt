@@ -52,6 +52,7 @@ import {
 import { Progress } from '@/components/ui/progress'
 import { useToast } from '@/hooks/use-toast'
 import { useAuth } from '@/contexts/AuthContext'
+import { useTenant } from '@/contexts/TenantContext'
 import { useRealtime } from '@/hooks/use-realtime'
 import { purchaseBatchesService } from '@/services/purchaseBatches'
 import { productsService } from '@/services/products'
@@ -90,13 +91,16 @@ export function PurchaseOrdersTab() {
 
   const { toast } = useToast()
   const { isAdmin } = useAuth()
+  const { currentTenant } = useTenant()
   const navigate = useNavigate()
 
   const loadData = async () => {
+    setLoading(true)
     try {
+      const activeTenantId = currentTenant?.id
       const [batchData, prodData] = await Promise.all([
-        purchaseBatchesService.getAll(),
-        productsService.getAll(),
+        purchaseBatchesService.getAll(activeTenantId),
+        productsService.getAllByTenant(activeTenantId),
       ])
       setBatches(batchData)
       setProducts(prodData)
@@ -114,11 +118,11 @@ export function PurchaseOrdersTab() {
 
   useEffect(() => {
     loadData()
-  }, [])
+  }, [currentTenant?.id])
 
   // Realtime subscription
   useRealtime<PurchaseBatch>('purchase_batches', () => {
-    purchaseBatchesService.getAll().then(setBatches)
+    purchaseBatchesService.getAll(currentTenant?.id).then(setBatches)
   })
 
   // Map of inventoried products count per purchase_batch_id
@@ -278,6 +282,7 @@ export function PurchaseOrdersTab() {
         location: location.trim() || undefined,
         notes: notes.trim() || undefined,
         status: 'em_processamento',
+        tenant_id: currentTenant?.id,
       })
 
       toast({

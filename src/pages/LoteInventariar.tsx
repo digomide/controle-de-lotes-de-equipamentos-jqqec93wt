@@ -29,6 +29,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useToast } from '@/hooks/use-toast'
+import { useTenant } from '@/contexts/TenantContext'
 import { purchaseBatchesService } from '@/services/purchaseBatches'
 import { productsService } from '@/services/products'
 import type {
@@ -58,15 +59,15 @@ export default function LoteInventariar() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { toast } = useToast()
+  const { currentTenant } = useTenant()
 
-  // Batches for selection dropdown
+  // Batch Selection & Batch Data
   const [allBatches, setAllBatches] = useState<PurchaseBatch[]>([])
   const [selectedBatchId, setSelectedBatchId] = useState<string>(id || '')
   const [batch, setBatch] = useState<PurchaseBatch | null>(null)
   const [batchProducts, setBatchProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
-
   // Equipment Fields
   const [family, setFamily] = useState('Notebooks')
   const [title, setTitle] = useState('')
@@ -116,14 +117,19 @@ export default function LoteInventariar() {
   // Initial Data Load
   useEffect(() => {
     async function loadData() {
+      setLoading(true)
       try {
-        const batches = await purchaseBatchesService.getAll()
+        const batches = await purchaseBatchesService.getAll(currentTenant?.id)
         setAllBatches(batches)
 
         const currentBatchId = id || (batches[0] ? batches[0].id : '')
         if (currentBatchId) {
           setSelectedBatchId(currentBatchId)
           await loadBatchInfo(currentBatchId)
+        } else {
+          setBatch(null)
+          setBatchProducts([])
+          setSelectedBatchId('')
         }
       } catch (err: any) {
         console.error(err)
@@ -137,7 +143,7 @@ export default function LoteInventariar() {
       }
     }
     loadData()
-  }, [id])
+  }, [id, currentTenant?.id])
 
   const loadBatchInfo = async (bId: string) => {
     try {
@@ -312,6 +318,9 @@ export default function LoteInventariar() {
       formData.append('unit_price', String(Number(unitPrice) || 0))
       formData.append('status', effectiveProductStatus)
       formData.append('bench_notes', benchNotes)
+      if (currentTenant?.id) {
+        formData.append('tenant_id', currentTenant.id)
+      }
 
       // Technical checklist JSON
       formData.append('technical_checklist', JSON.stringify(checklist))

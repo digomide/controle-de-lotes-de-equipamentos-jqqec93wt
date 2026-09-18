@@ -76,8 +76,10 @@ export interface SaleFiscalStatus {
 }
 
 export const salesService = {
-  async getAll(): Promise<Sale[]> {
+  async getAll(tenantId?: string): Promise<Sale[]> {
+    const filter = tenantId ? `tenant_id = '${tenantId}'` : ''
     return await pb.collection('sales').getFullList<Sale>({
+      filter,
       expand: 'user_id,cancelled_by',
       sort: '-created',
     })

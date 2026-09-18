@@ -47,6 +47,7 @@ import {
 import { Progress } from '@/components/ui/progress'
 import { useToast } from '@/hooks/use-toast'
 import { useAuth } from '@/contexts/AuthContext'
+import { useTenant } from '@/contexts/TenantContext'
 import { purchaseBatchesService } from '@/services/purchaseBatches'
 import { productsService } from '@/services/products'
 import type { PurchaseBatch, Product } from '@/types/inventory'
@@ -79,13 +80,16 @@ export default function LotesEntrada() {
 
   const { toast } = useToast()
   const { isAdmin } = useAuth()
+  const { currentTenant } = useTenant()
   const navigate = useNavigate()
 
   const loadData = async () => {
+    setLoading(true)
     try {
+      const activeTenantId = currentTenant?.id
       const [batchData, prodData] = await Promise.all([
-        purchaseBatchesService.getAll(),
-        productsService.getAll(),
+        purchaseBatchesService.getAll(activeTenantId),
+        productsService.getAllByTenant(activeTenantId),
       ])
       setBatches(batchData)
       setProducts(prodData)
@@ -103,7 +107,7 @@ export default function LotesEntrada() {
 
   useEffect(() => {
     loadData()
-  }, [])
+  }, [currentTenant?.id])
 
   // Map of inventoried products count per purchase_batch_id
   const batchStatsMap = useMemo(() => {
@@ -224,6 +228,7 @@ export default function LotesEntrada() {
         total_cost: cost,
         expected_quantity: qty,
         status: 'em_processamento',
+        tenant_id: currentTenant?.id,
       })
 
       toast({

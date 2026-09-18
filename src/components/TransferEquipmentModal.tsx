@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/select'
 import { Loader2, ArrowRightLeft, Boxes, CheckCircle2, AlertTriangle } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
+import { useTenant } from '@/contexts/TenantContext'
 import { purchaseBatchesService } from '@/services/purchaseBatches'
 import { productsService } from '@/services/products'
 import { equipmentService } from '@/services/equipment'
@@ -45,6 +46,7 @@ export function TransferEquipmentModal({
   onSuccess,
 }: TransferEquipmentModalProps) {
   const { toast } = useToast()
+  const { currentTenant } = useTenant()
   const [loadingBatches, setLoadingBatches] = useState(false)
   const [destinationBatches, setDestinationBatches] = useState<BatchWithDetails[]>([])
   const [targetBatchId, setTargetBatchId] = useState<string>('')
@@ -61,7 +63,7 @@ export function TransferEquipmentModal({
   const loadOtherBatches = async () => {
     setLoadingBatches(true)
     try {
-      const allBatches = await purchaseBatchesService.getAll()
+      const allBatches = await purchaseBatchesService.getAll(currentTenant?.id)
       // Filter out the current batch
       const others = allBatches.filter((b) => b.id !== currentBatchId)
 

@@ -19,8 +19,10 @@ export const equipmentService = {
     })
   },
 
-  async getAllParts(): Promise<EquipmentPart[]> {
+  async getAllParts(tenantId?: string): Promise<EquipmentPart[]> {
+    const filter = tenantId ? `tenant_id = '${tenantId}'` : ''
     return await pb.collection('equipment_parts').getFullList<EquipmentPart>({
+      filter,
       expand: 'product_id,purchase_batch_id',
       sort: '-created',
     })
@@ -35,6 +37,7 @@ export const equipmentService = {
     notes?: string
     supplier?: string
     purchase_date?: string
+    tenant_id?: string
   }): Promise<EquipmentPart> {
     return await pb.collection('equipment_parts').create<EquipmentPart>(data)
   },

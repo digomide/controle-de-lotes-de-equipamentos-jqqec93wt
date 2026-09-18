@@ -25,6 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { useTenant } from '@/contexts/TenantContext'
 import { purchaseBatchesService } from '@/services/purchaseBatches'
 import { productsService } from '@/services/products'
 import { equipmentService } from '@/services/equipment'
@@ -51,6 +52,7 @@ interface BatchProfitReportItem {
 }
 
 export default function LucratividadeLotes() {
+  const { currentTenant } = useTenant()
   const [loading, setLoading] = useState(true)
   const [reportItems, setReportItems] = useState<BatchProfitReportItem[]>([])
   const [searchQuery, setSearchQuery] = useState('')
@@ -62,12 +64,13 @@ export default function LucratividadeLotes() {
   const loadReportData = async () => {
     setLoading(true)
     try {
-      // 1. Fetch real database entities in parallel
+      const activeTenantId = currentTenant?.id
+      // 1. Fetch real database entities in parallel isolated by tenant
       const [batches, allProducts, allParts, allSales] = await Promise.all([
-        purchaseBatchesService.getAll(),
-        productsService.getAll(),
-        equipmentService.getAllParts(),
-        salesService.getAll(),
+        purchaseBatchesService.getAll(activeTenantId),
+        productsService.getAllByTenant(activeTenantId),
+        equipmentService.getAllParts(activeTenantId),
+        salesService.getAll(activeTenantId),
       ])
 
       // 2. Fetch all sale items to determine exact sold prices and link to batches
@@ -196,7 +199,7 @@ export default function LucratividadeLotes() {
 
   useEffect(() => {
     loadReportData()
-  }, [])
+  }, [currentTenant?.id])
 
   // Filter & Sort
   const filteredItems = useMemo(() => {

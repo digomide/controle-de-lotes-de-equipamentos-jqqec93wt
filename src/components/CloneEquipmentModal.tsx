@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/select'
 import { Loader2, Copy, Check, Boxes, AlertCircle } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
+import { useTenant } from '@/contexts/TenantContext'
 import { purchaseBatchesService } from '@/services/purchaseBatches'
 import { productsService } from '@/services/products'
 import { equipmentService } from '@/services/equipment'
@@ -38,6 +39,7 @@ export function CloneEquipmentModal({
   onSuccess,
 }: CloneEquipmentModalProps) {
   const { toast } = useToast()
+  const { currentTenant } = useTenant()
   const navigate = useNavigate()
 
   // Form states
@@ -81,8 +83,8 @@ export function CloneEquipmentModal({
       const parts = await equipmentService.getPartsByProduct(targetProduct.id)
       setOriginalParts(parts)
 
-      // Load all batches
-      const batches = await purchaseBatchesService.getAll()
+      // Load all batches isolated by tenant
+      const batches = await purchaseBatchesService.getAll(currentTenant?.id)
       const statsList: BatchStats[] = await Promise.all(
         batches.map(async (b) => {
           try {
@@ -221,7 +223,8 @@ export function CloneEquipmentModal({
               date: new Date().toISOString().replace('T', ' ').substring(0, 19),
             },
           ],
-        }
+          tenant_id: currentTenant?.id,
+        } as any
 
         const createdProd = await productsService.create(newProductPayload)
         createdProductIds.push(createdProd.id)
@@ -237,6 +240,7 @@ export function CloneEquipmentModal({
             purchase_date: part.purchase_date,
             purchase_batch_id: selectedBatchId,
             product_id: createdProd.id,
+            tenant_id: currentTenant?.id,
           })
           createdPartIds.push(newPart.id)
         }
