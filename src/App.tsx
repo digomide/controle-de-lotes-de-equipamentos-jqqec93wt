@@ -34,7 +34,9 @@ import Pedido6849 from './pages/Pedido6849'
 import Clientes from './pages/Clientes'
 import NotasFiscais from './pages/NotasFiscais'
 import LogoPage from './pages/LogoPage'
+import Tenants from './pages/Tenants'
 import { AuthProvider } from './contexts/AuthContext'
+import { TenantProvider } from './contexts/TenantContext'
 import { ProtectedRoute } from './components/ProtectedRoute'
 
 // ONLY IMPORT AND RENDER WORKING PAGES, NEVER ADD PLACEHOLDER COMPONENTS OR PAGES IN THIS FILE
@@ -43,274 +45,286 @@ import { ProtectedRoute } from './components/ProtectedRoute'
 const App = () => (
   <BrowserRouter>
     <AuthProvider>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <Routes>
-          {/* Rotas Públicas da Loja (Sem Login / Fora do Layout Privado) */}
-          <Route path="/loja" element={<LojaPublica />} />
-          <Route path="/loja/corporativo" element={<LojaCorporativo />} />
-          <Route path="/loja/pedido-concluido" element={<LojaPedidoConcluido />} />
-          <Route path="/loja/:id" element={<LojaDetalhe />} />
+      <TenantProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <Routes>
+            {/* Rotas Públicas da Loja (Sem Login / Fora do Layout Privado) */}
+            <Route path="/loja" element={<LojaPublica />} />
+            <Route path="/loja/corporativo" element={<LojaCorporativo />} />
+            <Route path="/loja/pedido-concluido" element={<LojaPedidoConcluido />} />
+            <Route path="/loja/:id" element={<LojaDetalhe />} />
 
-          {/* Rota Utilitária de Impressão do Pedido de Venda Bling (apenas autenticado, fora do layout/menu) */}
-          <Route
-            path="/pedido-6849"
-            element={
-              <ProtectedRoute>
-                <Pedido6849 />
-              </ProtectedRoute>
-            }
-          />
-
-          <Route path="/login" element={<Login />} />
-
-          <Route
-            element={
-              <ProtectedRoute>
-                <Layout />
-              </ProtectedRoute>
-            }
-          >
-            {/* Dashboard */}
+            {/* Rota Utilitária de Impressão do Pedido de Venda Bling (apenas autenticado, fora do layout/menu) */}
             <Route
-              path="/"
-              element={
-                <ProtectedRoute requiredModule="dashboard">
-                  <Index />
-                </ProtectedRoute>
-              }
-            />
-
-            {/* Vendas */}
-            <Route
-              path="/vendas"
-              element={
-                <ProtectedRoute requiredModule="vendas">
-                  <Vendas />
-                </ProtectedRoute>
-              }
-            />
-
-            {/* Notas Fiscais (NF-e) */}
-            <Route
-              path="/notas-fiscais"
-              element={
-                <ProtectedRoute requiredModule="notas_fiscais">
-                  <NotasFiscais />
-                </ProtectedRoute>
-              }
-            />
-
-            {/* Clientes & Pós-Venda */}
-            <Route
-              path="/clientes"
-              element={
-                <ProtectedRoute requiredModule="clientes">
-                  <Clientes />
-                </ProtectedRoute>
-              }
-            />
-
-            {/* Lucratividade */}
-            <Route
-              path="/lucratividade"
-              element={
-                <ProtectedRoute requiredModule="lucratividade">
-                  <LucratividadeLotes />
-                </ProtectedRoute>
-              }
-            />
-
-            {/* Produtos / Catálogo */}
-            <Route
-              path="/produtos"
-              element={
-                <ProtectedRoute requiredModule="produtos">
-                  <Produtos />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/catalogo"
-              element={
-                <ProtectedRoute requiredModule="produtos">
-                  <Produtos />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/catalogo/:id"
-              element={
-                <ProtectedRoute requiredModule="produtos">
-                  <CatalogoDetalhe />
-                </ProtectedRoute>
-              }
-            />
-
-            {/* Estoque Geral */}
-            <Route
-              path="/estoque-geral"
-              element={
-                <ProtectedRoute requiredModule="estoque_geral">
-                  <EstoqueGeral />
-                </ProtectedRoute>
-              }
-            />
-
-            {/* Estoque / Lotes */}
-            <Route
-              path="/estoque"
-              element={
-                <ProtectedRoute requiredModule="estoque_lotes">
-                  <Estoque />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/estoque/:id"
-              element={
-                <ProtectedRoute requiredModule="estoque_lotes">
-                  <CatalogoDetalhe />
-                </ProtectedRoute>
-              }
-            />
-
-            {/* Lotes Compra */}
-            <Route
-              path="/lotes-entrada"
-              element={
-                <ProtectedRoute requiredModule="lotes_compra">
-                  <LotesEntrada />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/lotes-entrada/:id"
-              element={
-                <ProtectedRoute requiredModule="lotes_compra">
-                  <LoteEntradaDetalhe />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/lotes-entrada/:id/inventariar"
-              element={
-                <ProtectedRoute requiredModule="lotes_compra">
-                  <LoteInventariar />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/lotes/:id"
-              element={
-                <ProtectedRoute requiredModule="lotes_compra">
-                  <CatalogoDetalhe />
-                </ProtectedRoute>
-              }
-            />
-
-            {/* Ajustes de Estoque */}
-            <Route
-              path="/ajustes"
-              element={
-                <ProtectedRoute requiredModule="ajustes">
-                  <Ajustes />
-                </ProtectedRoute>
-              }
-            />
-
-            {/* Marketing & Redes */}
-            <Route
-              path="/marketing"
-              element={
-                <ProtectedRoute requiredModule="marketing">
-                  <Marketing />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/post-instagram"
-              element={
-                <ProtectedRoute requiredModule="post_instagram">
-                  <PostInstagram />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/post-tiktok"
-              element={
-                <ProtectedRoute requiredModule="post_tiktok">
-                  <PostTikTok />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/cotacoes"
-              element={
-                <ProtectedRoute requiredModule="cotacoes">
-                  <CotacoesCorporativas />
-                </ProtectedRoute>
-              }
-            />
-
-            {/* Configurações & Usuários (Admin) */}
-            <Route
-              path="/configuracoes"
-              element={
-                <ProtectedRoute requireAdmin requiredModule="configuracoes">
-                  <Configuracoes />
-                </ProtectedRoute>
-              }
-            />
-            {/* Identidade Visual / Logomarca INFOPRECOBAIXO */}
-            <Route
-              path="/logo"
+              path="/pedido-6849"
               element={
                 <ProtectedRoute>
-                  <LogoPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/usuarios"
-              element={
-                <ProtectedRoute requireAdmin requiredModule="usuarios">
-                  <Usuarios />
+                  <Pedido6849 />
                 </ProtectedRoute>
               }
             />
 
-            {/* Mercado Livre e Concorrência */}
-            <Route
-              path="/explorador-catalogo"
-              element={
-                <ProtectedRoute requiredModule="explorador_catalogo">
-                  <ExploradorCatalogo />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/anuncios-ml"
-              element={
-                <ProtectedRoute requiredModule="gestor_ml">
-                  <AnunciosML />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/radar-ml"
-              element={
-                <ProtectedRoute requiredModule="radar_ml">
-                  <RadarML />
-                </ProtectedRoute>
-              }
-            />
-          </Route>
+            <Route path="/login" element={<Login />} />
 
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </TooltipProvider>
+            <Route
+              element={
+                <ProtectedRoute>
+                  <Layout />
+                </ProtectedRoute>
+              }
+            >
+              {/* Dashboard */}
+              <Route
+                path="/"
+                element={
+                  <ProtectedRoute requiredModule="dashboard">
+                    <Index />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Painel de Gestão Multi-Tenant / Clientes (Exclusivo Super-Admin) */}
+              <Route
+                path="/tenants"
+                element={
+                  <ProtectedRoute requireSuperAdmin>
+                    <Tenants />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Vendas */}
+              <Route
+                path="/vendas"
+                element={
+                  <ProtectedRoute requiredModule="vendas">
+                    <Vendas />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Notas Fiscais (NF-e) */}
+              <Route
+                path="/notas-fiscais"
+                element={
+                  <ProtectedRoute requiredModule="notas_fiscais">
+                    <NotasFiscais />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Clientes & Pós-Venda */}
+              <Route
+                path="/clientes"
+                element={
+                  <ProtectedRoute requiredModule="clientes">
+                    <Clientes />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Lucratividade */}
+              <Route
+                path="/lucratividade"
+                element={
+                  <ProtectedRoute requiredModule="lucratividade">
+                    <LucratividadeLotes />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Produtos / Catálogo */}
+              <Route
+                path="/produtos"
+                element={
+                  <ProtectedRoute requiredModule="produtos">
+                    <Produtos />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/catalogo"
+                element={
+                  <ProtectedRoute requiredModule="produtos">
+                    <Produtos />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/catalogo/:id"
+                element={
+                  <ProtectedRoute requiredModule="produtos">
+                    <CatalogoDetalhe />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Estoque Geral */}
+              <Route
+                path="/estoque-geral"
+                element={
+                  <ProtectedRoute requiredModule="estoque_geral">
+                    <EstoqueGeral />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Estoque / Lotes */}
+              <Route
+                path="/estoque"
+                element={
+                  <ProtectedRoute requiredModule="estoque_lotes">
+                    <Estoque />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/estoque/:id"
+                element={
+                  <ProtectedRoute requiredModule="estoque_lotes">
+                    <CatalogoDetalhe />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Lotes Compra */}
+              <Route
+                path="/lotes-entrada"
+                element={
+                  <ProtectedRoute requiredModule="lotes_compra">
+                    <LotesEntrada />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/lotes-entrada/:id"
+                element={
+                  <ProtectedRoute requiredModule="lotes_compra">
+                    <LoteEntradaDetalhe />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/lotes-entrada/:id/inventariar"
+                element={
+                  <ProtectedRoute requiredModule="lotes_compra">
+                    <LoteInventariar />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/lotes/:id"
+                element={
+                  <ProtectedRoute requiredModule="lotes_compra">
+                    <CatalogoDetalhe />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Ajustes de Estoque */}
+              <Route
+                path="/ajustes"
+                element={
+                  <ProtectedRoute requiredModule="ajustes">
+                    <Ajustes />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Marketing & Redes */}
+              <Route
+                path="/marketing"
+                element={
+                  <ProtectedRoute requiredModule="marketing">
+                    <Marketing />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/post-instagram"
+                element={
+                  <ProtectedRoute requiredModule="post_instagram">
+                    <PostInstagram />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/post-tiktok"
+                element={
+                  <ProtectedRoute requiredModule="post_tiktok">
+                    <PostTikTok />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/cotacoes"
+                element={
+                  <ProtectedRoute requiredModule="cotacoes">
+                    <CotacoesCorporativas />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Configurações & Usuários (Admin) */}
+              <Route
+                path="/configuracoes"
+                element={
+                  <ProtectedRoute requireAdmin requiredModule="configuracoes">
+                    <Configuracoes />
+                  </ProtectedRoute>
+                }
+              />
+              {/* Identidade Visual / Logomarca INFOPRECOBAIXO */}
+              <Route
+                path="/logo"
+                element={
+                  <ProtectedRoute>
+                    <LogoPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/usuarios"
+                element={
+                  <ProtectedRoute requireAdmin requiredModule="usuarios">
+                    <Usuarios />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Mercado Livre e Concorrência */}
+              <Route
+                path="/explorador-catalogo"
+                element={
+                  <ProtectedRoute requiredModule="explorador_catalogo">
+                    <ExploradorCatalogo />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/anuncios-ml"
+                element={
+                  <ProtectedRoute requiredModule="gestor_ml">
+                    <AnunciosML />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/radar-ml"
+                element={
+                  <ProtectedRoute requiredModule="radar_ml">
+                    <RadarML />
+                  </ProtectedRoute>
+                }
+              />
+            </Route>
+
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </TooltipProvider>
+      </TenantProvider>
     </AuthProvider>
   </BrowserRouter>
 )

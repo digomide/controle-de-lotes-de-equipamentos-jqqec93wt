@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-15T21:27:35.841Z",
+  "generatedAt": "2026-09-18T15:26:12.646Z",
   "collections": [
     {
       "name": "users",
@@ -43,13 +43,20 @@
           "type": "select",
           "required": false,
           "system": false,
-          "selectValues": ["admin", "member"]
+          "selectValues": ["super_admin", "admin", "member"]
         },
         {
           "name": "active",
           "type": "bool",
           "required": false,
           "system": false
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": [
@@ -61,11 +68,11 @@
       "name": "products",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != '' || status = 'Disponível'",
-        "view": "@request.auth.id != '' || status = 'Disponível'",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+        "list": "status = 'Disponível' || (@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id))",
+        "view": "status = 'Disponível' || (@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id))",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -301,6 +308,13 @@
           "type": "text",
           "required": false,
           "system": false
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": [
@@ -312,11 +326,11 @@
       "name": "batches",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -369,6 +383,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": ["CREATE INDEX idx_batches_product_number ON batches (product_id, batch_number)"]
@@ -377,11 +398,11 @@
       "name": "sales",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -435,6 +456,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": []
@@ -443,11 +471,11 @@
       "name": "sale_items",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -502,6 +530,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": []
@@ -510,11 +545,11 @@
       "name": "inventory_adjustments",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != '' && @request.auth.role = 'admin'",
-        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -575,6 +610,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": []
@@ -583,11 +625,11 @@
       "name": "equipment_parts",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -654,6 +696,13 @@
           "type": "date",
           "required": false,
           "system": false
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": []
@@ -662,11 +711,11 @@
       "name": "equipment_deliverables",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -708,6 +757,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": []
@@ -716,11 +772,11 @@
       "name": "purchase_batches",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -785,6 +841,13 @@
           "type": "text",
           "required": false,
           "system": false
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": []
@@ -793,11 +856,11 @@
       "name": "ml_settings",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != '' && @request.auth.role = 'admin'",
-        "update": "@request.auth.id != '' && @request.auth.role = 'admin'",
-        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -873,6 +936,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": []
@@ -881,11 +951,11 @@
       "name": "ml_oauth_requests",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != '' && @request.auth.role = 'admin'",
-        "view": "@request.auth.id != '' && @request.auth.role = 'admin'",
-        "create": "@request.auth.id != '' && @request.auth.role = 'admin'",
-        "update": "@request.auth.id != '' && @request.auth.role = 'admin'",
-        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -933,6 +1003,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": []
@@ -941,11 +1018,11 @@
       "name": "ml_publish_queue",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -993,6 +1070,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": []
@@ -1001,11 +1085,11 @@
       "name": "ml_item_queue",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -1079,6 +1163,13 @@
           "type": "number",
           "required": false,
           "system": false
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": []
@@ -1135,11 +1226,11 @@
       "name": "social_posts",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -1201,6 +1292,13 @@
           "required": false,
           "system": false,
           "selectValues": ["instagram", "tiktok"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": [
@@ -1213,11 +1311,11 @@
       "name": "corporate_leads",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
         "create": "",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -1289,6 +1387,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": [
@@ -1300,11 +1405,11 @@
       "name": "marketing_settings",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != '' && @request.auth.role = 'admin'",
-        "view": "@request.auth.id != '' && @request.auth.role = 'admin'",
-        "create": "@request.auth.id != '' && @request.auth.role = 'admin'",
-        "update": "@request.auth.id != '' && @request.auth.role = 'admin'",
-        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -1362,6 +1467,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": []
@@ -1370,11 +1482,11 @@
       "name": "marketing_contacts",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -1447,6 +1559,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": [
@@ -1460,11 +1579,11 @@
       "name": "marketing_campaigns",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -1543,6 +1662,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": [
@@ -1555,11 +1681,11 @@
       "name": "marketing_messages",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -1626,6 +1752,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": [
@@ -1639,11 +1772,11 @@
       "name": "mercadopago_settings",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != '' && @request.auth.role = 'admin'",
-        "view": "@request.auth.id != '' && @request.auth.role = 'admin'",
-        "create": "@request.auth.id != '' && @request.auth.role = 'admin'",
-        "update": "@request.auth.id != '' && @request.auth.role = 'admin'",
-        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -1701,6 +1834,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": []
@@ -1709,11 +1849,11 @@
       "name": "store_orders",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
         "create": "",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -1847,6 +1987,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": [
@@ -2047,11 +2194,11 @@
       "name": "ml_competitors",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -2103,6 +2250,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": [
@@ -2114,11 +2268,11 @@
       "name": "ml_competitor_ads",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -2231,6 +2385,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": [
@@ -2244,11 +2405,11 @@
       "name": "ml_price_history",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != '' && @request.auth.role = 'admin'",
-        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -2306,6 +2467,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": [
@@ -2317,11 +2485,11 @@
       "name": "ml_competitor_events",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != '' && @request.auth.role = 'admin'",
-        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -2399,6 +2567,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": [
@@ -2412,11 +2587,11 @@
       "name": "ml_competitor_jobs",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -2495,6 +2670,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": [
@@ -2506,11 +2688,11 @@
       "name": "ml_catalog_search_jobs",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -2672,6 +2854,13 @@
           "type": "number",
           "required": false,
           "system": false
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": [
@@ -2683,11 +2872,11 @@
       "name": "ml_catalog_publish_jobs",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -2784,6 +2973,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": [
@@ -2795,11 +2991,11 @@
       "name": "ml_ad_snapshots",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -2881,6 +3077,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": [
@@ -2893,11 +3096,11 @@
       "name": "ml_position_overrides",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -2936,6 +3139,13 @@
           "type": "text",
           "required": false,
           "system": false
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": [
@@ -2947,11 +3157,11 @@
       "name": "ml_collector_imports",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -3009,6 +3219,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": [
@@ -3020,11 +3237,11 @@
       "name": "ml_collector_keys",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != '' && (user_id = @request.auth.id || @request.auth.role = 'admin')",
-        "update": "@request.auth.id != '' && (user_id = @request.auth.id || @request.auth.role = 'admin')",
-        "delete": "@request.auth.id != '' && (user_id = @request.auth.id || @request.auth.role = 'admin')"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -3070,6 +3287,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": [
@@ -3202,11 +3426,11 @@
       "name": "kabum_settings",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != \"\"",
-        "view": "@request.auth.id != \"\"",
-        "create": "@request.auth.id != \"\"",
-        "update": "@request.auth.id != \"\"",
-        "delete": "@request.auth.id != \"\""
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -3270,6 +3494,13 @@
           "type": "text",
           "required": false,
           "system": false
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": []
@@ -3477,11 +3708,11 @@
       "name": "general_inventory_items",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -3545,6 +3776,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": [
@@ -3556,11 +3794,11 @@
       "name": "general_inventory_movements",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != '' && @request.auth.role = 'admin'",
-        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -3633,6 +3871,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": [
@@ -3671,11 +3916,11 @@
       "name": "ml_orders",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -3827,6 +4072,13 @@
           "type": "bool",
           "required": false,
           "system": false
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": [
@@ -3840,11 +4092,11 @@
       "name": "ml_orders_sync_jobs",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -3904,6 +4156,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": ["CREATE INDEX idx_ml_orders_sync_status ON ml_orders_sync_jobs (status)"]
@@ -3912,11 +4171,11 @@
       "name": "ml_customers",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != '' && @request.auth.role = 'admin'"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -3997,6 +4256,13 @@
           "type": "json",
           "required": false,
           "system": false
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": [
@@ -4012,11 +4278,11 @@
       "name": "nf_config",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != ''"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -4208,6 +4474,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": []
@@ -4216,11 +4489,11 @@
       "name": "nf_invoices",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != ''"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -4372,6 +4645,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": [
@@ -4386,11 +4666,11 @@
       "name": "tax_rules",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != ''"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -4460,6 +4740,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": [
@@ -4518,11 +4805,11 @@
       "name": "ml_questions_config",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != ''"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -4574,6 +4861,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": []
@@ -4582,11 +4876,11 @@
       "name": "ml_question_templates",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != ''"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -4644,6 +4938,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": [
@@ -4655,11 +4956,11 @@
       "name": "ml_questions_cache",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != ''"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -4802,6 +5103,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": [
@@ -4816,11 +5124,11 @@
       "name": "ml_question_corrections",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != ''"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -4909,6 +5217,13 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": [
@@ -4921,11 +5236,11 @@
       "name": "ml_monitored_sellers",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != ''",
-        "view": "@request.auth.id != ''",
-        "create": "@request.auth.id != ''",
-        "update": "@request.auth.id != ''",
-        "delete": "@request.auth.id != ''"
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [
         {
@@ -5097,12 +5412,70 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
         }
       ],
       "indexes": [
         "CREATE UNIQUE INDEX idx_ml_monitored_sellers_seller_id ON ml_monitored_sellers (seller_id)",
         "CREATE INDEX idx_ml_monitored_sellers_nickname ON ml_monitored_sellers (nickname)"
       ]
+    },
+    {
+      "name": "tenants",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || @request.auth.tenant_id = id || id = 'ambicorpmestre1')",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || @request.auth.tenant_id = id || id = 'ambicorpmestre1')",
+        "create": "@request.auth.id != '' && @request.auth.role = 'super_admin'",
+        "update": "@request.auth.id != '' && @request.auth.role = 'super_admin'",
+        "delete": "@request.auth.id != '' && @request.auth.role = 'super_admin' && id != 'ambicorpmestre1'"
+      },
+      "fields": [
+        {
+          "name": "name",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "slug",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["ativo", "inativo", "suspenso"]
+        },
+        {
+          "name": "plan",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "commercial_notes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "modules",
+          "type": "json",
+          "required": true,
+          "system": false
+        }
+      ],
+      "indexes": ["CREATE UNIQUE INDEX idx_tenants_slug ON tenants (slug)"]
     }
   ]
 }

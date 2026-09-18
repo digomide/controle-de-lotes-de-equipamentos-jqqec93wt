@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
+import { useTenant } from '@/contexts/TenantContext'
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -25,6 +26,8 @@ import {
   Radar,
   Compass,
   FileCheck,
+  Building,
+  RotateCcw,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -45,7 +48,17 @@ export default function Layout() {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const { user, logout, isAdmin, hasModule } = useAuth()
+  const { user, logout, isSuperAdmin, isAdmin, hasModule } = useAuth()
+  const {
+    currentTenant,
+    masterTenant,
+    allTenants,
+    isMasterTenant,
+    isImpersonating,
+    switchTenant,
+    resetToMaster,
+    hasTenantModule,
+  } = useTenant()
   const location = useLocation()
   const navigate = useNavigate()
 
@@ -53,10 +66,17 @@ export default function Layout() {
     title: string
     path: string
     icon: any
-    moduleId: AppModuleId
+    moduleId?: AppModuleId
     adminOnly?: boolean
+    superAdminOnly?: boolean
   }[] = [
     { title: 'Dashboard', path: '/', icon: LayoutDashboard, moduleId: 'dashboard' },
+    {
+      title: 'Clientes (Tenants)',
+      path: '/tenants',
+      icon: Building2,
+      superAdminOnly: true,
+    },
     { title: 'Compra de Lotes', path: '/lotes-entrada', icon: Boxes, moduleId: 'lotes_compra' },
     {
       title: 'Lucratividade Lotes',
@@ -103,6 +123,7 @@ export default function Layout() {
     const p = location.pathname
     if (p === '/') return 'Dashboard Geral'
     if (p.includes('/inventariar')) return 'Ficha de Inventário'
+    if (p.startsWith('/tenants')) return 'Gestão de Clientes Multi-Tenant'
     if (p.startsWith('/lucratividade')) return 'Relatório de Lucratividade por Lote'
     if (p.startsWith('/lotes-entrada/')) return 'Detalhes da Compra de Lote'
     if (p.startsWith('/lotes-entrada')) return 'Compra de Lotes'
@@ -135,8 +156,25 @@ export default function Layout() {
   }
 
   const visibleNavItems = navItems.filter((item) => {
+    // 1. superAdminOnly só para o super_admin
+    if (item.superAdminOnly) {
+      return isSuperAdmin
+    }
+
+    // 2. Se for adminOnly e não for admin
     if (item.adminOnly && !isAdmin) return false
-    return isAdmin || hasModule(item.moduleId)
+
+    // 3. Checar se o módulo está habilitado para o tenant ativo (se não for mestre)
+    if (item.moduleId && !hasTenantModule(item.moduleId)) {
+      return false
+    }
+
+    // 4. Checar permissão do próprio usuário autenticado
+    if (item.moduleId) {
+      return isSuperAdmin || (isAdmin && hasTenantModule(item.moduleId)) || hasModule(item.moduleId)
+    }
+
+    return true
   })
 
   const renderNavLinks = (onItemClick?: () => void) => (
@@ -222,10 +260,14 @@ export default function Layout() {
                     variant="outline"
                     className={cn(
                       'text-[10px] px-1.5 py-0 h-4 border-none font-normal',
-                      isAdmin ? 'bg-amber-500/20 text-amber-300' : 'bg-slate-700 text-slate-300',
+                      isSuperAdmin
+                        ? 'bg-purple-500/20 text-purple-300'
+                        : isAdmin
+                          ? 'bg-amber-500/20 text-amber-300'
+                          : 'bg-slate-700 text-slate-300',
                     )}
                   >
-                    {isAdmin ? 'Admin' : 'Vendas'}
+                    {isSuperAdmin ? 'Super-Admin' : isAdmin ? 'Admin' : 'Vendas'}
                   </Badge>
                 </div>
               </div>
@@ -288,6 +330,45 @@ export default function Layout() {
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Seletor "Ver como: [Tenant]" para Super-Admin */}
+            {isSuperAdmin && allTenants.length > 0 && (
+              <div className="hidden lg:flex items-center gap-1.5 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-lg text-xs">
+                <span className="text-slate-500 font-medium flex items-center gap-1">
+                  <Building className="w-3.5 h-3.5 text-slate-500" />
+                  Ver como:
+                </span>
+                <select
+                  value={currentTenant?.id || masterTenant?.id || 'ambicorpmestre1'}
+                  onChange={(e) => switchTenant(e.target.value)}
+                  className="bg-transparent font-semibold text-slate-800 text-xs focus:outline-none cursor-pointer max-w-[140px] truncate"
+                >
+                  {masterTenant && (
+                    <option value={masterTenant.id}>{masterTenant.name} (Mestre)</option>
+                  )}
+                  {allTenants
+                    .filter((t) => t.id !== masterTenant?.id)
+                    .map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} ({t.slug})
+                      </option>
+                    ))}
+                </select>
+                {isImpersonating && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={resetToMaster}
+                    className="h-6 px-1.5 text-[10px] text-orange-600 hover:text-orange-700 gap-1"
+                    title="Voltar para Ambicorp Mestre"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    Voltar
+                  </Button>
+                )}
+              </div>
+            )}
+
             {/* Quick Equipment Search */}
             <form onSubmit={handleSearchSubmit} className="hidden sm:flex relative items-center">
               <Search className="w-4 h-4 absolute left-3 text-slate-400 pointer-events-none" />
@@ -327,18 +408,38 @@ export default function Layout() {
                 <DropdownMenuLabel>
                   <div className="font-semibold text-slate-900 truncate">{user?.name}</div>
                   <div className="text-xs text-slate-500 font-normal truncate">{user?.email}</div>
-                  <div className="mt-1">
+                  <div className="mt-1 flex items-center gap-1.5 flex-wrap">
                     <span className="inline-flex items-center text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-medium">
-                      {isAdmin ? (
+                      {isSuperAdmin ? (
+                        <ShieldAlert className="w-3 h-3 mr-1 text-purple-600" />
+                      ) : isAdmin ? (
                         <ShieldAlert className="w-3 h-3 mr-1 text-amber-600" />
                       ) : (
                         <UserCheck className="w-3 h-3 mr-1 text-emerald-600" />
                       )}
-                      {isAdmin ? 'Administrador' : 'Membro de Vendas'}
+                      {isSuperAdmin
+                        ? 'Super-Administrador'
+                        : isAdmin
+                          ? 'Administrador'
+                          : 'Membro de Vendas'}
                     </span>
+                    {currentTenant && (
+                      <span className="inline-flex items-center text-[10px] px-2 py-0.5 rounded-full bg-orange-100 text-orange-800 font-medium">
+                        🏢 {currentTenant.name}
+                      </span>
+                    )}
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
+                {isSuperAdmin && (
+                  <DropdownMenuItem
+                    onClick={() => navigate('/tenants')}
+                    className="cursor-pointer text-orange-700 font-semibold"
+                  >
+                    <Building2 className="w-4 h-4 mr-2 text-orange-600" />
+                    Clientes Multi-Tenant
+                  </DropdownMenuItem>
+                )}
                 {isAdmin && (
                   <>
                     <DropdownMenuItem

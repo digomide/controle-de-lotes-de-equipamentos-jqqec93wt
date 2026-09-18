@@ -9,6 +9,15 @@ export const productsService = {
     })
   },
 
+  async getAllByTenant(tenantId?: string): Promise<Product[]> {
+    const filter = tenantId ? `tenant_id = '${tenantId}'` : ''
+    return await pb.collection('products').getFullList<Product>({
+      filter,
+      sort: '-created',
+      expand: 'purchase_batch_id',
+    })
+  },
+
   async getById(id: string): Promise<Product> {
     return await pb.collection('products').getOne<Product>(id, {
       expand: 'purchase_batch_id',

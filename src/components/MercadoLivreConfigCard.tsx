@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { useToast } from '@/hooks/use-toast'
+import { useTenant } from '@/contexts/TenantContext'
 import {
   mlService,
   getDefaultMLRedirectUri,
@@ -27,6 +28,7 @@ import {
 
 export function MercadoLivreConfigCard() {
   const { toast } = useToast()
+  const { currentTenant, isMasterTenant } = useTenant()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
@@ -280,6 +282,11 @@ export function MercadoLivreConfigCard() {
               </CardTitle>
               <CardDescription className="text-xs text-slate-600">
                 Publicação de anúncios de notebooks diretamente no Mercado Livre via API oficial
+                {currentTenant && (
+                  <span className="block text-[11px] font-medium text-orange-700 mt-0.5">
+                    Tenant ativo: <strong>{currentTenant.name}</strong> ({currentTenant.slug})
+                  </span>
+                )}
               </CardDescription>
             </div>
           </div>

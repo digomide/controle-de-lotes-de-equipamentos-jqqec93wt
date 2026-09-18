@@ -3,7 +3,8 @@ import type { RecordModel } from 'pocketbase'
 export interface User extends RecordModel {
   email: string
   name: string
-  role?: 'admin' | 'member'
+  role?: 'super_admin' | 'admin' | 'member'
+  tenant_id?: string
   active?: boolean
   avatar?: string
 }

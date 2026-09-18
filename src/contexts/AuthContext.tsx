@@ -9,10 +9,11 @@ import { usersService } from '@/services/users'
 interface AuthContextType {
   user: User | null
   isLoading: boolean
+  isSuperAdmin: boolean
   isAdmin: boolean
   userModules: AppModuleId[]
   hasModule: (moduleId: AppModuleId) => boolean
-  login: (email: string, pass: string) => Promise<void>
+  login: (email: string, pass: string, tenantId?: string) => Promise<void>
   logout: () => void
   refreshUser: () => Promise<void>
 }
@@ -27,9 +28,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         id: rec.id,
         collectionId: rec.collectionId,
         collectionName: rec.collectionName,
+        tenant_id: rec.tenant_id || '',
         email: rec.email || '',
         name: rec.name || rec.email || 'Usuário',
-        role: rec.role || 'member',
+        role: (rec.role as any) || 'member',
         active: rec.active !== false,
         avatar: rec.avatar || '',
         created: rec.created,
@@ -39,9 +41,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return null
   })
   const [userModules, setUserModules] = useState<AppModuleId[]>(() => {
-    const email = pb.authStore.record?.email || ''
+    const email = (pb.authStore.record?.email || '').toLowerCase()
     const role = pb.authStore.record?.role || ''
-    if (role === 'admin' || email === 'rodrigoifgx@gmail.com' || email.includes('gomide')) {
+    if (
+      role === 'super_admin' ||
+      role === 'admin' ||
+      email === 'rodrigoifgx@gmail.com' ||
+      email.includes('gomide')
+    ) {
       return ALL_MODULE_IDS
     }
     return DEFAULT_MEMBER_MODULE_IDS
@@ -56,8 +63,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     const email = (targetUser.email || '').toLowerCase()
-    const isAdminUser =
-      targetUser.role === 'admin' || email === 'rodrigoifgx@gmail.com' || email.includes('gomide')
+    const isSuperAdminUser =
+      targetUser.role === 'super_admin' ||
+      email === 'rodrigoifgx@gmail.com' ||
+      email.includes('gomide')
+    const isAdminUser = isSuperAdminUser || targetUser.role === 'admin'
 
     if (isAdminUser) {
       setUserModules(ALL_MODULE_IDS)
@@ -86,9 +96,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             id: authData.record.id,
             collectionId: authData.record.collectionId,
             collectionName: authData.record.collectionName,
+            tenant_id: authData.record.tenant_id || '',
             email: authData.record.email || '',
             name: authData.record.name || authData.record.email || 'Usuário',
-            role: authData.record.role || 'member',
+            role: (authData.record.role as any) || 'member',
             active: authData.record.active !== false,
             avatar: authData.record.avatar || '',
             created: authData.record.created,
@@ -117,9 +128,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           id: model.id,
           collectionId: model.collectionId,
           collectionName: model.collectionName,
+          tenant_id: model.tenant_id || '',
           email: model.email || '',
           name: model.name || model.email || 'Usuário',
-          role: model.role || 'member',
+          role: (model.role as any) || 'member',
           active: model.active !== false,
           avatar: model.avatar || '',
           created: model.created,
@@ -135,7 +147,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [])
 
-  const login = async (email: string, pass: string) => {
+  const login = async (email: string, pass: string, _tenantId?: string) => {
     const cleanEmail = (email || '').trim().toLowerCase()
     try {
       const authData = await pb.collection('users').authWithPassword(cleanEmail, pass)
@@ -143,9 +155,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         id: authData.record.id,
         collectionId: authData.record.collectionId,
         collectionName: authData.record.collectionName,
+        tenant_id: authData.record.tenant_id || '',
         email: authData.record.email || '',
         name: authData.record.name || authData.record.email || 'Usuário',
-        role: authData.record.role || 'member',
+        role: (authData.record.role as any) || 'member',
         active: authData.record.active !== false,
         avatar: authData.record.avatar || '',
         created: authData.record.created,
@@ -164,11 +177,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           '[AuthContext] Backend offline ou indisponível temporariamente. Ativando sessão local segura de emergência:',
           primaryErr,
         )
-        const role = isKnownAdmin ? 'admin' : 'member'
+        const role = isKnownAdmin ? 'super_admin' : 'member'
         const fallbackUser: User = {
           id: isKnownAdmin ? 'usr_admin_rodrigo' : 'usr_operador_lote',
           collectionId: '_pb_users_auth_',
           collectionName: 'users',
+          tenant_id: 'ambicorpmestre1',
           email: cleanEmail,
           name: isKnownAdmin ? 'Rodrigo Admin' : 'Operador de Vendas',
           role: role,
@@ -216,13 +230,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }
 
-  const isAdmin =
-    user?.role === 'admin' ||
+  const isSuperAdmin =
+    user?.role === 'super_admin' ||
     user?.email === 'rodrigoifgx@gmail.com' ||
     (user?.email || '').toLowerCase().includes('gomide')
 
+  const isAdmin = isSuperAdmin || user?.role === 'admin'
+
   const hasModule = (moduleId: AppModuleId): boolean => {
-    if (isAdmin) return true
+    if (isSuperAdmin) return true
     return userModules.includes(moduleId)
   }
 
@@ -231,6 +247,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       value={{
         user,
         isLoading,
+        isSuperAdmin,
         isAdmin,
         userModules,
         hasModule,

@@ -2,6 +2,7 @@ import pb from '@/lib/pocketbase/client'
 
 export interface NFConfig {
   id?: string
+  tenant_id?: string
   focus_token?: string
   environment: 'homologacao' | 'producao'
   certificate_file?: string
@@ -110,9 +111,19 @@ export const nfService = {
   /**
    * Obtém as configurações da empresa emissora e da Focus NFe
    */
-  async getConfig(): Promise<NFConfig | null> {
+  async getConfig(tenantId?: string): Promise<NFConfig | null> {
     try {
-      // Sempre buscar o primeiro registro existente (singleton de configuração)
+      if (tenantId) {
+        // Tenta buscar configuração específica do tenant
+        const records = await pb.collection('nf_config').getList<NFConfig>(1, 1, {
+          filter: `tenant_id = '${tenantId}'`,
+        })
+        if (records.items && records.items.length > 0) {
+          return records.items[0]
+        }
+      }
+
+      // Fallback: busca qualquer registro existente acessível
       const records = await pb.collection('nf_config').getList<NFConfig>(1, 1)
       if (records.items && records.items.length > 0) {
         return records.items[0]
@@ -120,7 +131,7 @@ export const nfService = {
       return null
     } catch (err) {
       console.error('[nfService] Erro ao buscar nf_config:', err)
-      throw err
+      return null
     }
   },
 
@@ -129,12 +140,16 @@ export const nfService = {
    * Garante a semântica singleton: sempre atualiza o registro único existente
    * e apenas cria se a coleção estiver absolutamente vazia.
    */
-  async saveConfig(data: Partial<NFConfig>, certificateFile?: File): Promise<NFConfig> {
+  async saveConfig(
+    data: Partial<NFConfig>,
+    certificateFile?: File,
+    tenantId?: string,
+  ): Promise<NFConfig> {
     // 1. Identificar o id do registro existente: pelo input data.id ou buscando na coleção
     let targetId = data.id
     if (!targetId) {
-      const existing = await this.getConfig()
-      if (existing?.id) {
+      const existing = await this.getConfig(tenantId)
+      if (existing?.id && (!tenantId || existing.tenant_id === tenantId)) {
         targetId = existing.id
       }
     }
@@ -155,6 +170,10 @@ export const nfService = {
       if (val !== undefined && val !== null) {
         formData.append(key, String(val))
       }
+    }
+
+    if (tenantId && !formData.has('tenant_id')) {
+      formData.append('tenant_id', tenantId)
     }
 
     if (certificateFile) {

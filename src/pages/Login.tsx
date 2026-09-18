@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
+import { useTenant } from '@/contexts/TenantContext'
 import {
   Card,
   CardContent,
@@ -13,7 +14,15 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Boxes, Lock, Mail, Loader2, CheckCircle2 } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Boxes, Lock, Mail, Loader2, CheckCircle2, Building, Globe } from 'lucide-react'
 
 export default function Login() {
   const [email, setEmail] = useState('rodrigoifgx@gmail.com')
@@ -21,6 +30,7 @@ export default function Login() {
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const { login } = useAuth()
+  const { currentTenant, masterTenant, allTenants, switchTenant, resolvedBySubdomain } = useTenant()
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -32,7 +42,7 @@ export default function Login() {
     setIsLoading(true)
 
     try {
-      await login(email, password)
+      await login(email, password, currentTenant?.id)
       navigate(from, { replace: true })
     } catch (err: any) {
       console.error(err)
@@ -75,11 +85,30 @@ export default function Login() {
 
         <Card className="shadow-md border-slate-200">
           <CardHeader className="space-y-1 pb-4">
-            <CardTitle className="text-xl font-semibold text-slate-800">
-              Acesso ao Sistema
-            </CardTitle>
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <CardTitle className="text-xl font-semibold text-slate-800">
+                Acesso ao Sistema
+              </CardTitle>
+              {currentTenant && (
+                <Badge
+                  variant="outline"
+                  className="bg-orange-50 text-orange-700 border-orange-200 text-xs px-2.5 py-1 gap-1"
+                >
+                  <Building className="w-3 h-3 text-orange-500" />
+                  {currentTenant.name}
+                </Badge>
+              )}
+            </div>
             <CardDescription>
-              Informe suas credenciais para gerenciar estoque e realizar vendas.
+              {resolvedBySubdomain ? (
+                <span className="flex items-center gap-1 text-slate-500 text-xs">
+                  <Globe className="w-3 h-3 text-slate-400" />
+                  Instância identificada via subdomínio:{' '}
+                  <strong>{currentTenant?.slug}.ambicorp.com.br</strong>
+                </span>
+              ) : (
+                'Informe suas credenciais para gerenciar estoque e realizar vendas.'
+              )}
             </CardDescription>
           </CardHeader>
           <form onSubmit={handleSubmit}>
@@ -88,6 +117,45 @@ export default function Login() {
                 <Alert variant="destructive" className="py-2 text-sm">
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>
+              )}
+
+              {/* Seletor de Tenant com Fallback quando não resolvido por subdomínio */}
+              {!resolvedBySubdomain && allTenants.length > 0 && (
+                <div className="space-y-2 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                  <Label
+                    htmlFor="tenant-select"
+                    className="text-xs font-semibold text-slate-700 flex items-center gap-1.5"
+                  >
+                    <Building className="w-3.5 h-3.5 text-slate-500" />
+                    Empresa / Unidade de Acesso (Tenant)
+                  </Label>
+                  <Select
+                    value={currentTenant?.id || masterTenant?.id || 'ambicorpmestre1'}
+                    onValueChange={(val) => switchTenant(val)}
+                  >
+                    <SelectTrigger id="tenant-select" className="h-9 text-xs bg-white">
+                      <SelectValue placeholder="Selecione a empresa..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {masterTenant && (
+                        <SelectItem value={masterTenant.id} className="text-xs font-medium">
+                          🏢 {masterTenant.name} (Matriz / Mestre)
+                        </SelectItem>
+                      )}
+                      {allTenants
+                        .filter((t) => t.id !== masterTenant?.id)
+                        .map((t) => (
+                          <SelectItem key={t.id} value={t.id} className="text-xs">
+                            🏬 {t.name} ({t.slug}.ambicorp.com.br)
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-slate-400">
+                    Ao acessar por <em>cliente.ambicorp.com.br</em>, a empresa é detectada
+                    automaticamente.
+                  </p>
+                </div>
               )}
 
               <div className="space-y-2">
