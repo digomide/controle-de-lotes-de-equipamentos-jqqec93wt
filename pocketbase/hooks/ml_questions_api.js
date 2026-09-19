@@ -29,12 +29,45 @@ routerAdd(
       })
     }
 
-    // Carregar ml_settings
+    // Determinar tenant solicitante para isolamento estrito bilateral
+    var reqTenant = ''
+    try {
+      if (e.request) {
+        reqTenant = e.request.header.get('x-tenant-id') || ''
+        if (!reqTenant && e.request.url) {
+          reqTenant = e.request.url.query().get('tenant_id') || ''
+        }
+      }
+    } catch (_) {}
+
+    var role = authRecord ? authRecord.getString('role') : ''
+    var isSuperAdmin = role === 'super_admin'
+    var userTenant = authRecord ? authRecord.getString('tenant_id') : ''
+
+    var effectiveTenantId = ''
+    if (isSuperAdmin && reqTenant) {
+      effectiveTenantId = reqTenant.trim()
+    } else if (userTenant) {
+      effectiveTenantId = userTenant.trim()
+    } else if (reqTenant) {
+      effectiveTenantId = reqTenant.trim()
+    }
+
+    // Carregar ml_settings filtrado por tenant (sem fallback mestre)
     var sRecords = []
     try {
-      sRecords = $app.findRecordsByFilter('ml_settings', '1=1', '-created', 1, 0)
+      if (effectiveTenantId) {
+        sRecords = $app.findRecordsByFilter('ml_settings', 'tenant_id = {:tid}', '-created', 1, 0, {
+          tid: effectiveTenantId,
+        })
+      }
     } catch (err) {
-      console.log('[ml_questions_api] Erro ao carregar ml_settings: ' + err)
+      console.log(
+        '[ml_questions_api] Erro ao carregar ml_settings para tenant ' +
+          effectiveTenantId +
+          ': ' +
+          err,
+      )
     }
 
     if (!sRecords || sRecords.length === 0) {
@@ -521,12 +554,45 @@ routerAdd(
       return e.json(400, { ok: false, error: 'O texto da resposta não pode ficar em branco.' })
     }
 
-    // Carregar ml_settings
+    // Determinar tenant solicitante para isolamento bilateral estrito
+    var reqTenant = ''
+    try {
+      if (e.request) {
+        reqTenant = e.request.header.get('x-tenant-id') || ''
+        if (!reqTenant && e.request.url) {
+          reqTenant = e.request.url.query().get('tenant_id') || ''
+        }
+      }
+    } catch (_) {}
+
+    var role = authRecord ? authRecord.getString('role') : ''
+    var isSuperAdmin = role === 'super_admin'
+    var userTenant = authRecord ? authRecord.getString('tenant_id') : ''
+
+    var effectiveTenantId = ''
+    if (isSuperAdmin && reqTenant) {
+      effectiveTenantId = reqTenant.trim()
+    } else if (userTenant) {
+      effectiveTenantId = userTenant.trim()
+    } else if (reqTenant) {
+      effectiveTenantId = reqTenant.trim()
+    }
+
+    // Carregar ml_settings filtrado por tenant
     var sRecords = []
     try {
-      sRecords = $app.findRecordsByFilter('ml_settings', '1=1', '-created', 1, 0)
+      if (effectiveTenantId) {
+        sRecords = $app.findRecordsByFilter('ml_settings', 'tenant_id = {:tid}', '-created', 1, 0, {
+          tid: effectiveTenantId,
+        })
+      }
     } catch (err) {
-      console.log('[ml_questions_api] Erro ao carregar ml_settings: ' + err)
+      console.log(
+        '[ml_questions_api] Erro ao carregar ml_settings para tenant ' +
+          effectiveTenantId +
+          ': ' +
+          err,
+      )
     }
 
     if (!sRecords || sRecords.length === 0) {
@@ -1033,12 +1099,45 @@ routerAdd(
       return e.json(400, { ok: false, error: 'O parâmetro item_id é obrigatório.' })
     }
 
-    // Carregar ml_settings para token
+    // Determinar tenant solicitante para isolamento bilateral estrito
+    var reqTenant = ''
+    try {
+      if (e.request) {
+        reqTenant = e.request.header.get('x-tenant-id') || ''
+        if (!reqTenant && e.request.url) {
+          reqTenant = e.request.url.query().get('tenant_id') || ''
+        }
+      }
+    } catch (_) {}
+
+    var role = authRecord ? authRecord.getString('role') : ''
+    var isSuperAdmin = role === 'super_admin'
+    var userTenant = authRecord ? authRecord.getString('tenant_id') : ''
+
+    var effectiveTenantId = ''
+    if (isSuperAdmin && reqTenant) {
+      effectiveTenantId = reqTenant.trim()
+    } else if (userTenant) {
+      effectiveTenantId = userTenant.trim()
+    } else if (reqTenant) {
+      effectiveTenantId = reqTenant.trim()
+    }
+
+    // Carregar ml_settings para token filtrado por tenant
     var sRecords = []
     try {
-      sRecords = $app.findRecordsByFilter('ml_settings', '1=1', '-created', 1, 0)
+      if (effectiveTenantId) {
+        sRecords = $app.findRecordsByFilter('ml_settings', 'tenant_id = {:tid}', '-created', 1, 0, {
+          tid: effectiveTenantId,
+        })
+      }
     } catch (err) {
-      console.log('[ml_questions_api] Erro ao carregar ml_settings: ' + err)
+      console.log(
+        '[ml_questions_api] Erro ao carregar ml_settings para tenant ' +
+          effectiveTenantId +
+          ': ' +
+          err,
+      )
     }
 
     if (!sRecords || sRecords.length === 0) {
@@ -1354,12 +1453,45 @@ routerAdd(
       })
     }
 
-    // Carregar ml_settings
+    // Determinar tenant solicitante para isolamento bilateral estrito
+    var reqTenant = ''
+    try {
+      if (e.request) {
+        reqTenant = e.request.header.get('x-tenant-id') || ''
+        if (!reqTenant && e.request.url) {
+          reqTenant = e.request.url.query().get('tenant_id') || ''
+        }
+      }
+    } catch (_) {}
+
+    var role = authRecord ? authRecord.getString('role') : ''
+    var isSuperAdmin = role === 'super_admin'
+    var userTenant = authRecord ? authRecord.getString('tenant_id') : ''
+
+    var effectiveTenantId = ''
+    if (isSuperAdmin && reqTenant) {
+      effectiveTenantId = reqTenant.trim()
+    } else if (userTenant) {
+      effectiveTenantId = userTenant.trim()
+    } else if (reqTenant) {
+      effectiveTenantId = reqTenant.trim()
+    }
+
+    // Carregar ml_settings filtrado por tenant
     var sRecords = []
     try {
-      sRecords = $app.findRecordsByFilter('ml_settings', '1=1', '-created', 1, 0)
+      if (effectiveTenantId) {
+        sRecords = $app.findRecordsByFilter('ml_settings', 'tenant_id = {:tid}', '-created', 1, 0, {
+          tid: effectiveTenantId,
+        })
+      }
     } catch (err) {
-      console.log('[ml_questions_api] Erro ao carregar ml_settings: ' + err)
+      console.log(
+        '[ml_questions_api] Erro ao carregar ml_settings para tenant ' +
+          effectiveTenantId +
+          ': ' +
+          err,
+      )
     }
 
     if (!sRecords || sRecords.length === 0) {

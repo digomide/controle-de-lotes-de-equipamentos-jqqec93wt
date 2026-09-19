@@ -14,14 +14,49 @@ onRecordAfterCreateSuccess((e) => {
   pubItem.set('status', 'processing')
   $app.save(pubItem)
 
+  // Carregar tenant_id do registro da fila (ou do produto associado)
+  let queueTenantId = ''
+  try {
+    queueTenantId = pubItem.getString('tenant_id') || ''
+  } catch (_) {}
+
+  const productId = pubItem.getString('product')
+  let product = null
+  if (productId) {
+    try {
+      product = $app.findRecordById('products', productId)
+      if (!queueTenantId && product) {
+        queueTenantId = product.getString('tenant_id') || ''
+      }
+    } catch (pErr) {
+      pubItem.set('status', 'error')
+      pubItem.set('error_message', 'Produto associado não encontrado: ' + productId)
+      $app.save(pubItem)
+      e.next()
+      return
+    }
+  }
+
+  // Isolamento estrito bilateral: tenant sem ml_settings próprio => erro, NUNCA fallback para o mestre
   let settings = null
   try {
-    const sRecords = $app.findRecordsByFilter('ml_settings', '1=1', '-created', 1, 0)
-    if (sRecords && sRecords.length > 0) {
-      settings = sRecords[0]
+    if (queueTenantId) {
+      const sRecords = $app.findRecordsByFilter(
+        'ml_settings',
+        'tenant_id = {:tid}',
+        '-created',
+        1,
+        0,
+        { tid: queueTenantId },
+      )
+      if (sRecords && sRecords.length > 0) {
+        settings = sRecords[0]
+      }
     }
   } catch (err) {
-    console.log('[ml_publish_hook] Erro ao carregar ml_settings: ' + err)
+    console.log(
+      '[ml_publish_hook] Erro ao carregar ml_settings para tenant ' + queueTenantId + ': ' + err,
+    )
   }
 
   if (!settings) {
@@ -89,16 +124,10 @@ onRecordAfterCreateSuccess((e) => {
     }
   }
 
-  const productId = pubItem.getString('product')
-  let product = null
-  try {
-    product = $app.findRecordById('products', productId)
-  } catch (pErr) {
-    pubItem.set('status', 'error')
-    pubItem.set('error_message', 'Produto associado não encontrado: ' + productId)
-    $app.save(pubItem)
-    e.next()
-    return
+  if (!product && productId) {
+    try {
+      product = $app.findRecordById('products', productId)
+    } catch (_) {}
   }
 
   // Extração robusta do campo JSON 'payload' no PocketBase v0.36 (Goja engine)

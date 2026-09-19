@@ -19,69 +19,111 @@ routerAdd('GET', '/backend/v1/ml/catalog-competition/{catalog_product_id}', (e) 
     return e.json(400, { error: 'ID da posição de catálogo não informado' })
   }
 
-  // Obter token e seller_id de ml_settings com renovação proativa se expirado
+  // Determinar tenant solicitante para isolamento estrito
+  let reqTenant = ''
+  try {
+    if (e.request) {
+      reqTenant = e.request.header.get('x-tenant-id') || ''
+      if (!reqTenant && e.request.url) {
+        reqTenant = e.request.url.query().get('tenant_id') || ''
+      }
+    }
+  } catch (_) {}
+
+  let authRecord = e.auth
+  if (!authRecord) {
+    try {
+      const info = e.requestInfo()
+      authRecord = info.auth
+    } catch (_) {}
+  }
+  const role = authRecord ? authRecord.getString('role') : ''
+  const isSuperAdmin = role === 'super_admin'
+  const userTenant = authRecord ? authRecord.getString('tenant_id') : ''
+
+  let effectiveTenantId = ''
+  if (isSuperAdmin && reqTenant) {
+    effectiveTenantId = reqTenant.trim()
+  } else if (userTenant) {
+    effectiveTenantId = userTenant.trim()
+  } else if (reqTenant) {
+    effectiveTenantId = reqTenant.trim()
+  }
+
+  // Obter token e seller_id de ml_settings para o tenant ativo (sem fallback mestre)
   let token = ''
   let ownSellerId = ''
   try {
-    const sRecords = $app.findRecordsByFilter('ml_settings', '1=1', '-created', 1, 0)
-    if (sRecords && sRecords.length > 0) {
-      const s = sRecords[0]
-      token = s.getString('access_token') || ''
-      ownSellerId = s.getString('user_id_ml') || ''
-      const refreshToken = s.getString('refresh_token') || ''
-      const clientId = s.getString('client_id') || ''
-      const clientSecret = s.getString('client_secret') || ''
-      const expiresAtRaw = s.getString('token_expires_at') || ''
+    if (effectiveTenantId) {
+      const sRecords = $app.findRecordsByFilter(
+        'ml_settings',
+        'tenant_id = {:tid}',
+        '-created',
+        1,
+        0,
+        { tid: effectiveTenantId },
+      )
+      if (sRecords && sRecords.length > 0) {
+        const s = sRecords[0]
+        token = s.getString('access_token') || ''
+        ownSellerId = s.getString('user_id_ml') || ''
+        const refreshToken = s.getString('refresh_token') || ''
+        const clientId = s.getString('client_id') || ''
+        const clientSecret = s.getString('client_secret') || ''
+        const expiresAtRaw = s.getString('token_expires_at') || ''
 
-      let isExpiringSoon = false
-      if (expiresAtRaw) {
-        try {
-          const expTime = new Date(expiresAtRaw.replace(' ', 'T')).getTime()
-          if (!isNaN(expTime) && expTime - Date.now() < 10 * 60 * 1000) {
-            isExpiringSoon = true
-          }
-        } catch (_) {}
-      } else {
-        isExpiringSoon = true
-      }
+        let isExpiringSoon = false
+        if (expiresAtRaw) {
+          try {
+            const expTime = new Date(expiresAtRaw.replace(' ', 'T')).getTime()
+            if (!isNaN(expTime) && expTime - Date.now() < 10 * 60 * 1000) {
+              isExpiringSoon = true
+            }
+          } catch (_) {}
+        } else {
+          isExpiringSoon = true
+        }
 
-      if ((!token || isExpiringSoon) && refreshToken && clientId && clientSecret) {
-        try {
-          const refreshRes = $http.send({
-            url: 'https://api.mercadolibre.com/oauth/token',
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/x-www-form-urlencoded',
-              Accept: 'application/json',
-            },
-            body:
-              'grant_type=refresh_token&client_id=' +
-              encodeURIComponent(clientId) +
-              '&client_secret=' +
-              encodeURIComponent(clientSecret) +
-              '&refresh_token=' +
-              encodeURIComponent(refreshToken),
-            timeout: 15,
-          })
-          if (refreshRes.statusCode === 200 && refreshRes.json && refreshRes.json.access_token) {
-            token = refreshRes.json.access_token
-            s.set('access_token', token)
-            if (refreshRes.json.refresh_token) {
-              s.set('refresh_token', refreshRes.json.refresh_token)
+        if ((!token || isExpiringSoon) && refreshToken && clientId && clientSecret) {
+          try {
+            const refreshRes = $http.send({
+              url: 'https://api.mercadolibre.com/oauth/token',
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                Accept: 'application/json',
+              },
+              body:
+                'grant_type=refresh_token&client_id=' +
+                encodeURIComponent(clientId) +
+                '&client_secret=' +
+                encodeURIComponent(clientSecret) +
+                '&refresh_token=' +
+                encodeURIComponent(refreshToken),
+              timeout: 15,
+            })
+            if (refreshRes.statusCode === 200 && refreshRes.json && refreshRes.json.access_token) {
+              token = refreshRes.json.access_token
+              s.set('access_token', token)
+              if (refreshRes.json.refresh_token) {
+                s.set('refresh_token', refreshRes.json.refresh_token)
+              }
+              if (refreshRes.json.expires_in) {
+                const newExp = new Date(Date.now() + Number(refreshRes.json.expires_in) * 1000)
+                s.set('token_expires_at', newExp.toISOString().replace('T', ' ').substring(0, 19))
+              }
+              $app.save(s)
             }
-            if (refreshRes.json.expires_in) {
-              const newExp = new Date(Date.now() + Number(refreshRes.json.expires_in) * 1000)
-              s.set('token_expires_at', newExp.toISOString().replace('T', ' ').substring(0, 19))
-            }
-            $app.save(s)
+          } catch (refErr) {
+            console.log('[ml_catalog_competition] Erro renovação token: ' + refErr)
           }
-        } catch (refErr) {
-          console.log('[ml_catalog_competition] Erro renovação token: ' + refErr)
         }
       }
     }
   } catch (errSet) {
-    console.log('[ml_catalog_competition] Erro ml_settings: ' + errSet)
+    console.log(
+      '[ml_catalog_competition] Erro ml_settings para tenant ' + effectiveTenantId + ': ' + errSet,
+    )
   }
   const sellerNickCache = {}
   function getSellerNickname(sellerId) {

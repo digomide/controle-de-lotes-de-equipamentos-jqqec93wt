@@ -556,12 +556,12 @@ onRecordAfterCreateSuccess((e) => {
     return db.localeCompare(da)
   })
 
-  // 6. Sanitização para não estourar limite do registro no SQLite
+  // 6. Sanitização compacta para nunca estourar limite nem engargalar o SQLite
   function sanitizeItems(items, level) {
     return items.map(function (it) {
       const base = {
         id: it.id,
-        title: (it.title || '').substring(0, 140),
+        title: (it.title || '').substring(0, 120),
         price: it.price,
         currency_id: it.currency_id || 'BRL',
         available_quantity: it.available_quantity,
@@ -596,14 +596,16 @@ onRecordAfterCreateSuccess((e) => {
               return {
                 id: c.id,
                 name: c.name,
+                value_id: c.value_id,
                 value_name: c.value_name,
               }
             }),
           }
         })
       }
-      if (Array.isArray(it.attributes) && it.attributes.length > 0 && level <= 2) {
-        base.attributes = it.attributes.map(function (a) {
+      if (Array.isArray(it.attributes) && it.attributes.length > 0 && level <= 1) {
+        // Guardar no máximo 6 atributos essenciais
+        base.attributes = it.attributes.slice(0, 6).map(function (a) {
           return {
             id: a.id,
             name: a.name,
@@ -612,9 +614,9 @@ onRecordAfterCreateSuccess((e) => {
         })
       }
       if (level === 1) {
-        base.brand = it.brand
-        base.model = it.model
-        base.line = it.line
+        if (it.brand) base.brand = it.brand
+        if (it.model) base.model = it.model
+        if (it.line) base.line = it.line
       }
       return base
     })
@@ -627,7 +629,7 @@ onRecordAfterCreateSuccess((e) => {
     total_announced: totalAnnouncedGlobal,
   }
 
-  // Formato exigido: "Ativos: X, Pausados: Y, Encerrados: Z"
+  // Formato amigável de progresso
   const finalProgressText =
     'Ativos: ' +
     statusStats.active +
@@ -640,6 +642,17 @@ onRecordAfterCreateSuccess((e) => {
     ' anúncios carregados com sucesso' +
     (totalAnnouncedGlobal > detailedItems.length ? ' de ~' + totalAnnouncedGlobal : '') +
     ').'
+
+  // Limpeza automática de jobs antigos do mesmo tenant antes de salvar para economizar espaço
+  try {
+    if (jobTenantId) {
+      app
+        .db()
+        .newQuery(`DELETE FROM "ml_ads_fetch_jobs" WHERE "tenant_id" = {:tid} AND "id" != {:curId}`)
+        .bind({ tid: jobTenantId, curId: job.id })
+        .execute()
+    }
+  } catch (_) {}
 
   let saveSuccess = false
   let currentPayload = sanitizeItems(detailedItems, 1)
@@ -667,7 +680,7 @@ onRecordAfterCreateSuccess((e) => {
           saveErr,
       )
       if (attempt === 2) {
-        // Fallback 1: remover brand, model, line secundários
+        // Fallback 1: remover atributos extensos
         currentPayload = sanitizeItems(detailedItems, 2)
       } else if (attempt === 3) {
         // Fallback 2: limitar a 800 itens sanitizados

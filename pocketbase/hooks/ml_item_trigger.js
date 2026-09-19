@@ -17,14 +17,41 @@ onRecordAfterCreateSuccess((e) => {
   itemAction.set('status', 'processing')
   $app.save(itemAction)
 
+  // Determinar tenant_id da ação (direto do itemAction ou do produto)
+  let itemTenantId = ''
+  try {
+    itemTenantId = itemAction.getString('tenant_id') || ''
+  } catch (_) {}
+
+  const productIdEarly = itemAction.getString('product')
+  if (!itemTenantId && productIdEarly) {
+    try {
+      const prodCheck = $app.findRecordById('products', productIdEarly)
+      if (prodCheck) {
+        itemTenantId = prodCheck.getString('tenant_id') || ''
+      }
+    } catch (_) {}
+  }
+
   let settings = null
   try {
-    const sRecords = $app.findRecordsByFilter('ml_settings', '1=1', '-created', 1, 0)
-    if (sRecords && sRecords.length > 0) {
-      settings = sRecords[0]
+    if (itemTenantId) {
+      const sRecords = $app.findRecordsByFilter(
+        'ml_settings',
+        'tenant_id = {:tid}',
+        '-created',
+        1,
+        0,
+        { tid: itemTenantId },
+      )
+      if (sRecords && sRecords.length > 0) {
+        settings = sRecords[0]
+      }
     }
   } catch (err) {
-    console.log('[ml_item_hook] Erro ao carregar ml_settings: ' + err)
+    console.log(
+      '[ml_item_hook] Erro ao carregar ml_settings para tenant ' + itemTenantId + ': ' + err,
+    )
   }
 
   if (!settings) {

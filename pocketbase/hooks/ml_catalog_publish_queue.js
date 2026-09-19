@@ -48,56 +48,83 @@ onRecordAfterCreateSuccess((e) => {
     return GRADING_MAP[norm] || GRADING_MAP.excelente
   }
 
-  // 1. Obter token ML e configurações
+  // Determinar tenant_id da fila de catálogo
+  let queueTenantId = ''
+  try {
+    queueTenantId = rec.getString('tenant_id') || ''
+  } catch (_) {}
+
+  if (!queueTenantId && productId) {
+    try {
+      const pCheck = appId.findRecordById('products', productId)
+      if (pCheck) {
+        queueTenantId = pCheck.getString('tenant_id') || ''
+      }
+    } catch (_) {}
+  }
+
+  // 1. Obter token ML e configurações do tenant ativo (isolamento bilateral, sem fallback)
   let token = ''
   let defaultWarrantyDays = 90
   try {
-    const sRecords = appId.findRecordsByFilter('ml_settings', '1=1', '-created', 1, 0)
-    if (sRecords && sRecords.length > 0) {
-      const s = sRecords[0]
-      token = s.getString('access_token')
-      const refreshToken = s.getString('refresh_token')
-      const expiresAt = s.getDateTime('token_expires_at')
-      const clientId = s.getString('client_id') || $os.getenv('ML_CLIENT_ID') || ''
-      const clientSecret = s.getString('client_secret') || $os.getenv('ML_CLIENT_SECRET') || ''
+    if (queueTenantId) {
+      const sRecords = appId.findRecordsByFilter(
+        'ml_settings',
+        'tenant_id = {:tid}',
+        '-created',
+        1,
+        0,
+        { tid: queueTenantId },
+      )
+      if (sRecords && sRecords.length > 0) {
+        const s = sRecords[0]
+        token = s.getString('access_token')
+        const refreshToken = s.getString('refresh_token')
+        const expiresAt = s.getDateTime('token_expires_at')
+        const clientId = s.getString('client_id') || $os.getenv('ML_CLIENT_ID') || ''
+        const clientSecret = s.getString('client_secret') || $os.getenv('ML_CLIENT_SECRET') || ''
 
-      const now = new Date()
-      const exp = expiresAt ? new Date(expiresAt.time()) : null
-      const needRefresh = !token || (exp && exp.getTime() - now.getTime() < 5 * 60 * 1000)
+        const now = new Date()
+        const exp = expiresAt ? new Date(expiresAt.time()) : null
+        const needRefresh = !token || (exp && exp.getTime() - now.getTime() < 5 * 60 * 1000)
 
-      if (needRefresh && refreshToken && clientId && clientSecret) {
-        try {
-          const tRes = $http.send({
-            url: 'https://api.mercadolibre.com/oauth/token',
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body:
-              'grant_type=refresh_token&client_id=' +
-              encodeURIComponent(clientId) +
-              '&client_secret=' +
-              encodeURIComponent(clientSecret) +
-              '&refresh_token=' +
-              encodeURIComponent(refreshToken),
-            timeout: 15,
-          })
-          if (tRes.statusCode === 200) {
-            const d = tRes.json
-            token = d.access_token
-            s.set('access_token', d.access_token)
-            if (d.refresh_token) s.set('refresh_token', d.refresh_token)
-            if (d.expires_in) {
-              const newExp = new Date(Date.now() + d.expires_in * 1000)
-              s.set('token_expires_at', newExp.toISOString().replace('T', ' ').substring(0, 19))
+        if (needRefresh && refreshToken && clientId && clientSecret) {
+          try {
+            const tRes = $http.send({
+              url: 'https://api.mercadolibre.com/oauth/token',
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body:
+                'grant_type=refresh_token&client_id=' +
+                encodeURIComponent(clientId) +
+                '&client_secret=' +
+                encodeURIComponent(clientSecret) +
+                '&refresh_token=' +
+                encodeURIComponent(refreshToken),
+              timeout: 15,
+            })
+            if (tRes.statusCode === 200) {
+              const d = tRes.json
+              token = d.access_token
+              s.set('access_token', d.access_token)
+              if (d.refresh_token) s.set('refresh_token', d.refresh_token)
+              if (d.expires_in) {
+                const newExp = new Date(Date.now() + d.expires_in * 1000)
+                s.set('token_expires_at', newExp.toISOString().replace('T', ' ').substring(0, 19))
+              }
+              appId.save(s)
             }
-            appId.save(s)
+          } catch (tErr) {
+            console.warn('[ml_catalog_publish] Erro ao renovar token ML:', tErr)
           }
-        } catch (tErr) {
-          console.warn('[ml_catalog_publish] Erro ao renovar token ML:', tErr)
         }
       }
     }
   } catch (errAuth) {
-    console.warn('[ml_catalog_publish] Erro ao carregar ml_settings:', errAuth)
+    console.warn(
+      '[ml_catalog_publish] Erro ao carregar ml_settings para tenant ' + queueTenantId + ':',
+      errAuth,
+    )
   }
 
   if (!token) {
