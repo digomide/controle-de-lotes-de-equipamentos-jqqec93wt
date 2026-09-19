@@ -79,9 +79,12 @@ import { MLItemMatchedProductsDisplay } from '@/components/MLItemMatchedProducts
 import { MLManualProductSelectorModal } from '@/components/MLManualProductSelectorModal'
 import { CalculadoraViabilidade } from '@/components/CalculadoraViabilidade'
 
+import { useTenant } from '@/contexts/TenantContext'
+
 export default function AnunciosML() {
   const { toast } = useToast()
   const [searchParams, setSearchParams] = useSearchParams()
+  const { currentTenant } = useTenant()
 
   // Aba ativa: 'anuncios' (padrão) | 'perguntas' | 'envios' | 'pedidos' | 'sellers' | 'erros_publicacao'
   const initialTab = (searchParams.get('tab') as any) || 'anuncios'
@@ -195,7 +198,7 @@ export default function AnunciosML() {
 
   useEffect(() => {
     fetchItems(false)
-  }, [])
+  }, [currentTenant?.id])
 
   const filteredItems = useMemo(() => {
     if (!data?.items || !Array.isArray(data.items)) return []

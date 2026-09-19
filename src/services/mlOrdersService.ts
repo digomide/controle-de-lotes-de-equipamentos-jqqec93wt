@@ -1,4 +1,5 @@
 import pb from '@/lib/pocketbase/client'
+import { getActiveTenantId } from './mlService'
 
 export interface MLOrderItem {
   item_id: string
@@ -427,9 +428,11 @@ export const mlOrdersService = {
       onProgress('Criando solicitação de sincronização de pedidos no servidor...')
     }
 
+    const activeTenantId = getActiveTenantId()
     const job = await pb.collection('ml_orders_sync_jobs').create({
       status: 'pending',
       days_back: daysBack,
+      tenant_id: activeTenantId || undefined,
       requested_by: pb.authStore.record?.id || pb.authStore.model?.id || null,
     })
 

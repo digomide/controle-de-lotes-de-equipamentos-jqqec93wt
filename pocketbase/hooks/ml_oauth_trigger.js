@@ -11,20 +11,35 @@ onRecordAfterCreateSuccess((e) => {
 
   const code = req.getString('code')
   const customRedirectUri = req.getString('redirect_uri')
+  const reqTenantId = req.getString('tenant_id') || ''
 
   let settings = null
   try {
-    const sRecords = $app.findRecordsByFilter('ml_settings', '1=1', '-created', 1, 0)
-    if (sRecords && sRecords.length > 0) {
-      settings = sRecords[0]
+    if (reqTenantId) {
+      const sRecords = $app.findRecordsByFilter(
+        'ml_settings',
+        'tenant_id = {:tid}',
+        '-created',
+        1,
+        0,
+        { tid: reqTenantId },
+      )
+      if (sRecords && sRecords.length > 0) {
+        settings = sRecords[0]
+      }
     }
   } catch (err) {
-    console.log('[ml_oauth_hook] Erro ao carregar ml_settings: ' + err)
+    console.log(
+      '[ml_oauth_hook] Erro ao carregar ml_settings para tenant ' + reqTenantId + ': ' + err,
+    )
   }
 
   if (!settings) {
     req.set('status', 'error')
-    req.set('error_message', 'Configurações do Mercado Livre não encontradas no sistema.')
+    req.set(
+      'error_message',
+      'Configurações do Mercado Livre não encontradas para o tenant ativo. Cadastre o App ID e Client Secret nas configurações.',
+    )
     $app.save(req)
     e.next()
     return
@@ -128,6 +143,9 @@ onRecordAfterCreateSuccess((e) => {
   settings.set('permalink_seller', permalink)
   if (redirectUri && !settings.getString('redirect_uri')) {
     settings.set('redirect_uri', redirectUri)
+  }
+  if (reqTenantId && !settings.getString('tenant_id')) {
+    settings.set('tenant_id', reqTenantId)
   }
   $app.save(settings)
 

@@ -20,15 +20,31 @@ onRecordAfterCreateSuccess((e) => {
   job.set('progress_text', 'Iniciando consulta aos anúncios do Mercado Livre...')
   $app.save(job)
 
-  // 1. Carregar ml_settings
+  // 1. Carregar ml_settings para o tenant do job (com fallback para requested_by tenant se vazio)
+  let jobTenantId = ''
+  try {
+    jobTenantId = job.getString('tenant_id') || ''
+  } catch (_) {}
+
   let settings = null
   try {
-    const sRecords = $app.findRecordsByFilter('ml_settings', '1=1', '-created', 1, 0)
-    if (sRecords && sRecords.length > 0) {
-      settings = sRecords[0]
+    if (jobTenantId) {
+      const sRecords = $app.findRecordsByFilter(
+        'ml_settings',
+        'tenant_id = {:tid}',
+        '-created',
+        1,
+        0,
+        { tid: jobTenantId },
+      )
+      if (sRecords && sRecords.length > 0) {
+        settings = sRecords[0]
+      }
     }
   } catch (err) {
-    console.log('[ml_ads_fetch_job] Erro ao carregar ml_settings: ' + err)
+    console.log(
+      '[ml_ads_fetch_job] Erro ao carregar ml_settings para tenant ' + jobTenantId + ': ' + err,
+    )
   }
 
   if (!settings) {
@@ -684,23 +700,67 @@ onRecordAfterCreateSuccess((e) => {
 
 // Endpoint HTTP sob namespace /backend/v1/ml/items
 routerAdd('GET', '/backend/v1/ml/items', (e) => {
+  let authRecord = e.auth
+  if (!authRecord) {
+    try {
+      let info = e.requestInfo()
+      authRecord = info.auth
+    } catch (_) {}
+  }
+
+  let reqTenant = ''
+  try {
+    if (e.request) {
+      reqTenant = e.request.header.get('x-tenant-id') || ''
+      if (!reqTenant && e.request.url) {
+        reqTenant = e.request.url.query().get('tenant_id') || ''
+      }
+    }
+  } catch (_) {}
+
+  const role = authRecord ? authRecord.getString('role') : ''
+  const isSuperAdmin = role === 'super_admin'
+  const userTenant = authRecord ? authRecord.getString('tenant_id') : ''
+
+  let effectiveTenantId = ''
+  if (isSuperAdmin && reqTenant) {
+    effectiveTenantId = reqTenant.trim()
+  } else if (userTenant) {
+    effectiveTenantId = userTenant.trim()
+  } else if (reqTenant) {
+    effectiveTenantId = reqTenant.trim()
+  }
+
   let settings = null
   try {
-    const sRecords = $app.findRecordsByFilter('ml_settings', '1=1', '-created', 1, 0)
-    if (sRecords && sRecords.length > 0) {
-      settings = sRecords[0]
+    if (effectiveTenantId) {
+      const sRecords = $app.findRecordsByFilter(
+        'ml_settings',
+        'tenant_id = {:tid}',
+        '-created',
+        1,
+        0,
+        { tid: effectiveTenantId },
+      )
+      if (sRecords && sRecords.length > 0) {
+        settings = sRecords[0]
+      }
     }
   } catch (err) {
-    console.log('[ml_items_list] Erro ao carregar ml_settings: ' + err)
+    console.log(
+      '[ml_items_list] Erro ao carregar ml_settings para tenant ' + effectiveTenantId + ': ' + err,
+    )
   }
 
   if (!settings) {
-    return e.json(404, {
-      error: 'Configurações do Mercado Livre não encontradas.',
-      connected: false,
+    return e.json(200, {
+      ok: true,
+      items: [],
+      paging: { total: 0, offset: 0, limit: 50 },
+      seller_id: '',
+      seller_nickname: '',
     })
   }
-
   let accessToken = settings.getString('access_token')
   const refreshToken = settings.getString('refresh_token')
   const clientId = settings.getString('client_id')

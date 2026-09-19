@@ -1,6 +1,32 @@
 import pb from '@/lib/pocketbase/client'
 import type { Product } from '@/types/inventory'
 import { getMLItemCondition, getMLGradeLabel } from '@/lib/condition'
+import { TENANT_STORAGE_KEY } from '@/utils/tenantResolver'
+
+/**
+ * Obtém o ID do tenant ativo no cliente.
+ * 1. localStorage 'skip_active_tenant_id' (quando o super_admin usa "Ver como" ou troca de contexto)
+ * 2. pb.authStore.record.tenant_id (o tenant do usuário logado)
+ */
+export function getActiveTenantId(): string {
+  try {
+    const stored = localStorage.getItem(TENANT_STORAGE_KEY)
+    if (stored && typeof stored === 'string' && stored.trim()) {
+      return stored.trim()
+    }
+  } catch {
+    /* intentionally ignored */
+  }
+  try {
+    const user = pb.authStore?.record || pb.authStore?.model
+    if (user && (user as any).tenant_id) {
+      return String((user as any).tenant_id).trim()
+    }
+  } catch {
+    /* intentionally ignored */
+  }
+  return ''
+}
 import { ProductSimilarityMatcher, LocalProductCandidate } from './productMatchingService'
 export { getMLItemCondition, getMLGradeLabel }
 
@@ -1317,12 +1343,15 @@ export const mlService = {
    * Mantém fallback seguro para leitura direta da coleção caso o endpoint customizado falhe.
    */
   async getStatus(): Promise<MLStatusResponse> {
+    const activeTenantId = getActiveTenantId()
+    const customHeaders = activeTenantId ? { 'x-tenant-id': activeTenantId } : undefined
     // 1. Tenta rota segura do backend (/backend/v1/ml/status com fallback /ml/status)
     try {
       const endpoints = ['/backend/v1/ml/status', '/ml/status']
       for (const ep of endpoints) {
         try {
           const res: any = await pb.send(ep, {
+            headers: customHeaders,
             method: 'GET',
           })
           if (res && typeof res === 'object') {
@@ -1933,6 +1962,9 @@ export const mlService = {
     const statusFilter = params?.status || ''
     const onProgress = params?.onProgress
 
+    // Capturar tenant ativo para envio na criação do job e no cabeçalho
+    const activeTenantId = getActiveTenantId()
+
     // 1. Criar job em ml_ads_fetch_jobs
     let jobRecord: any = null
     try {
@@ -1941,6 +1973,7 @@ export const mlService = {
         offset,
         status_filter: statusFilter,
         status: 'pending',
+        tenant_id: activeTenantId || undefined,
         requested_by: pb.authStore.record?.id || pb.authStore.model?.id || null,
       })
     } catch (createErr: any) {

@@ -297,12 +297,9 @@ cronAdd('ml_queue_worker', '*/1 * * * *', () => {
         return false
       }
 
-      // Helper de pausa rápida
+      // Helper de pausa rápida sem busy-wait
       const sleepMs = function (ms) {
-        try {
-          const target = Date.now() + ms
-          while (Date.now() < target) {}
-        } catch (_) {}
+        // No-op ou sleep seguro: busy-wait `while(Date.now() < target)` trava a thread única do Goja/PocketBase
       }
 
       // Tokenizador
