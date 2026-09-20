@@ -361,7 +361,8 @@ export function MercadoLivreConfigCard() {
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-bold text-slate-900 text-sm">
-                        Conectado como {status.nickname || 'INFOPRECOBAIXO'}
+                        Conectado como{' '}
+                        {status.nickname || (isMasterTenant ? 'INFOPRECOBAIXO' : 'Conta Conectada')}
                       </span>
                       <Badge className="bg-emerald-600 text-white text-[10px] font-semibold">
                         Oficial Mercado Livre

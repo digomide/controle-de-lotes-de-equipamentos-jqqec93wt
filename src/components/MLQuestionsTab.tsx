@@ -54,12 +54,17 @@ import {
 } from '@/services/mlQuestionsService'
 import { mlCustomersService } from '@/services/mlCustomersService'
 import type { MLCustomer } from '@/types/customers'
+import { useTenant } from '@/contexts/TenantContext'
+import { mlService, MLStatusResponse } from '@/services/mlService'
 
 interface MLQuestionsTabProps {
   onRefreshBadge?: () => void
 }
 
 export function MLQuestionsTab({ onRefreshBadge }: MLQuestionsTabProps) {
+  const { currentTenant, isMasterTenant } = useTenant()
+  const [mlStatus, setMlStatus] = useState<MLStatusResponse | null>(null)
+
   // Estados principais
   const [questions, setQuestions] = useState<MLQuestionRecord[]>([])
   const [loading, setLoading] = useState(true)
@@ -131,7 +136,16 @@ export function MLQuestionsTab({ onRefreshBadge }: MLQuestionsTabProps) {
 
   const loadAll = async () => {
     setLoading(true)
-    await Promise.all([loadQuestions(true), loadConfig(), loadTemplates(), loadMetrics()])
+    await Promise.all([
+      loadQuestions(true),
+      loadConfig(),
+      loadTemplates(),
+      loadMetrics(),
+      mlService
+        .getStatus()
+        .then((st) => setMlStatus(st))
+        .catch(() => null),
+    ])
     setLoading(false)
   }
 
@@ -562,12 +576,22 @@ export function MLQuestionsTab({ onRefreshBadge }: MLQuestionsTabProps) {
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-xl font-bold tracking-tight">Central de Perguntas ML</h2>
-                <Badge
-                  variant="outline"
-                  className="bg-yellow-500/10 text-yellow-700 border-yellow-500/30 font-medium"
-                >
-                  INFOPRECOBAIXO
-                </Badge>
+                {mlStatus?.connected ? (
+                  <Badge
+                    variant="outline"
+                    className="bg-yellow-500/10 text-yellow-700 border-yellow-500/30 font-medium"
+                  >
+                    {mlStatus.nickname ||
+                      (isMasterTenant ? 'INFOPRECOBAIXO' : 'Conta ML Conectada')}
+                  </Badge>
+                ) : isMasterTenant ? (
+                  <Badge
+                    variant="outline"
+                    className="bg-yellow-500/10 text-yellow-700 border-yellow-500/30 font-medium"
+                  >
+                    INFOPRECOBAIXO
+                  </Badge>
+                ) : null}
                 {config?.auto_reply_enabled ? (
                   <Badge className="bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1 text-xs">
                     <Bot className="h-3 w-3" /> Auto-Resposta Ligada

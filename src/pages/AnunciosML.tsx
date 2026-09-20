@@ -55,6 +55,7 @@ import {
   buildMLAdUrl,
   type MLSellerItem,
   type MLSellerItemsResult,
+  type MLStatusResponse,
 } from '@/services/mlService'
 
 export function isItemCatalog(item: MLSellerItem | null | undefined): boolean {
@@ -84,7 +85,8 @@ import { useTenant } from '@/contexts/TenantContext'
 export default function AnunciosML() {
   const { toast } = useToast()
   const [searchParams, setSearchParams] = useSearchParams()
-  const { currentTenant } = useTenant()
+  const { currentTenant, isMasterTenant } = useTenant()
+  const [mlStatus, setMlStatus] = useState<MLStatusResponse | null>(null)
 
   // Aba ativa: 'anuncios' (padrão) | 'perguntas' | 'envios' | 'pedidos' | 'sellers' | 'erros_publicacao'
   const initialTab = (searchParams.get('tab') as any) || 'anuncios'
@@ -159,7 +161,7 @@ export default function AnunciosML() {
     setError(null)
     setProgressText('Consultando anúncios na conta do Mercado Livre...')
     try {
-      const [res, compAds, qMetrics] = await Promise.all([
+      const [res, compAds, qMetrics, statusRes] = await Promise.all([
         mlService.getSellerItems({
           onProgress: (pText) => {
             if (pText) setProgressText(pText)
@@ -167,11 +169,13 @@ export default function AnunciosML() {
         }),
         mlCompetitorService.getCompetitorAds().catch(() => []),
         mlQuestionsService.getMetrics().catch(() => null),
+        mlService.getStatus().catch(() => null),
       ])
 
       setData(res)
       setCompetitorAds(compAds)
       setQuestionsMetrics(qMetrics)
+      setMlStatus(statusRes)
 
       if (showToast) {
         const activeCount = res.items.filter((i) => i.status === 'active').length
@@ -922,13 +926,31 @@ export default function AnunciosML() {
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
                 Gestor ML
-                <Badge
-                  variant="outline"
-                  className="bg-amber-50 text-amber-900 border-amber-300 text-xs font-semibold gap-1"
-                >
-                  <Eye className="w-3 h-3 text-amber-700" />
-                  INFOPRECOBAIXO
-                </Badge>
+                {mlStatus?.connected ? (
+                  <Badge
+                    variant="outline"
+                    className="bg-amber-50 text-amber-900 border-amber-300 text-xs font-semibold gap-1"
+                  >
+                    <Eye className="w-3 h-3 text-amber-700" />
+                    {mlStatus.nickname ||
+                      (isMasterTenant ? 'INFOPRECOBAIXO' : 'Conta ML Conectada')}
+                  </Badge>
+                ) : isMasterTenant ? (
+                  <Badge
+                    variant="outline"
+                    className="bg-amber-50 text-amber-900 border-amber-300 text-xs font-semibold gap-1"
+                  >
+                    <Eye className="w-3 h-3 text-amber-700" />
+                    INFOPRECOBAIXO
+                  </Badge>
+                ) : (
+                  <Badge
+                    variant="outline"
+                    className="bg-amber-50 text-amber-800 border-amber-200 text-xs font-semibold gap-1"
+                  >
+                    Sem conexão ML
+                  </Badge>
+                )}
               </h1>
               <p className="text-xs text-slate-500">
                 Gestão completa da conta oficial do Mercado Livre: pedidos reais faturados, edição
@@ -2165,27 +2187,27 @@ export default function AnunciosML() {
 
         {/* ==================== ABA: CENTRAL DE PERGUNTAS ML ==================== */}
         <TabsContent value="perguntas" className="space-y-6 focus-visible:outline-hidden">
-          <MLQuestionsTab />
+          <MLQuestionsTab key={currentTenant?.id || 'master'} />
         </TabsContent>
 
         {/* ==================== ABA 2: ENVIOS & PRAZOS (DESPACHO E REPUTAÇÃO) ==================== */}
         <TabsContent value="envios" className="space-y-6 focus-visible:outline-hidden">
-          <MLDeadlinesTab />
+          <MLDeadlinesTab key={currentTenant?.id || 'master'} />
         </TabsContent>
 
         {/* ==================== ABA 3: PAINEL DE VENDAS & PEDIDOS ML ==================== */}
         <TabsContent value="pedidos" className="space-y-6 focus-visible:outline-hidden">
-          <MLOrdersTab />
+          <MLOrdersTab key={currentTenant?.id || 'master'} />
         </TabsContent>
 
         {/* ==================== ABA: MONITOR DE SELLERS & PARCEIROS ==================== */}
         <TabsContent value="sellers" className="space-y-6 focus-visible:outline-hidden">
-          <MLSellersMonitorTab />
+          <MLSellersMonitorTab key={currentTenant?.id || 'master'} />
         </TabsContent>
 
         {/* ==================== ABA 4: FILA DE PUBLICAÇÃO & ERROS ==================== */}
         <TabsContent value="erros_publicacao" className="space-y-6 focus-visible:outline-hidden">
-          <MLPublishQueueTab />
+          <MLPublishQueueTab key={currentTenant?.id || 'master'} />
         </TabsContent>
       </Tabs>
 
