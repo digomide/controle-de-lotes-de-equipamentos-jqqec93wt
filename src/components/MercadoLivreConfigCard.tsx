@@ -24,7 +24,9 @@ import {
   Loader2,
   HelpCircle,
   Sparkles,
+  BookOpen,
 } from 'lucide-react'
+import { ManualMLModal } from '@/components/ManualMLModal'
 
 export function MercadoLivreConfigCard() {
   const { toast } = useToast()
@@ -39,6 +41,7 @@ export function MercadoLivreConfigCard() {
   const [clientSecret, setClientSecret] = useState('')
   const [redirectUri, setRedirectUri] = useState('')
   const [showInstructions, setShowInstructions] = useState(false)
+  const [showManualModal, setShowManualModal] = useState(false)
   const [authErrorDetails, setAuthErrorDetails] = useState<string | null>(null)
 
   const defaultRedirect = getDefaultMLRedirectUri()
@@ -297,16 +300,29 @@ export function MercadoLivreConfigCard() {
             </div>
           </div>
 
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => setShowInstructions(!showInstructions)}
-            className="text-xs text-amber-900 hover:bg-amber-100/60 gap-1.5 h-8"
-          >
-            <HelpCircle className="w-3.5 h-3.5 text-amber-700" />
-            {showInstructions ? 'Ocultar instruções' : 'Como criar o app no ML'}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setShowManualModal(true)}
+              className="text-xs bg-white hover:bg-amber-100/70 text-amber-950 border-amber-300 font-semibold gap-1.5 h-8 shadow-2xs"
+            >
+              <BookOpen className="w-3.5 h-3.5 text-amber-700" />
+              Manual do Cliente
+            </Button>
+
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowInstructions(!showInstructions)}
+              className="text-xs text-amber-900 hover:bg-amber-100/60 gap-1.5 h-8"
+            >
+              <HelpCircle className="w-3.5 h-3.5 text-amber-700" />
+              {showInstructions ? 'Ocultar instruções' : 'Criar App'}
+            </Button>
+          </div>
         </div>
       </CardHeader>
 
@@ -523,12 +539,30 @@ export function MercadoLivreConfigCard() {
                     Após salvar, copie o{' '}
                     <strong className="text-slate-800">App ID (Client ID)</strong> e o{' '}
                     <strong className="text-slate-800">Client Secret</strong> gerados e cole nos
-                    campos abaixo.
+                    campos abaixo. Normalmente o App ID padrão do sistema é{' '}
+                    <strong>253167816099623</strong>.
                   </li>
                 </ol>
+                <div className="pt-2 flex items-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setShowManualModal(true)}
+                    className="h-7 text-xs border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-950 font-medium gap-1"
+                  >
+                    <BookOpen className="w-3 h-3 text-amber-700" />
+                    Abrir Manual de Configuração Completo
+                  </Button>
+                  <Link
+                    to="/manual-ml"
+                    className="text-xs text-amber-800 underline hover:text-amber-950"
+                  >
+                    Ver página dedicada
+                  </Link>
+                </div>
               </div>
             )}
-
             {/* Formulário de Configuração das Credenciais */}
             <form onSubmit={handleSaveConfig} className="space-y-4 pt-1">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
@@ -643,6 +677,14 @@ export function MercadoLivreConfigCard() {
           </>
         )}
       </CardContent>
+
+      {/* Modal Dedicado do Manual de Configuração ML */}
+      <ManualMLModal
+        open={showManualModal}
+        onOpenChange={setShowManualModal}
+        currentTenantName={currentTenant?.name}
+        currentTenantSlug={currentTenant?.slug}
+      />
     </Card>
   )
 }

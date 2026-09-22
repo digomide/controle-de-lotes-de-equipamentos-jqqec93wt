@@ -18,6 +18,7 @@ import Estoque from './pages/Estoque'
 import EstoqueGeral from './pages/EstoqueGeral'
 import Ajustes from './pages/Ajustes'
 import Configuracoes from './pages/Configuracoes'
+import ManualML from './pages/ManualML'
 import Usuarios from './pages/Usuarios'
 import AnunciosML from './pages/AnunciosML'
 import ExploradorCatalogo from './pages/ExploradorCatalogo'
@@ -273,6 +274,14 @@ const App = () => (
                 element={
                   <ProtectedRoute requireAdmin requiredModule="configuracoes">
                     <Configuracoes />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/manual-ml"
+                element={
+                  <ProtectedRoute requireAdmin requiredModule="configuracoes">
+                    <ManualML />
                   </ProtectedRoute>
                 }
               />

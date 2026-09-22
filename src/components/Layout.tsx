@@ -142,6 +142,7 @@ export default function Layout() {
     if (p.startsWith('/estoque')) return 'Controle de Lotes & Estoque'
     if (p.startsWith('/ajustes')) return 'Ajuste de Inventário & Divergências'
     if (p.startsWith('/usuarios')) return 'Gestão de Usuários'
+    if (p.startsWith('/manual-ml')) return 'Manual de Configuração — Mercado Livre'
     if (p.startsWith('/configuracoes')) return 'Configurações do Sistema'
     if (p.startsWith('/logo')) return 'Identidade Visual & Logomarca'
     return 'AmbicorpFlow'

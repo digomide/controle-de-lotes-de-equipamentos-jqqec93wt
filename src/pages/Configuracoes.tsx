@@ -25,14 +25,19 @@ import {
   Sparkles,
   MessageSquare,
   Bot,
+  BookOpen,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { MercadoLivreConfigCard } from '@/components/MercadoLivreConfigCard'
+import { ManualMLModal } from '@/components/ManualMLModal'
+import { useTenant } from '@/contexts/TenantContext'
 import { MercadoPagoConfigCard } from '@/components/MercadoPagoConfigCard'
 import { KabumConfigCard } from '@/components/KabumConfigCard'
 
 export default function Configuracoes() {
   const { user, isAdmin, logout } = useAuth()
+  const { currentTenant } = useTenant()
+  const [showManualModal, setShowManualModal] = useState(false)
 
   // Estados do formulário de troca de senha
   const [oldPassword, setOldPassword] = useState('')
@@ -125,6 +130,51 @@ export default function Configuracoes() {
         <p className="text-sm text-slate-500">
           Dados do usuário conectado, perfil de permissão e parâmetros do servidor.
         </p>
+      </div>
+
+      {/* Banner / Seção de Destaque: Ajuda & Manual Mercado Livre */}
+      <div className="bg-gradient-to-r from-amber-500/15 via-amber-500/5 to-white border border-amber-300/80 rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-start gap-3.5">
+          <div className="p-2.5 bg-[#ffe600] text-slate-950 rounded-xl font-bold shadow-xs shrink-0 mt-0.5">
+            <BookOpen className="w-5 h-5" />
+          </div>
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="text-base font-bold text-slate-900">
+                Manual de Configuração — Mercado Livre
+              </h3>
+              <Badge className="bg-amber-600 text-white text-[10px] py-0 px-1.5 h-4 font-semibold">
+                Guia do Cliente
+              </Badge>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Passo a passo completo com credenciais oficiais (App ID), URL de redirect exata, dicas
+              de janela anônima e resolução de dúvidas para conectar sua filial sem suporte.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => setShowManualModal(true)}
+            className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs h-8 gap-1.5 shadow-xs"
+          >
+            <BookOpen className="w-3.5 h-3.5" />
+            Abrir Manual
+          </Button>
+          <Link to="/manual-ml">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="border-amber-300 text-amber-950 bg-white hover:bg-amber-50 text-xs h-8 font-medium"
+            >
+              Ver em Página Inteira
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {/* User profile card */}
@@ -542,6 +592,14 @@ export default function Configuracoes() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Modal Dedicado do Manual de Configuração ML */}
+      <ManualMLModal
+        open={showManualModal}
+        onOpenChange={setShowManualModal}
+        currentTenantName={currentTenant?.name}
+        currentTenantSlug={currentTenant?.slug}
+      />
     </div>
   )
 }
