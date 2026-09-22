@@ -28,7 +28,7 @@ import {
 
 export function MercadoLivreConfigCard() {
   const { toast } = useToast()
-  const { currentTenant, isMasterTenant } = useTenant()
+  const { currentTenant } = useTenant()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
@@ -84,6 +84,12 @@ export function MercadoLivreConfigCard() {
   }
 
   useEffect(() => {
+    // Ao trocar de tenant ou montar, limpa o estado anterior antes de recarregar
+    setStatus(null)
+    setClientId('')
+    setClientSecret('')
+    setLoading(true)
+
     const init = async () => {
       // 1. Carrega dados salvos primeiro para ter certeza do redirect_uri canônico gravado no banco
       let currentRedirect = defaultRedirect
@@ -135,7 +141,7 @@ export function MercadoLivreConfigCard() {
     }
 
     init()
-  }, [])
+  }, [currentTenant?.id, currentTenant?.slug])
 
   const handleExchangeCode = async (code: string, explicitRedirect?: string) => {
     setLoading(true)
@@ -273,10 +279,10 @@ export function MercadoLivreConfigCard() {
                 ) : (
                   <Badge
                     variant="outline"
-                    className="bg-slate-100 text-slate-600 text-[11px] gap-1"
+                    className="bg-amber-100 text-amber-800 border-amber-300 text-[11px] gap-1"
                   >
                     <AlertCircle className="w-3 h-3" />
-                    Não conectado
+                    Sem conexão ML
                   </Badge>
                 )}
               </CardTitle>
@@ -361,8 +367,7 @@ export function MercadoLivreConfigCard() {
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-bold text-slate-900 text-sm">
-                        Conectado como{' '}
-                        {status.nickname || (isMasterTenant ? 'INFOPRECOBAIXO' : 'Conta Conectada')}
+                        Conectado como {status.nickname || '—'}
                       </span>
                       <Badge className="bg-emerald-600 text-white text-[10px] font-semibold">
                         Oficial Mercado Livre
@@ -372,7 +377,7 @@ export function MercadoLivreConfigCard() {
                       <span>
                         ID de Vendedor:{' '}
                         <span className="font-mono font-medium text-slate-800">
-                          {status.user_id_ml || '626774396'}
+                          {status.user_id_ml || '—'}
                         </span>
                       </span>
                       {status.token_expires_at && formatLocalExpiry(status.token_expires_at) && (
