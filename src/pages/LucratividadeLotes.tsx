@@ -13,8 +13,10 @@ import {
   AlertTriangle,
   FileSpreadsheet,
   PieChart,
+  FileText,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { BatchReportModal } from '@/components/BatchReportModal'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -60,6 +62,14 @@ export default function LucratividadeLotes() {
   const [sortBy, setSortBy] = useState<'recent' | 'profit-desc' | 'cost-desc' | 'margin-desc'>(
     'recent',
   )
+
+  // Modal de Relatório do Lote
+  const [reportModalOpen, setReportModalOpen] = useState(false)
+  const [selectedBatchForReport, setSelectedBatchForReport] = useState<PurchaseBatch | null>(null)
+  const [productsForReport, setProductsForReport] = useState<Product[]>([])
+  const [partsForReport, setPartsForReport] = useState<EquipmentPart[]>([])
+  const [rawProducts, setRawProducts] = useState<Product[]>([])
+  const [rawParts, setRawParts] = useState<EquipmentPart[]>([])
 
   const loadReportData = async () => {
     setLoading(true)
@@ -192,6 +202,8 @@ export default function LucratividadeLotes() {
         }
       })
 
+      setRawProducts(allProducts)
+      setRawParts(allParts)
       setReportItems(builtItems)
     } catch (err) {
       console.error('Erro ao carregar dados do relatório de lucratividade:', err)
@@ -628,15 +640,41 @@ export default function LucratividadeLotes() {
 
                         {/* Ação */}
                         <td className="py-3.5 px-4 text-right">
-                          <Link to={`/lotes-entrada/${item.batch.id}`}>
+                          <div className="flex items-center justify-end gap-1.5">
                             <Button
-                              variant="ghost"
+                              variant="outline"
                               size="sm"
-                              className="text-xs h-7 px-2.5 text-[#d9532f] bg-orange-50 hover:bg-orange-100 font-semibold"
+                              onClick={() => {
+                                setSelectedBatchForReport(item.batch)
+                                const bProds = rawProducts.filter(
+                                  (p) => p.purchase_batch_id === item.batch.id,
+                                )
+                                setProductsForReport(bProds)
+                                const bParts = rawParts.filter(
+                                  (part) =>
+                                    part.purchase_batch_id === item.batch.id ||
+                                    (part.product_id &&
+                                      bProds.some((p) => p.id === part.product_id)),
+                                )
+                                setPartsForReport(bParts)
+                                setReportModalOpen(true)
+                              }}
+                              className="text-xs h-7 px-2 border-slate-300 text-slate-700 hover:bg-slate-100 font-medium gap-1"
+                              title="Gerar Relatório Executivo e Financeiro deste Lote"
                             >
-                              Ver Lote
+                              <FileText className="w-3.5 h-3.5 text-orange-600" />
+                              Relatório
                             </Button>
-                          </Link>
+                            <Link to={`/lotes-entrada/${item.batch.id}`}>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-xs h-7 px-2.5 text-[#d9532f] bg-orange-50 hover:bg-orange-100 font-semibold"
+                              >
+                                Ver Lote
+                              </Button>
+                            </Link>
+                          </div>
                         </td>
                       </tr>
                     )
@@ -647,6 +685,16 @@ export default function LucratividadeLotes() {
           </div>
         )}
       </div>
+
+      {/* MODAL DE RELATÓRIO DO LOTE */}
+      <BatchReportModal
+        open={reportModalOpen}
+        onOpenChange={setReportModalOpen}
+        batch={selectedBatchForReport}
+        products={productsForReport}
+        parts={partsForReport}
+        tenantName={currentTenant?.name}
+      />
     </div>
   )
 }

@@ -312,9 +312,10 @@
     print-color-adjust: exact !important;
   }
 
-  /* Quando o portal de impressão de etiquetas ou de checklist está no DOM */
+  /* Quando o portal de impressão de etiquetas, checklist ou relatório de lotes está no DOM */
   body:has(#printable-etiqueta-root),
-  body:has(#printable-checklist-root) {
+  body:has(#printable-checklist-root),
+  body:has(#printable-batch-report-root) {
     background: #ffffff !important;
     overflow: visible !important;
     position: static !important;
@@ -322,7 +323,8 @@
 
   /* Oculta tudo que não for o container raiz da impressão correspondente */
   body:has(#printable-etiqueta-root) > *:not(#printable-etiqueta-root),
-  body:has(#printable-checklist-root) > *:not(#printable-checklist-root) {
+  body:has(#printable-checklist-root) > *:not(#printable-checklist-root),
+  body:has(#printable-batch-report-root) > *:not(#printable-batch-report-root) {
     display: none !important;
     visibility: hidden !important;
   }
@@ -342,11 +344,12 @@
   /* Exibe o container raiz de impressão */
   #printable-etiqueta-root,
   #printable-checklist-root,
+  #printable-batch-report-root,
   .printable-root-hidden {
     display: block !important;
     position: static !important;
     width: 210mm !important;
-    margin: 0 !important;
+    margin: 0 auto !important;
     padding: 0 !important;
     background: #ffffff !important;
     color: #000000 !important;
@@ -354,8 +357,31 @@
   }
 
   #printable-etiqueta-root *,
-  #printable-checklist-root * {
+  #printable-checklist-root *,
+  #printable-batch-report-root * {
     visibility: visible !important;
+  }
+
+  /*
+   * Estilo de impressão do Relatório Executivo do Lote A4
+   */
+  .printable-batch-report-sheet {
+    width: 210mm !important;
+    max-width: 210mm !important;
+    min-height: 297mm !important;
+    box-sizing: border-box !important;
+    padding: 10mm 12mm !important;
+    margin: 0 auto !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    font-size: 11px !important;
+    line-height: 1.4 !important;
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+
+  .printable-batch-report-sheet svg {
+    max-width: 100% !important;
   }
 
   /*

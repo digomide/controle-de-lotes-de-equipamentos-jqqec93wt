@@ -35,6 +35,7 @@ import { TransferEquipmentModal } from '@/components/TransferEquipmentModal'
 import { CloneEquipmentModal } from '@/components/CloneEquipmentModal'
 import { EtiquetaModal, type EtiquetaData } from '@/components/EtiquetaModal'
 import { BatchEquipmentPriceStatusModal } from '@/components/BatchEquipmentPriceStatusModal'
+import { BatchReportModal } from '@/components/BatchReportModal'
 import { LayoutGrid, ListFilter } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -143,6 +144,9 @@ export default function LoteEntradaDetalhe() {
 
   // 10. Alternância entre Visão Individual e Visão Agrupada por Modelo/Config
   const [viewMode, setViewMode] = useState<'individual' | 'grouped'>('individual')
+
+  // 11. Modal de Relatório Executivo do Lote
+  const [reportModalOpen, setReportModalOpen] = useState(false)
 
   const loadData = async () => {
     if (!id) return
@@ -800,6 +804,16 @@ export default function LoteEntradaDetalhe() {
 
         {/* Action Buttons */}
         <div className="flex items-center gap-2 flex-wrap">
+          {/* Botão Gerar Relatório (Destaque) */}
+          <Button
+            onClick={() => setReportModalOpen(true)}
+            className="text-xs h-10 bg-slate-900 hover:bg-slate-800 text-white shadow-xs gap-1.5 font-bold px-3.5"
+            title="Gerar relatório financeiro e executivo deste lote com gráficos e estimativas"
+          >
+            <FileText className="w-4 h-4 text-orange-400" />
+            Gerar Relatório
+          </Button>
+
           {/* Botão Editar Lote */}
           <Button
             variant="outline"
@@ -2463,6 +2477,16 @@ export default function LoteEntradaDetalhe() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* 10. MODAL DE RELATÓRIO DO LOTE COM ESTIMATIVAS E GRÁFICOS */}
+      <BatchReportModal
+        open={reportModalOpen}
+        onOpenChange={setReportModalOpen}
+        batch={batch}
+        products={products}
+        parts={parts}
+        tenantName={currentTenant?.name}
+      />
     </div>
   )
 }
