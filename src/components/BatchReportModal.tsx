@@ -45,6 +45,11 @@ import {
   CartesianGrid,
 } from 'recharts'
 import type { PurchaseBatch, Product, EquipmentPart } from '@/types/inventory'
+import {
+  getBatchReportGroupKey,
+  resolveEquipmentBrand,
+  resolveEquipmentModel,
+} from '@/utils/equipmentGrouping'
 
 export interface BatchReportModalProps {
   open: boolean
@@ -181,12 +186,7 @@ export function BatchReportModal({
     const map = new Map<string, Product[]>()
 
     products.forEach((p) => {
-      const b = (p.brand || '').trim()
-      const m = (p.model || '').trim()
-      const proc = (p.processor || '').trim()
-      const r = (p.ram || '').trim()
-      const st = (p.storage || '').trim()
-      const key = `${b}|${m}|${proc}|${r}|${st}`.toLowerCase()
+      const key = getBatchReportGroupKey(p)
 
       if (!map.has(key)) {
         map.set(key, [])
@@ -225,14 +225,20 @@ export function BatchReportModal({
         Boolean,
       )
 
+      const resolvedBrand = resolveEquipmentBrand(first)
+      const resolvedModel = resolveEquipmentModel(first)
+
       const displayName =
-        first.name || `${first.brand || ''} ${first.model || ''}`.trim() || 'Equipamento'
+        first.name ||
+        (resolvedBrand !== 'Não inf.' && resolvedModel !== 'Modelo não informado'
+          ? `${resolvedBrand} ${resolvedModel}`
+          : first.name || 'Equipamento')
 
       groups.push({
         modelKey,
         name: displayName,
-        brand: first.brand || 'Geral',
-        model: first.model || '',
+        brand: resolvedBrand,
+        model: resolvedModel,
         specs: specsParts.join(' • ') || 'Configuração padrão',
         count,
         availableCount,

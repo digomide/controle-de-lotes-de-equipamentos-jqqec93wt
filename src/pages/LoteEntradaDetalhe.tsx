@@ -49,6 +49,11 @@ import { productsService } from '@/services/products'
 import { equipmentService } from '@/services/equipment'
 import type { PurchaseBatch, Product, EquipmentPart, EquipmentPartStatus } from '@/types/inventory'
 import {
+  getEquipmentInventoryGroupKey,
+  resolveEquipmentBrand,
+  resolveEquipmentModel,
+} from '@/utils/equipmentGrouping'
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -380,16 +385,8 @@ export default function LoteEntradaDetalhe() {
     const map = new Map<string, Product[]>()
 
     displayedProducts.forEach((p) => {
-      // Cria chave baseada em modelo, marca, processador, ram, storage e estética
-      const b = (p.brand || '').trim().toLowerCase()
-      const m = (p.model || '').trim().toLowerCase()
-      const proc = (p.processor || '').trim().toLowerCase()
-      const r = (p.ram || '').trim().toLowerCase()
-      const st = (p.storage || '').trim().toLowerCase()
-      const cond = (p.aesthetic_grade || p.condition || '').trim().toLowerCase()
-
-      // Chave única para o conjunto idêntico
-      const key = `${b}|${m}|${proc}|${r}|${st}|${cond}`
+      // Cria chave determinística com validação de modelo canônico (Inspiron ≠ Vostro)
+      const key = getEquipmentInventoryGroupKey(p)
       if (!map.has(key)) {
         map.set(key, [])
       }
@@ -430,11 +427,20 @@ export default function LoteEntradaDetalhe() {
         Boolean,
       )
 
+      const resolvedBrand = resolveEquipmentBrand(first)
+      const resolvedModel = resolveEquipmentModel(first)
+
+      const displayTitle =
+        first.name ||
+        (resolvedBrand !== 'Não inf.' && resolvedModel !== 'Modelo não informado'
+          ? `${resolvedBrand} ${resolvedModel}`
+          : first.name || 'Equipamento')
+
       groups.push({
         groupKey,
-        title: first.name || `${first.brand || ''} ${first.model || ''}`.trim() || 'Equipamento',
-        brand: first.brand || 'Não inf.',
-        model: first.model || '',
+        title: displayTitle,
+        brand: resolvedBrand,
+        model: resolvedModel,
         specs: specsParts.join(' • ') || 'Configuração padrão',
         condition: first.aesthetic_grade || first.condition || 'Bom',
         items,
