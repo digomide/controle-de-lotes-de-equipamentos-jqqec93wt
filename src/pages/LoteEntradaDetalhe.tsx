@@ -215,6 +215,19 @@ export default function LoteEntradaDetalhe() {
   const averageUnitCost = expectedQty > 0 ? totalCostOverall / expectedQty : 0
   const baseCostPerExpectedItem = expectedQty > 0 ? acquisitionCost / expectedQty : 0
 
+  // Divisor para rateio das peças: usa a quantidade de notebooks inventariados se houver itens,
+  // ou a quantidade esperada do lote para estimativas prévias
+  const divisorEquipamentos = products.length > 0 ? products.length : expectedQty
+
+  // Custo de peças rateado por equipamento (para compor o custo efetivo de aquisição)
+  const partsSharePerNotebook =
+    divisorEquipamentos > 0 ? partsAndServicesCost / divisorEquipamentos : 0
+
+  // Modal de ativação/desativação em massa dedicado
+  const [bulkStatusTarget, setBulkStatusTarget] = useState<'Disponível' | 'Pendente de ativação'>(
+    'Disponível',
+  )
+
   // Selection handlers
   const toggleSelectAll = () => {
     if (selectedProductIds.length === displayedProducts.length && displayedProducts.length > 0) {
@@ -354,6 +367,9 @@ export default function LoteEntradaDetalhe() {
     minUnitPrice: number
     maxUnitPrice: number
     avgCostPrice: number
+    avgEffectiveCostPrice: number
+    avgEstimatedProfit: number
+    avgMarginPct: number
   }
 
   const groupedProducts = useMemo<ProductGroup[]>(() => {
@@ -392,9 +408,19 @@ export default function LoteEntradaDetalhe() {
       const minUnitPrice = prices.length > 0 ? Math.min(...prices) : 0
       const maxUnitPrice = prices.length > 0 ? Math.max(...prices) : 0
 
-      const costs = items.map((i) => Number(i.cost_price) || 0)
-      const sumCost = costs.reduce((a, b) => a + b, 0)
+      // Custo base (equipamento sem peças ou com rateio do lote se 0)
+      const rawCosts = items.map((i) => {
+        const c = Number(i.cost_price) || 0
+        return c > 0 ? c : divisorEquipamentos > 0 ? acquisitionCost / divisorEquipamentos : 0
+      })
+      const sumCost = rawCosts.reduce((a, b) => a + b, 0)
       const avgCostPrice = count > 0 ? sumCost / count : 0
+
+      // Custo efetivo com a parcela proporcional das peças distribuída
+      const avgEffectiveCostPrice = avgCostPrice + partsSharePerNotebook
+      const avgEstimatedProfit = avgUnitPrice - avgEffectiveCostPrice
+      const avgMarginPct =
+        avgEffectiveCostPrice > 0 ? (avgEstimatedProfit / avgEffectiveCostPrice) * 100 : 0
 
       const specsParts = [first.processor, first.ram, first.storage, first.screen_size].filter(
         Boolean,
@@ -417,12 +443,15 @@ export default function LoteEntradaDetalhe() {
         minUnitPrice,
         maxUnitPrice,
         avgCostPrice,
+        avgEffectiveCostPrice,
+        avgEstimatedProfit,
+        avgMarginPct,
       })
     })
 
     // Ordena do maior grupo para o menor
     return groups.sort((a, b) => b.count - a.count)
-  }, [displayedProducts])
+  }, [displayedProducts, divisorEquipamentos, acquisitionCost, partsSharePerNotebook])
 
   // Helper para selecionar todos os itens de um grupo
   const toggleSelectGroup = (groupItems: Product[]) => {
@@ -534,8 +563,38 @@ export default function LoteEntradaDetalhe() {
   }
 
   // Estimated sales revenue and profit/deficit
+  // 1. Preço de venda total estimado (soma dos preços de venda cadastrados)
   const totalTargetSales = products.reduce((acc, p) => acc + (Number(p.unit_price) || 0), 0)
-  const estimatedProfit = totalTargetSales - totalCostOverall
+
+  // 2. Custo efetivo real dos notebooks inventariados:
+  // Se o produto tiver cost_price cadastrado explicitamente, soma esse custo + a parcela de peças rateada.
+  // Caso cost_price seja 0 ou não informado, utiliza o custo base proporcional do lote (acquisitionCost ÷ divisor) + parcela de peças.
+  const totalEffectiveEquipmentsCost = products.reduce((acc, p) => {
+    const rawCost = Number(p.cost_price) || 0
+    const baseCost =
+      rawCost > 0 ? rawCost : divisorEquipamentos > 0 ? acquisitionCost / divisorEquipamentos : 0
+    return acc + (baseCost + partsSharePerNotebook)
+  }, 0)
+
+  // Custo de referência considerado no lote: se todos os notebooks estiverem inventariados,
+  // totalEffectiveEquipmentsCost equivale exatamente a totalCostOverall.
+  const costReferenceForProfit =
+    products.length > 0 ? totalEffectiveEquipmentsCost : totalCostOverall
+
+  // Lucro = Estimativa de Venda − Custo Total Real (equipamentos + peças)
+  const estimatedProfit = totalTargetSales - costReferenceForProfit
+
+  // Margem percentual estimada: Lucro ÷ Custo (ou Lucro ÷ Venda se custo for 0)
+  const estimatedMarginPct =
+    costReferenceForProfit > 0
+      ? (estimatedProfit / costReferenceForProfit) * 100
+      : totalTargetSales > 0
+        ? 100
+        : 0
+
+  // Margem sobre a venda (Markup vs Margem bruta de venda)
+  const estimatedGrossMarginPct =
+    totalTargetSales > 0 ? (estimatedProfit / totalTargetSales) * 100 : 0
 
   const handleOpenAddPartModal = () => {
     setEditingPart(null)
@@ -852,12 +911,12 @@ export default function LoteEntradaDetalhe() {
           </CardContent>
         </Card>
 
-        {/* KPI 3: Custo Total Consolidado do Lote */}
+        {/* KPI 3: Custo Total Consolidado do Lote & Rateio Unitário */}
         <Card className="border-slate-200 shadow-xs bg-white ring-1 ring-orange-200/50">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                Custo Total Lote
+                Custo Total Consolidado
               </span>
               <div className="w-8 h-8 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center">
                 <TrendingUp className="w-4 h-4" />
@@ -870,25 +929,40 @@ export default function LoteEntradaDetalhe() {
                   currency: 'BRL',
                 })}
               </div>
-              <p className="text-xs text-slate-500 mt-1">
-                {acquisitionCost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}{' '}
-                (lote) +{' '}
-                {partsAndServicesCost.toLocaleString('pt-BR', {
-                  style: 'currency',
-                  currency: 'BRL',
-                })}{' '}
-                (peças)
+              <p className="text-xs text-slate-600 mt-1 font-medium">
+                Rateio:{' '}
+                <span className="font-bold text-slate-800">
+                  {baseCostPerExpectedItem.toLocaleString('pt-BR', {
+                    style: 'currency',
+                    currency: 'BRL',
+                  })}
+                </span>{' '}
+                <span className="text-[11px] text-slate-400 font-normal">(equip.)</span> +{' '}
+                <span className="font-bold text-amber-700">
+                  {partsSharePerNotebook.toLocaleString('pt-BR', {
+                    style: 'currency',
+                    currency: 'BRL',
+                  })}
+                </span>{' '}
+                <span className="text-[11px] text-slate-400 font-normal">(peças/note)</span>
               </p>
+              <div className="mt-1 text-[11px] text-slate-500 bg-slate-50 rounded px-1.5 py-0.5 inline-block">
+                = Custo efetivo médio:{' '}
+                <strong className="text-slate-900">
+                  {averageUnitCost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                  /un
+                </strong>
+              </div>
             </div>
           </CardContent>
         </Card>
 
-        {/* KPI 4: Lucro / Déficit Estimado */}
+        {/* KPI 4: Lucro Estimado & Margem Real */}
         <Card className="border-slate-200 shadow-xs bg-white">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                Lucro / Déficit Estimado
+                Lucro Estimado (Venda − Custo)
               </span>
               <div
                 className={`w-8 h-8 rounded-lg flex items-center justify-center ${
@@ -901,16 +975,38 @@ export default function LoteEntradaDetalhe() {
               </div>
             </div>
             <div className="mt-2">
-              <div
-                className={`text-2xl font-bold ${
-                  estimatedProfit >= 0 ? 'text-emerald-600' : 'text-rose-600'
-                }`}
-              >
-                {estimatedProfit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+              <div className="flex items-baseline gap-2">
+                <div
+                  className={`text-2xl font-extrabold ${
+                    estimatedProfit >= 0 ? 'text-emerald-600' : 'text-rose-600'
+                  }`}
+                >
+                  {estimatedProfit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                </div>
+                <Badge
+                  variant="outline"
+                  className={`text-xs font-bold ${
+                    estimatedProfit >= 0
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : 'bg-rose-50 text-rose-700 border-rose-200'
+                  }`}
+                >
+                  {estimatedMarginPct >= 0 ? '+' : ''}
+                  {estimatedMarginPct.toFixed(1)}% margem
+                </Badge>
               </div>
-              <p className="text-xs text-slate-400 mt-1">
-                Venda total:{' '}
-                {totalTargetSales.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+              <p className="text-xs text-slate-600 mt-1">
+                Estimativa venda:{' '}
+                <strong className="text-slate-800">
+                  {totalTargetSales.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                </strong>
+              </p>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                Custo base + peças:{' '}
+                {costReferenceForProfit.toLocaleString('pt-BR', {
+                  style: 'currency',
+                  currency: 'BRL',
+                })}
               </p>
             </div>
           </CardContent>
@@ -982,10 +1078,24 @@ export default function LoteEntradaDetalhe() {
                   currency: 'BRL',
                 })}
               </Badge>
+              {partsAndServicesCost > 0 && (
+                <Badge
+                  variant="outline"
+                  className="text-xs bg-orange-50 text-orange-800 border-orange-200"
+                >
+                  Rateio no notebook: +
+                  {partsSharePerNotebook.toLocaleString('pt-BR', {
+                    style: 'currency',
+                    currency: 'BRL',
+                  })}
+                  /un
+                </Badge>
+              )}
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
               Compre e vincule peças (memórias, SSDs, telas) com quantidade e status (Orçada,
-              Comprada, Recebida, Instalada) para compor o custo do lote.
+              Comprada, Recebida, Instalada). O valor total das peças é distribuído igualmente no
+              custo de cada notebook do lote.
             </p>
           </div>
 
@@ -1258,15 +1368,47 @@ export default function LoteEntradaDetalhe() {
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
+              {/* Botão Ativar em Massa (Ativa para 'Disponível') */}
+              <Button
+                size="sm"
+                onClick={() => {
+                  setBulkStatusTarget('Disponível')
+                  setBulkPriceStatusModalOpen(true)
+                }}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold h-8 gap-1.5 shadow-xs"
+                title="Ativar os equipamentos selecionados para 'Disponível' para venda imediata"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                Ativar em massa ({selectedProductIds.length})
+              </Button>
+
+              {/* Botão Desativar em Massa (Coloca em 'Pendente de ativação') */}
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setBulkStatusTarget('Pendente de ativação')
+                  setBulkPriceStatusModalOpen(true)
+                }}
+                className="bg-white border-amber-300 text-amber-800 hover:bg-amber-50 text-xs font-semibold h-8 gap-1.5 shadow-xs"
+                title="Colocar os equipamentos selecionados em 'Pendente de ativação'"
+              >
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                Desativar / Pendente ({selectedProductIds.length})
+              </Button>
+
               {/* Botão Alterar Preço / Status em Massa */}
               <Button
                 size="sm"
-                onClick={() => setBulkPriceStatusModalOpen(true)}
+                onClick={() => {
+                  setBulkStatusTarget('Disponível')
+                  setBulkPriceStatusModalOpen(true)
+                }}
                 className="bg-[#d9532f] hover:bg-[#c24624] text-white text-xs font-semibold h-8 gap-1.5 shadow-xs"
                 title="Alterar preço unitário ou status dos equipamentos selecionados em lote"
               >
                 <DollarSign className="w-3.5 h-3.5" />
-                Alterar Preço / Status ({selectedProductIds.length})
+                Alterar Preço ({selectedProductIds.length})
               </Button>
 
               {/* Botão Criar PNs Internos em Massa */}
@@ -1393,8 +1535,9 @@ export default function LoteEntradaDetalhe() {
                     <th className="py-3 px-4 text-center">Quantidade</th>
                     <th className="py-3 px-4">Status no Grupo</th>
                     <th className="py-3 px-4">Estética</th>
-                    <th className="py-3 px-4">Custo Médio</th>
+                    <th className="py-3 px-4">Custo Efetivo (+ Peças)</th>
                     <th className="py-3 px-4">Preço Médio Venda</th>
+                    <th className="py-3 px-4">Lucro Estimado</th>
                     <th className="py-3 px-4 text-right">Ação em Grupo</th>
                   </tr>
                 </thead>
@@ -1480,11 +1623,29 @@ export default function LoteEntradaDetalhe() {
                           {grp.condition}
                         </td>
 
-                        <td className="py-3.5 px-4 font-medium text-slate-800 text-xs">
-                          {grp.avgCostPrice.toLocaleString('pt-BR', {
-                            style: 'currency',
-                            currency: 'BRL',
-                          })}
+                        <td className="py-3.5 px-4 text-xs">
+                          <div className="font-bold text-slate-900">
+                            {grp.avgEffectiveCostPrice.toLocaleString('pt-BR', {
+                              style: 'currency',
+                              currency: 'BRL',
+                            })}
+                          </div>
+                          {partsSharePerNotebook > 0 && (
+                            <div className="text-[10px] text-slate-500 mt-0.5">
+                              {grp.avgCostPrice.toLocaleString('pt-BR', {
+                                style: 'currency',
+                                currency: 'BRL',
+                              })}{' '}
+                              +{' '}
+                              <span className="text-amber-700 font-semibold">
+                                {partsSharePerNotebook.toLocaleString('pt-BR', {
+                                  style: 'currency',
+                                  currency: 'BRL',
+                                })}{' '}
+                                peças
+                              </span>
+                            </div>
+                          )}
                         </td>
 
                         <td className="py-3.5 px-4 text-xs">
@@ -1502,6 +1663,23 @@ export default function LoteEntradaDetalhe() {
                           )}
                         </td>
 
+                        <td className="py-3.5 px-4 text-xs">
+                          <div
+                            className={`font-bold ${grp.avgEstimatedProfit >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}
+                          >
+                            {grp.avgEstimatedProfit.toLocaleString('pt-BR', {
+                              style: 'currency',
+                              currency: 'BRL',
+                            })}
+                          </div>
+                          <div
+                            className={`text-[10px] font-semibold ${grp.avgMarginPct >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}
+                          >
+                            {grp.avgMarginPct >= 0 ? '+' : ''}
+                            {grp.avgMarginPct.toFixed(1)}% margem
+                          </div>
+                        </td>
+
                         <td className="py-3.5 px-4 text-right">
                           <div className="flex items-center justify-end gap-1.5">
                             <Button
@@ -1510,6 +1688,7 @@ export default function LoteEntradaDetalhe() {
                               onClick={() => {
                                 // Seleciona apenas este grupo e abre a modal de preço
                                 setSelectedProductIds(groupIds)
+                                setBulkStatusTarget('Disponível')
                                 setBulkPriceStatusModalOpen(true)
                               }}
                               className="h-7 px-2.5 text-xs text-[#d9532f] border-orange-200 hover:bg-orange-50 font-semibold gap-1"
@@ -1549,14 +1728,27 @@ export default function LoteEntradaDetalhe() {
                     <th className="py-3 px-4">Configuração</th>
                     <th className="py-3 px-4">Estética / Bateria</th>
                     <th className="py-3 px-4">Carregador</th>
-                    <th className="py-3 px-4">Custo Base</th>
+                    <th className="py-3 px-4">Custo (+ Peças)</th>
                     <th className="py-3 px-4">Preço Venda</th>
+                    <th className="py-3 px-4">Lucro Estimado</th>
                     <th className="py-3 px-4">Status</th>
                     <th className="py-3 px-4 text-right">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {displayedProducts.map((p) => {
+                    const rawCost = Number(p.cost_price) || 0
+                    const baseCost =
+                      rawCost > 0
+                        ? rawCost
+                        : divisorEquipamentos > 0
+                          ? acquisitionCost / divisorEquipamentos
+                          : 0
+                    const effectiveCost = baseCost + partsSharePerNotebook
+                    const unitPrice = Number(p.unit_price) || 0
+                    const unitProfit = unitPrice - effectiveCost
+                    const unitMarginPct = effectiveCost > 0 ? (unitProfit / effectiveCost) * 100 : 0
+
                     const isSelected = selectedProductIds.includes(p.id)
                     const isPendingActivation = p.status === 'Pendente de ativação'
                     return (
@@ -1629,18 +1821,54 @@ export default function LoteEntradaDetalhe() {
                           )}
                         </td>
 
-                        <td className="py-3.5 px-4 font-medium text-slate-800 text-xs">
-                          {(Number(p.cost_price) || 0).toLocaleString('pt-BR', {
+                        <td className="py-3.5 px-4 text-xs">
+                          <div className="font-bold text-slate-900">
+                            {effectiveCost.toLocaleString('pt-BR', {
+                              style: 'currency',
+                              currency: 'BRL',
+                            })}
+                          </div>
+                          {partsSharePerNotebook > 0 && (
+                            <div className="text-[10px] text-slate-400">
+                              Base:{' '}
+                              {baseCost.toLocaleString('pt-BR', {
+                                style: 'currency',
+                                currency: 'BRL',
+                              })}{' '}
+                              +{' '}
+                              <span className="text-amber-700 font-medium">
+                                {partsSharePerNotebook.toLocaleString('pt-BR', {
+                                  style: 'currency',
+                                  currency: 'BRL',
+                                })}{' '}
+                                peças
+                              </span>
+                            </div>
+                          )}
+                        </td>
+
+                        <td className="py-3.5 px-4 font-semibold text-emerald-700 text-xs">
+                          {unitPrice.toLocaleString('pt-BR', {
                             style: 'currency',
                             currency: 'BRL',
                           })}
                         </td>
 
-                        <td className="py-3.5 px-4 font-semibold text-emerald-700 text-xs">
-                          {(Number(p.unit_price) || 0).toLocaleString('pt-BR', {
-                            style: 'currency',
-                            currency: 'BRL',
-                          })}
+                        <td className="py-3.5 px-4 text-xs">
+                          <div
+                            className={`font-bold ${unitProfit >= 0 ? 'text-emerald-700' : 'text-rose-600'}`}
+                          >
+                            {unitProfit.toLocaleString('pt-BR', {
+                              style: 'currency',
+                              currency: 'BRL',
+                            })}
+                          </div>
+                          <div
+                            className={`text-[10px] font-semibold ${unitMarginPct >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}
+                          >
+                            {unitMarginPct >= 0 ? '+' : ''}
+                            {unitMarginPct.toFixed(1)}% margem
+                          </div>
                         </td>
 
                         <td className="py-3.5 px-4">
@@ -1719,6 +1947,8 @@ export default function LoteEntradaDetalhe() {
         open={bulkPriceStatusModalOpen}
         onOpenChange={setBulkPriceStatusModalOpen}
         selectedProducts={selectedProductsList}
+        initialChangeStatus={true}
+        initialTargetStatus={bulkStatusTarget}
         onSuccess={async () => {
           setSelectedProductIds([])
           await loadData()

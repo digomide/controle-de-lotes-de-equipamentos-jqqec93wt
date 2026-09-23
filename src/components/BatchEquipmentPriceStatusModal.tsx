@@ -40,6 +40,8 @@ export interface BatchEquipmentPriceStatusModalProps {
   onOpenChange: (open: boolean) => void
   selectedProducts: Product[]
   onSuccess: () => void
+  initialChangeStatus?: boolean
+  initialTargetStatus?: 'Disponível' | 'Reservado' | 'Pendente de ativação'
 }
 
 type PriceChangeMode = 'fixed' | 'percent_increase' | 'percent_decrease' | 'keep'
@@ -49,11 +51,13 @@ export function BatchEquipmentPriceStatusModal({
   onOpenChange,
   selectedProducts,
   onSuccess,
+  initialChangeStatus,
+  initialTargetStatus,
 }: BatchEquipmentPriceStatusModalProps) {
   const { toast } = useToast()
   const { user } = useAuth()
 
-  const [priceMode, setPriceMode] = useState<PriceChangeMode>('fixed')
+  const [priceMode, setPriceMode] = useState<PriceChangeMode>('keep')
   const [fixedPrice, setFixedPrice] = useState<number | string>('')
   const [percentValue, setPercentValue] = useState<number | string>(10)
   const [changeStatus, setChangeStatus] = useState<boolean>(false)
@@ -65,6 +69,28 @@ export function BatchEquipmentPriceStatusModal({
 
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [step, setStep] = useState<'config' | 'confirm'>('config')
+
+  // Ao abrir o modal, inicializar estados conforme props fornecidas
+  React.useEffect(() => {
+    if (open) {
+      if (initialChangeStatus !== undefined) {
+        setChangeStatus(initialChangeStatus)
+      } else {
+        setChangeStatus(false)
+      }
+      if (initialTargetStatus) {
+        setTargetStatus(initialTargetStatus)
+      }
+      if (initialChangeStatus && !initialTargetStatus) {
+        setTargetStatus('Disponível')
+      }
+      // Se apenas status foi solicitado para abrir, manter o modo de preço como 'keep' por padrão
+      if (initialChangeStatus) {
+        setPriceMode('keep')
+      }
+      setStep('config')
+    }
+  }, [open, initialChangeStatus, initialTargetStatus])
 
   // Itens elegíveis: produtos que NÃO estão vendidos (ou todos para preço)
   const eligibleProducts = selectedProducts.filter((p) => p.status !== 'Vendido')

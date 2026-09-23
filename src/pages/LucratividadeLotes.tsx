@@ -539,19 +539,25 @@ export default function LucratividadeLotes() {
                           </div>
                         </td>
 
-                        {/* Custo Total (Aquisição + Peças) */}
+                        {/* Custo Total (Aquisição + Peças) & Rateio Unitário */}
                         <td className="py-3.5 px-4">
                           <div className="font-semibold text-slate-900 text-xs">
                             {formatBRL(item.totalCost)}
                           </div>
-                          <div className="text-[11px] text-slate-400">
+                          <div className="text-[11px] text-slate-500">
                             Base: {formatBRL(item.acquisitionCost)}
                             {item.partsCost > 0 && (
-                              <span className="text-amber-600 ml-1">
+                              <span className="text-amber-700 ml-1 font-medium">
                                 + {formatBRL(item.partsCost)} peças
                               </span>
                             )}
                           </div>
+                          {item.inventoriedCount > 0 && (
+                            <div className="text-[10px] text-slate-400 mt-0.5">
+                              Custo unit. efetivo:{' '}
+                              {formatBRL(item.totalCost / item.inventoriedCount)}/un
+                            </div>
+                          )}
                         </td>
 
                         {/* Receita Realizada */}
