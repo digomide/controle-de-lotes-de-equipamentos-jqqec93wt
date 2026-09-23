@@ -73,6 +73,114 @@ export const productsService = {
     return await pb.collection('products').update<Product>(id, { status })
   },
 
+  /**
+   * Atualização em massa de equipamentos (preço e/ou status e/ou localização)
+   * Respeita regras de segurança (não permite marcar como Vendido em massa sem venda registrada)
+   * Registra histórico de auditoria (history_events)
+   */
+  async updateBulk(
+    productIds: string[],
+    updates: {
+      unit_price?: number
+      cost_price?: number
+      status?: 'Disponível' | 'Reservado' | 'Pendente de ativação'
+      notes?: string
+    },
+    userEmailOrName?: string,
+  ): Promise<{
+    updatedCount: number
+    failedCount: number
+    blockedCount: number
+    errors: string[]
+  }> {
+    let updatedCount = 0
+    let failedCount = 0
+    let blockedCount = 0
+    const errors: string[] = []
+    const nowIso = new Date().toISOString().replace('T', ' ').substring(0, 19)
+
+    for (const id of productIds) {
+      try {
+        const prod = await pb
+          .collection('products')
+          .getOne<Product>(id)
+          .catch(() => null)
+        if (!prod) {
+          failedCount++
+          continue
+        }
+
+        // Se o produto já estiver vendido e tentarem mudar status, bloquear
+        if (prod.status === 'Vendido' && updates.status) {
+          blockedCount++
+          errors.push(`${prod.name} já está vendido e o status não pode ser alterado em lote.`)
+          continue
+        }
+
+        const payload: Partial<Product> = {}
+        const historyDetails: string[] = []
+
+        if (
+          updates.unit_price !== undefined &&
+          !isNaN(updates.unit_price) &&
+          updates.unit_price >= 0
+        ) {
+          const oldPrice = Number(prod.unit_price) || 0
+          payload.unit_price = updates.unit_price
+          historyDetails.push(
+            `Preço de venda alterado em lote de R$ ${oldPrice.toFixed(2)} para R$ ${updates.unit_price.toFixed(2)}`,
+          )
+        }
+
+        if (
+          updates.cost_price !== undefined &&
+          !isNaN(updates.cost_price) &&
+          updates.cost_price >= 0
+        ) {
+          const oldCost = Number(prod.cost_price) || 0
+          payload.cost_price = updates.cost_price
+          historyDetails.push(
+            `Custo alterado em lote de R$ ${oldCost.toFixed(2)} para R$ ${updates.cost_price.toFixed(2)}`,
+          )
+        }
+
+        if (updates.status && updates.status !== prod.status) {
+          payload.status = updates.status
+          historyDetails.push(
+            `Status alterado em lote de "${prod.status || 'Disponível'}" para "${updates.status}"`,
+          )
+        }
+
+        if (Object.keys(payload).length === 0) {
+          continue
+        }
+
+        // Auditoria no histórico do equipamento
+        const currentEvents = Array.isArray(prod.history_events) ? [...prod.history_events] : []
+        currentEvents.push({
+          date: nowIso,
+          title: `Alteração em massa (${historyDetails.join('; ')})${
+            userEmailOrName ? ` por ${userEmailOrName}` : ''
+          }`,
+        })
+        payload.history_events = currentEvents
+
+        await pb.collection('products').update<Product>(prod.id, payload)
+        updatedCount++
+      } catch (err: any) {
+        failedCount++
+        errors.push(err?.message || `Erro ao atualizar equipamento ${id}`)
+      }
+    }
+
+    return {
+      updatedCount,
+      failedCount,
+      blockedCount,
+      errors,
+    }
+  },
+
   async reorderPhotos(
     id: string,
     photos: string[],

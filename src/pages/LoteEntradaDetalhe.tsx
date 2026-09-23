@@ -34,6 +34,8 @@ import { DeletePurchaseBatchModal } from '@/components/DeletePurchaseBatchModal'
 import { TransferEquipmentModal } from '@/components/TransferEquipmentModal'
 import { CloneEquipmentModal } from '@/components/CloneEquipmentModal'
 import { EtiquetaModal, type EtiquetaData } from '@/components/EtiquetaModal'
+import { BatchEquipmentPriceStatusModal } from '@/components/BatchEquipmentPriceStatusModal'
+import { LayoutGrid, ListFilter } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -136,6 +138,12 @@ export default function LoteEntradaDetalhe() {
   // 8. Criação em Massa de Part Numbers Internos (AMB0001, AMB0002...)
   const [bulkInternalPnModalOpen, setBulkInternalPnModalOpen] = useState(false)
   const [generatingBulkPn, setGeneratingBulkPn] = useState(false)
+
+  // 9. Alteração em Massa de Preço / Status
+  const [bulkPriceStatusModalOpen, setBulkPriceStatusModalOpen] = useState(false)
+
+  // 10. Alternância entre Visão Individual e Visão Agrupada por Modelo/Config
+  const [viewMode, setViewMode] = useState<'individual' | 'grouped'>('individual')
 
   const loadData = async () => {
     if (!id) return
@@ -326,6 +334,112 @@ export default function LoteEntradaDetalhe() {
     }
     return products
   }, [products, filterOnlyPending])
+
+  // Agrupamento de equipamentos por modelo / variante / specs idênticos
+  interface ProductGroup {
+    groupKey: string
+    title: string
+    brand: string
+    model: string
+    specs: string
+    condition: string
+    items: Product[]
+    count: number
+    availableCount: number
+    reservedCount: number
+    pendingCount: number
+    soldCount: number
+    avgUnitPrice: number
+    minUnitPrice: number
+    maxUnitPrice: number
+    avgCostPrice: number
+  }
+
+  const groupedProducts = useMemo<ProductGroup[]>(() => {
+    const map = new Map<string, Product[]>()
+
+    displayedProducts.forEach((p) => {
+      // Cria chave baseada em modelo, marca, processador, ram, storage e estética
+      const b = (p.brand || '').trim().toLowerCase()
+      const m = (p.model || '').trim().toLowerCase()
+      const proc = (p.processor || '').trim().toLowerCase()
+      const r = (p.ram || '').trim().toLowerCase()
+      const st = (p.storage || '').trim().toLowerCase()
+      const cond = (p.aesthetic_grade || p.condition || '').trim().toLowerCase()
+
+      // Chave única para o conjunto idêntico
+      const key = `${b}|${m}|${proc}|${r}|${st}|${cond}`
+      if (!map.has(key)) {
+        map.set(key, [])
+      }
+      map.get(key)!.push(p)
+    })
+
+    const groups: ProductGroup[] = []
+    map.forEach((items, groupKey) => {
+      const first = items[0]
+      const count = items.length
+
+      const availableCount = items.filter((i) => i.status === 'Disponível').length
+      const reservedCount = items.filter((i) => i.status === 'Reservado').length
+      const pendingCount = items.filter((i) => i.status === 'Pendente de ativação').length
+      const soldCount = items.filter((i) => i.status === 'Vendido').length
+
+      const prices = items.map((i) => Number(i.unit_price) || 0)
+      const sumPrice = prices.reduce((a, b) => a + b, 0)
+      const avgUnitPrice = count > 0 ? sumPrice / count : 0
+      const minUnitPrice = prices.length > 0 ? Math.min(...prices) : 0
+      const maxUnitPrice = prices.length > 0 ? Math.max(...prices) : 0
+
+      const costs = items.map((i) => Number(i.cost_price) || 0)
+      const sumCost = costs.reduce((a, b) => a + b, 0)
+      const avgCostPrice = count > 0 ? sumCost / count : 0
+
+      const specsParts = [first.processor, first.ram, first.storage, first.screen_size].filter(
+        Boolean,
+      )
+
+      groups.push({
+        groupKey,
+        title: first.name || `${first.brand || ''} ${first.model || ''}`.trim() || 'Equipamento',
+        brand: first.brand || 'Não inf.',
+        model: first.model || '',
+        specs: specsParts.join(' • ') || 'Configuração padrão',
+        condition: first.aesthetic_grade || first.condition || 'Bom',
+        items,
+        count,
+        availableCount,
+        reservedCount,
+        pendingCount,
+        soldCount,
+        avgUnitPrice,
+        minUnitPrice,
+        maxUnitPrice,
+        avgCostPrice,
+      })
+    })
+
+    // Ordena do maior grupo para o menor
+    return groups.sort((a, b) => b.count - a.count)
+  }, [displayedProducts])
+
+  // Helper para selecionar todos os itens de um grupo
+  const toggleSelectGroup = (groupItems: Product[]) => {
+    const groupIds = groupItems.map((p) => p.id)
+    const allSelected = groupIds.every((id) => selectedProductIds.includes(id))
+
+    if (allSelected) {
+      // Remove todos do grupo da seleção
+      setSelectedProductIds(selectedProductIds.filter((id) => !groupIds.includes(id)))
+    } else {
+      // Adiciona todos do grupo que ainda não estão
+      const newSelected = [...selectedProductIds]
+      groupIds.forEach((id) => {
+        if (!newSelected.includes(id)) newSelected.push(id)
+      })
+      setSelectedProductIds(newSelected)
+    }
+  }
 
   // Handler de exclusão em massa
   const handleConfirmBulkDelete = async () => {
@@ -1025,7 +1139,37 @@ export default function LoteEntradaDetalhe() {
             )}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Toggle Lista Individual vs Agrupado */}
+            <div className="bg-slate-100 p-0.5 rounded-lg border border-slate-200 flex items-center text-xs">
+              <button
+                type="button"
+                onClick={() => setViewMode('individual')}
+                className={`px-2.5 py-1 rounded-md font-semibold transition-all flex items-center gap-1.5 ${
+                  viewMode === 'individual'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+                title="Exibir cada equipamento individual com serial e ações"
+              >
+                <ListFilter className="w-3.5 h-3.5" />
+                Lista Individual
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('grouped')}
+                className={`px-2.5 py-1 rounded-md font-semibold transition-all flex items-center gap-1.5 ${
+                  viewMode === 'grouped'
+                    ? 'bg-[#d9532f] text-white shadow-xs'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+                title="Agrupar equipamentos idênticos (mesmo modelo, configuração e estética)"
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+                Agrupados ({groupedProducts.length})
+              </button>
+            </div>
+
             {filterOnlyPending && (
               <Button
                 size="sm"
@@ -1058,6 +1202,17 @@ export default function LoteEntradaDetalhe() {
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
+              {/* Botão Alterar Preço / Status em Massa */}
+              <Button
+                size="sm"
+                onClick={() => setBulkPriceStatusModalOpen(true)}
+                className="bg-[#d9532f] hover:bg-[#c24624] text-white text-xs font-semibold h-8 gap-1.5 shadow-xs"
+                title="Alterar preço unitário ou status dos equipamentos selecionados em lote"
+              >
+                <DollarSign className="w-3.5 h-3.5" />
+                Alterar Preço / Status ({selectedProductIds.length})
+              </Button>
+
               {/* Botão Criar PNs Internos em Massa */}
               <Button
                 size="sm"
@@ -1147,7 +1302,177 @@ export default function LoteEntradaDetalhe() {
               </Link>
             </CardContent>
           </Card>
+        ) : viewMode === 'grouped' ? (
+          /* TABELA DE VISÃO AGRUPADA POR MODELO / ESPECIFICAÇÕES IDÊNTICAS */
+          <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+            <div className="p-3 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-600">
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-slate-800">
+                  {groupedProducts.length} grupo(s) de equipamentos idênticos
+                </span>
+                <span className="text-slate-400">•</span>
+                <span>Total de {displayedProducts.length} itens</span>
+              </div>
+              <span className="text-slate-500 text-[11px]">
+                Marque a caixa do grupo para selecionar todos os equipamentos daquele modelo para
+                alteração em lote
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50/75 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                    <th className="py-3 px-3 w-10 text-center">
+                      <Checkbox
+                        checked={
+                          selectedProductIds.length === displayedProducts.length &&
+                          displayedProducts.length > 0
+                        }
+                        onCheckedChange={toggleSelectAll}
+                        aria-label="Selecionar todos os equipamentos visíveis"
+                      />
+                    </th>
+                    <th className="py-3 px-4">Modelo / Especificação do Grupo</th>
+                    <th className="py-3 px-4 text-center">Quantidade</th>
+                    <th className="py-3 px-4">Status no Grupo</th>
+                    <th className="py-3 px-4">Estética</th>
+                    <th className="py-3 px-4">Custo Médio</th>
+                    <th className="py-3 px-4">Preço Médio Venda</th>
+                    <th className="py-3 px-4 text-right">Ação em Grupo</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {groupedProducts.map((grp) => {
+                    const groupIds = grp.items.map((i) => i.id)
+                    const selectedCountInGroup = groupIds.filter((id) =>
+                      selectedProductIds.includes(id),
+                    ).length
+                    const isAllInGroupSelected =
+                      selectedCountInGroup === grp.items.length && grp.items.length > 0
+                    const isPartiallySelected =
+                      selectedCountInGroup > 0 && selectedCountInGroup < grp.items.length
+
+                    return (
+                      <tr
+                        key={grp.groupKey}
+                        className={`transition-colors ${
+                          isAllInGroupSelected
+                            ? 'bg-orange-50/60 hover:bg-orange-50/90'
+                            : isPartiallySelected
+                              ? 'bg-amber-50/30 hover:bg-amber-50/60'
+                              : 'hover:bg-slate-50/80'
+                        }`}
+                      >
+                        <td className="py-3.5 px-3 text-center">
+                          <Checkbox
+                            checked={
+                              isAllInGroupSelected
+                                ? true
+                                : isPartiallySelected
+                                  ? 'indeterminate'
+                                  : false
+                            }
+                            onCheckedChange={() => toggleSelectGroup(grp.items)}
+                            aria-label={`Selecionar todos os ${grp.count} itens de ${grp.title}`}
+                          />
+                        </td>
+
+                        <td className="py-3.5 px-4">
+                          <div className="font-bold text-slate-900">{grp.title}</div>
+                          <div className="text-xs text-slate-500 font-medium">{grp.specs}</div>
+                          <div className="text-[11px] text-slate-400 mt-0.5">
+                            Marca: {grp.brand} {grp.model ? `• Modelo: ${grp.model}` : ''}
+                          </div>
+                        </td>
+
+                        <td className="py-3.5 px-4 text-center">
+                          <Badge
+                            variant="secondary"
+                            className="bg-slate-100 text-slate-900 font-bold px-2.5 py-1 text-xs"
+                          >
+                            {grp.count} {grp.count === 1 ? 'unidade' : 'unidades'}
+                          </Badge>
+                        </td>
+
+                        <td className="py-3.5 px-4">
+                          <div className="flex flex-wrap gap-1 text-[11px]">
+                            {grp.availableCount > 0 && (
+                              <Badge className="bg-emerald-100 text-emerald-800 border-none font-medium">
+                                {grp.availableCount} disp.
+                              </Badge>
+                            )}
+                            {grp.reservedCount > 0 && (
+                              <Badge className="bg-amber-100 text-amber-800 border-none font-medium">
+                                {grp.reservedCount} reserv.
+                              </Badge>
+                            )}
+                            {grp.pendingCount > 0 && (
+                              <Badge className="bg-amber-50 text-amber-900 border-amber-300 font-medium">
+                                ⚠️ {grp.pendingCount} pend.
+                              </Badge>
+                            )}
+                            {grp.soldCount > 0 && (
+                              <Badge className="bg-slate-200 text-slate-700 border-none font-medium">
+                                {grp.soldCount} vendido(s)
+                              </Badge>
+                            )}
+                          </div>
+                        </td>
+
+                        <td className="py-3.5 px-4 text-xs font-medium text-slate-700">
+                          {grp.condition}
+                        </td>
+
+                        <td className="py-3.5 px-4 font-medium text-slate-800 text-xs">
+                          {grp.avgCostPrice.toLocaleString('pt-BR', {
+                            style: 'currency',
+                            currency: 'BRL',
+                          })}
+                        </td>
+
+                        <td className="py-3.5 px-4 text-xs">
+                          <div className="font-bold text-emerald-700">
+                            {grp.avgUnitPrice.toLocaleString('pt-BR', {
+                              style: 'currency',
+                              currency: 'BRL',
+                            })}
+                          </div>
+                          {grp.minUnitPrice !== grp.maxUnitPrice && (
+                            <div className="text-[10px] text-slate-400">
+                              (faixa R$ {grp.minUnitPrice.toFixed(0)} - R${' '}
+                              {grp.maxUnitPrice.toFixed(0)})
+                            </div>
+                          )}
+                        </td>
+
+                        <td className="py-3.5 px-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                // Seleciona apenas este grupo e abre a modal de preço
+                                setSelectedProductIds(groupIds)
+                                setBulkPriceStatusModalOpen(true)
+                              }}
+                              className="h-7 px-2.5 text-xs text-[#d9532f] border-orange-200 hover:bg-orange-50 font-semibold gap-1"
+                              title="Alterar preço e status de todas as unidades deste grupo"
+                            >
+                              <DollarSign className="w-3 h-3" />
+                              Alterar Preço ({grp.count})
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
         ) : (
+          /* TABELA DE VISÃO INDIVIDUAL */
           <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse text-sm">
@@ -1332,6 +1657,17 @@ export default function LoteEntradaDetalhe() {
           </div>
         )}
       </div>
+
+      {/* Modal de Alteração em Massa de Preço e Status */}
+      <BatchEquipmentPriceStatusModal
+        open={bulkPriceStatusModalOpen}
+        onOpenChange={setBulkPriceStatusModalOpen}
+        selectedProducts={selectedProductsList}
+        onSuccess={async () => {
+          setSelectedProductIds([])
+          await loadData()
+        }}
+      />
 
       {/* Modal de Confirmação: Criar PNs Internos em Massa */}
       <Dialog open={bulkInternalPnModalOpen} onOpenChange={setBulkInternalPnModalOpen}>
