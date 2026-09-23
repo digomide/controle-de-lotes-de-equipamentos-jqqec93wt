@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-23T07:24:49.245Z",
+  "generatedAt": "2026-09-23T10:33:11.588Z",
   "collections": [
     {
       "name": "users",
@@ -656,7 +656,16 @@
           "type": "select",
           "required": true,
           "system": false,
-          "selectValues": ["Pendente", "Trocado", "Instalado", "Danificado"]
+          "selectValues": [
+            "Pendente",
+            "Trocado",
+            "Instalado",
+            "Danificado",
+            "Orçada",
+            "Comprada",
+            "Recebida",
+            "Instalada"
+          ]
         },
         {
           "name": "notes",
@@ -703,6 +712,12 @@
           "required": false,
           "system": false,
           "collectionRef": "tenants"
+        },
+        {
+          "name": "quantity",
+          "type": "number",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": []

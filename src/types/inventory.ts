@@ -82,6 +82,16 @@ export interface Product extends RecordModel {
   }
 }
 
+export type EquipmentPartStatus =
+  | 'Pendente'
+  | 'Orçada'
+  | 'Comprada'
+  | 'Recebida'
+  | 'Instalada'
+  | 'Instalado'
+  | 'Trocado'
+  | 'Danificado'
+
 export interface EquipmentPart extends RecordModel {
   product_id?: string
   purchase_batch_id?: string
@@ -89,8 +99,10 @@ export interface EquipmentPart extends RecordModel {
   purchase_date?: string
   name: string
   cost?: number
-  status: 'Pendente' | 'Trocado' | 'Instalado' | 'Danificado'
+  quantity?: number
+  status: EquipmentPartStatus
   notes?: string
+  tenant_id?: string
   expand?: {
     product_id?: Product
     purchase_batch_id?: PurchaseBatch

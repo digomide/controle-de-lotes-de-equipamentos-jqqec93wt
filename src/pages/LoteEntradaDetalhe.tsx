@@ -46,7 +46,7 @@ import { useTenant } from '@/contexts/TenantContext'
 import { purchaseBatchesService } from '@/services/purchaseBatches'
 import { productsService } from '@/services/products'
 import { equipmentService } from '@/services/equipment'
-import type { PurchaseBatch, Product, EquipmentPart } from '@/types/inventory'
+import type { PurchaseBatch, Product, EquipmentPart, EquipmentPartStatus } from '@/types/inventory'
 import {
   Dialog,
   DialogContent,
@@ -93,12 +93,11 @@ export default function LoteEntradaDetalhe() {
   const [editingPart, setEditingPart] = useState<EquipmentPart | null>(null)
   const [partName, setPartName] = useState('')
   const [partCost, setPartCost] = useState<number>(0)
+  const [partQuantity, setPartQuantity] = useState<number>(1)
   const [partSupplier, setPartSupplier] = useState('')
   const [partPurchaseDate, setPartPurchaseDate] = useState('')
   const [partProductId, setPartProductId] = useState<string>('batch') // 'batch' ou ID de produto
-  const [partStatus, setPartStatus] = useState<'Pendente' | 'Trocado' | 'Instalado' | 'Danificado'>(
-    'Instalado',
-  )
+  const [partStatus, setPartStatus] = useState<EquipmentPartStatus>('Comprada')
   const [partNotes, setPartNotes] = useState('')
   const [savingPart, setSavingPart] = useState(false)
 
@@ -165,17 +164,14 @@ export default function LoteEntradaDetalhe() {
       const batchProducts = await purchaseBatchesService.getProductsByBatchId(id)
       setProducts(batchProducts)
 
-      // 1. Get parts directly linked to this batch
+      // 1. Busca peças diretamente vinculadas a este lote (1 query única)
       const batchDirectParts = await equipmentService.getPartsByBatch(id)
 
-      // 2. Get parts linked to the products of this batch
-      const productPartsPromises = batchProducts.map((p) =>
-        equipmentService.getPartsByProduct(p.id),
-      )
-      const productPartsResults = await Promise.all(productPartsPromises)
-      const allProductParts = productPartsResults.flat()
+      // 2. Busca peças vinculadas a qualquer produto deste lote de forma agregada em lote (SEM N+1)
+      const productIds = batchProducts.map((p) => p.id)
+      const allProductParts = await equipmentService.getPartsByProductIds(productIds)
 
-      // Merge avoiding duplicates (a part might have both purchase_batch_id and product_id)
+      // Merge evitando duplicatas caso uma peça aponte tanto para purchase_batch_id quanto product_id
       const seen = new Set<string>()
       const mergedParts: EquipmentPart[] = []
       for (const p of [...batchDirectParts, ...allProductParts]) {
@@ -208,7 +204,12 @@ export default function LoteEntradaDetalhe() {
   const progressPct = Math.min(100, Math.round((inventoriedCount / expectedQty) * 100))
 
   const acquisitionCost = Number(batch?.total_cost) || 0
-  const partsAndServicesCost = parts.reduce((acc, part) => acc + (Number(part.cost) || 0), 0)
+  // Custo de peças calculado por (custo unitário × quantidade)
+  const partsAndServicesCost = parts.reduce(
+    (acc, part) => acc + (Number(part.cost) || 0) * (Number(part.quantity) || 1),
+    0,
+  )
+  const totalPartsQuantity = parts.reduce((acc, part) => acc + (Number(part.quantity) || 1), 0)
   const totalCostOverall = acquisitionCost + partsAndServicesCost
   // Custo-base por item do lote (custo total do lote ÷ quantidade esperada/total de itens)
   const averageUnitCost = expectedQty > 0 ? totalCostOverall / expectedQty : 0
@@ -540,10 +541,11 @@ export default function LoteEntradaDetalhe() {
     setEditingPart(null)
     setPartName('')
     setPartCost(0)
+    setPartQuantity(1)
     setPartSupplier(batch?.supplier || '')
     setPartPurchaseDate(new Date().toISOString().split('T')[0])
     setPartProductId('batch')
-    setPartStatus('Instalado')
+    setPartStatus('Comprada')
     setPartNotes('')
     setPartModalOpen(true)
   }
@@ -552,10 +554,11 @@ export default function LoteEntradaDetalhe() {
     setEditingPart(part)
     setPartName(part.name || '')
     setPartCost(Number(part.cost) || 0)
+    setPartQuantity(Math.max(1, Number(part.quantity) || 1))
     setPartSupplier(part.supplier || '')
     setPartPurchaseDate(part.purchase_date ? part.purchase_date.split(' ')[0].split('T')[0] : '')
     setPartProductId(part.product_id || 'batch')
-    setPartStatus(part.status || 'Instalado')
+    setPartStatus(part.status || 'Comprada')
     setPartNotes(part.notes || '')
     setPartModalOpen(true)
   }
@@ -566,34 +569,44 @@ export default function LoteEntradaDetalhe() {
 
     setSavingPart(true)
     try {
+      const activeTenant = currentTenant?.id || batch?.tenant_id
       const payload: any = {
         name: partName.trim(),
         cost: Number(partCost) || 0,
+        quantity: Math.max(1, Number(partQuantity) || 1),
         supplier: partSupplier.trim(),
         purchase_date: partPurchaseDate ? new Date(partPurchaseDate).toISOString() : undefined,
         status: partStatus,
         notes: partNotes.trim(),
         purchase_batch_id: id,
         product_id: partProductId !== 'batch' ? partProductId : null,
-        tenant_id: currentTenant?.id,
+        tenant_id: activeTenant,
       }
 
+      let savedRecord: EquipmentPart
       if (editingPart) {
-        await equipmentService.updatePart(editingPart.id, payload)
+        savedRecord = await equipmentService.updatePart(editingPart.id, payload)
+        // Atualização otimista imediata sem F5
+        setParts((prev) =>
+          prev.map((p) => (p.id === editingPart.id ? { ...p, ...savedRecord } : p)),
+        )
         toast({
-          title: 'Peça atualizada!',
-          description: 'Os dados e custos da peça foram atualizados.',
+          title: 'Peça atualizada com sucesso!',
+          description: `Os dados e custos da peça foram recalculados no lote.`,
         })
       } else {
-        await equipmentService.createPart(payload)
+        savedRecord = await equipmentService.createPart(payload)
+        // Inserção otimista imediata sem F5
+        setParts((prev) => [savedRecord, ...prev])
         toast({
-          title: 'Peça adicionada!',
-          description: 'A peça foi vinculada ao custo do lote.',
+          title: 'Peça adicionada ao lote!',
+          description: `Custo de R$ ${((Number(payload.cost) || 0) * (Number(payload.quantity) || 1)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} vinculado ao lote.`,
         })
       }
 
       setPartModalOpen(false)
-      await loadData()
+      // Recarrega em segundo plano para garantir consistência
+      loadData()
     } catch (err: any) {
       console.error(err)
       toast({
@@ -609,14 +622,17 @@ export default function LoteEntradaDetalhe() {
   const handleConfirmDeletePart = async () => {
     if (!partToDelete) return
     setDeletingPart(true)
+    const targetId = partToDelete.id
     try {
-      await equipmentService.deletePart(partToDelete.id)
+      await equipmentService.deletePart(targetId)
+      // Remoção otimista imediata sem F5
+      setParts((prev) => prev.filter((p) => p.id !== targetId))
       toast({
         title: 'Peça removida',
-        description: 'A peça e o respectivo custo foram excluídos.',
+        description: 'A peça e o respectivo custo foram deduzidos do lote.',
       })
       setPartToDelete(null)
-      await loadData()
+      loadData()
     } catch (err: any) {
       console.error(err)
       toast({
@@ -811,56 +827,57 @@ export default function LoteEntradaDetalhe() {
           </CardContent>
         </Card>
 
-        {/* KPI 2: Custos Peças/Serviços */}
+        {/* KPI 2: Custos Peças / Componentes */}
         <Card className="border-slate-200 shadow-xs bg-white">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                Custos Peças / Serviços
+                Peças no Lote
               </span>
               <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
                 <Wrench className="w-4 h-4" />
               </div>
             </div>
             <div className="mt-2">
-              <div className="text-2xl font-bold text-slate-900">
+              <div className="text-2xl font-bold text-amber-700">
                 {partsAndServicesCost.toLocaleString('pt-BR', {
                   style: 'currency',
                   currency: 'BRL',
                 })}
               </div>
-              <p className="text-xs text-slate-400 mt-1">
-                {parts.length} peça(s) instalada(s) no lote
+              <p className="text-xs text-slate-500 mt-1">
+                {parts.length} tipo(s) • {totalPartsQuantity} item(ns) total
               </p>
             </div>
           </CardContent>
         </Card>
 
-        {/* KPI 3: Custo Médio Unitário / Custo-Base por Item */}
-        <Card className="border-slate-200 shadow-xs bg-white">
+        {/* KPI 3: Custo Total Consolidado do Lote */}
+        <Card className="border-slate-200 shadow-xs bg-white ring-1 ring-orange-200/50">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                Custo-Base por Item
+                Custo Total Lote
               </span>
-              <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+              <div className="w-8 h-8 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center">
                 <TrendingUp className="w-4 h-4" />
               </div>
             </div>
             <div className="mt-2">
-              <div className="text-2xl font-bold text-slate-900">
-                {baseCostPerExpectedItem.toLocaleString('pt-BR', {
+              <div className="text-2xl font-extrabold text-slate-900">
+                {totalCostOverall.toLocaleString('pt-BR', {
                   style: 'currency',
                   currency: 'BRL',
                 })}
               </div>
-              <p className="text-xs text-slate-400 mt-1">
-                {expectedQty} itens esperados (
-                {acquisitionCost.toLocaleString('pt-BR', {
+              <p className="text-xs text-slate-500 mt-1">
+                {acquisitionCost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}{' '}
+                (lote) +{' '}
+                {partsAndServicesCost.toLocaleString('pt-BR', {
                   style: 'currency',
                   currency: 'BRL',
                 })}{' '}
-                ÷ {expectedQty})
+                (peças)
               </p>
             </div>
           </CardContent>
@@ -942,21 +959,33 @@ export default function LoteEntradaDetalhe() {
       <div className="space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
                 <Wrench className="w-5 h-5 text-orange-600" />
-                Peças & Custos do Lote ({parts.length})
+                Controle de Compra & Peças do Lote ({parts.length})
               </h2>
-              <Badge variant="outline" className="text-xs">
+              <Badge
+                variant="outline"
+                className="text-xs bg-amber-50 text-amber-800 border-amber-200"
+              >
+                Peças:{' '}
                 {partsAndServicesCost.toLocaleString('pt-BR', {
+                  style: 'currency',
+                  currency: 'BRL',
+                })}{' '}
+                ({totalPartsQuantity} itens)
+              </Badge>
+              <Badge variant="outline" className="text-xs bg-slate-100 text-slate-700">
+                Custo Total Lote:{' '}
+                {totalCostOverall.toLocaleString('pt-BR', {
                   style: 'currency',
                   currency: 'BRL',
                 })}
               </Badge>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              Peças adquiridas para upgrade, reparo ou manutenção geral do lote ou de equipamentos
-              específicos.
+              Compre e vincule peças (memórias, SSDs, telas) com quantidade e status (Orçada,
+              Comprada, Recebida, Instalada) para compor o custo do lote.
             </p>
           </div>
 
@@ -965,7 +994,7 @@ export default function LoteEntradaDetalhe() {
             onClick={handleOpenAddPartModal}
             className="bg-[#d9532f] hover:bg-[#c24624] text-white shadow-xs text-xs font-semibold"
           >
-            <Plus className="w-3.5 h-3.5 mr-1" />+ Adicionar Peça / Custo
+            <Plus className="w-3.5 h-3.5 mr-1" />+ Comprar / Adicionar Peça
           </Button>
         </div>
 
@@ -977,8 +1006,8 @@ export default function LoteEntradaDetalhe() {
                 Nenhuma peça ou custo extra registrado neste lote
               </h3>
               <p className="text-xs text-slate-400 max-w-sm mx-auto mt-1">
-                Adicione memórias, SSDs, telas ou peças de reposição para compor o custo real do
-                lote.
+                Adicione memórias, SSDs, telas ou peças de reposição com quantidade para compor o
+                custo real do lote.
               </p>
               <Button
                 variant="outline"
@@ -1001,14 +1030,36 @@ export default function LoteEntradaDetalhe() {
                     <th className="py-3 px-4">Vinculado a</th>
                     <th className="py-3 px-4">Fornecedor</th>
                     <th className="py-3 px-4">Data</th>
-                    <th className="py-3 px-4">Status</th>
-                    <th className="py-3 px-4">Custo</th>
+                    <th className="py-3 px-4">Status Compra</th>
+                    <th className="py-3 px-4 text-center">Qtd</th>
+                    <th className="py-3 px-4">Custo Unitário</th>
+                    <th className="py-3 px-4 font-bold text-slate-900">Custo Total</th>
                     <th className="py-3 px-4 text-right">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {parts.map((p) => {
                     const linkedProduct = products.find((prod) => prod.id === p.product_id)
+                    const qty = Math.max(1, Number(p.quantity) || 1)
+                    const unitCost = Number(p.cost) || 0
+                    const lineTotal = unitCost * qty
+
+                    // Estilo de badge de status de compra
+                    let badgeClass = 'bg-slate-100 text-slate-800'
+                    if (p.status === 'Orçada') {
+                      badgeClass = 'bg-sky-100 text-sky-800'
+                    } else if (p.status === 'Comprada') {
+                      badgeClass = 'bg-amber-100 text-amber-800'
+                    } else if (p.status === 'Recebida') {
+                      badgeClass = 'bg-purple-100 text-purple-800'
+                    } else if (p.status === 'Instalada' || p.status === 'Instalado') {
+                      badgeClass = 'bg-emerald-100 text-emerald-800'
+                    } else if (p.status === 'Danificado') {
+                      badgeClass = 'bg-rose-100 text-rose-800'
+                    } else if (p.status === 'Trocado') {
+                      badgeClass = 'bg-blue-100 text-blue-800'
+                    }
+
                     return (
                       <tr key={p.id} className="hover:bg-slate-50/80 transition-colors">
                         <td className="py-3.5 px-4">
@@ -1045,22 +1096,27 @@ export default function LoteEntradaDetalhe() {
                         <td className="py-3.5 px-4">
                           <Badge
                             variant="outline"
-                            className={`text-xs font-normal border-none ${
-                              p.status === 'Instalado'
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : p.status === 'Trocado'
-                                  ? 'bg-blue-100 text-blue-800'
-                                  : p.status === 'Danificado'
-                                    ? 'bg-rose-100 text-rose-800'
-                                    : 'bg-amber-100 text-amber-800'
-                            }`}
+                            className={`text-xs font-semibold border-none ${badgeClass}`}
                           >
-                            {p.status || 'Instalado'}
+                            {p.status || 'Comprada'}
                           </Badge>
                         </td>
 
-                        <td className="py-3.5 px-4 font-semibold text-slate-900 text-xs">
-                          {(Number(p.cost) || 0).toLocaleString('pt-BR', {
+                        <td className="py-3.5 px-4 text-center">
+                          <span className="font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded text-xs">
+                            {qty}x
+                          </span>
+                        </td>
+
+                        <td className="py-3.5 px-4 text-slate-600 text-xs">
+                          {unitCost.toLocaleString('pt-BR', {
+                            style: 'currency',
+                            currency: 'BRL',
+                          })}
+                        </td>
+
+                        <td className="py-3.5 px-4 font-bold text-slate-900 text-xs">
+                          {lineTotal.toLocaleString('pt-BR', {
                             style: 'currency',
                             currency: 'BRL',
                           })}
@@ -1781,14 +1837,30 @@ export default function LoteEntradaDetalhe() {
                 required
                 value={partName}
                 onChange={(e) => setPartName(e.target.value)}
-                placeholder="Ex: Memória RAM 16GB DDR4, SSD 512GB NVMe, Bateria Dell"
+                placeholder="Ex: Memória 8GB DDR4 Notebook, SSD 256GB NVMe, Bateria Dell"
                 className="mt-1 text-sm"
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <div>
-                <Label className="text-xs font-semibold text-slate-700">Custo da Peça (R$) *</Label>
+                <Label className="text-xs font-semibold text-slate-700">Quantidade *</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  step="1"
+                  required
+                  value={partQuantity}
+                  onChange={(e) => setPartQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                  placeholder="1"
+                  className="mt-1 text-sm font-semibold"
+                />
+              </div>
+
+              <div>
+                <Label className="text-xs font-semibold text-slate-700">
+                  Custo Unitário (R$) *
+                </Label>
                 <Input
                   type="number"
                   step="0.01"
@@ -1802,19 +1874,34 @@ export default function LoteEntradaDetalhe() {
               </div>
 
               <div>
-                <Label className="text-xs font-semibold text-slate-700">Status</Label>
+                <Label className="text-xs font-semibold text-slate-700">Status da Peça</Label>
                 <Select value={partStatus} onValueChange={(val: any) => setPartStatus(val)}>
                   <SelectTrigger className="mt-1 text-sm">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="Instalado">Instalado</SelectItem>
-                    <SelectItem value="Trocado">Trocado</SelectItem>
+                    <SelectItem value="Orçada">Orçada</SelectItem>
+                    <SelectItem value="Comprada">Comprada</SelectItem>
+                    <SelectItem value="Recebida">Recebida</SelectItem>
+                    <SelectItem value="Instalada">Instalada</SelectItem>
+                    <SelectItem value="Instalado">Instalado (Legado)</SelectItem>
                     <SelectItem value="Pendente">Pendente</SelectItem>
+                    <SelectItem value="Trocado">Trocado</SelectItem>
                     <SelectItem value="Danificado">Danificado</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+
+            {/* Totalizador prévio */}
+            <div className="p-2.5 bg-amber-50/70 border border-amber-200/80 rounded-lg flex items-center justify-between text-xs text-amber-900">
+              <span>Custo total calculado para o lote:</span>
+              <strong className="text-sm font-bold">
+                {((Number(partCost) || 0) * (Number(partQuantity) || 1)).toLocaleString('pt-BR', {
+                  style: 'currency',
+                  currency: 'BRL',
+                })}
+              </strong>
             </div>
 
             <div>
@@ -1907,12 +1994,20 @@ export default function LoteEntradaDetalhe() {
           <AlertDialogHeader>
             <AlertDialogTitle>Remover peça / custo?</AlertDialogTitle>
             <AlertDialogDescription>
-              Tem certeza de que deseja remover a peça &quot;{partToDelete?.name}&quot; no valor de{' '}
+              Tem certeza de que deseja remover a peça &quot;{partToDelete?.name}&quot; (
+              {Math.max(1, Number(partToDelete?.quantity) || 1)}x de{' '}
               {(Number(partToDelete?.cost) || 0).toLocaleString('pt-BR', {
                 style: 'currency',
                 currency: 'BRL',
               })}
-              ? Esta ação deduzirá o custo do lote e não pode ser desfeita.
+              , total:{' '}
+              {(
+                (Number(partToDelete?.cost) || 0) * Math.max(1, Number(partToDelete?.quantity) || 1)
+              ).toLocaleString('pt-BR', {
+                style: 'currency',
+                currency: 'BRL',
+              })}
+              )? Esta ação deduzirá o custo do lote e não pode ser desfeita.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

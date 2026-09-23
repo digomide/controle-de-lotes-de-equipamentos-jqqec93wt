@@ -1,5 +1,5 @@
 import pb from '@/lib/pocketbase/client'
-import type { EquipmentPart, EquipmentDeliverable } from '@/types/inventory'
+import type { EquipmentPart, EquipmentDeliverable, EquipmentPartStatus } from '@/types/inventory'
 
 export const equipmentService = {
   // Parts / Peças
@@ -19,6 +19,38 @@ export const equipmentService = {
     })
   },
 
+  /**
+   * Busca todas as peças pertencentes a uma lista de IDs de produtos em lote,
+   * em chunks seguros para evitar limite de tamanho da URL ou estouro de conexões N+1.
+   */
+  async getPartsByProductIds(productIds: string[]): Promise<EquipmentPart[]> {
+    if (!productIds || productIds.length === 0) return []
+
+    // Filtra IDs únicos e remove vazios
+    const uniqueIds = Array.from(new Set(productIds.filter(Boolean)))
+    if (uniqueIds.length === 0) return []
+
+    // Fatiar em blocos de até 50 produtos por query
+    const CHUNK_SIZE = 50
+    const chunks: string[][] = []
+    for (let i = 0; i < uniqueIds.length; i += CHUNK_SIZE) {
+      chunks.push(uniqueIds.slice(i, i + CHUNK_SIZE))
+    }
+
+    const results = await Promise.all(
+      chunks.map((chunk) => {
+        const filterExpr = chunk.map((id) => `product_id = "${id}"`).join(' || ')
+        return pb.collection('equipment_parts').getFullList<EquipmentPart>({
+          filter: filterExpr,
+          expand: 'product_id,purchase_batch_id',
+          sort: '-created',
+        })
+      }),
+    )
+
+    return results.flat()
+  },
+
   async getAllParts(tenantId?: string): Promise<EquipmentPart[]> {
     const filter = tenantId ? `tenant_id = '${tenantId}'` : ''
     return await pb.collection('equipment_parts').getFullList<EquipmentPart>({
@@ -29,11 +61,12 @@ export const equipmentService = {
   },
 
   async createPart(data: {
-    product_id?: string
-    purchase_batch_id?: string
+    product_id?: string | null
+    purchase_batch_id?: string | null
     name: string
     cost?: number
-    status: 'Pendente' | 'Trocado' | 'Instalado' | 'Danificado'
+    quantity?: number
+    status: EquipmentPartStatus
     notes?: string
     supplier?: string
     purchase_date?: string

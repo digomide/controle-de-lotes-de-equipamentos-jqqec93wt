@@ -131,7 +131,10 @@ export default function LucratividadeLotes() {
 
         const batchParts = partsByBatch.get(batch.id) || []
         const acquisitionCost = Number(batch.total_cost) || 0
-        const partsCost = batchParts.reduce((sum, p) => sum + (Number(p.cost) || 0), 0)
+        const partsCost = batchParts.reduce(
+          (sum, p) => sum + (Number(p.cost) || 0) * (Number(p.quantity) || 1),
+          0,
+        )
         const totalCost = acquisitionCost + partsCost
 
         // Realized revenue from sales

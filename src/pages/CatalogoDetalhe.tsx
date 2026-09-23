@@ -89,6 +89,7 @@ import type {
   TechnicalChecklistItem,
   ProductStatus,
   ChecklistItemStatus,
+  EquipmentPartStatus,
 } from '@/types/inventory'
 import {
   CHECKLIST_CANONICAL_ITEMS,
@@ -196,11 +197,10 @@ export default function CatalogoDetalhe() {
   const [editingPart, setEditingPart] = useState<EquipmentPart | null>(null)
   const [partName, setPartName] = useState('')
   const [partCost, setPartCost] = useState<number>(0)
+  const [partQuantity, setPartQuantity] = useState<number>(1)
   const [partSupplier, setPartSupplier] = useState('')
   const [partPurchaseDate, setPartPurchaseDate] = useState('')
-  const [partStatus, setPartStatus] = useState<'Pendente' | 'Trocado' | 'Instalado' | 'Danificado'>(
-    'Instalado',
-  )
+  const [partStatus, setPartStatus] = useState<EquipmentPartStatus>('Instalada')
   const [partNotes, setPartNotes] = useState('')
   const [partToDelete, setPartToDelete] = useState<EquipmentPart | null>(null)
   const [deletingPart, setDeletingPart] = useState(false)
@@ -876,7 +876,11 @@ export default function CatalogoDetalhe() {
   // Variáveis financeiras
   const cost = Number(product?.cost_price) || 0
   const price = Number(product?.unit_price) || 0
-  const totalPartsCost = parts.reduce((acc, p) => acc + (Number(p.cost) || 0), 0)
+  const totalPartsCost = parts.reduce(
+    (acc, p) => acc + (Number(p.cost) || 0) * (Number(p.quantity) || 1),
+    0,
+  )
+  const totalPartsQty = parts.reduce((acc, p) => acc + (Number(p.quantity) || 1), 0)
   const totalCostCombined = cost + totalPartsCost
   const marginCombined = price - totalCostCombined
   const marginPercent =
@@ -1082,9 +1086,10 @@ export default function CatalogoDetalhe() {
     setEditingPart(null)
     setPartName('')
     setPartCost(0)
+    setPartQuantity(1)
     setPartSupplier('')
     setPartPurchaseDate(new Date().toISOString().split('T')[0])
-    setPartStatus('Instalado')
+    setPartStatus('Instalada')
     setPartNotes('')
     setPartModalOpen(true)
   }
@@ -1093,9 +1098,10 @@ export default function CatalogoDetalhe() {
     setEditingPart(p)
     setPartName(p.name || '')
     setPartCost(Number(p.cost) || 0)
+    setPartQuantity(Math.max(1, Number(p.quantity) || 1))
     setPartSupplier(p.supplier || '')
     setPartPurchaseDate(p.purchase_date ? p.purchase_date.split(' ')[0].split('T')[0] : '')
-    setPartStatus(p.status || 'Instalado')
+    setPartStatus(p.status || 'Instalada')
     setPartNotes(p.notes || '')
     setPartModalOpen(true)
   }
@@ -1109,6 +1115,7 @@ export default function CatalogoDetalhe() {
       const payload: any = {
         name: partName.trim(),
         cost: Number(partCost) || 0,
+        quantity: Math.max(1, Number(partQuantity) || 1),
         status: partStatus,
         notes: partNotes.trim(),
         supplier: partSupplier.trim(),
@@ -1760,12 +1767,22 @@ export default function CatalogoDetalhe() {
                           <span className="font-semibold text-slate-800">{p.name}</span>
                           <Badge
                             variant="outline"
+                            className="text-[10px] px-1.5 py-0 font-bold bg-slate-100 text-slate-800 border-none"
+                          >
+                            {Math.max(1, Number(p.quantity) || 1)}x
+                          </Badge>
+                          <Badge
+                            variant="outline"
                             className={`text-[10px] px-1.5 py-0 ${
-                              p.status === 'Instalado'
+                              p.status === 'Instalado' || p.status === 'Instalada'
                                 ? 'bg-emerald-50 text-emerald-700'
-                                : p.status === 'Pendente'
+                                : p.status === 'Comprada'
                                   ? 'bg-amber-50 text-amber-700'
-                                  : 'bg-slate-100 text-slate-600'
+                                  : p.status === 'Recebida'
+                                    ? 'bg-purple-50 text-purple-700'
+                                    : p.status === 'Orçada'
+                                      ? 'bg-sky-50 text-sky-700'
+                                      : 'bg-slate-100 text-slate-600'
                             }`}
                           >
                             {p.status}
@@ -1783,7 +1800,9 @@ export default function CatalogoDetalhe() {
                       <div className="flex items-center gap-2">
                         <span className="font-mono font-bold text-slate-700 mr-1">
                           R${' '}
-                          {Number(p.cost || 0).toLocaleString('pt-BR', {
+                          {(
+                            (Number(p.cost) || 0) * Math.max(1, Number(p.quantity) || 1)
+                          ).toLocaleString('pt-BR', {
                             minimumFractionDigits: 2,
                           })}
                         </span>
@@ -1807,7 +1826,7 @@ export default function CatalogoDetalhe() {
                     </div>
                   ))}
                   <div className="p-2.5 bg-slate-50 flex justify-between items-center text-xs font-bold text-slate-700">
-                    <span>Custo Adicional em Peças:</span>
+                    <span>Custo Adicional em Peças ({totalPartsQty} un):</span>
                     <span className="font-mono text-amber-700">
                       R$ {totalPartsCost.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                     </span>
@@ -3338,9 +3357,21 @@ export default function CatalogoDetalhe() {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1">
-                <Label className="text-xs font-semibold text-slate-700">Custo da Peça (R$)</Label>
+                <Label className="text-xs font-semibold text-slate-700">Quantidade</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={partQuantity}
+                  onChange={(e) => setPartQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                  className="font-bold"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold text-slate-700">Custo Unitário (R$)</Label>
                 <Input
                   type="number"
                   step="0.01"
@@ -3357,6 +3388,10 @@ export default function CatalogoDetalhe() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="Orçada">Orçada</SelectItem>
+                    <SelectItem value="Comprada">Comprada</SelectItem>
+                    <SelectItem value="Recebida">Recebida</SelectItem>
+                    <SelectItem value="Instalada">Instalada</SelectItem>
                     <SelectItem value="Instalado">Instalado</SelectItem>
                     <SelectItem value="Pendente">Pendente</SelectItem>
                     <SelectItem value="Trocado">Trocado</SelectItem>
