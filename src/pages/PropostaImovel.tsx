@@ -44,6 +44,9 @@ export const PropostaImovel: React.FC = () => {
   const [editFaixas, setEditFaixas] = useState<PropertyProposalConfig['faixasMercado']>(
     () => proposal.faixasMercado,
   )
+  const [editDadosImovel, setEditDadosImovel] = useState<PropertyProposalConfig['dadosImovel']>(
+    () => proposal.dadosImovel,
+  )
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false)
   const [pdfProgressLabel, setPdfProgressLabel] = useState<string>('')
 
@@ -53,12 +56,14 @@ export const PropostaImovel: React.FC = () => {
     setProposal(loaded)
     setEditValues(loaded.valoresOperacao)
     setEditFaixas(loaded.faixasMercado)
+    setEditDadosImovel(loaded.dadosImovel)
 
     const handleUpdateEvent = (e: any) => {
       if (e?.detail) {
         setProposal(e.detail)
         setEditValues(e.detail.valoresOperacao)
         setEditFaixas(e.detail.faixasMercado)
+        setEditDadosImovel(e.detail.dadosImovel)
       }
     }
     window.addEventListener('property_proposal_updated', handleUpdateEvent)
@@ -134,34 +139,75 @@ export const PropostaImovel: React.FC = () => {
   const handleStartEditing = () => {
     setEditValues(proposal.valoresOperacao)
     setEditFaixas(proposal.faixasMercado)
+    setEditDadosImovel(proposal.dadosImovel)
     setIsEditing(true)
   }
 
   const handleCancelEditing = () => {
     setEditValues(proposal.valoresOperacao)
     setEditFaixas(proposal.faixasMercado)
+    setEditDadosImovel(proposal.dadosImovel)
     setIsEditing(false)
   }
 
   const handleSaveEditing = () => {
+    // Recalcula parcelas dinamicamente caso totalParcelas ou valorParcelaPadrao tenham sido informados
+    const totalParc = Math.max(1, editValues.totalParcelas || 29)
+    const parcPadrao = editValues.valorParcelaPadrao || 7000
+    const saldo = editValues.saldoFinanciado
+    let ultimaParc = editValues.valorUltimaParcela
+    if (totalParc > 1) {
+      const somaPadrao = (totalParc - 1) * parcPadrao
+      if (somaPadrao < saldo) {
+        ultimaParc = saldo - somaPadrao
+      }
+    } else {
+      ultimaParc = saldo
+    }
+
+    const calculatedValues = {
+      ...editValues,
+      totalParcelas: totalParc,
+      valorParcelaPadrao: parcPadrao,
+      valorUltimaParcela: ultimaParc,
+    }
+
+    // Sincroniza detalhesSaldo e subtítulo com o endereço se alterado
     const updated: PropertyProposalConfig = {
       ...proposal,
+      subtitulo: `${editDadosImovel.endereco} — ${editDadosImovel.bairroCidade}`,
+      dadosImovel: {
+        ...proposal.dadosImovel,
+        ...editDadosImovel,
+      },
       faixasMercado: {
         ...proposal.faixasMercado,
         ...editFaixas,
-        baseValorAdotado: editValues.valorReferencia,
+        baseValorAdotado: calculatedValues.valorReferencia,
       },
       valoresOperacao: {
         ...proposal.valoresOperacao,
-        ...editValues,
+        ...calculatedValues,
       },
+      detalhesSaldo: `Saldo de ${formatCurrency(
+        calculatedValues.saldoFinanciado,
+      )} pago diretamente à família/proprietária em ${
+        calculatedValues.totalParcelas
+      } parcelas mensais sucessivas: ${calculatedValues.totalParcelas - 1} parcelas fixas de ${formatCurrency(
+        calculatedValues.valorParcelaPadrao,
+      )} e a última (${calculatedValues.totalParcelas}ª) ajustada para ${formatCurrency(
+        calculatedValues.valorUltimaParcela,
+      )}, iniciando no mês subsequente à formalização da assinatura.`,
+      detalhesEntrada: `Processo trabalhista movido por ex-cuidadoras. O valor de ${formatCurrency(
+        calculatedValues.entradaDivida,
+      )} será pago diretamente às credoras pelo comprador mediante recibo e petição de quitação judicial, conforme cronograma acordado. O montante é integralmente abatido do preço da compra.`,
     }
     const saved = propertyProposalService.saveProposal(updated)
     setProposal(saved)
     setIsEditing(false)
     toast({
-      title: 'Proposta salva no navegador',
-      description: 'Valores gravados com sucesso em localStorage.',
+      title: 'Proposta salva com sucesso',
+      description: 'Alterações gravadas no navegador (localStorage).',
     })
   }
 
@@ -175,6 +221,7 @@ export const PropostaImovel: React.FC = () => {
     setProposal(standard)
     setEditValues(standard.valoresOperacao)
     setEditFaixas(standard.faixasMercado)
+    setEditDadosImovel(standard.dadosImovel)
     setIsEditing(false)
     toast({
       title: 'Padrão restaurado',
@@ -183,19 +230,28 @@ export const PropostaImovel: React.FC = () => {
   }
 
   const handlePrint = () => {
+    // Se o usuário estiver no modo de edição, salva automaticamente antes de imprimir
+    if (isEditing) {
+      handleSaveEditing()
+    }
     window.focus()
     setTimeout(() => {
       window.print()
-    }, 100)
+    }, 150)
   }
 
   const handleDownloadPdf = async () => {
+    // Se estiver em modo de edição, salva antes de gerar o PDF
+    if (isEditing) {
+      handleSaveEditing()
+    }
+
     setIsDownloadingPdf(true)
-    setPdfProgressLabel('Gerando PDF...')
+    setPdfProgressLabel('Preparando PDF...')
     try {
       toast({
         title: 'Gerando PDF',
-        description: 'Construindo o arquivo Proposta-Imovel-Francisco-Sales-905.pdf...',
+        description: 'Construindo arquivo Proposta-Imovel-Francisco-Sales-905.pdf...',
       })
       await downloadProposalPdf({
         elementId: 'proposta-imovel-doc',
@@ -203,18 +259,19 @@ export const PropostaImovel: React.FC = () => {
         onProgress: (_prog, label) => setPdfProgressLabel(label),
       })
       toast({
-        title: 'PDF Baixado com sucesso',
-        description: 'Arquivo salvo no seu navegador.',
+        title: 'PDF baixado com sucesso!',
+        description: 'O arquivo foi salvo na sua pasta de Downloads.',
       })
     } catch (err: any) {
-      console.error('Erro ao gerar PDF client-side:', err)
+      console.error('Erro ao gerar PDF via html2pdf:', err)
       toast({
-        title: 'Falha ao baixar PDF',
+        title: 'Download via impressão',
         description:
-          'Não foi possível renderizar o arquivo diretamente. Abrindo diálogo nativo de impressão.',
-        variant: 'destructive',
+          'Seu navegador abrirá o diálogo de impressão: selecione "Salvar como PDF" no destino.',
       })
-      window.print()
+      setTimeout(() => {
+        window.print()
+      }, 300)
     } finally {
       setIsDownloadingPdf(false)
       setPdfProgressLabel('')
@@ -231,12 +288,16 @@ export const PropostaImovel: React.FC = () => {
 
   // Gera o cronograma de parcelas dinamicamente com base nos dados (modo normal ou edição)
   const currentValores = isEditing ? editValues : proposal.valoresOperacao
-  const parcelasArray = Array.from({ length: currentValores.totalParcelas }, (_, i) => {
-    const num = i + 1
-    const isUltima = num === currentValores.totalParcelas
-    const valor = isUltima ? currentValores.valorUltimaParcela : currentValores.valorParcelaPadrao
-    return { num, isUltima, valor }
-  })
+  const currentDadosImovel = isEditing ? editDadosImovel : proposal.dadosImovel
+  const parcelasArray = Array.from(
+    { length: Math.max(1, currentValores.totalParcelas) },
+    (_, i) => {
+      const num = i + 1
+      const isUltima = num === currentValores.totalParcelas
+      const valor = isUltima ? currentValores.valorUltimaParcela : currentValores.valorParcelaPadrao
+      return { num, isUltima, valor }
+    },
+  )
 
   return (
     <div
@@ -405,42 +466,166 @@ export const PropostaImovel: React.FC = () => {
               <span className="text-[10px] font-semibold text-slate-500 block uppercase">
                 Endereço Completo
               </span>
-              <span className="font-bold text-slate-800">{proposal.dadosImovel.endereco}</span>
-              <span className="text-[11px] text-slate-600 block mt-0.5">
-                {proposal.dadosImovel.bairroCidade}
-              </span>
+              {isEditing ? (
+                <div className="mt-1 space-y-1">
+                  <Input
+                    type="text"
+                    value={editDadosImovel.endereco}
+                    onChange={(e) =>
+                      setEditDadosImovel((prev) => ({
+                        ...prev,
+                        endereco: e.target.value,
+                      }))
+                    }
+                    placeholder="Logradouro, número, apto"
+                    className="h-7 text-xs font-bold bg-white"
+                  />
+                  <Input
+                    type="text"
+                    value={editDadosImovel.bairroCidade}
+                    onChange={(e) =>
+                      setEditDadosImovel((prev) => ({
+                        ...prev,
+                        bairroCidade: e.target.value,
+                      }))
+                    }
+                    placeholder="Bairro, Cidade - UF, CEP"
+                    className="h-7 text-xs bg-white text-slate-700"
+                  />
+                </div>
+              ) : (
+                <>
+                  <span className="font-bold text-slate-800">{currentDadosImovel.endereco}</span>
+                  <span className="text-[11px] text-slate-600 block mt-0.5">
+                    {currentDadosImovel.bairroCidade}
+                  </span>
+                </>
+              )}
             </div>
 
             <div className="p-2.5 rounded bg-slate-50/80 border border-slate-200/80">
               <span className="text-[10px] font-semibold text-slate-500 block uppercase">
                 Área e Fração Ideal
               </span>
-              <span className="font-bold text-slate-800">{proposal.dadosImovel.areaPrivativa}</span>
-              <span className="text-[11px] text-slate-600 block mt-0.5">
-                {proposal.dadosImovel.fracaoIdeal}
-              </span>
+              {isEditing ? (
+                <div className="mt-1 space-y-1">
+                  <Input
+                    type="text"
+                    value={editDadosImovel.areaPrivativa}
+                    onChange={(e) =>
+                      setEditDadosImovel((prev) => ({
+                        ...prev,
+                        areaPrivativa: e.target.value,
+                      }))
+                    }
+                    placeholder="Ex: 70,09 m² privativos"
+                    className="h-7 text-xs font-bold bg-white"
+                  />
+                  <Input
+                    type="text"
+                    value={editDadosImovel.fracaoIdeal}
+                    onChange={(e) =>
+                      setEditDadosImovel((prev) => ({
+                        ...prev,
+                        fracaoIdeal: e.target.value,
+                      }))
+                    }
+                    placeholder="Fração ideal"
+                    className="h-7 text-xs bg-white text-slate-700"
+                  />
+                </div>
+              ) : (
+                <>
+                  <span className="font-bold text-slate-800">
+                    {currentDadosImovel.areaPrivativa}
+                  </span>
+                  <span className="text-[11px] text-slate-600 block mt-0.5">
+                    {currentDadosImovel.fracaoIdeal}
+                  </span>
+                </>
+              )}
             </div>
 
             <div className="p-2.5 rounded bg-slate-50/80 border border-slate-200/80">
               <span className="text-[10px] font-semibold text-slate-500 block uppercase">
                 Padrão Construtivo e Zoneamento
               </span>
-              <span className="font-bold text-slate-800">
-                {proposal.dadosImovel.padraoEdificio}
-              </span>
-              <span className="text-[11px] text-slate-600 block mt-0.5">
-                {proposal.dadosImovel.estadoConservacao}
-              </span>
+              {isEditing ? (
+                <div className="mt-1 space-y-1">
+                  <Input
+                    type="text"
+                    value={editDadosImovel.padraoEdificio}
+                    onChange={(e) =>
+                      setEditDadosImovel((prev) => ({
+                        ...prev,
+                        padraoEdificio: e.target.value,
+                      }))
+                    }
+                    className="h-7 text-xs font-bold bg-white"
+                  />
+                  <Input
+                    type="text"
+                    value={editDadosImovel.estadoConservacao}
+                    onChange={(e) =>
+                      setEditDadosImovel((prev) => ({
+                        ...prev,
+                        estadoConservacao: e.target.value,
+                      }))
+                    }
+                    className="h-7 text-xs bg-white text-slate-700"
+                  />
+                </div>
+              ) : (
+                <>
+                  <span className="font-bold text-slate-800">
+                    {currentDadosImovel.padraoEdificio}
+                  </span>
+                  <span className="text-[11px] text-slate-600 block mt-0.5">
+                    {currentDadosImovel.estadoConservacao}
+                  </span>
+                </>
+              )}
             </div>
 
             <div className="p-2.5 rounded bg-slate-50/80 border border-slate-200/80">
               <span className="text-[10px] font-semibold text-slate-500 block uppercase">
                 Situação Cadastral & IPTU
               </span>
-              <span className="font-bold text-emerald-700">{proposal.dadosImovel.iptuStatus}</span>
-              <span className="text-[11px] text-slate-600 block mt-0.5">
-                {proposal.dadosImovel.iptuDetalhes}
-              </span>
+              {isEditing ? (
+                <div className="mt-1 space-y-1">
+                  <Input
+                    type="text"
+                    value={editDadosImovel.iptuStatus}
+                    onChange={(e) =>
+                      setEditDadosImovel((prev) => ({
+                        ...prev,
+                        iptuStatus: e.target.value,
+                      }))
+                    }
+                    className="h-7 text-xs font-bold bg-white text-emerald-700"
+                  />
+                  <Input
+                    type="text"
+                    value={editDadosImovel.iptuDetalhes}
+                    onChange={(e) =>
+                      setEditDadosImovel((prev) => ({
+                        ...prev,
+                        iptuDetalhes: e.target.value,
+                      }))
+                    }
+                    className="h-7 text-xs bg-white text-slate-700"
+                  />
+                </div>
+              ) : (
+                <>
+                  <span className="font-bold text-emerald-700">
+                    {currentDadosImovel.iptuStatus}
+                  </span>
+                  <span className="text-[11px] text-slate-600 block mt-0.5">
+                    {currentDadosImovel.iptuDetalhes}
+                  </span>
+                </>
+              )}
             </div>
           </div>
         </section>

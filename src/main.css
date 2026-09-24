@@ -564,29 +564,47 @@
    * Estilo de impressão dedicado para Proposta de Imóvel (/proposta-imovel)
    * Garante folha A4 limpa, sem cabeçalhos de sistema ou botões, fundo branco puro
    */
-  @page {
-    size: A4 portrait;
-    margin: 8mm 10mm;
+  body:has(#proposta-imovel-doc) {
+    background: #ffffff !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Oculta tudo fora do container de proposta quando na rota de proposta */
+  body:has(#proposta-imovel-doc) > *:not(#root) {
+    display: none !important;
+  }
+
+  .proposta-no-print,
+  #proposta-imovel-container .proposta-no-print {
+    display: none !important;
+    visibility: hidden !important;
   }
 
   #proposta-imovel-container {
     background: #ffffff !important;
     padding: 0 !important;
     margin: 0 !important;
-  }
-
-  .proposta-no-print {
-    display: none !important;
+    min-height: auto !important;
   }
 
   #proposta-imovel-doc {
+    display: block !important;
+    position: static !important;
     border: none !important;
     box-shadow: none !important;
-    padding: 0 !important;
+    padding: 6mm 8mm !important;
     margin: 0 auto !important;
-    max-width: 100% !important;
+    max-width: 210mm !important;
     width: 100% !important;
     background: #ffffff !important;
+    color: #0f172a !important;
+  }
+
+  #proposta-imovel-doc input {
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
   }
 
   .proposta-section-block {
