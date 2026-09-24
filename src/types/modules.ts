@@ -224,9 +224,10 @@ export const DEFAULT_MEMBER_MODULE_IDS: AppModuleId[] = ['dashboard', 'vendas']
  * Retorna o ID do módulo associado a uma rota específica do sistema.
  */
 export function getModuleIdByPath(pathname: string): AppModuleId | null {
-  // Rotas especiais / públicas
+  // Rotas especiais / públicas / utilitárias
   if (pathname.startsWith('/loja')) return 'loja'
   if (pathname === '/pedido-6849') return 'vendas'
+  if (pathname === '/proposta-imovel') return null
 
   // Rotas diretas ou prefixadas
   if (pathname === '/') return 'dashboard'

@@ -315,7 +315,8 @@
   /* Quando o portal de impressão de etiquetas, checklist ou relatório de lotes está no DOM */
   body:has(#printable-etiqueta-root),
   body:has(#printable-checklist-root),
-  body:has(#printable-batch-report-root) {
+  body:has(#printable-batch-report-root),
+  body:has(#proposta-imovel-doc) {
     background: #ffffff !important;
     overflow: visible !important;
     position: static !important;
@@ -324,7 +325,8 @@
   /* Oculta tudo que não for o container raiz da impressão correspondente */
   body:has(#printable-etiqueta-root) > *:not(#printable-etiqueta-root),
   body:has(#printable-checklist-root) > *:not(#printable-checklist-root),
-  body:has(#printable-batch-report-root) > *:not(#printable-batch-report-root) {
+  body:has(#printable-batch-report-root) > *:not(#printable-batch-report-root),
+  body:has(#proposta-imovel-doc) > *:not(#proposta-imovel-doc) {
     display: none !important;
     visibility: hidden !important;
   }
@@ -345,6 +347,7 @@
   #printable-etiqueta-root,
   #printable-checklist-root,
   #printable-batch-report-root,
+  #proposta-imovel-doc,
   .printable-root-hidden {
     display: block !important;
     position: static !important;
@@ -358,7 +361,8 @@
 
   #printable-etiqueta-root *,
   #printable-checklist-root *,
-  #printable-batch-report-root * {
+  #printable-batch-report-root *,
+  #proposta-imovel-doc * {
     visibility: visible !important;
   }
 

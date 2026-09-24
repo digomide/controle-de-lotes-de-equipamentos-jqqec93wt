@@ -32,6 +32,7 @@ import PostTikTok from './pages/PostTikTok'
 import CotacoesCorporativas from './pages/CotacoesCorporativas'
 import Marketing from './pages/Marketing'
 import Pedido6849 from './pages/Pedido6849'
+import PropostaImovel from './pages/PropostaImovel'
 import Clientes from './pages/Clientes'
 import NotasFiscais from './pages/NotasFiscais'
 import LogoPage from './pages/LogoPage'
@@ -63,6 +64,16 @@ const App = () => (
               element={
                 <ProtectedRoute>
                   <Pedido6849 />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Rota Utilitária de Impressão da Proposta de Compra e Venda de Imóvel (apenas autenticado, fora do layout/menu, sem vínculo de tenant) */}
+            <Route
+              path="/proposta-imovel"
+              element={
+                <ProtectedRoute>
+                  <PropostaImovel />
                 </ProtectedRoute>
               }
             />
