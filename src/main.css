@@ -316,7 +316,7 @@
   body:has(#printable-etiqueta-root),
   body:has(#printable-checklist-root),
   body:has(#printable-batch-report-root),
-  body:has(#proposta-imovel-doc) {
+  body:has(#proposta-imovel-container) {
     background: #ffffff !important;
     overflow: visible !important;
     position: static !important;
@@ -325,8 +325,7 @@
   /* Oculta tudo que não for o container raiz da impressão correspondente */
   body:has(#printable-etiqueta-root) > *:not(#printable-etiqueta-root),
   body:has(#printable-checklist-root) > *:not(#printable-checklist-root),
-  body:has(#printable-batch-report-root) > *:not(#printable-batch-report-root),
-  body:has(#proposta-imovel-doc) > *:not(#proposta-imovel-doc) {
+  body:has(#printable-batch-report-root) > *:not(#printable-batch-report-root) {
     display: none !important;
     visibility: hidden !important;
   }
@@ -347,7 +346,6 @@
   #printable-etiqueta-root,
   #printable-checklist-root,
   #printable-batch-report-root,
-  #proposta-imovel-doc,
   .printable-root-hidden {
     display: block !important;
     position: static !important;
@@ -361,9 +359,42 @@
 
   #printable-etiqueta-root *,
   #printable-checklist-root *,
-  #printable-batch-report-root *,
+  #printable-batch-report-root * {
+    visibility: visible !important;
+  }
+
+  /* Regras de impressão específicas para a rota de Proposta de Imóvel */
+  .proposta-no-print {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  #proposta-imovel-container {
+    padding: 0 !important;
+    margin: 0 !important;
+    background: #ffffff !important;
+  }
+
+  #proposta-imovel-doc {
+    display: block !important;
+    position: static !important;
+    width: 210mm !important;
+    max-width: 210mm !important;
+    margin: 0 auto !important;
+    padding: 10mm 12mm !important;
+    border: none !important;
+    box-shadow: none !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    visibility: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
   #proposta-imovel-doc * {
     visibility: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
   /*
@@ -527,5 +558,39 @@
   .printable-checklist-page * {
     break-inside: avoid !important;
     page-break-inside: avoid !important;
+  }
+
+  /*
+   * Estilo de impressão dedicado para Proposta de Imóvel (/proposta-imovel)
+   * Garante folha A4 limpa, sem cabeçalhos de sistema ou botões, fundo branco puro
+   */
+  @page {
+    size: A4 portrait;
+    margin: 8mm 10mm;
+  }
+
+  #proposta-imovel-container {
+    background: #ffffff !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .proposta-no-print {
+    display: none !important;
+  }
+
+  #proposta-imovel-doc {
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 auto !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    background: #ffffff !important;
+  }
+
+  .proposta-section-block {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
   }
 }
