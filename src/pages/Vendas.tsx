@@ -47,6 +47,7 @@ import {
 } from '@/components/ui/select'
 import { useToast } from '@/hooks/use-toast'
 import { useAuth } from '@/contexts/AuthContext'
+import { useTenant } from '@/contexts/TenantContext'
 import { useRealtime } from '@/hooks/use-realtime'
 import { salesService } from '@/services/sales'
 import { productsService } from '@/services/products'
@@ -145,15 +146,18 @@ export default function Vendas() {
 
   const { toast } = useToast()
   const { user } = useAuth()
+  const { currentTenant } = useTenant()
   const location = useLocation()
 
   const loadData = async () => {
+    setLoading(true)
     try {
+      const tenantId = currentTenant?.id
       const [sData, pData, bData, pbData] = await Promise.all([
-        salesService.getAll(),
-        productsService.getAll(),
-        batchesService.getAll(),
-        purchaseBatchesService.getAll(),
+        salesService.getAll(tenantId),
+        productsService.getAllByTenant(tenantId),
+        batchesService.getAll(tenantId),
+        purchaseBatchesService.getAll(tenantId),
       ])
       setSales(sData)
       setProducts(pData)
@@ -168,7 +172,7 @@ export default function Vendas() {
 
   useEffect(() => {
     loadData()
-  }, [])
+  }, [currentTenant?.id])
 
   // Check URL params for quick actions
   useEffect(() => {
@@ -198,19 +202,19 @@ export default function Vendas() {
 
   // Realtime subscription
   useRealtime<Sale>('sales', () => {
-    salesService.getAll().then(setSales)
+    salesService.getAll(currentTenant?.id).then(setSales)
   })
 
   useRealtime<Batch>('batches', () => {
-    batchesService.getAll().then(setBatches)
+    batchesService.getAll(currentTenant?.id).then(setBatches)
   })
 
   useRealtime<PurchaseBatch>('purchase_batches', () => {
-    purchaseBatchesService.getAll().then(setPurchaseBatches)
+    purchaseBatchesService.getAll(currentTenant?.id).then(setPurchaseBatches)
   })
 
   useRealtime<Product>('products', () => {
-    productsService.getAll().then(setProducts)
+    productsService.getAllByTenant(currentTenant?.id).then(setProducts)
   })
 
   // Filtered sales
@@ -521,6 +525,7 @@ export default function Vendas() {
         customer_contact: customerContact,
         notes: saleNotes,
         user_id: user?.id,
+        tenant_id: currentTenant?.id,
         equipmentItems,
         batchLines,
       })

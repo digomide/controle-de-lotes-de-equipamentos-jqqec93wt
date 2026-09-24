@@ -50,6 +50,7 @@ import {
 } from '@/components/ui/select'
 import { useToast } from '@/hooks/use-toast'
 import { useAuth } from '@/contexts/AuthContext'
+import { useTenant } from '@/contexts/TenantContext'
 import { useRealtime } from '@/hooks/use-realtime'
 import { batchesService } from '@/services/batches'
 import { productsService } from '@/services/products'
@@ -108,12 +109,18 @@ export default function Estoque() {
 
   const { toast } = useToast()
   const { isAdmin } = useAuth()
+  const { currentTenant } = useTenant()
   const locationHook = useLocation()
   const navigate = useNavigate()
 
   const loadData = async () => {
+    setLoading(true)
     try {
-      const [bData, pData] = await Promise.all([batchesService.getAll(), productsService.getAll()])
+      const tenantId = currentTenant?.id
+      const [bData, pData] = await Promise.all([
+        batchesService.getAll(tenantId),
+        productsService.getAllByTenant(tenantId),
+      ])
       setBatches(bData)
       setProducts(pData)
     } catch (err) {
@@ -125,7 +132,7 @@ export default function Estoque() {
 
   useEffect(() => {
     loadData()
-  }, [])
+  }, [currentTenant?.id])
 
   // Parse URL search parameters (e.g. from header search or products drilldown)
   useEffect(() => {
@@ -143,7 +150,7 @@ export default function Estoque() {
 
   // Realtime updates
   useRealtime<Batch>('batches', () => {
-    batchesService.getAll().then(setBatches)
+    batchesService.getAll(currentTenant?.id).then(setBatches)
   })
 
   const filteredBatches = useMemo(() => {
@@ -295,7 +302,10 @@ export default function Estoque() {
           description: `Lote ${batchNumber} atualizado com sucesso.`,
         })
       } else {
-        await batchesService.create(data)
+        await batchesService.create({
+          ...data,
+          tenant_id: currentTenant?.id,
+        })
         toast({
           title: 'Lote cadastrado',
           description: `Novo lote ${batchNumber} registrado com saldo inicial de ${quantity} un.`,

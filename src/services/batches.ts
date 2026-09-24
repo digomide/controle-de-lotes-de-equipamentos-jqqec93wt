@@ -2,8 +2,10 @@ import pb from '@/lib/pocketbase/client'
 import type { Batch } from '@/types/inventory'
 
 export const batchesService = {
-  async getAll(): Promise<Batch[]> {
+  async getAll(tenantId?: string): Promise<Batch[]> {
+    const filter = tenantId ? `tenant_id = '${tenantId}'` : ''
     return await pb.collection('batches').getFullList<Batch>({
+      filter,
       expand: 'product_id',
       sort: '-created',
     })
@@ -30,6 +32,7 @@ export const batchesService = {
     location?: string
     manufacturing_date?: string
     expiry_date?: string
+    tenant_id?: string
   }): Promise<Batch> {
     return await pb.collection('batches').create<Batch>(data, {
       expand: 'product_id',

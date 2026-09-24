@@ -25,6 +25,7 @@ export interface CreateSaleWithBatchesInput {
   customer_contact?: string
   notes?: string
   user_id?: string
+  tenant_id?: string
   equipmentItems?: Array<{
     product_id: string
     batch_id: string
@@ -107,7 +108,7 @@ export const salesService = {
     })
   },
 
-  async createSale(input: CreateSaleInput): Promise<Sale> {
+  async createSale(input: CreateSaleInput & { tenant_id?: string }): Promise<Sale> {
     const totalAmount = input.items.reduce((sum, item) => sum + item.quantity * item.unit_price, 0)
     const userId = input.user_id || pb.authStore.record?.id
 
@@ -119,6 +120,7 @@ export const salesService = {
       total_amount: totalAmount,
       status: 'completed',
       user_id: userId,
+      tenant_id: input.tenant_id,
     })
 
     // 2. Create Sale Items (backend hook will automatically decrease stock in batches)
@@ -130,6 +132,7 @@ export const salesService = {
         quantity: item.quantity,
         unit_price: item.unit_price,
         subtotal: item.quantity * item.unit_price,
+        tenant_id: input.tenant_id,
       })
     }
 
@@ -270,6 +273,7 @@ export const salesService = {
       total_amount: totalAmount,
       status: 'completed',
       user_id: userId,
+      tenant_id: input.tenant_id,
     })
 
     const nowIso = new Date().toISOString().replace('T', ' ').substring(0, 19)
@@ -282,6 +286,7 @@ export const salesService = {
         quantity: item.quantity,
         unit_price: item.unit_price,
         subtotal: item.quantity * item.unit_price,
+        tenant_id: input.tenant_id,
       })
 
       try {
@@ -327,6 +332,7 @@ export const salesService = {
           quantity: 1,
           unit_price: group.unitPrice,
           subtotal: group.unitPrice,
+          tenant_id: input.tenant_id,
         })
 
         try {

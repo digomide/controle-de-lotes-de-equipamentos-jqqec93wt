@@ -82,33 +82,6 @@ export const ProtectedRoute: React.FC<{
   // Determinar qual módulo é exigido (passado explicitamente ou deduzido pelo path)
   const targetModule = requiredModule || getModuleIdByPath(location.pathname)
 
-  // 1. Verificação se o módulo está habilitado para o tenant ativo (se não for mestre)
-  if (targetModule && !isMasterTenant && !hasTenantModule(targetModule)) {
-    const modDef = APP_MODULES.find((m) => m.id === targetModule)
-    const moduleLabel = modDef ? modDef.label : targetModule
-
-    return (
-      <div className="p-8 max-w-md mx-auto mt-16 bg-white rounded-2xl shadow-sm border border-slate-200 text-center">
-        <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
-          <ShieldAlert className="w-6 h-6" />
-        </div>
-        <h2 className="text-xl font-bold text-slate-900 mb-2">Módulo Não Contratado</h2>
-        <p className="text-xs text-slate-600 mb-2 leading-relaxed">
-          O módulo <strong>{moduleLabel}</strong> não está habilitado no plano deste cliente.
-        </p>
-        <p className="text-[11px] text-slate-400 mb-6">
-          Entre em contato com o suporte da Ambicorp para ativar este recurso em sua assinatura.
-        </p>
-        <Link to="/">
-          <Button variant="outline" size="sm" className="text-xs gap-1.5">
-            <ArrowLeft className="w-3.5 h-3.5" />
-            Voltar ao Início
-          </Button>
-        </Link>
-      </div>
-    )
-  }
-
   // 2. Verificação se o usuário possui permissão individual
   if (targetModule && !isAdmin && !hasModule(targetModule)) {
     const modDef = APP_MODULES.find((m) => m.id === targetModule)

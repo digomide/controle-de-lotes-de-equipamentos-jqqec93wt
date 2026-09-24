@@ -162,18 +162,8 @@ export default function Layout() {
       return isSuperAdmin
     }
 
-    // 2. Se for adminOnly e não for admin
+    // 2. adminOnly para /usuarios e /configuracoes
     if (item.adminOnly && !isAdmin) return false
-
-    // 3. Checar se o módulo está habilitado para o tenant ativo (se não for mestre)
-    if (item.moduleId && !hasTenantModule(item.moduleId)) {
-      return false
-    }
-
-    // 4. Checar permissão do próprio usuário autenticado
-    if (item.moduleId) {
-      return isSuperAdmin || (isAdmin && hasTenantModule(item.moduleId)) || hasModule(item.moduleId)
-    }
 
     return true
   })

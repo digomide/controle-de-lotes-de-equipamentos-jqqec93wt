@@ -161,9 +161,9 @@ export default function Tenants() {
     setFormName('')
     setFormSlug('')
     setFormStatus('ativo')
-    setFormPlan('Profissional')
+    setFormPlan('Enterprise / Completo')
     setFormNotes('')
-    setFormModules(COMMERCIAL_PRESETS[1].modules) // Default profissional
+    setFormModules(ALL_MODULE_IDS) // Todos habilitados por padrão
     setIsModalOpen(true)
   }
 
@@ -172,11 +172,9 @@ export default function Tenants() {
     setFormName(tenant.name)
     setFormSlug(tenant.slug)
     setFormStatus(tenant.status)
-    setFormPlan(tenant.plan || 'Profissional')
+    setFormPlan(tenant.plan || 'Enterprise / Completo')
     setFormNotes(tenant.commercial_notes || '')
-    setFormModules(
-      tenant.modules && tenant.modules.length > 0 ? tenant.modules : ['dashboard', 'vendas'],
-    )
+    setFormModules(ALL_MODULE_IDS) // Todos habilitados por padrão
     setIsModalOpen(true)
   }
 
@@ -205,31 +203,12 @@ export default function Tenants() {
     }
   }
 
-  const handleToggleModule = (modId: AppModuleId) => {
-    // Se for tenant mestre, todos os módulos são mantidos
-    if (editingTenant?.id === MASTER_TENANT_ID) {
-      toast({
-        title: 'Tenant Mestre',
-        description:
-          'O tenant mestre da Ambicorp possui todos os módulos ativados permanentemente.',
-      })
-      return
-    }
-
-    setFormModules((prev) => {
-      if (prev.includes(modId)) {
-        // Garantir que dashboard nunca fique desmarcado se houver outros módulos
-        if (modId === 'dashboard') {
-          toast({
-            title: 'Módulo essencial',
-            description: 'O Dashboard é a página inicial padrão do sistema.',
-          })
-          return prev
-        }
-        return prev.filter((m) => m !== modId)
-      } else {
-        return [...prev, modId]
-      }
+  const handleToggleModule = (_modId: AppModuleId) => {
+    // Todos os módulos liberados globalmente no AmbicorpFlow
+    toast({
+      title: 'Módulos liberados',
+      description:
+        'Todos os módulos do sistema estão liberados permanentemente para todos os tenants.',
     })
   }
 
@@ -484,9 +463,8 @@ export default function Tenants() {
                       <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider">
                         Módulos Ativos
                       </span>
-                      <span className="font-bold text-orange-600">
-                        {isMaster ? ALL_MODULE_IDS.length : t.modules?.length || 0} de{' '}
-                        {ALL_MODULE_IDS.length}
+                      <span className="font-bold text-emerald-600">
+                        {ALL_MODULE_IDS.length} de {ALL_MODULE_IDS.length} (Todos Liberados)
                       </span>
                     </div>
                   </div>
@@ -529,12 +507,12 @@ export default function Tenants() {
                       Recursos liberados para este cliente:
                     </span>
                     <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
-                      {(isMaster ? ALL_MODULE_IDS : t.modules || []).map((mId) => {
+                      {ALL_MODULE_IDS.map((mId) => {
                         const mod = APP_MODULES.find((m) => m.id === mId)
                         return (
                           <span
                             key={mId}
-                            className="inline-flex items-center text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-medium"
+                            className="inline-flex items-center text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded font-medium"
                           >
                             {mod?.label || mId}
                           </span>
@@ -716,79 +694,28 @@ export default function Tenants() {
                 </div>
               </div>
 
-              {/* Toggles Individuais por Módulo */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
-                  <div>
-                    <h4 className="font-bold text-slate-900 text-xs">
-                      Módulos do Sistema ({formModules.length} selecionados)
-                    </h4>
-                    <p className="text-[11px] text-slate-500">
-                      Ative ou desative cada funcionalidade individualmente para este cliente.
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setFormModules(ALL_MODULE_IDS)}
-                      className="text-[11px] h-7 px-2 text-blue-600 hover:text-blue-700"
-                    >
-                      Marcar Todos
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setFormModules(['dashboard', 'vendas'])}
-                      className="text-[11px] h-7 px-2 text-slate-600"
-                    >
-                      Mínimo
-                    </Button>
-                  </div>
+              {/* Toggles Individuais por Módulo — Neutralizados: todos liberados */}
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg space-y-2">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span className="font-bold text-emerald-950 text-xs">
+                    Todos os {ALL_MODULE_IDS.length} módulos estão liberados por padrão
+                  </span>
                 </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-64 overflow-y-auto pr-1">
-                  {APP_MODULES.map((mod) => {
-                    const isChecked = formModules.includes(mod.id)
-                    const Icon = mod.icon
-                    const isDashboard = mod.id === 'dashboard'
-
-                    return (
-                      <div
-                        key={mod.id}
-                        className={`flex items-start justify-between gap-2 p-2.5 rounded-lg border transition-colors ${
-                          isChecked
-                            ? 'bg-orange-50/50 border-orange-200'
-                            : 'bg-white border-slate-200 opacity-75'
-                        }`}
-                      >
-                        <div className="flex items-start gap-2.5 min-w-0">
-                          <div
-                            className={`p-1.5 rounded-md mt-0.5 shrink-0 ${isChecked ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-500'}`}
-                          >
-                            <Icon className="w-4 h-4" />
-                          </div>
-                          <div className="min-w-0">
-                            <span className="font-semibold text-slate-900 block truncate text-xs">
-                              {mod.label}
-                            </span>
-                            <span className="text-[10px] text-slate-500 block line-clamp-1">
-                              {mod.description}
-                            </span>
-                          </div>
-                        </div>
-
-                        <Switch
-                          checked={isChecked}
-                          disabled={isDashboard || editingTenant?.id === MASTER_TENANT_ID}
-                          onCheckedChange={() => handleToggleModule(mod.id)}
-                          className="data-[state=checked]:bg-orange-600 mt-1 shrink-0"
-                        />
-                      </div>
-                    )
-                  })}
+                <p className="text-[11px] text-emerald-800 leading-relaxed">
+                  Conforme a política do AmbicorpFlow, este cliente possui acesso total e irrestrito
+                  a todos os módulos da plataforma (Dashboard, Compra de Lotes, Estoque, Catálogo,
+                  Vendas, Gestor ML, Notas Fiscais e demais ferramentas).
+                </p>
+                <div className="flex flex-wrap gap-1 pt-1 max-h-36 overflow-y-auto">
+                  {APP_MODULES.map((mod) => (
+                    <span
+                      key={mod.id}
+                      className="inline-flex items-center text-[10px] bg-white text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded font-medium"
+                    >
+                      ✓ {mod.label}
+                    </span>
+                  ))}
                 </div>
               </div>
 

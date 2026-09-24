@@ -28,6 +28,7 @@ import { Badge } from '@/components/ui/badge'
 import { salesService } from '@/services/sales'
 import { batchesService } from '@/services/batches'
 import { productsService } from '@/services/products'
+import { useTenant } from '@/contexts/TenantContext'
 import { useRealtime } from '@/hooks/use-realtime'
 import type { Sale, Batch, Product } from '@/types/inventory'
 import {
@@ -49,13 +50,16 @@ export default function Dashboard() {
   const [questionsMetrics, setQuestionsMetrics] = useState<MLQuestionMetrics | null>(null)
   const [sellersKpis, setSellersKpis] = useState<MLSellersKPIs | null>(null)
   const [sellersWithAlerts, setSellersWithAlerts] = useState<MLSellerRecord[]>([])
+  const { currentTenant } = useTenant()
 
   const loadData = async () => {
+    setLoading(true)
     try {
+      const tenantId = currentTenant?.id
       const [salesData, batchesData, productsData, qMetrics, sellersRes] = await Promise.all([
-        salesService.getAll(),
-        batchesService.getAll(),
-        productsService.getAll(),
+        salesService.getAll(tenantId),
+        batchesService.getAll(tenantId),
+        productsService.getAllByTenant(tenantId),
         mlQuestionsService.getMetrics().catch(() => null),
         mlSellersService.listSellers().catch(() => null),
       ])
@@ -80,15 +84,15 @@ export default function Dashboard() {
 
   useEffect(() => {
     loadData()
-  }, [])
+  }, [currentTenant?.id])
 
   // Realtime subscriptions on batches and sales
   useRealtime<Batch>('batches', () => {
-    batchesService.getAll().then(setBatches)
+    batchesService.getAll(currentTenant?.id).then(setBatches)
   })
 
   useRealtime<Sale>('sales', () => {
-    salesService.getAll().then(setSales)
+    salesService.getAll(currentTenant?.id).then(setSales)
   })
 
   // Calculate Metrics

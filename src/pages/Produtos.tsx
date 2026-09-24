@@ -69,6 +69,7 @@ import {
 } from '@/components/ui/select'
 import { useToast } from '@/hooks/use-toast'
 import { useAuth } from '@/contexts/AuthContext'
+import { useTenant } from '@/contexts/TenantContext'
 import { productsService } from '@/services/products'
 import { ProductConditionSelect } from '@/components/ProductConditionSelect'
 import {
@@ -141,13 +142,16 @@ export default function Catalogo() {
 
   const { toast } = useToast()
   const { isAdmin } = useAuth()
+  const { currentTenant } = useTenant()
   const navigate = useNavigate()
 
   const loadData = async () => {
+    setLoading(true)
     try {
+      const tenantId = currentTenant?.id
       const [prodData, batchData, kabumSettings] = await Promise.all([
-        productsService.getAll(),
-        batchesService.getAll(),
+        productsService.getAllByTenant(tenantId),
+        batchesService.getAll(tenantId),
         kabumService.getSettings().catch(() => null),
       ])
       setProducts(prodData)
@@ -162,7 +166,7 @@ export default function Catalogo() {
 
   useEffect(() => {
     loadData()
-  }, [])
+  }, [currentTenant?.id])
 
   // Aggregate stock per product
   const productStockMap = useMemo(() => {
@@ -429,7 +433,10 @@ export default function Catalogo() {
           description: `Os dados de "${name}" foram salvos com sucesso.`,
         })
       } else {
-        await productsService.create(payload)
+        await productsService.create({
+          ...payload,
+          tenant_id: currentTenant?.id,
+        })
         toast({
           title: 'Equipamento cadastrado',
           description: `O notebook "${name}" foi adicionado ao catálogo.`,

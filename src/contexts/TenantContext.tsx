@@ -144,17 +144,11 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Se o currentTenant for diferente do masterTenant, está em modo impersonação/visualização
   const isImpersonating = !isMasterTenant
 
-  // Se for o tenant mestre, todos os módulos canônicos estão liberados
-  // Se for um tenant cliente, usa os módulos configurados em tenant.modules
-  const activeModules: AppModuleId[] = isMasterTenant
-    ? ALL_MODULE_IDS
-    : currentTenant?.modules && currentTenant.modules.length > 0
-      ? currentTenant.modules
-      : ['dashboard', 'vendas']
+  // Todos os módulos canônicos estão liberados para qualquer usuário/tenant
+  const activeModules: AppModuleId[] = ALL_MODULE_IDS
 
-  const hasTenantModule = (moduleId: AppModuleId): boolean => {
-    if (isMasterTenant) return true
-    return activeModules.includes(moduleId)
+  const hasTenantModule = (_moduleId: AppModuleId): boolean => {
+    return true
   }
 
   return (
