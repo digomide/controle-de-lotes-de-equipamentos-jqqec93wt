@@ -51,72 +51,97 @@ onRecordAfterCreateSuccess((e) => {
   // Determinar tenant_id da fila de catálogo
   let queueTenantId = ''
   try {
-    queueTenantId = rec.getString('tenant_id') || ''
+    queueTenantId = (rec.getString('tenant_id') || '').trim()
   } catch (_) {}
 
   if (!queueTenantId && productId) {
     try {
       const pCheck = appId.findRecordById('products', productId)
       if (pCheck) {
-        queueTenantId = pCheck.getString('tenant_id') || ''
+        queueTenantId = (pCheck.getString('tenant_id') || '').trim()
       }
     } catch (_) {}
   }
 
-  // 1. Obter token ML e configurações do tenant ativo (isolamento bilateral, sem fallback)
+  // Fallback seguro de resolução de tenant via requested_by (mantendo isolamento estrito)
+  if (!queueTenantId && rec.getString('requested_by')) {
+    try {
+      const uCheck = appId.findRecordById('users', rec.getString('requested_by'))
+      if (uCheck) {
+        queueTenantId = (uCheck.getString('tenant_id') || '').trim()
+      }
+    } catch (_) {}
+  }
+
+  // Se o registro não tinha tenant_id preenchido mas conseguimos resolver, persiste no próprio job
+  if (queueTenantId && !rec.getString('tenant_id')) {
+    try {
+      rec.set('tenant_id', queueTenantId)
+    } catch (_) {}
+  }
+
+  if (!queueTenantId) {
+    rec.set('status', 'error')
+    rec.set('status_code', 400)
+    rec.set('error_message', 'Tenant não identificado para este anúncio de catálogo.')
+    appId.save(rec)
+    return
+  }
+
+  // 1. Obter token ML e configurações do tenant ativo (isolamento bilateral estrito, sem fallback para outros tenants)
   let token = ''
+  let hasSettingsRecord = false
   let defaultWarrantyDays = 90
   try {
-    if (queueTenantId) {
-      const sRecords = appId.findRecordsByFilter(
-        'ml_settings',
-        'tenant_id = {:tid}',
-        '-created',
-        1,
-        0,
-        { tid: queueTenantId },
-      )
-      if (sRecords && sRecords.length > 0) {
-        const s = sRecords[0]
-        token = s.getString('access_token')
-        const refreshToken = s.getString('refresh_token')
-        const expiresAt = s.getDateTime('token_expires_at')
-        const clientId = s.getString('client_id') || $os.getenv('ML_CLIENT_ID') || ''
-        const clientSecret = s.getString('client_secret') || $os.getenv('ML_CLIENT_SECRET') || ''
+    const sRecords = appId.findRecordsByFilter(
+      'ml_settings',
+      'tenant_id = {:tid}',
+      '-created',
+      1,
+      0,
+      { tid: queueTenantId },
+    )
+    if (sRecords && sRecords.length > 0) {
+      hasSettingsRecord = true
+      const s = sRecords[0]
+      token = s.getString('access_token') || ''
+      const refreshToken = s.getString('refresh_token') || ''
+      const expiresAt = s.getDateTime('token_expires_at')
+      const clientId = s.getString('client_id') || $os.getenv('ML_CLIENT_ID') || ''
+      const clientSecret = s.getString('client_secret') || $os.getenv('ML_CLIENT_SECRET') || ''
 
-        const now = new Date()
-        const exp = expiresAt ? new Date(expiresAt.time()) : null
-        const needRefresh = !token || (exp && exp.getTime() - now.getTime() < 5 * 60 * 1000)
+      const now = new Date()
+      const exp = expiresAt ? new Date(expiresAt.time()) : null
+      const needRefresh = !token || (exp && exp.getTime() - now.getTime() < 5 * 60 * 1000)
 
-        if (needRefresh && refreshToken && clientId && clientSecret) {
-          try {
-            const tRes = $http.send({
-              url: 'https://api.mercadolibre.com/oauth/token',
-              method: 'POST',
-              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-              body:
-                'grant_type=refresh_token&client_id=' +
-                encodeURIComponent(clientId) +
-                '&client_secret=' +
-                encodeURIComponent(clientSecret) +
-                '&refresh_token=' +
-                encodeURIComponent(refreshToken),
-              timeout: 15,
-            })
-            if (tRes.statusCode === 200) {
-              const d = tRes.json
-              token = d.access_token
-              s.set('access_token', d.access_token)
-              if (d.refresh_token) s.set('refresh_token', d.refresh_token)
-              if (d.expires_in) {
-                const newExp = new Date(Date.now() + d.expires_in * 1000)
-                s.set('token_expires_at', newExp.toISOString().replace('T', ' ').substring(0, 19))
-              }
-              appId.save(s)
+      if (needRefresh && refreshToken && clientId && clientSecret) {
+        try {
+          const tRes = $http.send({
+            url: 'https://api.mercadolibre.com/oauth/token',
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body:
+              'grant_type=refresh_token&client_id=' +
+              encodeURIComponent(clientId) +
+              '&client_secret=' +
+              encodeURIComponent(clientSecret) +
+              '&refresh_token=' +
+              encodeURIComponent(refreshToken),
+            timeout: 15,
+          })
+          if (tRes.statusCode === 200) {
+            const d = tRes.json
+            token = d.access_token
+            s.set('access_token', d.access_token)
+            if (d.refresh_token) s.set('refresh_token', d.refresh_token)
+            if (d.expires_in) {
+              const newExp = new Date(Date.now() + d.expires_in * 1000)
+              s.set('token_expires_at', newExp.toISOString().replace('T', ' ').substring(0, 19))
             }
-          } catch (tErr) {
-            console.warn('[ml_catalog_publish] Erro ao renovar token ML:', tErr)
+            appId.save(s)
           }
+        } catch (tErr) {
+          console.warn('[ml_catalog_publish] Erro ao renovar token ML:', tErr)
         }
       }
     }
@@ -127,12 +152,25 @@ onRecordAfterCreateSuccess((e) => {
     )
   }
 
+  if (!hasSettingsRecord) {
+    rec.set('status', 'error')
+    rec.set('status_code', 404)
+    rec.set(
+      'error_message',
+      'Configurações do Mercado Livre não encontradas para o tenant ' +
+        queueTenantId +
+        '. Conecte a conta em Configurações.',
+    )
+    appId.save(rec)
+    return
+  }
+
   if (!token) {
     rec.set('status', 'error')
     rec.set('status_code', 401)
     rec.set(
       'error_message',
-      'Mercado Livre não autenticado ou token expirado. Configure na tela de Configurações.',
+      'Token Mercado Livre ausente ou inválido. Reconecte a conta nas Configurações.',
     )
     appId.save(rec)
     return
@@ -432,6 +470,20 @@ onRecordAfterCreateSuccess((e) => {
 
         const resStr = JSON.stringify(resJson)
 
+        // Verificação imediata de bloqueio PolicyAgent (403)
+        // Se a conta ou anúncio sofre bloqueio de catálogo pelas políticas do ML,
+        // não adianta tentar outras variações de payload
+        const isPolicyAgent =
+          postRes.statusCode === 403 ||
+          resJson.code === 'PA_UNAUTHORIZED_RESULT_FROM_POLICIES' ||
+          resJson.blocked_by === 'PolicyAgent' ||
+          resStr.indexOf('PA_UNAUTHORIZED_RESULT_FROM_POLICIES') !== -1 ||
+          resStr.indexOf('PolicyAgent') !== -1
+
+        if (isPolicyAgent) {
+          break
+        }
+
         // FALLBACK AUTOMÁTICO DE SEGURANÇA:
         // Se a tentativa foi com 'refurbished' e todas as variações de recondicionado foram esgotadas,
         // tentamos fallback com 'used' como rede de segurança apenas se o erro foi de elegibilidade de catálogo
@@ -590,12 +642,22 @@ onRecordAfterCreateSuccess((e) => {
     // Tratar erro retornado pelo Mercado Livre com mensagens claras em português
     rec.set('status', 'error')
     const errBody = lastErrorData || {}
-    let userMsg =
-      'Falha ao publicar anúncio de catálogo no Mercado Livre (status ' + lastStatusCode + ')'
-
     const rawErrorStr = JSON.stringify(errBody)
 
-    if (
+    // Verificação de bloqueio por PolicyAgent (403) nas políticas de catálogo do ML
+    const isPolicyAgent =
+      lastStatusCode === 403 ||
+      errBody.code === 'PA_UNAUTHORIZED_RESULT_FROM_POLICIES' ||
+      errBody.blocked_by === 'PolicyAgent' ||
+      rawErrorStr.indexOf('PA_UNAUTHORIZED_RESULT_FROM_POLICIES') !== -1 ||
+      rawErrorStr.indexOf('PolicyAgent') !== -1
+
+    let userMsg = ''
+
+    if (isPolicyAgent) {
+      userMsg =
+        'Mercado Livre bloqueia criação/oferta de catálogo via API para esta conta/anúncio (Política de Catálogo ML). Crie a oferta diretamente pelo painel do Mercado Livre ou Ideris.'
+    } else if (
       errBody.error &&
       errBody.error.indexOf('The fields') >= 0 &&
       errBody.error.indexOf('are invalid') >= 0
@@ -621,9 +683,12 @@ onRecordAfterCreateSuccess((e) => {
         'Esta posição de catálogo aceita apenas Novo ou Caixa aberta; Usado e Recondicionado exigem suas posições próprias no catálogo.'
     } else if (errBody.message) {
       userMsg = errBody.message
+    } else {
+      userMsg =
+        'Falha ao publicar anúncio de catálogo no Mercado Livre (status ' + lastStatusCode + ')'
     }
 
-    if (Array.isArray(errBody.cause) && errBody.cause.length > 0) {
+    if (!isPolicyAgent && Array.isArray(errBody.cause) && errBody.cause.length > 0) {
       // Filtrar avisos secundários de frete/shipping que não são erros impeditivos
       const errorCauses = errBody.cause.filter(function (c) {
         if (c.type === 'warning') return false
@@ -778,7 +843,7 @@ onRecordAfterCreateSuccess((e) => {
       }
     }
 
-    if (fallbackFromCondition) {
+    if (!isPolicyAgent && fallbackFromCondition) {
       userMsg =
         'Recusado como "Recondicionado · Grau ' +
         gradingResolved.value_name +

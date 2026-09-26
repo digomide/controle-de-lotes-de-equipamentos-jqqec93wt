@@ -1,5 +1,6 @@
 import pb from '@/lib/pocketbase/client'
 import { Product } from '@/types/inventory'
+import { getActiveTenantId } from './mlService'
 
 export interface MLCatalogCompetitor {
   item_id?: string
@@ -742,8 +743,10 @@ export const mlCatalogService = {
     domain_id?: string
     condition?: string
     condition_grade?: string
+    tenant_id?: string
   }): Promise<MLCatalogPublishJob> {
     const userId = pb.authStore.model?.id || null
+    const activeTenantId = (payload.tenant_id || getActiveTenantId() || '').trim()
     const createData: Record<string, any> = {
       catalog_product_id: payload.catalog_product_id,
       product_id: payload.product_id || null,
@@ -753,6 +756,7 @@ export const mlCatalogService = {
       condition: payload.condition || 'used',
       status: 'pending',
       requested_by: userId,
+      tenant_id: activeTenantId || null,
     }
 
     if (payload.condition_grade) {
