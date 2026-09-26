@@ -20,31 +20,28 @@ onRecordAfterCreateSuccess((e) => {
   job.set('progress_text', 'Iniciando consulta aos anúncios do Mercado Livre...')
   $app.save(job)
 
-  // 1. Carregar ml_settings para o tenant do job (com fallback para requested_by tenant se vazio)
-  let jobTenantId = ''
-  try {
-    jobTenantId = job.getString('tenant_id') || ''
-  } catch (_) {}
+  // 1. Carregar ml_settings para a conta mestre única (Single-Tenant)
+  let jobTenantId = 'ambicorpmestre1'
 
   let settings = null
   try {
-    if (jobTenantId) {
-      const sRecords = $app.findRecordsByFilter(
-        'ml_settings',
-        'tenant_id = {:tid}',
-        '-created',
-        1,
-        0,
-        { tid: jobTenantId },
-      )
-      if (sRecords && sRecords.length > 0) {
-        settings = sRecords[0]
+    const sRecords = $app.findRecordsByFilter(
+      'ml_settings',
+      'tenant_id = "ambicorpmestre1" || tenant_id = "ambicorp"',
+      '-created',
+      1,
+      0,
+    )
+    if (sRecords && sRecords.length > 0) {
+      settings = sRecords[0]
+    } else {
+      const fallbackRecords = $app.findRecordsByFilter('ml_settings', '1=1', '-created', 1, 0)
+      if (fallbackRecords && fallbackRecords.length > 0) {
+        settings = fallbackRecords[0]
       }
     }
   } catch (err) {
-    console.log(
-      '[ml_ads_fetch_job] Erro ao carregar ml_settings para tenant ' + jobTenantId + ': ' + err,
-    )
+    console.log('[ml_ads_fetch_job] Erro ao carregar ml_settings para conta única: ' + err)
   }
 
   if (!settings) {

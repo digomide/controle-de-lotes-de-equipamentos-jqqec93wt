@@ -48,58 +48,23 @@ onRecordAfterCreateSuccess((e) => {
     return GRADING_MAP[norm] || GRADING_MAP.excelente
   }
 
-  // Determinar tenant_id da fila de catálogo
-  let queueTenantId = ''
+  // Determinar tenant_id da fila de catálogo - SEMPRE resolve para a conta mestre (Single-Tenant)
+  let queueTenantId = 'ambicorpmestre1'
   try {
-    queueTenantId = (rec.getString('tenant_id') || '').trim()
+    rec.set('tenant_id', queueTenantId)
   } catch (_) {}
 
-  if (!queueTenantId && productId) {
-    try {
-      const pCheck = appId.findRecordById('products', productId)
-      if (pCheck) {
-        queueTenantId = (pCheck.getString('tenant_id') || '').trim()
-      }
-    } catch (_) {}
-  }
-
-  // Fallback seguro de resolução de tenant via requested_by (mantendo isolamento estrito)
-  if (!queueTenantId && rec.getString('requested_by')) {
-    try {
-      const uCheck = appId.findRecordById('users', rec.getString('requested_by'))
-      if (uCheck) {
-        queueTenantId = (uCheck.getString('tenant_id') || '').trim()
-      }
-    } catch (_) {}
-  }
-
-  // Se o registro não tinha tenant_id preenchido mas conseguimos resolver, persiste no próprio job
-  if (queueTenantId && !rec.getString('tenant_id')) {
-    try {
-      rec.set('tenant_id', queueTenantId)
-    } catch (_) {}
-  }
-
-  if (!queueTenantId) {
-    rec.set('status', 'error')
-    rec.set('status_code', 400)
-    rec.set('error_message', 'Tenant não identificado para este anúncio de catálogo.')
-    appId.save(rec)
-    return
-  }
-
-  // 1. Obter token ML e configurações do tenant ativo (isolamento bilateral estrito, sem fallback para outros tenants)
+  // 1. Obter token ML e configurações da conta mestre única
   let token = ''
   let hasSettingsRecord = false
   let defaultWarrantyDays = 90
   try {
     const sRecords = appId.findRecordsByFilter(
       'ml_settings',
-      'tenant_id = {:tid}',
+      'tenant_id = "ambicorpmestre1" || tenant_id = "ambicorp"',
       '-created',
       1,
       0,
-      { tid: queueTenantId },
     )
     if (sRecords && sRecords.length > 0) {
       hasSettingsRecord = true

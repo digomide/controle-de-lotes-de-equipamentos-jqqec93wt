@@ -19,36 +19,20 @@ onRecordAfterCreateSuccess((e) => {
   itemAction.set('status', 'processing')
   $app.save(itemAction)
 
-  // Determinar tenant_id da ação (direto do itemAction ou do produto)
-  let itemTenantId = ''
-  try {
-    itemTenantId = itemAction.getString('tenant_id') || ''
-  } catch (_) {}
-
-  const productIdEarly = itemAction.getString('product')
-  if (!itemTenantId && productIdEarly) {
-    try {
-      const prodCheck = $app.findRecordById('products', productIdEarly)
-      if (prodCheck) {
-        itemTenantId = prodCheck.getString('tenant_id') || ''
-      }
-    } catch (_) {}
-  }
+  // Determinar tenant_id da ação - SEMPRE resolve para a conta mestre (Single-Tenant)
+  let itemTenantId = 'ambicorpmestre1'
 
   let settings = null
   try {
-    if (itemTenantId) {
-      const sRecords = $app.findRecordsByFilter(
-        'ml_settings',
-        'tenant_id = {:tid}',
-        '-created',
-        1,
-        0,
-        { tid: itemTenantId },
-      )
-      if (sRecords && sRecords.length > 0) {
-        settings = sRecords[0]
-      }
+    const sRecords = $app.findRecordsByFilter(
+      'ml_settings',
+      'tenant_id = "ambicorpmestre1" || tenant_id = "ambicorp"',
+      '-created',
+      1,
+      0,
+    )
+    if (sRecords && sRecords.length > 0) {
+      settings = sRecords[0]
     }
     if (!settings) {
       const fallbackRecords = $app.findRecordsByFilter('ml_settings', '1=1', '-created', 1, 0)
@@ -57,9 +41,7 @@ onRecordAfterCreateSuccess((e) => {
       }
     }
   } catch (err) {
-    console.log(
-      '[ml_item_hook] Erro ao carregar ml_settings para tenant ' + itemTenantId + ': ' + err,
-    )
+    console.log('[ml_item_hook] Erro ao carregar ml_settings para conta única: ' + err)
   }
 
   if (!settings) {
@@ -303,26 +285,91 @@ onRecordAfterCreateSuccess((e) => {
 
   // Estratégia B: Se não usou variações (ou status pause/activate/close), tenta PUT /items/{id}
   if (!updateRes) {
-    try {
-      updateRes = $http.send({
-        url: 'https://api.mercadolibre.com/items/' + mlListingId,
-        method: 'PUT',
-        headers: {
-          Authorization: 'Bearer ' + accessToken,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(putBody),
-        timeout: 20,
-      })
-    } catch (uNetErr) {
-      itemAction.set('status', 'error')
-      itemAction.set(
-        'error_message',
-        'Falha de rede ao atualizar anúncio no ML: ' + (uNetErr.message || uNetErr),
-      )
-      $app.save(itemAction)
-      e.next()
-      return
+    // Se a ação for conjunta (preço E estoque), mas anúncio for catálogo, testar se separar os PUTs passa
+    if (
+      rawAction === 'update_price_stock' &&
+      putBody.price !== undefined &&
+      putBody.available_quantity !== undefined
+    ) {
+      // 1. Tentar PUT conjunto primeiro
+      try {
+        updateRes = $http.send({
+          url: 'https://api.mercadolibre.com/items/' + mlListingId,
+          method: 'PUT',
+          headers: {
+            Authorization: 'Bearer ' + accessToken,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(putBody),
+          timeout: 20,
+        })
+      } catch (uNetErr) {
+        /* continue */
+      }
+
+      // Se der 403 no conjunto, tentar enviar disponível (estoque) primeiro isolado, depois preço
+      if (!updateRes || updateRes.statusCode >= 400) {
+        console.log('[ml_item_hook] Tentando envio separado de estoque e preço para ' + mlListingId)
+        try {
+          const stockOnlyRes = $http.send({
+            url: 'https://api.mercadolibre.com/items/' + mlListingId,
+            method: 'PUT',
+            headers: {
+              Authorization: 'Bearer ' + accessToken,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ available_quantity: putBody.available_quantity }),
+            timeout: 20,
+          })
+
+          const priceOnlyRes = $http.send({
+            url: 'https://api.mercadolibre.com/items/' + mlListingId,
+            method: 'PUT',
+            headers: {
+              Authorization: 'Bearer ' + accessToken,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ price: putBody.price }),
+            timeout: 20,
+          })
+
+          // Se ao menos um ou ambos tiveram sucesso
+          if (stockOnlyRes.statusCode === 200 && priceOnlyRes.statusCode === 200) {
+            updateRes = { statusCode: 200, json: { separated_updates: true } }
+            appliedStrategy = 'root_separated'
+          } else if (stockOnlyRes.statusCode === 200) {
+            updateRes = {
+              statusCode: 200,
+              json: { stock_updated: true, price_error: priceOnlyRes.json },
+            }
+            appliedStrategy = 'root_stock_only'
+          } else {
+            updateRes = updateRes || stockOnlyRes
+          }
+        } catch (_) {}
+      }
+    } else {
+      try {
+        updateRes = $http.send({
+          url: 'https://api.mercadolibre.com/items/' + mlListingId,
+          method: 'PUT',
+          headers: {
+            Authorization: 'Bearer ' + accessToken,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(putBody),
+          timeout: 20,
+        })
+      } catch (uNetErr) {
+        itemAction.set('status', 'error')
+        itemAction.set(
+          'error_message',
+          'Falha de rede ao atualizar anúncio no ML: ' + (uNetErr.message || uNetErr),
+        )
+        $app.save(itemAction)
+        e.next()
+        return
+      }
     }
   }
 

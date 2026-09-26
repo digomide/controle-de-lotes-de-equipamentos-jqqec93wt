@@ -47,10 +47,19 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setMasterTenant(master)
 
       // 2. Mantém lista de tenants para compatibilidade com rotas administrativas (sem afetar o contexto ativo)
+      // Ocultar da listagem qualquer registro de Filial (os dados do banco permanecem preservados)
       let list: Tenant[] = []
       try {
-        list = await tenantsService.getAll()
-        setAllTenants(list)
+        const rawList = await tenantsService.getAll()
+        list = rawList.filter((t) => {
+          const nameLower = (t.name || '').toLowerCase()
+          const slugLower = (t.slug || '').toLowerCase()
+          return (
+            t.id === MASTER_TENANT_ID ||
+            (!nameLower.includes('filial') && !slugLower.includes('filial'))
+          )
+        })
+        setAllTenants(list.length > 0 ? list : [master])
       } catch {
         /* intentionally ignored */
       }
@@ -73,9 +82,17 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const refreshTenants = async () => {
     try {
-      const list = await tenantsService.getAll()
-      setAllTenants(list)
+      const rawList = await tenantsService.getAll()
+      const list = rawList.filter((t) => {
+        const nameLower = (t.name || '').toLowerCase()
+        const slugLower = (t.slug || '').toLowerCase()
+        return (
+          t.id === MASTER_TENANT_ID ||
+          (!nameLower.includes('filial') && !slugLower.includes('filial'))
+        )
+      })
       const master = await tenantsService.getMasterTenant()
+      setAllTenants(list.length > 0 ? list : [master])
       setMasterTenant(master)
       setCurrentTenantState(master)
     } catch (err) {
