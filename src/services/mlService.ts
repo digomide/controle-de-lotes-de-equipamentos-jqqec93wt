@@ -9,23 +9,9 @@ import { TENANT_STORAGE_KEY } from '@/utils/tenantResolver'
  * 2. pb.authStore.record.tenant_id (o tenant do usuário logado)
  */
 export function getActiveTenantId(): string {
-  try {
-    const stored = localStorage.getItem(TENANT_STORAGE_KEY)
-    if (stored && typeof stored === 'string' && stored.trim()) {
-      return stored.trim()
-    }
-  } catch {
-    /* intentionally ignored */
-  }
-  try {
-    const user = pb.authStore?.record || pb.authStore?.model
-    if (user && (user as any).tenant_id) {
-      return String((user as any).tenant_id).trim()
-    }
-  } catch {
-    /* intentionally ignored */
-  }
-  return ''
+  // Recuo multi-tenant para conta única (Ambicorp Mestre / INFOPRECOBAIXO).
+  // Sempre retorna o tenant mestre para consistência com o banco e todas as integrações.
+  return 'ambicorpmestre1'
 }
 import { ProductSimilarityMatcher, LocalProductCandidate } from './productMatchingService'
 export { getMLItemCondition, getMLGradeLabel }

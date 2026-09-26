@@ -9,8 +9,10 @@ export const tenantsService = {
    */
   async getAll(): Promise<Tenant[]> {
     try {
+      // Ordena por name para estabilidade e compatibilidade máxima
       const records = await pb.collection('tenants').getFullList<Tenant>({
         sort: 'name',
+        requestKey: null,
       })
       return records
     } catch (err) {

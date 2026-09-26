@@ -35,11 +35,18 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const loadInitialTenant = useCallback(async () => {
     setIsLoadingTenant(true)
     try {
-      // 1. Carrega tenant mestre primeiro
+      // Recuo Multi-Tenant: Limpa qualquer chave residual de tenant do localStorage
+      try {
+        localStorage.removeItem(TENANT_STORAGE_KEY)
+      } catch {
+        /* ignore */
+      }
+
+      // 1. Carrega tenant mestre definitivo
       const master = await tenantsService.getMasterTenant()
       setMasterTenant(master)
 
-      // 2. Tenta listar todos os tenants (se permitido)
+      // 2. Mantém lista de tenants para compatibilidade com rotas administrativas (sem afetar o contexto ativo)
       let list: Tenant[] = []
       try {
         list = await tenantsService.getAll()
@@ -48,31 +55,13 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         /* intentionally ignored */
       }
 
-      // 3. Resolução por hostname
-      const hostRes = resolveTenantFromHost()
-      setResolvedBySubdomain(hostRes.isSubdomain)
-      setResolvedSlug(hostRes.slug)
+      setResolvedBySubdomain(false)
+      setResolvedSlug(null)
 
-      let targetTenant: Tenant | null = null
-
-      if (hostRes.slug && hostRes.slug !== MASTER_TENANT_SLUG) {
-        // Buscar tenant correspondente ao slug do subdomínio ou query param
-        targetTenant = await tenantsService.getBySlug(hostRes.slug)
-      } else if (hostRes.source === 'storage') {
-        const storedId = localStorage.getItem(TENANT_STORAGE_KEY)
-        if (storedId) {
-          targetTenant = await tenantsService.getById(storedId)
-        }
-      }
-
-      // Se não encontrou ou é o mestre, usa o masterTenant
-      if (!targetTenant) {
-        targetTenant = master
-      }
-
-      setCurrentTenantState(targetTenant)
+      // REGRA DE RECUO SINGLE-TENANT: O tenant ativo SEMPRE é o tenant MESTRE da Ambicorp
+      setCurrentTenantState(master)
     } catch (err) {
-      console.error('[TenantContext] Falha ao resolver tenant:', err)
+      console.error('[TenantContext] Falha ao resolver tenant mestre:', err)
     } finally {
       setIsLoadingTenant(false)
     }
@@ -86,34 +75,28 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     try {
       const list = await tenantsService.getAll()
       setAllTenants(list)
-      if (currentTenant) {
-        const updated = list.find((t) => t.id === currentTenant.id)
-        if (updated) setCurrentTenantState(updated)
-      }
+      const master = await tenantsService.getMasterTenant()
+      setMasterTenant(master)
+      setCurrentTenantState(master)
     } catch (err) {
       console.warn('[TenantContext] Erro ao atualizar lista de tenants:', err)
     }
   }
 
-  const switchTenant = async (tenantId: string) => {
+  // Em modo conta única (recuo multi-tenant), switchTenant e resetToMaster mantêm sempre o mestre ativo
+  const switchTenant = async (_tenantId: string) => {
     setIsLoadingTenant(true)
     try {
-      if (tenantId === MASTER_TENANT_ID || !tenantId) {
-        if (masterTenant) {
-          setCurrentTenantState(masterTenant)
-          localStorage.removeItem(TENANT_STORAGE_KEY)
-        }
-        return
+      try {
+        localStorage.removeItem(TENANT_STORAGE_KEY)
+      } catch {
+        /* ignore */
       }
-
-      let found = allTenants.find((t) => t.id === tenantId)
-      if (!found) {
-        found = (await tenantsService.getById(tenantId)) || undefined
-      }
-
-      if (found) {
-        setCurrentTenantState(found)
-        localStorage.setItem(TENANT_STORAGE_KEY, found.id)
+      if (masterTenant) {
+        setCurrentTenantState(masterTenant)
+      } else {
+        const master = await tenantsService.getMasterTenant()
+        setCurrentTenantState(master)
       }
     } finally {
       setIsLoadingTenant(false)
@@ -121,28 +104,32 @@ export const TenantProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }
 
   const resetToMaster = () => {
+    try {
+      localStorage.removeItem(TENANT_STORAGE_KEY)
+    } catch {
+      /* ignore */
+    }
     if (masterTenant) {
       setCurrentTenantState(masterTenant)
-      localStorage.removeItem(TENANT_STORAGE_KEY)
     }
   }
 
-  const setCurrentTenant = (tenant: Tenant | null) => {
-    setCurrentTenantState(tenant)
-    if (tenant) {
-      localStorage.setItem(TENANT_STORAGE_KEY, tenant.id)
-    } else {
+  const setCurrentTenant = (_tenant: Tenant | null) => {
+    try {
       localStorage.removeItem(TENANT_STORAGE_KEY)
+    } catch {
+      /* ignore */
+    }
+    if (masterTenant) {
+      setCurrentTenantState(masterTenant)
     }
   }
 
-  const isMasterTenant =
-    !currentTenant ||
-    currentTenant.id === MASTER_TENANT_ID ||
-    currentTenant.slug === MASTER_TENANT_SLUG
+  // Sempre verdadeiro em modo single-tenant
+  const isMasterTenant = true
 
-  // Se o currentTenant for diferente do masterTenant, está em modo impersonação/visualização
-  const isImpersonating = !isMasterTenant
+  // Sempre falso em modo single-tenant: nunca impersonando
+  const isImpersonating = false
 
   // Todos os módulos canônicos estão liberados para qualquer usuário/tenant
   const activeModules: AppModuleId[] = ALL_MODULE_IDS

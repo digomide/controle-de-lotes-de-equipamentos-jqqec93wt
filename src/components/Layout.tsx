@@ -321,44 +321,7 @@ export default function Layout() {
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Seletor "Ver como: [Tenant]" para Super-Admin */}
-            {isSuperAdmin && allTenants.length > 0 && (
-              <div className="hidden lg:flex items-center gap-1.5 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-lg text-xs">
-                <span className="text-slate-500 font-medium flex items-center gap-1">
-                  <Building className="w-3.5 h-3.5 text-slate-500" />
-                  Ver como:
-                </span>
-                <select
-                  value={currentTenant?.id || masterTenant?.id || 'ambicorpmestre1'}
-                  onChange={(e) => switchTenant(e.target.value)}
-                  className="bg-transparent font-semibold text-slate-800 text-xs focus:outline-none cursor-pointer max-w-[140px] truncate"
-                >
-                  {masterTenant && (
-                    <option value={masterTenant.id}>{masterTenant.name} (Mestre)</option>
-                  )}
-                  {allTenants
-                    .filter((t) => t.id !== masterTenant?.id)
-                    .map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name} ({t.slug})
-                      </option>
-                    ))}
-                </select>
-                {isImpersonating && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={resetToMaster}
-                    className="h-6 px-1.5 text-[10px] text-orange-600 hover:text-orange-700 gap-1"
-                    title="Voltar para Ambicorp Mestre"
-                  >
-                    <RotateCcw className="w-3 h-3" />
-                    Voltar
-                  </Button>
-                )}
-              </div>
-            )}
+            {/* Recuo Multi-Tenant: Seletor "Ver como" desativado para garantir operação estável como Conta Única */}
 
             {/* Quick Equipment Search */}
             <form onSubmit={handleSearchSubmit} className="hidden sm:flex relative items-center">
