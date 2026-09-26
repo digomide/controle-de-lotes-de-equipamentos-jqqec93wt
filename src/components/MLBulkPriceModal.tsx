@@ -135,9 +135,17 @@ export function MLBulkPriceModal({
       onSuccess()
     } catch (err: any) {
       console.error('Erro na ação em massa:', err)
+      const rawMsg = err.message || 'Falha ao processar ações.'
+      const isPolicyAgent =
+        rawMsg.includes('PolicyAgent') ||
+        rawMsg.includes('PA_UNAUTHORIZED_RESULT_FROM_POLICIES') ||
+        rawMsg.includes('At least one policy returned UNAUTHORIZED')
+
       toast({
         title: 'Erro na atualização em massa',
-        description: err.message || 'Falha ao processar ações.',
+        description: isPolicyAgent
+          ? 'Este anúncio é de Catálogo e o ML bloqueou a edição direta. Atualize pelo painel do ML ou reconecte a conta para renovar as permissões de catálogo.'
+          : rawMsg,
         variant: 'destructive',
       })
     } finally {

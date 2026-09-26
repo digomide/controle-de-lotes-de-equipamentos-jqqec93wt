@@ -5,6 +5,8 @@
 // 3. Alterar quantidade em estoque disponível do anúncio ('update_stock') com validação de qtd >= 0
 // 4. Alterar preço e estoque conjuntamente ('update_price_stock')
 // Suporta produto vinculado no catálogo local ou ml_item_id direto do anúncio
+// Suporta anúncios de catálogo e anúncios com variações (atualização por variação específica)
+// e fallback com diagnóstico claro de bloqueios por políticas do ML (PolicyAgent)
 // Tudo inline dentro do callback para respeitar a VM isolada do PocketBase
 
 onRecordAfterCreateSuccess((e) => {
@@ -46,6 +48,12 @@ onRecordAfterCreateSuccess((e) => {
       )
       if (sRecords && sRecords.length > 0) {
         settings = sRecords[0]
+      }
+    }
+    if (!settings) {
+      const fallbackRecords = $app.findRecordsByFilter('ml_settings', '1=1', '-created', 1, 0)
+      if (fallbackRecords && fallbackRecords.length > 0) {
+        settings = fallbackRecords[0]
       }
     }
   } catch (err) {
@@ -129,7 +137,6 @@ onRecordAfterCreateSuccess((e) => {
   }
 
   if (!mlListingId && productId) {
-    // Tenta encontrar produto por id se mlListingId ainda estiver vazio
     try {
       const p = $app.findRecordById('products', productId)
       mlListingId = p.getString('ml_listing_id')
@@ -207,41 +214,226 @@ onRecordAfterCreateSuccess((e) => {
     return
   }
 
-  let updateRes = null
+  // -------------------------------------------------------------------------
+  // RESOLVEDOR MULTI-ESTRATÉGIA DE ATUALIZAÇÃO NO MERCADO LIVRE
+  // 1. Consulta detalhes do item para verificar variations e catalog_listing
+  // 2. Se houver variações: atualiza cada variação via PUT /items/{id}/variations/{var_id}
+  // 3. Se não houver variações ou se for anúncio comum: tenta PUT /items/{id}
+  // 4. Se falhar com PolicyAgent / PA_UNAUTHORIZED_RESULT_FROM_POLICIES:
+  //    logar corpo completo no servidor e formatar mensagem clara e amigável em PT-BR.
+  // -------------------------------------------------------------------------
+
+  let itemDetails = null
   try {
-    updateRes = $http.send({
+    const itemInfoRes = $http.send({
       url: 'https://api.mercadolibre.com/items/' + mlListingId,
-      method: 'PUT',
-      headers: {
-        Authorization: 'Bearer ' + accessToken,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(putBody),
-      timeout: 20,
+      method: 'GET',
+      headers: { Authorization: 'Bearer ' + accessToken },
+      timeout: 15,
     })
-  } catch (uNetErr) {
-    itemAction.set('status', 'error')
-    itemAction.set(
-      'error_message',
-      'Falha de rede ao atualizar anúncio no ML: ' + (uNetErr.message || uNetErr),
-    )
-    $app.save(itemAction)
-    e.next()
-    return
+    if (itemInfoRes.statusCode === 200 && itemInfoRes.json) {
+      itemDetails = itemInfoRes.json
+    }
+  } catch (gErr) {
+    console.log('[ml_item_hook] Aviso ao consultar dados do item ' + mlListingId + ': ' + gErr)
   }
 
+  const variations =
+    itemDetails && Array.isArray(itemDetails.variations) ? itemDetails.variations : []
+  const isCatalog = Boolean(
+    (itemDetails && itemDetails.catalog_listing) || (itemDetails && itemDetails.catalog_product_id),
+  )
+
+  let updateRes = null
+  let appliedStrategy = 'root'
+  let strategyDetails = {}
+
+  // Estratégia A: Se a ação envolve preço/estoque e há variações no item, atualizar por variação
+  const isPriceOrStockAction =
+    rawAction === 'update_price' ||
+    rawAction === 'update_stock' ||
+    rawAction === 'update_price_stock'
+
+  if (isPriceOrStockAction && variations.length > 0) {
+    appliedStrategy = 'variations'
+    const varResults = []
+    let allSucceeded = true
+    let firstErrorRes = null
+
+    for (let vIdx = 0; vIdx < variations.length; vIdx++) {
+      const v = variations[vIdx]
+      const varPayload = {}
+      if (putBody.price !== undefined) varPayload.price = putBody.price
+      if (putBody.available_quantity !== undefined)
+        varPayload.available_quantity = putBody.available_quantity
+
+      try {
+        const vRes = $http.send({
+          url: 'https://api.mercadolibre.com/items/' + mlListingId + '/variations/' + v.id,
+          method: 'PUT',
+          headers: {
+            Authorization: 'Bearer ' + accessToken,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(varPayload),
+          timeout: 20,
+        })
+        varResults.push({ id: v.id, status: vRes.statusCode, raw: vRes.raw })
+        if (vRes.statusCode >= 400) {
+          allSucceeded = false
+          if (!firstErrorRes) firstErrorRes = vRes
+        }
+      } catch (vErr) {
+        allSucceeded = false
+        varResults.push({ id: v.id, status: 0, error: String(vErr) })
+      }
+    }
+
+    strategyDetails = { variations: varResults }
+
+    if (allSucceeded) {
+      updateRes = { statusCode: 200, json: { variations_updated: varResults.length } }
+    } else {
+      updateRes = firstErrorRes || {
+        statusCode: 400,
+        json: { message: 'Falha ao atualizar variações do anúncio.' },
+      }
+    }
+  }
+
+  // Estratégia B: Se não usou variações (ou status pause/activate/close), tenta PUT /items/{id}
+  if (!updateRes) {
+    try {
+      updateRes = $http.send({
+        url: 'https://api.mercadolibre.com/items/' + mlListingId,
+        method: 'PUT',
+        headers: {
+          Authorization: 'Bearer ' + accessToken,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(putBody),
+        timeout: 20,
+      })
+    } catch (uNetErr) {
+      itemAction.set('status', 'error')
+      itemAction.set(
+        'error_message',
+        'Falha de rede ao atualizar anúncio no ML: ' + (uNetErr.message || uNetErr),
+      )
+      $app.save(itemAction)
+      e.next()
+      return
+    }
+  }
+
+  // Estratégia C: Se deu 403 / erro no item raiz e há variações que ainda não foram tentadas, tentar nas variações
+  if (
+    updateRes &&
+    updateRes.statusCode >= 400 &&
+    appliedStrategy === 'root' &&
+    isPriceOrStockAction &&
+    variations.length > 0
+  ) {
+    console.log(
+      '[ml_item_hook] PUT raiz falhou para item ' +
+        mlListingId +
+        '. Tentando atualizar via variações...',
+    )
+    let varFallbackSuccess = true
+    let firstVarError = null
+    const varResults = []
+
+    for (let vIdx = 0; vIdx < variations.length; vIdx++) {
+      const v = variations[vIdx]
+      const varPayload = {}
+      if (putBody.price !== undefined) varPayload.price = putBody.price
+      if (putBody.available_quantity !== undefined)
+        varPayload.available_quantity = putBody.available_quantity
+
+      try {
+        const vRes = $http.send({
+          url: 'https://api.mercadolibre.com/items/' + mlListingId + '/variations/' + v.id,
+          method: 'PUT',
+          headers: {
+            Authorization: 'Bearer ' + accessToken,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(varPayload),
+          timeout: 20,
+        })
+        varResults.push({ id: v.id, status: vRes.statusCode })
+        if (vRes.statusCode >= 400) {
+          varFallbackSuccess = false
+          if (!firstVarError) firstVarError = vRes
+        }
+      } catch (vErr) {
+        varFallbackSuccess = false
+        varResults.push({ id: v.id, status: 0, error: String(vErr) })
+      }
+    }
+
+    if (varFallbackSuccess && varResults.length > 0) {
+      updateRes = { statusCode: 200, json: { fallback_variations_updated: varResults.length } }
+      appliedStrategy = 'variations_fallback'
+    }
+  }
+
+  // Tratamento de Erros e Diagnóstico de Política do ML
   if (updateRes.statusCode >= 400) {
     const errJson = updateRes.json || {}
-    let errDetail = errJson.message || errJson.error_description || errJson.error || ''
-    if (Array.isArray(errJson.cause) && errJson.cause.length > 0) {
-      const causes = errJson.cause.map((c) => c.message || c.code || JSON.stringify(c)).join('; ')
-      errDetail = (errDetail ? errDetail + ' — ' : '') + causes
-    }
-    itemAction.set('status', 'error')
-    itemAction.set(
-      'error_message',
-      errDetail || 'Falha ao atualizar anúncio no ML (HTTP ' + updateRes.statusCode + ').',
+    const rawErrorStr = updateRes.raw || JSON.stringify(errJson)
+    console.log(
+      '[ml_item_hook] ERRO ML ao atualizar anúncio ' +
+        mlListingId +
+        ' (HTTP ' +
+        updateRes.statusCode +
+        '): ' +
+        rawErrorStr,
     )
+
+    let isPolicyAgent = false
+    if (
+      errJson.code === 'PA_UNAUTHORIZED_RESULT_FROM_POLICIES' ||
+      errJson.blocked_by === 'PolicyAgent' ||
+      (errJson.message &&
+        errJson.message.indexOf('At least one policy returned UNAUTHORIZED') !== -1) ||
+      rawErrorStr.indexOf('PA_UNAUTHORIZED_RESULT_FROM_POLICIES') !== -1
+    ) {
+      isPolicyAgent = true
+    }
+
+    let errDetail = ''
+    if (isPolicyAgent) {
+      if (isCatalog) {
+        errDetail =
+          'Este anúncio é de Catálogo e o ML bloqueou a edição direta (PolicyAgent 403). Atualize pelo painel do ML ou reconecte a conta para renovar as permissões de catálogo.'
+      } else {
+        errDetail =
+          'O Mercado Livre bloqueou a edição deste anúncio por política de autorização (PolicyAgent 403). Verifique se o anúncio possui restrições ou reconecte a conta nas Configurações.'
+      }
+    } else {
+      errDetail = errJson.message || errJson.error_description || errJson.error || ''
+      if (Array.isArray(errJson.cause) && errJson.cause.length > 0) {
+        const causes = errJson.cause.map((c) => c.message || c.code || JSON.stringify(c)).join('; ')
+        errDetail = (errDetail ? errDetail + ' — ' : '') + causes
+      }
+      if (!errDetail) {
+        errDetail = 'Falha ao atualizar anúncio no ML (HTTP ' + updateRes.statusCode + ').'
+      }
+    }
+
+    itemAction.set('status', 'error')
+    itemAction.set('error_message', errDetail)
+    itemAction.set('result', {
+      ml_listing_id: mlListingId,
+      action: rawAction,
+      applied_strategy: appliedStrategy,
+      sent_payload: putBody,
+      http_status: updateRes.statusCode,
+      raw_error: errJson,
+      is_policy_agent: isPolicyAgent,
+      is_catalog: isCatalog,
+    })
     $app.save(itemAction)
     e.next()
     return
@@ -263,13 +455,20 @@ onRecordAfterCreateSuccess((e) => {
   itemAction.set('result', {
     ml_listing_id: mlListingId,
     action: rawAction,
+    applied_strategy: appliedStrategy,
+    strategy_details: strategyDetails,
     sent_payload: putBody,
     status: targetStatus || 'updated',
     response_body: updateRes.json || {},
   })
   $app.save(itemAction)
   console.log(
-    '[ml_item_hook] Anúncio ' + mlListingId + ' processado com sucesso: ação ' + rawAction,
+    '[ml_item_hook] Anúncio ' +
+      mlListingId +
+      ' processado com sucesso (' +
+      appliedStrategy +
+      '): ação ' +
+      rawAction,
   )
 
   e.next()

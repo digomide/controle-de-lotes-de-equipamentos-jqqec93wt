@@ -607,9 +607,17 @@ export default function AnunciosML() {
       setEditingPriceId(null)
     } catch (err: any) {
       console.error('Erro ao atualizar preço:', err)
+      const rawMsg = err.message || 'Erro ao comunicar com a fila segura do ML.'
+      const isPolicyAgent =
+        rawMsg.includes('PolicyAgent') ||
+        rawMsg.includes('PA_UNAUTHORIZED_RESULT_FROM_POLICIES') ||
+        rawMsg.includes('At least one policy returned UNAUTHORIZED')
+
       toast({
         title: 'Falha ao atualizar preço',
-        description: err.message || 'Erro ao comunicar com a fila segura do ML.',
+        description: isPolicyAgent
+          ? 'Este anúncio é de Catálogo e o ML bloqueou a edição direta. Atualize pelo painel do ML ou reconecte a conta para renovar as permissões de catálogo.'
+          : rawMsg,
         variant: 'destructive',
       })
     } finally {
@@ -646,9 +654,17 @@ export default function AnunciosML() {
       setEditingStockId(null)
     } catch (err: any) {
       console.error('Erro ao atualizar estoque:', err)
+      const rawMsg = err.message || 'Erro ao comunicar com a fila segura do ML.'
+      const isPolicyAgent =
+        rawMsg.includes('PolicyAgent') ||
+        rawMsg.includes('PA_UNAUTHORIZED_RESULT_FROM_POLICIES') ||
+        rawMsg.includes('At least one policy returned UNAUTHORIZED')
+
       toast({
         title: 'Falha ao atualizar estoque',
-        description: err.message || 'Erro ao comunicar com a fila segura do ML.',
+        description: isPolicyAgent
+          ? 'Este anúncio é de Catálogo e o ML bloqueou a edição direta. Atualize pelo painel do ML ou reconecte a conta para renovar as permissões de catálogo.'
+          : rawMsg,
         variant: 'destructive',
       })
     } finally {

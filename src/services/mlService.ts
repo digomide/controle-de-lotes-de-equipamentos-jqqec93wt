@@ -1826,7 +1826,17 @@ export const mlService = {
           }
         }
         if (current.status === 'error') {
-          throw new Error(current.error_message || 'Falha ao atualizar preço no Mercado Livre.')
+          const errMsg = current.error_message || 'Falha ao atualizar preço no Mercado Livre.'
+          if (
+            errMsg.includes('PolicyAgent') ||
+            errMsg.includes('PA_UNAUTHORIZED_RESULT_FROM_POLICIES') ||
+            errMsg.includes('At least one policy returned UNAUTHORIZED')
+          ) {
+            throw new Error(
+              'Este anúncio é de Catálogo e o ML bloqueou a edição direta. Atualize pelo painel do ML ou reconecte a conta para renovar as permissões de catálogo.',
+            )
+          }
+          throw new Error(errMsg)
         }
       } catch (err: any) {
         if (err.message && !err.status) throw err
@@ -1887,9 +1897,17 @@ export const mlService = {
           }
         }
         if (current.status === 'error') {
-          throw new Error(
-            current.error_message || 'Falha ao atualizar quantidade no Mercado Livre.',
-          )
+          const errMsg = current.error_message || 'Falha ao atualizar quantidade no Mercado Livre.'
+          if (
+            errMsg.includes('PolicyAgent') ||
+            errMsg.includes('PA_UNAUTHORIZED_RESULT_FROM_POLICIES') ||
+            errMsg.includes('At least one policy returned UNAUTHORIZED')
+          ) {
+            throw new Error(
+              'Este anúncio é de Catálogo e o ML bloqueou a edição direta. Atualize pelo painel do ML ou reconecte a conta para renovar as permissões de catálogo.',
+            )
+          }
+          throw new Error(errMsg)
         }
       } catch (err: any) {
         if (err.message && !err.status) throw err
