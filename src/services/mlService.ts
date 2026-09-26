@@ -82,6 +82,7 @@ export interface MLSellerItem {
   catalog_listing?: boolean
   domain_id?: string
   parent_item_id?: string
+  has_pricing_automation?: boolean
   variations?: MLItemVariation[]
   attributes?: MLItemVariationAttribute[]
   // Dados de correspondência com catálogo local
@@ -220,6 +221,7 @@ export function parseItemsPayload(raw: any): MLSellerItem[] {
       permalink,
       thumbnail: it.thumbnail || '',
       catalog_listing: isCatalog,
+      has_pricing_automation: Boolean(it.has_pricing_automation),
       variations: rawVars.length > 0 ? rawVars : it.variations || undefined,
     })
   }
@@ -1805,21 +1807,32 @@ export const mlService = {
       try {
         const current = await pb.collection('ml_item_queue').getOne(queueId)
         if (current.status === 'done') {
+          const resultData = current.result || {}
           return {
             success: true,
             id: mlItemId,
             price: newPrice,
+            hadActivePricingAutomation: Boolean(resultData.had_active_pricing_automation),
+            removedAutomationRule: resultData.removed_automation_rule,
+            result: resultData,
           }
         }
         if (current.status === 'error') {
           const errMsg = current.error_message || 'Falha ao atualizar preço no Mercado Livre.'
+          const resultData = current.result || {}
+          if (resultData.had_active_pricing_automation && !errMsg.includes('Preço Automático')) {
+            throw new Error(
+              "A regra de 'Preço Automático' do ML foi removida, porém o ML manteve o bloqueio (PolicyAgent 403). Edite pelo painel do ML ou Ideris.",
+            )
+          }
           if (
             errMsg.includes('PolicyAgent') ||
             errMsg.includes('PA_UNAUTHORIZED_RESULT_FROM_POLICIES') ||
             errMsg.includes('At least one policy returned UNAUTHORIZED')
           ) {
             throw new Error(
-              'Este anúncio é de Catálogo e o ML bloqueou a edição direta. Atualize pelo painel do ML ou reconecte a conta para renovar as permissões de catálogo.',
+              errMsg ||
+                'Este anúncio é de Catálogo e o ML bloqueou a edição direta. Atualize pelo painel do ML ou reconecte a conta para renovar as permissões de catálogo.',
             )
           }
           throw new Error(errMsg)

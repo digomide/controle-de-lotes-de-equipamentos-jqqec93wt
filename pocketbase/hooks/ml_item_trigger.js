@@ -197,6 +197,121 @@ onRecordAfterCreateSuccess((e) => {
   }
 
   // -------------------------------------------------------------------------
+  // VERIFICAÇÃO E TRATAMENTO DE "AUTOMATIZAÇÃO DE PREÇOS" NO MERCADO LIVRE
+  // Desde 18/03/2026, o ML bloqueia PUT de preço com 403 UNAUTHORIZED (PolicyAgent)
+  // em itens com automatização de preços ativa (regras INT/INT_EXT do catálogo).
+  // Se a ação envolver alteração de preço (update_price ou update_price_stock),
+  // consultamos GET /pricing-automation/items/{ITEM_ID}/automation.
+  // Se ACTIVE -> removemos a regra via DELETE e então aplicamos o PUT do preço.
+  // -------------------------------------------------------------------------
+  let removedAutomationRule = null
+  let hadActivePricingAutomation = false
+
+  const isPriceUpdateAction =
+    (rawAction === 'update_price' || rawAction === 'update_price_stock') &&
+    putBody.price !== undefined
+
+  if (isPriceUpdateAction) {
+    try {
+      console.log(
+        '[ml_item_hook] Verificando automatização de preço para item ' +
+          mlListingId +
+          ' (GET /pricing-automation/items/' +
+          mlListingId +
+          '/automation)',
+      )
+      const autoRes = $http.send({
+        url: 'https://api.mercadolibre.com/pricing-automation/items/' + mlListingId + '/automation',
+        method: 'GET',
+        headers: {
+          Authorization: 'Bearer ' + accessToken,
+          Accept: 'application/json',
+        },
+        timeout: 15,
+      })
+
+      console.log(
+        '[ml_item_hook] Resposta /pricing-automation/items/' +
+          mlListingId +
+          '/automation (HTTP ' +
+          autoRes.statusCode +
+          '): ' +
+          (autoRes.raw || JSON.stringify(autoRes.json)),
+      )
+
+      if (autoRes.statusCode === 200 && autoRes.json) {
+        const autoData = autoRes.json
+        const autoStatus = String(autoData.status || '').toUpperCase()
+
+        if (autoStatus === 'ACTIVE') {
+          hadActivePricingAutomation = true
+          removedAutomationRule = autoData.item_rule || autoData
+          console.log(
+            '[ml_item_hook] Item ' +
+              mlListingId +
+              ' possui Automatização de Preço ATIVA (' +
+              JSON.stringify(removedAutomationRule) +
+              '). Efetuando DELETE antes do PUT...',
+          )
+
+          const delRes = $http.send({
+            url:
+              'https://api.mercadolibre.com/pricing-automation/items/' +
+              mlListingId +
+              '/automation',
+            method: 'DELETE',
+            headers: {
+              Authorization: 'Bearer ' + accessToken,
+              Accept: 'application/json',
+            },
+            timeout: 15,
+          })
+
+          console.log(
+            '[ml_item_hook] DELETE /pricing-automation/items/' +
+              mlListingId +
+              '/automation status ' +
+              delRes.statusCode +
+              ': ' +
+              (delRes.raw || JSON.stringify(delRes.json)),
+          )
+
+          if (delRes.statusCode >= 400 && delRes.statusCode !== 404) {
+            console.log(
+              '[ml_item_hook] Falha ao remover automatização de preço do ML para ' + mlListingId,
+            )
+            itemAction.set('status', 'error')
+            itemAction.set(
+              'error_message',
+              "Este anúncio está com 'Preço Automático' ativo no ML. Desative a automatização no painel do ML ou tente novamente.",
+            )
+            itemAction.set('result', {
+              ml_listing_id: mlListingId,
+              action: rawAction,
+              failed_stage: 'delete_pricing_automation',
+              automation_status: autoStatus,
+              automation_rule: removedAutomationRule,
+              delete_http_status: delRes.statusCode,
+              delete_raw_error: delRes.json || delRes.raw,
+              had_active_pricing_automation: true,
+            })
+            $app.save(itemAction)
+            e.next()
+            return
+          }
+        }
+      }
+    } catch (autoErr) {
+      console.log(
+        '[ml_item_hook] Aviso ao consultar automatização de preço de ' +
+          mlListingId +
+          ': ' +
+          autoErr,
+      )
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // RESOLVEDOR MULTI-ESTRATÉGIA DE ATUALIZAÇÃO NO MERCADO LIVRE
   // 1. Consulta detalhes do item para verificar variations e catalog_listing
   // 2. Se houver variações: atualiza cada variação via PUT /items/{id}/variations/{var_id}
@@ -452,8 +567,13 @@ onRecordAfterCreateSuccess((e) => {
     let errDetail = ''
     if (isPolicyAgent) {
       if (isCatalog) {
-        errDetail =
-          'Este anúncio é de Catálogo e o ML bloqueou a edição direta (PolicyAgent 403). Atualize pelo painel do ML ou reconecte a conta para renovar as permissões de catálogo.'
+        if (hadActivePricingAutomation) {
+          errDetail =
+            'A automatização de preço do ML foi desativada, porém o ML manteve o bloqueio de política de catálogo (PolicyAgent 403). Edite diretamente no painel do Mercado Livre ou Ideris.'
+        } else {
+          errDetail =
+            'Este anúncio é de Catálogo e o ML bloqueou a edição direta (PolicyAgent 403). Verifique se possui Preço Automático no ML ou atualize pelo painel do ML/Ideris.'
+        }
       } else {
         errDetail =
           'O Mercado Livre bloqueou a edição deste anúncio por política de autorização (PolicyAgent 403). Verifique se o anúncio possui restrições ou reconecte a conta nas Configurações.'
@@ -478,8 +598,11 @@ onRecordAfterCreateSuccess((e) => {
       sent_payload: putBody,
       http_status: updateRes.statusCode,
       raw_error: errJson,
+      blocked_by: errJson.blocked_by || (isPolicyAgent ? 'PolicyAgent' : undefined),
       is_policy_agent: isPolicyAgent,
       is_catalog: isCatalog,
+      had_active_pricing_automation: hadActivePricingAutomation,
+      removed_automation_rule: removedAutomationRule,
     })
     $app.save(itemAction)
     e.next()
@@ -506,6 +629,8 @@ onRecordAfterCreateSuccess((e) => {
     strategy_details: strategyDetails,
     sent_payload: putBody,
     status: targetStatus || 'updated',
+    had_active_pricing_automation: hadActivePricingAutomation,
+    removed_automation_rule: removedAutomationRule,
     response_body: updateRes.json || {},
   })
   $app.save(itemAction)

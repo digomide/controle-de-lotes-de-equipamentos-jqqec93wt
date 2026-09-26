@@ -144,7 +144,9 @@ export function MLBulkPriceModal({
       toast({
         title: 'Erro na atualização em massa',
         description: isPolicyAgent
-          ? 'Este anúncio é de Catálogo e o ML bloqueou a edição direta. Atualize pelo painel do ML ou reconecte a conta para renovar as permissões de catálogo.'
+          ? rawMsg.includes('Preço Automático')
+            ? rawMsg
+            : 'Este anúncio é de Catálogo e o ML bloqueou a edição direta por política de catálogo. Atualize pelo painel do ML ou Ideris.'
           : rawMsg,
         variant: 'destructive',
       })

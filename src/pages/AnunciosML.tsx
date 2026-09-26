@@ -594,14 +594,26 @@ export default function AnunciosML() {
 
     setSavingPriceId(item.id)
     try {
-      await mlService.updateItemPrice(item.id, num, item.matchedProduct?.id)
+      const res = await mlService.updateItemPrice(item.id, num, item.matchedProduct?.id)
+      const hadAuto = Boolean(res?.hadActivePricingAutomation)
+
       toast({
-        title: 'Preço atualizado!',
-        description: `Anúncio ${item.id} agora está com R$ ${num.toFixed(2)}.`,
+        title: hadAuto ? 'Preço atualizado (Preço Automático desativado)' : 'Preço atualizado!',
+        description: hadAuto
+          ? `A regra de Preço Automático do ML foi desativada e o anúncio ${item.id} foi atualizado para R$ ${num.toFixed(2)}.`
+          : `Anúncio ${item.id} agora está com R$ ${num.toFixed(2)}.`,
       })
       // Atualiza localmente
       if (data) {
-        const updated = data.items.map((i) => (i.id === item.id ? { ...i, price: num } : i))
+        const updated = data.items.map((i) =>
+          i.id === item.id
+            ? {
+                ...i,
+                price: num,
+                has_pricing_automation: hadAuto ? false : i.has_pricing_automation,
+              }
+            : i,
+        )
         setData({ ...data, items: updated })
       }
       setEditingPriceId(null)
@@ -613,11 +625,16 @@ export default function AnunciosML() {
         rawMsg.includes('PA_UNAUTHORIZED_RESULT_FROM_POLICIES') ||
         rawMsg.includes('At least one policy returned UNAUTHORIZED')
 
+      let descriptionText = rawMsg
+      if (isPolicyAgent) {
+        descriptionText = rawMsg.includes('Preço Automático')
+          ? rawMsg
+          : 'Este anúncio é de Catálogo e o ML bloqueou a edição direta por política de autorização (PolicyAgent 403). Atualize pelo painel do ML ou Ideris.'
+      }
+
       toast({
         title: 'Falha ao atualizar preço',
-        description: isPolicyAgent
-          ? 'Este anúncio é de Catálogo e o ML bloqueou a edição direta. Atualize pelo painel do ML ou reconecte a conta para renovar as permissões de catálogo.'
-          : rawMsg,
+        description: descriptionText,
         variant: 'destructive',
       })
     } finally {
@@ -854,23 +871,38 @@ export default function AnunciosML() {
     try {
       if (!item) return null
       const isCatalog = isItemCatalog(item)
-      if (!isCatalog) return null
+      const hasAutoPrice = Boolean(item.has_pricing_automation)
+
+      if (!isCatalog && !hasAutoPrice) return null
 
       const vars = Array.isArray(item.variations) ? item.variations.filter(Boolean) : []
       const count = vars.length
 
       return (
-        <span
-          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 shrink-0"
-          title={
-            count > 0
-              ? `Catálogo ML · ${count} ${count === 1 ? 'variação' : 'variações'} (detalhes na coluna Vínculo Catálogo)`
-              : 'Anúncio de Catálogo ML'
-          }
-        >
-          <Layers className="w-3 h-3 text-blue-600" />
-          <span>{count > 0 ? `Catálogo (${count})` : 'Catálogo'}</span>
-        </span>
+        <div className="inline-flex items-center gap-1 shrink-0 flex-wrap">
+          {isCatalog && (
+            <span
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 shrink-0"
+              title={
+                count > 0
+                  ? `Catálogo ML · ${count} ${count === 1 ? 'variação' : 'variações'} (detalhes na coluna Vínculo Catálogo)`
+                  : 'Anúncio de Catálogo ML'
+              }
+            >
+              <Layers className="w-3 h-3 text-blue-600" />
+              <span>{count > 0 ? `Catálogo (${count})` : 'Catálogo'}</span>
+            </span>
+          )}
+          {hasAutoPrice && (
+            <span
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-300 shrink-0"
+              title="Este anúncio possui regra de Preço Automático ativa no Mercado Livre (será removida automaticamente ao editar preço)."
+            >
+              <Sparkles className="w-3 h-3 text-amber-600" />
+              <span>Preço Automático</span>
+            </span>
+          )}
+        </div>
       )
     } catch (e) {
       console.warn('Erro ao renderizar selo de catálogo:', e)

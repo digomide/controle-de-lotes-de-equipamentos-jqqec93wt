@@ -326,6 +326,80 @@ onRecordAfterCreateSuccess((e) => {
     return
   }
 
+  // 3.1 Consulta de Automatizações de Preço do Vendedor: GET /pricing-automation/users/$USER_ID/items
+  // Identifica anúncios com regra de "Preço Automático" ativa (INT / INT_EXT) para exibir badge e prevenir erros
+  const automatedItemIdsMap = {}
+  try {
+    let autoOffset = 0
+    let autoHasMore = true
+    let autoPages = 0
+    const AUTO_LIMIT = 100
+
+    while (autoHasMore && autoPages < 10) {
+      autoPages++
+      const autoUrl =
+        'https://api.mercadolibre.com/pricing-automation/users/' +
+        userIdMl +
+        '/items?limit=' +
+        AUTO_LIMIT +
+        (autoOffset > 0 ? '&offset=' + autoOffset : '')
+
+      const autoRes = $http.send({
+        url: autoUrl,
+        method: 'GET',
+        headers: {
+          Authorization: 'Bearer ' + accessToken,
+          Accept: 'application/json',
+        },
+        timeout: 15,
+      })
+
+      if (autoRes.statusCode === 200 && autoRes.json) {
+        const autoData = autoRes.json
+        const autoResults = Array.isArray(autoData.results)
+          ? autoData.results
+          : Array.isArray(autoData.items)
+            ? autoData.items
+            : Array.isArray(autoData)
+              ? autoData
+              : []
+
+        for (let aIdx = 0; aIdx < autoResults.length; aIdx++) {
+          const aEntry = autoResults[aIdx]
+          const aId = typeof aEntry === 'string' ? aEntry : aEntry && aEntry.item_id
+          const aStatus = aEntry && aEntry.status ? String(aEntry.status).toUpperCase() : 'ACTIVE'
+          if (aId && aStatus === 'ACTIVE') {
+            automatedItemIdsMap[aId] = true
+          }
+        }
+
+        const autoPaging = autoData.paging || {}
+        const autoTotal = typeof autoPaging.total === 'number' ? autoPaging.total : null
+        if (
+          autoResults.length < AUTO_LIMIT ||
+          (autoTotal !== null && autoOffset + autoResults.length >= autoTotal)
+        ) {
+          autoHasMore = false
+        } else {
+          autoOffset += autoResults.length
+        }
+      } else {
+        autoHasMore = false
+      }
+    }
+    console.log(
+      '[ml_ads_fetch_job] Coleta de automatizações de preço concluída. Itens com preço automático: ' +
+        Object.keys(automatedItemIdsMap).length,
+    )
+  } catch (autoListErr) {
+    console.log(
+      '[ml_ads_fetch_job] Aviso ao consultar /pricing-automation/users/' +
+        userIdMl +
+        '/items: ' +
+        autoListErr,
+    )
+  }
+
   // 4. Detalhes dos itens via multiget: GET /items?ids=MLB1,MLB2,...
   // O Mercado Livre permite até 20 IDs por multiget no /items?ids=
   const detailedItems = []
@@ -525,6 +599,7 @@ onRecordAfterCreateSuccess((e) => {
               catalog_listing: Boolean(body.catalog_listing || body.catalog_product_id),
               domain_id: body.domain_id || '',
               parent_item_id: body.parent_item_id || '',
+              has_pricing_automation: Boolean(automatedItemIdsMap[body.id]),
               variations: extractedVariations.length > 0 ? extractedVariations : undefined,
               attributes: itemAttrs.length > 0 ? itemAttrs : undefined,
             })
@@ -575,6 +650,9 @@ onRecordAfterCreateSuccess((e) => {
         catalog_product_id: it.catalog_product_id,
         catalog_listing: it.catalog_listing,
         domain_id: it.domain_id,
+      }
+      if (it.has_pricing_automation) {
+        base.has_pricing_automation = true
       }
       if (it.condition_grade) {
         base.condition_grade = it.condition_grade
