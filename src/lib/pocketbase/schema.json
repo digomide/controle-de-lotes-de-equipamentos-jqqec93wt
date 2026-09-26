@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-24T19:06:40.423Z",
+  "generatedAt": "2026-09-26T21:43:25.374Z",
   "collections": [
     {
       "name": "users",
@@ -5498,6 +5498,68 @@
         }
       ],
       "indexes": ["CREATE UNIQUE INDEX idx_tenants_slug ON tenants (slug)"]
+    },
+    {
+      "name": "property_proposals",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
+      },
+      "fields": [
+        {
+          "name": "code",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "title",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "property_address",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data",
+          "type": "json",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "tenant_id",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "tenants"
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_prop_proposals_code ON property_proposals (code)",
+        "CREATE INDEX idx_prop_proposals_tenant ON property_proposals (tenant_id)"
+      ]
     }
   ]
 }
