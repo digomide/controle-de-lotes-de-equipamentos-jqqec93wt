@@ -377,7 +377,6 @@ export function ManualMLContent({
               faça o login na conta correta e refaça o processo a partir do Passo 3.
             </p>
           </div>
-
           {/* Problema 2 */}
           <div className="bg-white p-3.5 rounded-xl border border-rose-200/80 shadow-2xs space-y-1.5">
             <div className="flex items-center gap-2 text-rose-900 font-semibold text-xs sm:text-sm">
@@ -398,7 +397,6 @@ export function ManualMLContent({
               . Não utilize endereços locais ou temporários para a autorização.
             </p>
           </div>
-
           {/* Problema 3 */}
           <div className="bg-white p-3.5 rounded-xl border border-rose-200/80 shadow-2xs space-y-1.5">
             <div className="flex items-center gap-2 text-rose-900 font-semibold text-xs sm:text-sm">
@@ -412,20 +410,22 @@ export function ManualMLContent({
               Client ID/Secret e então inicie a autorização.
             </p>
           </div>
-
           {/* Problema 4 */}
           <div className="bg-white p-3.5 rounded-xl border border-rose-200/80 shadow-2xs space-y-1.5">
             <div className="flex items-center gap-2 text-rose-900 font-semibold text-xs sm:text-sm">
               <span className="w-2 h-2 rounded-full bg-rose-600" />
-              <span>&quot;Erro de permissão (403 / permissao_negada)&quot;</span>
+              <span>
+                &quot;Erro de permissão (403 / PolicyAgent / policy_agent_unauthorized)&quot;
+              </span>
             </div>
             <p className="text-xs sm:text-sm text-slate-700 pl-4">
-              <strong>Causa & Solução:</strong> A conta ou credencial informada ainda não possui
-              autorização ou o aplicativo está pendente de validação comercial no Mercado Livre
-              Developers. Entre em contato com a equipe de suporte para liberação dos escopos da
-              aplicação.
+              <strong>Causa & Solução:</strong> O token foi emitido sem o escopo granular de escrita
+              (<code>urn:ml:mktp:offers:/read-write</code> e <code>write</code>). No painel
+              Configurações → Mercado Livre, clique em{' '}
+              <strong>&quot;Reconectar com Novas Permissões&quot;</strong> para refazer a
+              autorização OAuth e conceder permissão total de alteração de preços e anúncios.
             </p>
-          </div>
+          </div>{' '}
         </div>
       </div>
 

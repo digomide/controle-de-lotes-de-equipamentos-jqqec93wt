@@ -121,6 +121,7 @@ routerAdd('GET', '/backend/v1/ml/status', (e) => {
   const nickname = settings.getString('nickname')
   const permalinkSeller = settings.getString('permalink_seller')
   const tokenExpiresAt = settings.getString('token_expires_at')
+  const scopes = settings.getString('scopes')
   const siteId = settings.getString('site_id') || 'MLB'
 
   let redirectUri = settings.getString('redirect_uri')
@@ -149,6 +150,7 @@ routerAdd('GET', '/backend/v1/ml/status', (e) => {
     nickname,
     permalink_seller: permalinkSeller,
     token_expires_at: tokenExpiresAt || null,
+    scopes: scopes || null,
     site_id: siteId,
     tenant_id: settings.getString('tenant_id') || tenantId,
     status,
@@ -269,6 +271,7 @@ routerAdd('GET', '/ml/status', (e) => {
   const nickname = settings.getString('nickname')
   const permalinkSeller = settings.getString('permalink_seller')
   const tokenExpiresAt = settings.getString('token_expires_at')
+  const scopes = settings.getString('scopes')
   const siteId = settings.getString('site_id') || 'MLB'
 
   let redirectUri = settings.getString('redirect_uri')
@@ -297,6 +300,7 @@ routerAdd('GET', '/ml/status', (e) => {
     nickname,
     permalink_seller: permalinkSeller,
     token_expires_at: tokenExpiresAt || null,
+    scopes: scopes || null,
     site_id: siteId,
     tenant_id: settings.getString('tenant_id') || tenantId,
     status,

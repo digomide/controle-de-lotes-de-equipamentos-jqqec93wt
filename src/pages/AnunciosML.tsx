@@ -642,7 +642,7 @@ export default function AnunciosML() {
       if (isPolicyAgent) {
         descriptionText = rawMsg.includes('Preço Automático')
           ? rawMsg
-          : 'Este anúncio é de Catálogo Unificado ou possui política restritiva (PolicyAgent 403). Edite pelo painel do ML ou Ideris. O sistema sincroniza o valor na próxima coleta.'
+          : 'O Mercado Livre recusou a alteração (PolicyAgent 403 / PA_UNAUTHORIZED_RESULT_FROM_POLICIES). Isso ocorre quando a conexão OAuth atual não possui o escopo de escrita (urn:ml:mktp:offers:/read-write). Vá em Configurações → Mercado Livre e clique em "Reconectar para Liberar Edição".'
       }
 
       toast({
@@ -693,7 +693,7 @@ export default function AnunciosML() {
       toast({
         title: 'Falha ao atualizar estoque',
         description: isPolicyAgent
-          ? 'O Mercado Livre bloqueou a edição por regra de política (PolicyAgent 403). Atualize pelo painel do ML ou Ideris.'
+          ? 'O Mercado Livre bloqueou a edição (PolicyAgent 403). Reconecte a conta em Configurações → Mercado Livre para conceder escopos de escrita.'
           : rawMsg,
         variant: 'destructive',
       })

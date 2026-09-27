@@ -17,6 +17,7 @@ import {
   ShoppingBag,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   ExternalLink,
   Copy,
   KeyRound,
@@ -48,6 +49,13 @@ export function MercadoLivreConfigCard() {
 
   const isCurrentOriginPreview =
     typeof window !== 'undefined' && window.location.hostname.includes('--preview')
+
+  // Verificação de escopo de escrita de anúncios/ofertas
+  const currentScopes = (status?.scopes || '').toLowerCase()
+  const hasWriteOfferScope =
+    currentScopes.includes('urn:ml:mktp:offers:/read-write') ||
+    (currentScopes.includes('write') && !currentScopes.includes('offers:/read-only'))
+  const isMissingWritePermissions = Boolean(status?.connected && !hasWriteOfferScope)
 
   const formatLocalExpiry = (utcIso?: string | null) => {
     if (!utcIso) return null
@@ -373,6 +381,68 @@ export function MercadoLivreConfigCard() {
               </div>
             )}
 
+            {/* Aviso de escopo de escrita ausente (PolicyAgent 403) */}
+            {isMissingWritePermissions && (
+              <div className="p-4 bg-amber-500/10 border-2 border-amber-500/80 rounded-xl text-xs space-y-3 shadow-xs">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div className="flex items-start gap-2.5">
+                    <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <p className="font-bold text-amber-950 text-sm">
+                        Conexão sem permissão de edição — reconecte a conta para renovar permissões
+                      </p>
+                      <p className="text-amber-900 leading-relaxed">
+                        O token OAuth atual possui apenas permissões de leitura (
+                        <code className="bg-amber-100 px-1 py-0.5 rounded font-mono text-[11px] text-amber-900">
+                          offers:/read-only
+                        </code>
+                        ). Toda tentativa de alterar preços, estoques ou dados de anúncios será
+                        bloqueada pelo Mercado Livre com erro{' '}
+                        <strong>403 PolicyAgent (PA_UNAUTHORIZED_RESULT_FROM_POLICIES)</strong>.
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    onClick={handleConnectOAuth}
+                    className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs h-8 gap-1.5 shrink-0 shadow-sm"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    Reconectar para Liberar Edição
+                  </Button>
+                </div>
+
+                {status?.scopes && (
+                  <div className="bg-white/90 p-2.5 rounded-lg border border-amber-200 space-y-1">
+                    <span className="text-[10.5px] font-semibold text-slate-600 uppercase tracking-wide">
+                      Escopos concedidos atualmente pelo Mercado Livre:
+                    </span>
+                    <div className="flex flex-wrap gap-1.5 pt-0.5">
+                      {status.scopes.split(/\s+/).map((s) => {
+                        const isRead = s.includes('read-only') || s === 'read'
+                        const isWrite = s.includes('read-write') || s === 'write'
+                        return (
+                          <Badge
+                            key={s}
+                            variant="outline"
+                            className={`text-[10px] font-mono py-0 px-1.5 ${
+                              isWrite
+                                ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                                : isRead
+                                  ? 'bg-amber-50 text-amber-900 border-amber-300'
+                                  : 'bg-slate-50 text-slate-700 border-slate-300'
+                            }`}
+                          >
+                            {s}
+                          </Badge>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Bloco de Status da Conta Conectada */}
             {status?.connected ? (
               <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
@@ -419,6 +489,12 @@ export function MercadoLivreConfigCard() {
                         </span>
                       )}
                     </p>
+                    {status.scopes && !isMissingWritePermissions && (
+                      <p className="text-[10.5px] text-emerald-800 mt-1 font-medium flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                        Permissões de leitura e escrita ativas no Mercado Livre
+                      </p>
+                    )}
                   </div>
                 </div>
 

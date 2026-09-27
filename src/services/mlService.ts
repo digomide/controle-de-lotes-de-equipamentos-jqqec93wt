@@ -27,6 +27,7 @@ export interface MLStatusResponse {
   user_id_ml?: string
   token_expires_at?: string | null
   permalink_seller?: string
+  scopes?: string | null
 }
 
 export interface MLItemResponse {
@@ -1258,15 +1259,40 @@ export function getDefaultMLRedirectUri(): string {
 }
 
 /**
- * Monta URL de autorização OAuth do Mercado Livre
+ * Escopos padrão necessários para a integração completa do Mercado Livre.
+ * Inclui offline_access, leitura e escrita granulares (offers, publish-sync, orders-shipments, etc.)
+ * e os escopos tradicionais 'read' e 'write'.
  */
-export function buildMLAuthUrl(clientId: string, redirectUri: string): string {
+export const REQUIRED_ML_SCOPES = [
+  'offline_access',
+  'read',
+  'write',
+  'urn:ml:mktp:offers:/read-write',
+  'urn:ml:mktp:publish-sync:/read-write',
+  'urn:ml:mktp:orders-shipments:/read-write',
+  'urn:ml:mktp:comunication:/read-write',
+  'urn:ml:mktp:invoices:/read-write',
+  'urn:ml:mktp:metrics:/read-only',
+  'urn:ml:mktp:ads:/read-write',
+].join(' ')
+
+/**
+ * Monta URL de autorização OAuth do Mercado Livre solicitando o conjunto completo de escopos.
+ */
+export function buildMLAuthUrl(
+  clientId: string,
+  redirectUri: string,
+  scopes: string = REQUIRED_ML_SCOPES,
+): string {
   const base = 'https://auth.mercadolivre.com.br/authorization'
   const params = new URLSearchParams({
     response_type: 'code',
     client_id: clientId.trim(),
     redirect_uri: redirectUri.trim(),
   })
+  if (scopes && scopes.trim()) {
+    params.set('scope', scopes.trim())
+  }
   return `${base}?${params.toString()}`
 }
 
@@ -1364,6 +1390,7 @@ export const mlService = {
               user_id_ml: (res.user_id_ml || '').toString().trim(),
               token_expires_at: res.token_expires_at || null,
               permalink_seller: (res.permalink_seller || '').toString().trim(),
+              scopes: res.scopes || null,
             }
           }
         } catch (callErr: any) {
@@ -1410,6 +1437,7 @@ export const mlService = {
           ? rawRedirectUri
           : CANONICAL_ML_REDIRECT_URI
       const tokenExpiresAt = settings.token_expires_at || null
+      const scopes = settings.scopes || null
 
       return {
         configured: Boolean(clientId),
@@ -1422,6 +1450,7 @@ export const mlService = {
         user_id_ml: settings.user_id_ml || '',
         token_expires_at: tokenExpiresAt,
         permalink_seller: settings.permalink_seller || '',
+        scopes,
       }
     } catch (err: any) {
       console.error(

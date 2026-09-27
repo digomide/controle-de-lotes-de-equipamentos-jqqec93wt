@@ -95,9 +95,14 @@ onRecordAfterCreateSuccess((e) => {
         const newRef = refRes.json.refresh_token || refreshToken
         const expIn = Number(refRes.json.expires_in) || 21600
         const newExpDate = new Date(Date.now() + expIn * 1000).toISOString()
+        const refreshedScope = refRes.json.scope || ''
+        console.log('[ml_item_hook] Token renovado via refresh_token. Escopos: ' + refreshedScope)
         settings.set('access_token', accessToken)
         settings.set('refresh_token', newRef)
         settings.set('token_expires_at', newExpDate)
+        if (refreshedScope) {
+          settings.set('scopes', refreshedScope)
+        }
         $app.save(settings)
       }
     } catch (rErr) {

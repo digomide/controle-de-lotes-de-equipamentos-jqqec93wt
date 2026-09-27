@@ -105,6 +105,9 @@ onRecordAfterCreateSuccess((e) => {
   const refreshToken = tokenData.refresh_token || ''
   const expiresIn = Number(tokenData.expires_in) || 21600
   const userId = (tokenData.user_id || '').toString()
+  const returnedScope = tokenData.scope || ''
+
+  console.log('[ml_oauth_hook] Token obtido com sucesso! Escopos retornados: ' + returnedScope)
 
   if (!accessToken) {
     req.set('status', 'error')
@@ -141,6 +144,9 @@ onRecordAfterCreateSuccess((e) => {
   settings.set('user_id_ml', userId)
   settings.set('nickname', nickname)
   settings.set('permalink_seller', permalink)
+  if (returnedScope) {
+    settings.set('scopes', returnedScope)
+  }
   if (redirectUri && !settings.getString('redirect_uri')) {
     settings.set('redirect_uri', redirectUri)
   }

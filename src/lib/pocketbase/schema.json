@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-27T00:18:02.986Z",
+  "generatedAt": "2026-09-27T00:33:10.171Z",
   "collections": [
     {
       "name": "users",
@@ -958,6 +958,12 @@
           "required": false,
           "system": false,
           "collectionRef": "tenants"
+        },
+        {
+          "name": "scopes",
+          "type": "text",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": []
