@@ -199,6 +199,7 @@ export function parseItemsPayload(raw: any): MLSellerItem[] {
     const isCatalog = Boolean(
       (typeof it.catalog_product_id === 'string' && it.catalog_product_id.trim().length > 0) ||
       it.catalog_listing === true ||
+      it.is_catalog === true ||
       rawVars.length > 0,
     )
 

@@ -33,6 +33,8 @@ import {
   Clock,
   MessageSquare,
   Users,
+  Lock,
+  HelpCircle,
 } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -62,6 +64,7 @@ export function isItemCatalog(item: MLSellerItem | null | undefined): boolean {
   if (!item) return false
   if (item.catalog_product_id && String(item.catalog_product_id).trim().length > 0) return true
   if (item.catalog_listing === true) return true
+  if ((item as any).is_catalog === true) return true
   if (Array.isArray(item.variations) && item.variations.length > 0) return true
   return false
 }
@@ -582,6 +585,16 @@ export default function AnunciosML() {
 
   // Salvar Edição Direta de Preço na Linha
   const handleSavePrice = async (item: MLSellerItem) => {
+    if (isItemCatalog(item)) {
+      toast({
+        title: 'Catálogo Unificado',
+        description:
+          'Este anúncio é de Catálogo Unificado — edite o preço pelo painel do ML ou Ideris. O sistema sincroniza o valor na próxima coleta.',
+      })
+      setEditingPriceId(null)
+      return
+    }
+
     const num = parseFloat(editingPriceVal.replace(',', '.'))
     if (isNaN(num) || num <= 0) {
       toast({
@@ -629,7 +642,7 @@ export default function AnunciosML() {
       if (isPolicyAgent) {
         descriptionText = rawMsg.includes('Preço Automático')
           ? rawMsg
-          : 'Este anúncio é de Catálogo e o ML bloqueou a edição direta por política de autorização (PolicyAgent 403). Atualize pelo painel do ML ou Ideris.'
+          : 'Este anúncio é de Catálogo Unificado ou possui política restritiva (PolicyAgent 403). Edite pelo painel do ML ou Ideris. O sistema sincroniza o valor na próxima coleta.'
       }
 
       toast({
@@ -680,7 +693,7 @@ export default function AnunciosML() {
       toast({
         title: 'Falha ao atualizar estoque',
         description: isPolicyAgent
-          ? 'Este anúncio é de Catálogo e o ML bloqueou a edição direta. Atualize pelo painel do ML ou reconecte a conta para renovar as permissões de catálogo.'
+          ? 'O Mercado Livre bloqueou a edição por regra de política (PolicyAgent 403). Atualize pelo painel do ML ou Ideris.'
           : rawMsg,
         variant: 'destructive',
       })
@@ -1916,69 +1929,59 @@ export default function AnunciosML() {
                             {renderConditionBadge(item)}
                           </td>
 
-                          {/* Preço (Edição Direta + Calculadora de Viabilidade On-demand) */}
+                          {/* Preço (Edição Direta para Tradicionais ou Bloqueio com Aviso para Catálogo Unificado) */}
                           <td className="py-3 px-3 whitespace-nowrap font-mono">
-                            {isEditingPrice ? (
-                              <div className="flex items-center gap-1">
-                                <span className="text-slate-400 text-xs">R$</span>
-                                <Input
-                                  type="text"
-                                  value={editingPriceVal}
-                                  onChange={(e) => setEditingPriceVal(e.target.value)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter') handleSavePrice(item)
-                                    if (e.key === 'Escape') setEditingPriceId(null)
-                                  }}
-                                  className="w-24 h-7 text-xs font-bold font-mono px-1.5 py-0"
-                                  autoFocus
-                                  disabled={isSavingPrice}
-                                />
-                                <Button
-                                  size="sm"
-                                  onClick={() => handleSavePrice(item)}
-                                  disabled={isSavingPrice}
-                                  className="h-7 w-7 p-0 bg-emerald-600 hover:bg-emerald-700 text-white"
-                                  title="Confirmar Preço"
-                                >
-                                  {isSavingPrice ? (
-                                    <RefreshCw className="w-3 h-3 animate-spin" />
-                                  ) : (
-                                    <Check className="w-3.5 h-3.5" />
-                                  )}
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => setEditingPriceId(null)}
-                                  className="h-7 w-7 p-0 text-slate-400"
-                                >
-                                  <X className="w-3.5 h-3.5" />
-                                </Button>
-                              </div>
-                            ) : (
-                              <div className="flex items-center gap-1.5">
-                                <div
-                                  onClick={() => {
-                                    setEditingPriceId(item.id)
-                                    setEditingPriceVal(Number(item.price || 0).toFixed(2))
-                                  }}
-                                  className="group inline-flex items-center gap-1.5 cursor-pointer py-1 px-1.5 rounded hover:bg-slate-100"
-                                  title="Clique para editar o preço diretamente"
-                                >
-                                  <span className="font-black text-slate-900 text-xs">
-                                    {Number(item.price || 0).toLocaleString('pt-BR', {
-                                      style: 'currency',
-                                      currency: item.currency_id || 'BRL',
-                                    })}
-                                  </span>
-                                  <Edit2 className="w-3 h-3 text-slate-400 group-hover:text-amber-600 transition-colors" />
-                                </div>
+                            {(() => {
+                              const isCatalog = isItemCatalog(item)
+                              const effectivePrice = getItemEffectivePrice(item)
+                              const compMatch = getBestCompetitorMatch(item)
 
-                                {/* Popover da Calculadora de Viabilidade - Sem poluir a tabela */}
-                                {(() => {
-                                  const effectivePrice = getItemEffectivePrice(item)
-                                  const compMatch = getBestCompetitorMatch(item)
-                                  return (
+                              if (isCatalog) {
+                                return (
+                                  <div className="flex items-center gap-1.5">
+                                    <div
+                                      className="inline-flex items-center gap-1.5 py-1 px-1.5 rounded bg-blue-50/50 border border-blue-200/60 cursor-not-allowed select-none"
+                                      title="Este anúncio é de Catálogo Unificado — edite o preço pelo painel do ML ou Ideris. O sistema sincroniza o valor na próxima coleta."
+                                    >
+                                      <span className="font-bold text-slate-700 text-xs">
+                                        {Number(item.price || 0).toLocaleString('pt-BR', {
+                                          style: 'currency',
+                                          currency: item.currency_id || 'BRL',
+                                        })}
+                                      </span>
+                                      <Lock className="w-3 h-3 text-blue-600 shrink-0" />
+                                    </div>
+
+                                    {/* Tooltip/Popover informativo de Catálogo */}
+                                    <Popover>
+                                      <PopoverTrigger asChild>
+                                        <button
+                                          type="button"
+                                          className="p-1 rounded text-blue-600 hover:text-blue-800 hover:bg-blue-100 transition-colors"
+                                          title="Por que o preço não é editável aqui?"
+                                          aria-label="Aviso de Catálogo Unificado"
+                                        >
+                                          <HelpCircle className="w-3.5 h-3.5" />
+                                        </button>
+                                      </PopoverTrigger>
+                                      <PopoverContent
+                                        side="top"
+                                        align="start"
+                                        sideOffset={6}
+                                        className="w-72 p-3 text-xs bg-slate-900 text-slate-100 shadow-xl border-slate-800 z-50 rounded-lg space-y-1.5"
+                                      >
+                                        <p className="font-bold text-amber-400 flex items-center gap-1.5">
+                                          <Lock className="w-3.5 h-3.5" /> Catálogo Unificado
+                                        </p>
+                                        <p className="text-[11px] text-slate-300 leading-relaxed font-sans">
+                                          Este anúncio é de Catálogo Unificado — edite o preço pelo
+                                          painel do ML ou Ideris. O sistema sincroniza o valor na
+                                          próxima coleta.
+                                        </p>
+                                      </PopoverContent>
+                                    </Popover>
+
+                                    {/* Calculadora de Viabilidade */}
                                     <Popover>
                                       <PopoverTrigger asChild>
                                         <button
@@ -2006,10 +2009,101 @@ export default function AnunciosML() {
                                         />
                                       </PopoverContent>
                                     </Popover>
-                                  )
-                                })()}
-                              </div>
-                            )}
+                                  </div>
+                                )
+                              }
+
+                              if (isEditingPrice) {
+                                return (
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-slate-400 text-xs">R$</span>
+                                    <Input
+                                      type="text"
+                                      value={editingPriceVal}
+                                      onChange={(e) => setEditingPriceVal(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') handleSavePrice(item)
+                                        if (e.key === 'Escape') setEditingPriceId(null)
+                                      }}
+                                      className="w-24 h-7 text-xs font-bold font-mono px-1.5 py-0"
+                                      autoFocus
+                                      disabled={isSavingPrice}
+                                    />
+                                    <Button
+                                      size="sm"
+                                      onClick={() => handleSavePrice(item)}
+                                      disabled={isSavingPrice}
+                                      className="h-7 w-7 p-0 bg-emerald-600 hover:bg-emerald-700 text-white"
+                                      title="Confirmar Preço"
+                                    >
+                                      {isSavingPrice ? (
+                                        <RefreshCw className="w-3 h-3 animate-spin" />
+                                      ) : (
+                                        <Check className="w-3.5 h-3.5" />
+                                      )}
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => setEditingPriceId(null)}
+                                      className="h-7 w-7 p-0 text-slate-400"
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                    </Button>
+                                  </div>
+                                )
+                              }
+
+                              return (
+                                <div className="flex items-center gap-1.5">
+                                  <div
+                                    onClick={() => {
+                                      setEditingPriceId(item.id)
+                                      setEditingPriceVal(Number(item.price || 0).toFixed(2))
+                                    }}
+                                    className="group inline-flex items-center gap-1.5 cursor-pointer py-1 px-1.5 rounded hover:bg-slate-100"
+                                    title="Clique para editar o preço diretamente"
+                                  >
+                                    <span className="font-black text-slate-900 text-xs">
+                                      {Number(item.price || 0).toLocaleString('pt-BR', {
+                                        style: 'currency',
+                                        currency: item.currency_id || 'BRL',
+                                      })}
+                                    </span>
+                                    <Edit2 className="w-3 h-3 text-slate-400 group-hover:text-amber-600 transition-colors" />
+                                  </div>
+
+                                  {/* Popover da Calculadora de Viabilidade - Sem poluir a tabela */}
+                                  <Popover>
+                                    <PopoverTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className="p-1 rounded text-slate-400 hover:text-blue-700 hover:bg-blue-50 transition-colors cursor-pointer"
+                                        title={`Calculadora de Viabilidade (teto de compra para venda de ${effectivePrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})`}
+                                        aria-label={`Abrir calculadora de viabilidade para anúncio ${item.id}`}
+                                      >
+                                        <Calculator className="w-3.5 h-3.5" />
+                                      </button>
+                                    </PopoverTrigger>
+                                    <PopoverContent
+                                      side="right"
+                                      align="start"
+                                      sideOffset={8}
+                                      className="w-[360px] sm:w-[420px] p-2.5 shadow-xl border-blue-200 z-50"
+                                    >
+                                      <CalculadoraViabilidade
+                                        isPopover
+                                        currentPrice={effectivePrice}
+                                        buyBoxLeaderPrice={compMatch?.current_price || null}
+                                        leaderName={compMatch?.seller_nickname || null}
+                                        suggestedShipping={19.0}
+                                        itemTitle={item.title}
+                                      />
+                                    </PopoverContent>
+                                  </Popover>
+                                </div>
+                              )
+                            })()}
                           </td>
 
                           {/* Estoque (Edição Direta) */}

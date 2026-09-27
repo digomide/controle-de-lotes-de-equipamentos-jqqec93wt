@@ -10,6 +10,7 @@ import {
   RefreshCw,
   CheckCircle2,
   AlertCircle,
+  Lock,
 } from 'lucide-react'
 import {
   Dialog,
@@ -24,6 +25,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { useToast } from '@/hooks/use-toast'
 import { mlService, type MLSellerItem } from '@/services/mlService'
+import { isItemCatalog } from '@/pages/AnunciosML'
 
 interface MLBulkPriceModalProps {
   open: boolean
@@ -52,11 +54,24 @@ export function MLBulkPriceModal({
   const [loading, setLoading] = useState(false)
   const [progressText, setProgressText] = useState('')
 
+  // Separação de itens de catálogo vs tradicionais
+  const catalogCount = selectedItems.filter((i) => isItemCatalog(i)).length
+
   // Pré-visualização dos cálculos para os itens selecionados
   const previews = selectedItems.map((item) => {
     const currentPrice = Number(item.price) || 0
     let suggestedPrice = currentPrice
     let note = ''
+
+    if (isItemCatalog(item)) {
+      return {
+        item,
+        currentPrice,
+        suggestedPrice: currentPrice,
+        note: 'Catálogo Unificado (preço gerenciado via ML/Ideris)',
+        canApply: false,
+      }
+    }
 
     if (actionType === 'percent_increase') {
       suggestedPrice = currentPrice * (1 + (percentValue || 0) / 100)
@@ -94,13 +109,16 @@ export function MLBulkPriceModal({
     }
   })
 
-  const applicableCount = previews.filter((p) => p.canApply).length
+  const applicableCount = previews.filter((p) => p.canApply && !isItemCatalog(p.item)).length
 
   const handleApplyBulk = async () => {
     if (applicableCount === 0) {
       toast({
-        title: 'Nenhum item válido',
-        description: 'Nenhum dos anúncios selecionados pode ser atualizado com esta regra.',
+        title: 'Nenhum item aplicável',
+        description:
+          catalogCount > 0 && catalogCount === selectedItems.length
+            ? 'Todos os anúncios selecionados são de Catálogo Unificado e têm o preço gerenciado via painel do ML ou Ideris.'
+            : 'Nenhum dos anúncios selecionados pode ser atualizado com esta regra.',
         variant: 'destructive',
       })
       return
@@ -111,7 +129,7 @@ export function MLBulkPriceModal({
     let failedCount = 0
 
     try {
-      const itemsToUpdate = previews.filter((p) => p.canApply)
+      const itemsToUpdate = previews.filter((p) => p.canApply && !isItemCatalog(p.item))
 
       for (let i = 0; i < itemsToUpdate.length; i++) {
         const p = itemsToUpdate[i]
@@ -165,10 +183,26 @@ export function MLBulkPriceModal({
             Editar Preço em Massa ({selectedItems.length} selecionados)
           </DialogTitle>
           <DialogDescription className="text-xs text-slate-500">
-            Aplique regras de reprecificação seguras aos anúncios selecionados. As alterações são
-            enviadas via fila do servidor.
+            Aplique regras de reprecificação aos anúncios tradicionais selecionados.
           </DialogDescription>
         </DialogHeader>
+
+        {/* Aviso de Catálogo Unificado quando houver itens de catálogo entre os selecionados */}
+        {catalogCount > 0 && (
+          <div className="p-3 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-900 space-y-1">
+            <div className="flex items-center gap-2 font-bold text-blue-950">
+              <Lock className="w-4 h-4 text-blue-600 shrink-0" />
+              <span>
+                {catalogCount} de {selectedItems.length} anúncio(s) são de Catálogo Unificado
+              </span>
+            </div>
+            <p className="text-[11px] text-blue-800 leading-relaxed font-sans">
+              Este anúncio é de Catálogo Unificado — edite o preço pelo painel do ML ou Ideris. O
+              sistema sincroniza o valor na próxima coleta. O sistema protegerá esses anúncios
+              contra alterações diretas, aplicando as mudanças somente nos anúncios tradicionais.
+            </p>
+          </div>
+        )}
 
         <div className="space-y-4 py-2">
           {/* Seletor do Tipo de Ação */}
@@ -302,23 +336,39 @@ export function MLBulkPriceModal({
                   className="p-2.5 flex items-center justify-between gap-3 hover:bg-slate-50"
                 >
                   <div className="min-w-0 flex-1">
-                    <p className="font-semibold text-slate-900 truncate" title={p.item.title}>
-                      {p.item.title}
-                    </p>
+                    <div className="flex items-center gap-1.5 truncate">
+                      {isItemCatalog(p.item) && (
+                        <span className="inline-flex items-center gap-0.5 px-1 py-0.2 rounded text-[9px] font-bold bg-blue-100 text-blue-800 shrink-0">
+                          <Lock className="w-2.5 h-2.5 text-blue-600" />
+                          Catálogo
+                        </span>
+                      )}
+                      <p className="font-semibold text-slate-900 truncate" title={p.item.title}>
+                        {p.item.title}
+                      </p>
+                    </div>
                     <span className="text-[10px] text-slate-400 font-mono">
                       MLB: {p.item.id} {p.note && `· ${p.note}`}
                     </span>
                   </div>
                   <div className="text-right shrink-0">
                     <div className="flex items-center gap-1.5 font-mono">
-                      <span className="text-slate-400 line-through text-[11px]">
-                        R$ {p.currentPrice.toFixed(2)}
-                      </span>
-                      <span
-                        className={`font-bold ${p.canApply ? 'text-emerald-700' : 'text-slate-500'}`}
-                      >
-                        R$ {p.suggestedPrice.toFixed(2)}
-                      </span>
+                      {isItemCatalog(p.item) ? (
+                        <span className="font-bold text-slate-500 text-xs">
+                          R$ {p.currentPrice.toFixed(2)}
+                        </span>
+                      ) : (
+                        <>
+                          <span className="text-slate-400 line-through text-[11px]">
+                            R$ {p.currentPrice.toFixed(2)}
+                          </span>
+                          <span
+                            className={`font-bold ${p.canApply ? 'text-emerald-700' : 'text-slate-500'}`}
+                          >
+                            R$ {p.suggestedPrice.toFixed(2)}
+                          </span>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
