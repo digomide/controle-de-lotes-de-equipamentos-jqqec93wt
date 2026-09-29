@@ -78,6 +78,8 @@ import { MLBulkPriceModal } from '@/components/MLBulkPriceModal'
 import { MLDeadlinesTab } from '@/components/MLDeadlinesTab'
 import { MLQuestionsInsightsPanel } from '@/components/MLQuestionsInsightsPanel'
 import { MLSellersMonitorTab } from '@/components/MLSellersMonitorTab'
+import { MagaluItemsTab } from '@/components/MagaluItemsTab'
+import { MagaluOrdersTab } from '@/components/MagaluOrdersTab'
 import { mlQuestionsService, type MLQuestionMetrics } from '@/services/mlQuestionsService'
 import { MLItemMatchedProductsDisplay } from '@/components/MLItemMatchedProductsDisplay'
 import { MLManualProductSelectorModal } from '@/components/MLManualProductSelectorModal'
@@ -91,17 +93,38 @@ export default function AnunciosML() {
   const { currentTenant, isMasterTenant } = useTenant()
   const [mlStatus, setMlStatus] = useState<MLStatusResponse | null>(null)
 
-  // Aba ativa: 'anuncios' (padrão) | 'perguntas' | 'envios' | 'pedidos' | 'sellers' | 'erros_publicacao'
-  const initialTab = (searchParams.get('tab') as any) || 'anuncios'
-  const validTabs = ['anuncios', 'perguntas', 'envios', 'pedidos', 'sellers', 'erros_publicacao']
+  // Aba ativa: 'anuncios' (padrão) | 'magalu_anuncios' | 'magalu_pedidos' | 'perguntas' | 'envios' | 'pedidos' | 'sellers' | 'erros_publicacao'
+  const channelParam = searchParams.get('channel')
+  const initialTab =
+    channelParam === 'magalu' ? 'magalu_anuncios' : (searchParams.get('tab') as any) || 'anuncios'
+  const validTabs = [
+    'anuncios',
+    'magalu_anuncios',
+    'magalu_pedidos',
+    'perguntas',
+    'envios',
+    'pedidos',
+    'sellers',
+    'erros_publicacao',
+  ]
   const [activeTab, setActiveTab] = useState<
-    'anuncios' | 'perguntas' | 'envios' | 'pedidos' | 'sellers' | 'erros_publicacao'
+    | 'anuncios'
+    | 'magalu_anuncios'
+    | 'magalu_pedidos'
+    | 'perguntas'
+    | 'envios'
+    | 'pedidos'
+    | 'sellers'
+    | 'erros_publicacao'
   >(validTabs.includes(initialTab) ? initialTab : 'anuncios')
 
   // Sincroniza se o query param mudar na URL
   useEffect(() => {
     const tabParam = searchParams.get('tab')
-    if (tabParam && validTabs.includes(tabParam) && tabParam !== activeTab) {
+    const chParam = searchParams.get('channel')
+    if (chParam === 'magalu' && activeTab !== 'magalu_anuncios') {
+      setActiveTab('magalu_anuncios')
+    } else if (tabParam && validTabs.includes(tabParam) && tabParam !== activeTab) {
       setActiveTab(tabParam as any)
     }
   }, [searchParams])
@@ -986,7 +1009,7 @@ export default function AnunciosML() {
             </div>
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
-                Gestor ML
+                Gestor de Marketplaces
                 {mlStatus?.connected ? (
                   <Badge
                     variant="outline"
@@ -1014,8 +1037,8 @@ export default function AnunciosML() {
                 )}
               </h1>
               <p className="text-xs text-slate-500">
-                Gestão completa da conta oficial do Mercado Livre: pedidos reais faturados, edição
-                direta e em massa de preço/estoque, alertas e monitoramento de falhas.
+                Gestão centralizada e completa: Mercado Livre & Magalu Marketplace (anúncios
+                oficiais, edição de preços, estoques e pedidos).
               </p>
             </div>
           </div>
@@ -1110,13 +1133,27 @@ export default function AnunciosML() {
         }}
         className="space-y-6"
       >
-        <TabsList className="bg-slate-100 p-1 rounded-xl h-11 border border-slate-200 grid grid-cols-6 max-w-4xl">
+        <TabsList className="bg-slate-100 p-1 rounded-xl h-11 border border-slate-200 grid grid-cols-8 max-w-6xl">
           <TabsTrigger
             value="anuncios"
             className="text-xs font-bold gap-1.5 data-[state=active]:bg-white data-[state=active]:shadow-xs"
           >
             <ShoppingBag className="w-4 h-4 text-amber-600" />
-            Meus Anúncios ({stats.total})
+            Anúncios ML ({stats.total})
+          </TabsTrigger>
+          <TabsTrigger
+            value="magalu_anuncios"
+            className="text-xs font-bold gap-1.5 data-[state=active]:bg-white data-[state=active]:shadow-xs text-blue-700"
+          >
+            <ShoppingBag className="w-4 h-4 text-blue-600" />
+            Magalu Anúncios
+          </TabsTrigger>
+          <TabsTrigger
+            value="magalu_pedidos"
+            className="text-xs font-bold gap-1.5 data-[state=active]:bg-white data-[state=active]:shadow-xs text-blue-700"
+          >
+            <DollarSign className="w-4 h-4 text-blue-600" />
+            Magalu Pedidos
           </TabsTrigger>
           <TabsTrigger
             value="perguntas"
@@ -2325,6 +2362,16 @@ export default function AnunciosML() {
               })}
             </div>
           )}
+        </TabsContent>
+
+        {/* ==================== ABA: MAGALU ANÚNCIOS & OFERTAS ==================== */}
+        <TabsContent value="magalu_anuncios" className="space-y-6 focus-visible:outline-hidden">
+          <MagaluItemsTab />
+        </TabsContent>
+
+        {/* ==================== ABA: MAGALU PEDIDOS & VENDAS ==================== */}
+        <TabsContent value="magalu_pedidos" className="space-y-6 focus-visible:outline-hidden">
+          <MagaluOrdersTab />
         </TabsContent>
 
         {/* ==================== ABA: CENTRAL DE PERGUNTAS ML ==================== */}

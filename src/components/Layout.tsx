@@ -90,7 +90,12 @@ export default function Layout() {
       icon: Compass,
       moduleId: 'explorador_catalogo',
     },
-    { title: 'Gestor ML', path: '/anuncios-ml', icon: ShoppingBag, moduleId: 'gestor_ml' },
+    {
+      title: 'Gestor Marketplaces',
+      path: '/anuncios-ml',
+      icon: ShoppingBag,
+      moduleId: 'gestor_ml',
+    },
     { title: 'Clientes & Pós-Venda', path: '/clientes', icon: Users, moduleId: 'clientes' },
     { title: 'Catálogo de Notebooks', path: '/produtos', icon: Package, moduleId: 'produtos' },
     { title: 'Marketing', path: '/marketing', icon: Megaphone, moduleId: 'marketing' },
@@ -128,7 +133,7 @@ export default function Layout() {
     if (p.startsWith('/lotes-entrada/')) return 'Detalhes da Compra de Lote'
     if (p.startsWith('/lotes-entrada')) return 'Compra de Lotes'
     if (p.startsWith('/explorador-catalogo')) return 'Explorador de Catálogo Mercado Livre'
-    if (p.startsWith('/anuncios-ml')) return 'Gestor ML (Meus Anúncios)'
+    if (p.startsWith('/anuncios-ml')) return 'Gestor de Marketplaces (Mercado Livre & Magalu)'
     if (p.startsWith('/vendas')) return 'Gestão de Vendas'
     if (p.startsWith('/clientes')) return 'Clientes & Pós-Venda'
     if (p.startsWith('/marketing')) return 'Módulo de Marketing Automatizado'

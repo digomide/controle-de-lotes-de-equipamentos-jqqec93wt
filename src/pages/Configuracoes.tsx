@@ -33,6 +33,7 @@ import { ManualMLModal } from '@/components/ManualMLModal'
 import { useTenant } from '@/contexts/TenantContext'
 import { MercadoPagoConfigCard } from '@/components/MercadoPagoConfigCard'
 import { KabumConfigCard } from '@/components/KabumConfigCard'
+import { MagaluConfigCard } from '@/components/MagaluConfigCard'
 
 export default function Configuracoes() {
   const { user, isAdmin, logout } = useAuth()
@@ -443,6 +444,9 @@ export default function Configuracoes() {
 
       {/* Integração Mercado Pago Checkout Pro */}
       <MercadoPagoConfigCard />
+
+      {/* Integração Magalu Marketplace */}
+      <MagaluConfigCard />
 
       {/* Integração Kabum Marketplace (Mirakl) */}
       <KabumConfigCard />

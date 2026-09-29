@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-27T00:33:10.171Z",
+  "generatedAt": "2026-09-29T10:42:25.610Z",
   "collections": [
     {
       "name": "users",
@@ -5580,6 +5580,537 @@
         "CREATE INDEX idx_prop_proposals_code ON property_proposals (code)",
         "CREATE INDEX idx_prop_proposals_tenant ON property_proposals (tenant_id)"
       ]
+    },
+    {
+      "name": "magalu_settings",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\"",
+        "view": "@request.auth.id != \"\"",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\"",
+        "delete": "@request.auth.role = \"admin\" || @request.auth.role = \"super_admin\""
+      },
+      "fields": [
+        {
+          "name": "client_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "client_secret",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "access_token",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "refresh_token",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "token_expires_at",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "scopes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "redirect_uri",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "seller_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "seller_name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "tenant_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "channel_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "branch_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "environment",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["production", "sandbox"]
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "required": false,
+          "system": false
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_magalu_settings_tenant ON magalu_settings (tenant_id)",
+        "CREATE INDEX idx_magalu_settings_seller ON magalu_settings (seller_id)"
+      ]
+    },
+    {
+      "name": "magalu_oauth_requests",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\"",
+        "view": "@request.auth.id != \"\"",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\"",
+        "delete": "@request.auth.role = \"admin\" || @request.auth.role = \"super_admin\""
+      },
+      "fields": [
+        {
+          "name": "code",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "redirect_uri",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "tenant_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["pending", "processing", "done", "error"]
+        },
+        {
+          "name": "error_message",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "requested_by",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        }
+      ],
+      "indexes": ["CREATE INDEX idx_magalu_oauth_status ON magalu_oauth_requests (status)"]
+    },
+    {
+      "name": "magalu_ads_fetch_jobs",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\"",
+        "view": "@request.auth.id != \"\"",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\"",
+        "delete": "@request.auth.role = \"admin\" || @request.auth.role = \"super_admin\""
+      },
+      "fields": [
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["pending", "processing", "done", "error"]
+        },
+        {
+          "name": "limit",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "offset",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status_filter",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "progress_text",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "error_message",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status_code",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "items",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "raw_response",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "total_items",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "tenant_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "requested_by",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        }
+      ],
+      "indexes": ["CREATE INDEX idx_magalu_ads_jobs_status ON magalu_ads_fetch_jobs (status)"]
+    },
+    {
+      "name": "magalu_item_queue",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\"",
+        "view": "@request.auth.id != \"\"",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\"",
+        "delete": "@request.auth.role = \"admin\" || @request.auth.role = \"super_admin\""
+      },
+      "fields": [
+        {
+          "name": "sku",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "product_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "action",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": [
+            "update_price",
+            "update_stock",
+            "update_price_stock",
+            "pause",
+            "activate"
+          ]
+        },
+        {
+          "name": "new_price",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "new_list_price",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "new_quantity",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["pending", "processing", "done", "error"]
+        },
+        {
+          "name": "error_message",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "result",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "tenant_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "requested_by",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_magalu_item_queue_status ON magalu_item_queue (status)",
+        "CREATE INDEX idx_magalu_item_queue_sku ON magalu_item_queue (sku)"
+      ]
+    },
+    {
+      "name": "magalu_orders",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\"",
+        "view": "@request.auth.id != \"\"",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\"",
+        "delete": "@request.auth.role = \"admin\" || @request.auth.role = \"super_admin\""
+      },
+      "fields": [
+        {
+          "name": "order_id",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "order_code",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "date_created",
+          "type": "date",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "date_updated",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "total_amount",
+          "type": "number",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "currency",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "buyer_name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "buyer_document",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "shipping_status",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "delivery_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "tracking_url",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "carrier_name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "receiver_address",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "items",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "transactions",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "channel_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "raw_order",
+          "type": "json",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "tenant_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_magalu_orders_order_id ON magalu_orders (order_id)",
+        "CREATE INDEX idx_magalu_orders_date ON magalu_orders (date_created)",
+        "CREATE INDEX idx_magalu_orders_status ON magalu_orders (status)",
+        "CREATE INDEX idx_magalu_orders_shipping ON magalu_orders (shipping_status)"
+      ]
+    },
+    {
+      "name": "magalu_orders_sync_jobs",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != \"\"",
+        "view": "@request.auth.id != \"\"",
+        "create": "@request.auth.id != \"\"",
+        "update": "@request.auth.id != \"\"",
+        "delete": "@request.auth.role = \"admin\" || @request.auth.role = \"super_admin\""
+      },
+      "fields": [
+        {
+          "name": "status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["pending", "processing", "done", "error"]
+        },
+        {
+          "name": "days_back",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "orders_fetched",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "orders_saved",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "progress_text",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "error_message",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "tenant_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "requested_by",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        }
+      ],
+      "indexes": ["CREATE INDEX idx_magalu_orders_sync_status ON magalu_orders_sync_jobs (status)"]
     }
   ]
 }
