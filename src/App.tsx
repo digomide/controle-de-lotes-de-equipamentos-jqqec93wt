@@ -33,6 +33,7 @@ import CotacoesCorporativas from './pages/CotacoesCorporativas'
 import Marketing from './pages/Marketing'
 import Pedido6849 from './pages/Pedido6849'
 import PropostaImovel from './pages/PropostaImovel'
+import CartaoPosVenda from './pages/CartaoPosVenda'
 import Clientes from './pages/Clientes'
 import NotasFiscais from './pages/NotasFiscais'
 import LogoPage from './pages/LogoPage'
@@ -74,6 +75,16 @@ const App = () => (
               element={
                 <ProtectedRoute>
                   <PropostaImovel />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Rota Utilitária de Cartão de Satisfação Pós-Venda para Caixas Mercado Livre (A5 Paisagem) */}
+            <Route
+              path="/cartao-pos-venda"
+              element={
+                <ProtectedRoute>
+                  <CartaoPosVenda />
                 </ProtectedRoute>
               }
             />

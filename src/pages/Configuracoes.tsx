@@ -26,6 +26,8 @@ import {
   MessageSquare,
   Bot,
   BookOpen,
+  FileText,
+  Printer,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { MercadoLivreConfigCard } from '@/components/MercadoLivreConfigCard'
@@ -546,6 +548,59 @@ export default function Configuracoes() {
           <div className="flex items-center gap-2 pt-1 text-emerald-800 font-semibold">
             <span>Número oficial cadastrado:</span>
             <span className="font-mono bg-emerald-100 px-2 py-0.5 rounded">(31) 99231-0866</span>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Cartão de Satisfação Pós-Venda para Caixas Mercado Livre */}
+      <Card className="border-amber-300 shadow-xs bg-gradient-to-b from-amber-50/40 to-white">
+        <CardHeader className="border-b border-amber-200/60 pb-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-amber-500 text-slate-950 flex items-center justify-center shadow-xs font-bold">
+                <FileText className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <CardTitle className="text-base font-bold text-slate-900">
+                    Cartão de Satisfação Pós-Venda (Caixas ML)
+                  </CardTitle>
+                  <Badge
+                    variant="outline"
+                    className="bg-amber-100 text-amber-900 border-amber-300 text-[10px] font-semibold"
+                  >
+                    Flyer A5 Imprimível
+                  </Badge>
+                </div>
+                <CardDescription className="text-xs">
+                  Folha informativa anti-reclamação para impressão e inserção dentro das encomendas
+                </CardDescription>
+              </div>
+            </div>
+
+            <Link to="/cartao-pos-venda">
+              <Button
+                size="sm"
+                className="text-xs h-8 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold gap-1.5 shadow-xs"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                Abrir Cartão & Imprimir
+              </Button>
+            </Link>
+          </div>
+        </CardHeader>
+        <CardContent className="p-4 text-xs text-slate-600 space-y-2">
+          <p>
+            Cartão profissional editável com instruções de devolução amigável no Mercado Livre e
+            canal direto via WhatsApp, evitando abertura desnecessária de reclamação e protegendo o
+            termômetro da sua conta.
+          </p>
+          <div className="flex items-center gap-2 pt-1 text-slate-800">
+            <span className="font-semibold text-amber-900">Personalização:</span>
+            <span>
+              Campos editáveis salvos no seu navegador com exportação em PDF de alta qualidade e
+              impressão direta.
+            </span>
           </div>
         </CardContent>
       </Card>
