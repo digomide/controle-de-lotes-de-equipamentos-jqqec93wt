@@ -198,9 +198,9 @@ export const PropostaImovel: React.FC = () => {
       )} e a última (${calculatedValues.totalParcelas}ª) ajustada para ${formatCurrency(
         calculatedValues.valorUltimaParcela,
       )}, iniciando no mês subsequente à formalização da assinatura.`,
-      detalhesEntrada: `Processo trabalhista movido por ex-cuidadoras. O valor de ${formatCurrency(
+      detalhesEntrada: `Entrada de ${formatCurrency(
         calculatedValues.entradaDivida,
-      )} será pago diretamente às credoras pelo comprador mediante recibo e petição de quitação judicial, conforme cronograma acordado. O montante é integralmente abatido do preço da compra.`,
+      )}, a ser paga até dezembro de 2025 diretamente às credoras pelo comprador mediante recibo e petição de quitação judicial da dívida trabalhista acordada. O montante é integralmente abatido do preço da compra.`,
     }
     const saved = propertyProposalService.saveProposal(updated)
     setProposal(saved)
@@ -834,7 +834,7 @@ export const PropostaImovel: React.FC = () => {
               <div className="flex items-center justify-between font-bold text-slate-800 mb-1">
                 <span className="flex items-center gap-1.5 text-rose-700">
                   <BadgePercent className="w-4 h-4" />
-                  ETAPA 1: ENTRADA VIA ASSUNÇÃO DE DÍVIDA JUDICIAL
+                  ETAPA 1: ENTRADA ATÉ DEZEMBRO/2025 (R$ 45.000,00) VIA ASSUNÇÃO DE DÍVIDA
                 </span>
                 {isEditing ? (
                   <div className="w-36">

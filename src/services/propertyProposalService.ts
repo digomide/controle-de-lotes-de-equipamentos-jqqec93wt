@@ -115,7 +115,7 @@ export const DEFAULT_PROPOSAL_CONFIG: PropertyProposalConfig = {
     totalComprometimento: 257350,
   },
   detalhesEntrada:
-    'Processo trabalhista movido por ex-cuidadoras. O valor de R$ 45.000,00 será pago diretamente às credoras pelo comprador mediante recibo e petição de quitação judicial, conforme cronograma acordado com parcelas de R$ 5.000,00 e R$ 15.000,00 até o fim do ano corrente. O montante é integralmente abatido do preço da compra.',
+    'Entrada de R$ 45.000,00 (quarenta e cinco mil reais), a ser paga até dezembro de 2025 diretamente às credoras pelo comprador mediante recibo e petição de quitação judicial da dívida trabalhista acordada. O montante é integralmente abatido do preço da compra.',
   detalhesSaldo:
     'Saldo de R$ 200.000,00 pago diretamente à família/proprietária em 29 parcelas mensais sucessivas: 28 parcelas fixas de R$ 7.000,00 e a última (29ª) ajustada para R$ 6.000,00 (28 × 7.000 = 196.000 + 6.000 = R$ 200.000,00 exatos), iniciando no mês subsequente à formalização da assinatura.',
   justificativasDesconto: [
@@ -163,7 +163,7 @@ export const DEFAULT_PROPOSAL_CONFIG: PropertyProposalConfig = {
   rodapeDireito: 'Folha de Apresentação Familiar / Formal',
 }
 
-export const PROPOSTA_IMOVEL_STORAGE_KEY = 'proposta-imovel-v1'
+export const PROPOSTA_IMOVEL_STORAGE_KEY = 'proposta-imovel-v2'
 
 export const propertyProposalService = {
   /**
