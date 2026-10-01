@@ -823,20 +823,10 @@ export function getTurboBookmarkletScript(options: {
             tenant_id: 'ambicorpmestre1'
           };
 
-          let resp = await fetch(primaryEndpoint, {
-            method: 'POST',
-            mode: 'cors',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Collector-Key': COLLECTOR_KEY
-            },
-            body: JSON.stringify(recordBody)
-          });
-
-          // Se a rota nativa falhar com 404, tenta rota customizada como fallback
-          if (resp.status === 404) {
-            const fallbackEndpoint = BACKEND_URL + '/backend/v1/ml-collector/ingest';
-            resp = await fetch(fallbackEndpoint, {
+          let resp = null;
+          let primaryErrDetail = '';
+          try {
+            resp = await fetch(primaryEndpoint, {
               method: 'POST',
               mode: 'cors',
               headers: {
@@ -845,6 +835,34 @@ export function getTurboBookmarkletScript(options: {
               },
               body: JSON.stringify(recordBody)
             });
+          } catch (netErr) {
+            primaryErrDetail = (netErr && netErr.message) || 'Falha de rede';
+          }
+
+          // Se a rota nativa falhar (não 2xx) ou der erro de rede, aciona fallback para rota personalizada com CORS garantido
+          if (!resp || !resp.ok) {
+            let primaryStatus = resp ? resp.status : 0;
+            let primaryMsg = '';
+            if (resp) {
+              const primaryData = await resp.json().catch(() => ({}));
+              primaryMsg = primaryData.message || primaryData.error || (primaryData.data ? JSON.stringify(primaryData.data) : '');
+            }
+            console.warn('[Coletor Turbo] Rota principal falhou (HTTP ' + primaryStatus + ' ' + (primaryMsg || primaryErrDetail) + '). Ativando fallback para /backend/v1/ml-collector/ingest...');
+
+            const fallbackEndpoint = BACKEND_URL + '/backend/v1/ml-collector/ingest';
+            try {
+              resp = await fetch(fallbackEndpoint, {
+                method: 'POST',
+                mode: 'cors',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'X-Collector-Key': COLLECTOR_KEY
+                },
+                body: JSON.stringify(recordBody)
+              });
+            } catch (fallbackNetErr) {
+              throw new Error('Falha no envio (principal: ' + (primaryMsg || ('HTTP ' + primaryStatus)) + ' | fallback: ' + (fallbackNetErr.message || 'erro de rede') + ')');
+            }
           }
 
           if (resp.status === 401 || resp.status === 403) {
@@ -860,7 +878,8 @@ export function getTurboBookmarkletScript(options: {
             sendBtn.textContent = '✓ Enviado (' + itemsArray.length + ' itens)';
             sendBtn.style.background = '#16a34a';
           } else {
-            throw new Error(data.message || data.error || 'Erro no servidor (HTTP ' + resp.status + ')');
+            const errDetail = data.message || data.error || (data.data ? JSON.stringify(data.data) : '') || ('Erro no servidor (HTTP ' + resp.status + ')');
+            throw new Error(errDetail);
           }
         } catch (postErr) {
           feedback.style.display = 'block';
@@ -1465,7 +1484,7 @@ ${connectDirectives}
       } else if (state === 'error') {
         indicator.style.background = '#ef4444';
         indicator.style.boxShadow = '0 0 8px #ef4444';
-        badge.textContent = 'Aviso';
+        badge.textContent = (msg && msg.length <= 15) ? msg : 'Erro';
         badge.style.color = '#ef4444';
       }
     }
@@ -1661,18 +1680,29 @@ ${connectDirectives}
             onload: function(response) {
               if (response.status >= 200 && response.status < 300) {
                 handleSuccess();
-              } else if (response.status === 404 && !isFallback) {
+              } else if (!isFallback && response.status !== 401 && response.status !== 403) {
+                console.warn('[Coletor Tampermonkey] Rota principal retornou HTTP ' + response.status + '. Ativando fallback para rota /backend/v1/ml-collector/ingest...');
                 trySendRequest(fallbackEndpoint, true);
               } else if (response.status === 401 || response.status === 403) {
                 handleFailure('auth', response.status);
               } else if (response.status === 405) {
                 handleFailure('method_not_allowed', response.status);
               } else {
-                handleFailure('server', response.status);
+                let errDetail = '';
+                try {
+                  const parsed = JSON.parse(response.responseText);
+                  errDetail = parsed.message || parsed.error || (parsed.data ? JSON.stringify(parsed.data) : '');
+                } catch { /* intentionally ignored */ }
+                handleFailure('server', errDetail || ('HTTP ' + response.status));
               }
             },
             onerror: function(err) {
               const errStr = (err && (err.responseText || err.error || err.statusText || '')) + '';
+              if (!isFallback) {
+                console.warn('[Coletor Tampermonkey] Erro na rota principal. Tentando fallback para /backend/v1/ml-collector/ingest...');
+                trySendRequest(fallbackEndpoint, true);
+                return;
+              }
               if (errStr.toLowerCase().includes('not connected') || errStr.toLowerCase().includes('connect') || errStr.toLowerCase().includes('permission') || !errStr) {
                 handleFailure('blocked', errStr);
               } else {
@@ -1696,8 +1726,9 @@ ${connectDirectives}
           },
           body: bodyStr
         })
-        .then(r => {
-          if (r.status === 404 && !isFallback) {
+        .then(async r => {
+          if (!r.ok && !isFallback && r.status !== 401 && r.status !== 403) {
+            console.warn('[Coletor Tampermonkey] Fetch na rota principal retornou HTTP ' + r.status + '. Ativando fallback para /backend/v1/ml-collector/ingest...');
             trySendRequest(fallbackEndpoint, true);
             return null;
           }
@@ -1709,11 +1740,13 @@ ${connectDirectives}
             handleFailure('method_not_allowed', r.status);
             return null;
           }
+          const data = await r.json().catch(() => ({}));
           if (!r.ok) {
-            handleFailure('server', r.status);
+            const errDetail = data.message || data.error || (data.data ? JSON.stringify(data.data) : '') || ('HTTP ' + r.status);
+            handleFailure('server', errDetail);
             return null;
           }
-          return r.json();
+          return data;
         })
         .then(data => {
           if (!data) return;
@@ -1721,6 +1754,11 @@ ${connectDirectives}
           else handleFailure('server', data.message || data.error || 'Erro na resposta');
         })
         .catch(err => {
+          if (!isFallback) {
+            console.warn('[Coletor Tampermonkey] Falha de rede na rota principal. Tentando fallback para /backend/v1/ml-collector/ingest...');
+            trySendRequest(fallbackEndpoint, true);
+            return;
+          }
           const msg = (err && err.message) || '';
           if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
             handleFailure('network', 'falha de conexão CORS');
