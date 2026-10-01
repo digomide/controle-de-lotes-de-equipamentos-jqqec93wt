@@ -813,13 +813,14 @@ export function getTurboBookmarkletScript(options: {
           // Endpoint padrão da coleção PocketBase (garantido no runtime PocketBase v0.36)
           const primaryEndpoint = BACKEND_URL + '/api/collections/ml_collector_imports/records';
           const recordBody = {
-            search_term: searchTerm,
+            search_term: searchTerm || 'Busca Mercado Livre',
             source_url: window.location.href,
             imported_at: new Date().toISOString(),
             payload: payload,
             results_count: itemsArray.length,
             with_sales_count: withSalesCount,
-            notes: 'turbo'
+            notes: 'turbo',
+            tenant_id: 'ambicorpmestre1'
           };
 
           let resp = await fetch(primaryEndpoint, {
@@ -1557,7 +1558,8 @@ ${connectDirectives}
       payload: payload,
       results_count: itemsArray.length,
       with_sales_count: salesCount,
-      notes: 'auto'
+      notes: 'auto',
+      tenant_id: 'ambicorpmestre1'
     };
     const bodyStr = JSON.stringify(recordBody);
 

@@ -227,14 +227,20 @@ export const mlCollectorService = {
     }
 
     const payload = params.payload
+    const activeTenant =
+      (typeof window !== 'undefined' && localStorage.getItem('ambicorp_active_tenant_id')) ||
+      pb.authStore.record?.tenant_id ||
+      'ambicorpmestre1'
+
     const record = await pb.collection('ml_collector_imports').create<MLCollectorImportRecord>({
       search_term: term,
       source_url: params.sourceUrl || payload.source_url || '',
       imported_at: new Date().toISOString(),
       payload,
-      results_count: payload.results_count || payload.results.length,
+      results_count: payload.results_count || (payload.results ? payload.results.length : 0),
       with_sales_count: payload.with_sales_count || 0,
       notes: params.notes || 'manual',
+      tenant_id: activeTenant,
     })
 
     return record

@@ -98,12 +98,13 @@ try {
       // Normalizar campos e estatísticas do registro sendo inserido
       var record = e.record
       if (record) {
-        // Garantir preenchimento automático de tenant_id se não informado
-        var currentTenantId = record.getString('tenant_id')
+        // Garantir preenchimento automático de tenant_id válido
+        var currentTenantId = (record.getString('tenant_id') || '').trim()
         if (!currentTenantId) {
           var userTenant =
             auth && auth.getString ? auth.getString('tenant_id') : auth ? auth.tenant_id : ''
-          record.set('tenant_id', userTenant || 'ambicorpmestre1')
+          currentTenantId = (userTenant || 'ambicorpmestre1').toString().trim()
+          record.set('tenant_id', currentTenantId)
         }
 
         var searchTerm = (record.getString('search_term') || '')
@@ -123,6 +124,9 @@ try {
 
         if (searchTerm) {
           record.set('search_term', searchTerm)
+        } else {
+          // Fallback defensivo para não estourar required
+          record.set('search_term', 'coleta mercado livre')
         }
 
         if (!record.getString('imported_at')) {
@@ -177,10 +181,24 @@ try {
           (record ? record.getInt('results_count') : 0) +
           ', com vendas: ' +
           (record ? record.getInt('with_sales_count') : 0) +
-          ')',
+          ', tenant_id: "' +
+          (record ? record.getString('tenant_id') : '') +
+          '")',
       )
 
-      return e.next()
+      try {
+        return e.next()
+      } catch (nextErr) {
+        console.log(
+          '[ml_collector_ingest] ERRO DETALHADO em onRecordCreateRequest e.next(): ' +
+            (nextErr && nextErr.message ? nextErr.message : nextErr) +
+            ' | Data: ' +
+            JSON.stringify(nextErr && nextErr.data ? nextErr.data : {}) +
+            ' | Raw: ' +
+            JSON.stringify(nextErr),
+        )
+        throw nextErr
+      }
     }, 'ml_collector_imports')
   }
 } catch (hookErr) {
@@ -195,7 +213,8 @@ onRecordCreate((e) => {
   }
 
   // Auto-preenchimento defensivo de tenant_id caso não tenha sido preenchido
-  if (!record.getString('tenant_id')) {
+  var curTenant = (record.getString('tenant_id') || '').trim()
+  if (!curTenant) {
     record.set('tenant_id', 'ambicorpmestre1')
   }
 
@@ -205,13 +224,27 @@ onRecordCreate((e) => {
     if (cleanTerm !== rawTerm) {
       record.set('search_term', cleanTerm)
     }
+  } else {
+    record.set('search_term', 'coleta mercado livre')
   }
 
   if (!record.getString('imported_at')) {
     record.set('imported_at', new Date().toISOString())
   }
 
-  return e.next()
+  try {
+    return e.next()
+  } catch (nextErr) {
+    console.log(
+      '[ml_collector_ingest] ERRO DETALHADO em onRecordCreate e.next(): ' +
+        (nextErr && nextErr.message ? nextErr.message : nextErr) +
+        ' | Data: ' +
+        JSON.stringify(nextErr && nextErr.data ? nextErr.data : {}) +
+        ' | Raw: ' +
+        JSON.stringify(nextErr),
+    )
+    throw nextErr
+  }
 }, 'ml_collector_imports')
 
 // ------------------------------------------------------------------------------------------------
