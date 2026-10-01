@@ -98,6 +98,14 @@ try {
       // Normalizar campos e estatísticas do registro sendo inserido
       var record = e.record
       if (record) {
+        // Garantir preenchimento automático de tenant_id se não informado
+        var currentTenantId = record.getString('tenant_id')
+        if (!currentTenantId) {
+          var userTenant =
+            auth && auth.getString ? auth.getString('tenant_id') : auth ? auth.tenant_id : ''
+          record.set('tenant_id', userTenant || 'ambicorpmestre1')
+        }
+
         var searchTerm = (record.getString('search_term') || '')
           .toLowerCase()
           .replace(/\s+/g, ' ')
@@ -184,6 +192,11 @@ onRecordCreate((e) => {
   var record = e.record
   if (!record) {
     return e.next()
+  }
+
+  // Auto-preenchimento defensivo de tenant_id caso não tenha sido preenchido
+  if (!record.getString('tenant_id')) {
+    record.set('tenant_id', 'ambicorpmestre1')
   }
 
   var rawTerm = record.getString('search_term')
@@ -386,6 +399,7 @@ routerAdd('POST', '/backend/v1/ml-collector/ingest', (e) => {
     importRecord.set('results_count', results.length)
     importRecord.set('with_sales_count', withSalesCount)
     importRecord.set('notes', sourceNotes)
+    importRecord.set('tenant_id', 'ambicorpmestre1')
 
     $app.save(importRecord)
 
