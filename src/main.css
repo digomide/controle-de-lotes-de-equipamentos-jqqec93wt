@@ -653,7 +653,8 @@
 
   .proposta-section-block,
   .reembolso-clausula-block,
-  .reembolso-signature-block {
+  .reembolso-signature-block,
+  .reembolso-table-row {
     page-break-inside: avoid !important;
     break-inside: avoid !important;
   }

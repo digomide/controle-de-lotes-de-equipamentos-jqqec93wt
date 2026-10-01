@@ -4,7 +4,6 @@ import {
   Printer,
   ArrowLeft,
   Download,
-  FileText,
   Pencil,
   Loader2,
   Save,
@@ -14,9 +13,11 @@ import {
   Building,
   User,
   Users,
-  AlertTriangle,
   Scale,
-  Calendar,
+  Plus,
+  Trash2,
+  CheckCircle2,
+  DollarSign,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -27,6 +28,7 @@ import {
   reimbursementService,
   ReembolsoConfig,
   DEFAULT_REEMBOLSO_CONFIG,
+  ParcelaQuitacaoData,
 } from '@/services/reimbursementService'
 import { downloadReembolsoPdf } from '@/utils/reimbursementPdfGenerator'
 import { toast } from '@/hooks/use-toast'
@@ -144,6 +146,71 @@ export const TermoReembolso: React.FC = () => {
   }
 
   const current = isEditing ? editConfig : config
+
+  // Handlers para manipular parcelas flexíveis no modo de edição
+  const handleAddParcela = () => {
+    const parcelas = editConfig.operacao.parcelasQuitacao || []
+    const nextNum = parcelas.length + 1
+    const newParcela: ParcelaQuitacaoData = {
+      id: `parc-${Date.now()}-${nextNum}`,
+      numero: nextNum,
+      descricao: `Parcela ${nextNum.toString().padStart(2, '0')}/${nextNum}`,
+      valor: '7.000,00',
+      vencimento: '',
+      observacao: 'Parcela mensal',
+    }
+    setEditConfig({
+      ...editConfig,
+      operacao: {
+        ...editConfig.operacao,
+        saldoTotalParcelas: nextNum,
+        parcelasQuitacao: [...parcelas, newParcela],
+      },
+    })
+  }
+
+  const handleRemoveParcela = (indexToRemove: number) => {
+    const parcelas = (editConfig.operacao.parcelasQuitacao || []).filter(
+      (_, i) => i !== indexToRemove,
+    )
+    // Renumera ordenadamente
+    const reindexed = parcelas.map((p, idx) => ({
+      ...p,
+      numero: idx + 1,
+      descricao: p.descricao?.startsWith('Parcela')
+        ? `Parcela ${(idx + 1).toString().padStart(2, '0')}/${parcelas.length}`
+        : p.descricao,
+    }))
+    setEditConfig({
+      ...editConfig,
+      operacao: {
+        ...editConfig.operacao,
+        saldoTotalParcelas: reindexed.length,
+        parcelasQuitacao: reindexed,
+      },
+    })
+  }
+
+  const handleUpdateParcela = (
+    index: number,
+    field: keyof ParcelaQuitacaoData,
+    value: string | number,
+  ) => {
+    const parcelas = [...(editConfig.operacao.parcelasQuitacao || [])]
+    if (parcelas[index]) {
+      parcelas[index] = {
+        ...parcelas[index],
+        [field]: value,
+      }
+      setEditConfig({
+        ...editConfig,
+        operacao: {
+          ...editConfig.operacao,
+          parcelasQuitacao: parcelas,
+        },
+      })
+    }
+  }
 
   // Utilitários para renderizar campos com destaque se vazios
   const renderField = (value: string, placeholder: string, label?: string) => {
@@ -643,9 +710,37 @@ export const TermoReembolso: React.FC = () => {
                   className="h-8 text-xs mt-1"
                 />
               </div>
-              <div className="sm:col-span-2">
+              <div>
+                <Label className="text-[11px] text-slate-600">Prazo Limite da Entrada</Label>
+                <Input
+                  value={editConfig.operacao.prazoLimiteEntrada}
+                  onChange={(e) =>
+                    setEditConfig({
+                      ...editConfig,
+                      operacao: { ...editConfig.operacao, prazoLimiteEntrada: e.target.value },
+                    })
+                  }
+                  placeholder="ex: dezembro de 2025"
+                  className="h-8 text-xs mt-1"
+                />
+              </div>
+              <div>
+                <Label className="text-[11px] text-slate-600">Saldo Restante (R$)</Label>
+                <Input
+                  value={editConfig.operacao.saldoRestante}
+                  onChange={(e) =>
+                    setEditConfig({
+                      ...editConfig,
+                      operacao: { ...editConfig.operacao, saldoRestante: e.target.value },
+                    })
+                  }
+                  placeholder="ex: 200.000,00"
+                  className="h-8 text-xs mt-1"
+                />
+              </div>
+              <div className="sm:col-span-3">
                 <Label className="text-[11px] text-slate-600">
-                  Ajuste da Entrada [se os "45" forem percentual ou observação]
+                  Ajuste da Entrada [se os "45" forem percentual ou observação adicional]
                 </Label>
                 <Input
                   value={editConfig.operacao.entradaObservacao}
@@ -656,6 +751,25 @@ export const TermoReembolso: React.FC = () => {
                     })
                   }
                   placeholder="Deixe em branco para o padrão ou personalize ex: (correspondente a 18,36% da operação)"
+                  className="h-8 text-xs mt-1"
+                />
+              </div>
+              <div className="sm:col-span-3">
+                <Label className="text-[11px] text-slate-600">
+                  Condições de Pagamento e Descrição Geral do Saldo
+                </Label>
+                <Input
+                  value={editConfig.operacao.detalhesCondicoesPagamento}
+                  onChange={(e) =>
+                    setEditConfig({
+                      ...editConfig,
+                      operacao: {
+                        ...editConfig.operacao,
+                        detalhesCondicoesPagamento: e.target.value,
+                      },
+                    })
+                  }
+                  placeholder="Descrição do parcelamento de quitação"
                   className="h-8 text-xs mt-1"
                 />
               </div>
@@ -719,6 +833,96 @@ export const TermoReembolso: React.FC = () => {
                   placeholder="dinheiro/PIX/transferência bancária"
                   className="h-8 text-xs mt-1"
                 />
+              </div>
+            </div>
+
+            {/* Sub-bloco Tabela de Parcelas de Quitação */}
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-3 mt-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-1.5 font-semibold text-slate-900 text-xs">
+                    <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Tabela de Parcelas de Quitação do Bem Imóvel</span>
+                    <Badge variant="secondary" className="text-[10px] ml-1">
+                      {editConfig.operacao.parcelasQuitacao?.length || 0} parcelas
+                    </Badge>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Valores e vencimentos das parcelas sucessivas pós-entrada (conforme proposta: 28
+                    × R$ 7.000,00 + 1 × R$ 6.000,00). Você pode editar, adicionar ou remover
+                    parcelas livremente.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleAddParcela}
+                  className="gap-1 text-xs text-emerald-700 border-emerald-300 hover:bg-emerald-50 h-7"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Adicionar Parcela
+                </Button>
+              </div>
+
+              <div className="max-h-[300px] overflow-y-auto space-y-2 pr-1 border border-slate-200 rounded p-2 bg-white">
+                {(editConfig.operacao.parcelasQuitacao || []).map((p, idx) => (
+                  <div
+                    key={p.id || idx}
+                    className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center p-2 rounded bg-slate-50 border border-slate-200 text-xs"
+                  >
+                    <div className="sm:col-span-1 font-bold text-slate-700 text-center">
+                      #{idx + 1}
+                    </div>
+                    <div className="sm:col-span-3">
+                      <Input
+                        value={p.descricao || ''}
+                        onChange={(e) => handleUpdateParcela(idx, 'descricao', e.target.value)}
+                        placeholder={`Parcela ${(idx + 1).toString().padStart(2, '0')}`}
+                        className="h-7 text-xs bg-white"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <div className="relative">
+                        <span className="absolute left-2 top-1 text-[11px] text-slate-400">R$</span>
+                        <Input
+                          value={p.valor || ''}
+                          onChange={(e) => handleUpdateParcela(idx, 'valor', e.target.value)}
+                          placeholder="7.000,00"
+                          className="h-7 text-xs pl-7 bg-white font-mono"
+                        />
+                      </div>
+                    </div>
+                    <div className="sm:col-span-3">
+                      <Input
+                        value={p.vencimento || ''}
+                        onChange={(e) => handleUpdateParcela(idx, 'vencimento', e.target.value)}
+                        placeholder="Vencimento (ex: 10/01/2026)"
+                        className="h-7 text-xs bg-white"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <Input
+                        value={p.observacao || ''}
+                        onChange={(e) => handleUpdateParcela(idx, 'observacao', e.target.value)}
+                        placeholder="Observação"
+                        className="h-7 text-xs bg-white text-[11px]"
+                      />
+                    </div>
+                    <div className="sm:col-span-1 text-center">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleRemoveParcela(idx)}
+                        className="h-7 w-7 p-0 text-rose-600 hover:text-rose-800 hover:bg-rose-50"
+                        title="Remover parcela"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -941,17 +1145,18 @@ export const TermoReembolso: React.FC = () => {
             {renderField(current.operacao.valorTotal, '___', 'Preço Total')} (
             {renderField(current.operacao.valorExtenso, 'valor por extenso', 'Valor por Extenso')}),
             com ENTRADA de R$ {current.operacao.valorEntrada || '45.000,00'} (quarenta e cinco mil
-            reais){' '}
+            reais), a ser paga até{' '}
+            {renderField(
+              current.operacao.prazoLimiteEntrada || 'dezembro de 2025',
+              'dezembro de 2025',
+              'Prazo Limite da Entrada',
+            )}{' '}
             {current.operacao.entradaObservacao ? (
               <span className="font-semibold text-slate-900 underline decoration-slate-300 underline-offset-2">
                 [{current.operacao.entradaObservacao}]
               </span>
-            ) : (
-              <span className="text-slate-600 italic">
-                [ajustar se os &quot;45&quot; forem percentual]
-              </span>
-            )}
-            , na forma da proposta.
+            ) : null}
+            , na forma da proposta aceita.
           </p>
           <p className="indent-8 leading-relaxed">
             <strong>1.2.</strong> Conforme a proposta, os valores pendentes existentes sobre o
@@ -966,11 +1171,205 @@ export const TermoReembolso: React.FC = () => {
           </p>
         </div>
 
-        {/* CLÁUSULA 2ª */}
-        <div className="reembolso-clausula-block mb-5 space-y-2">
-          <h3 className="font-bold text-slate-950">CLÁUSULA 2ª — DA AUTORIZAÇÃO JUDICIAL</h3>
+        {/* NOVA CLÁUSULA: DA ADESÃO IRREVOGÁVEL E CONSENTIMENTO À VENDA EM QUAISQUER OCASIÕES POSTERIORES */}
+        <div className="reembolso-clausula-block mb-5 space-y-2 bg-slate-50/50 p-3 rounded border border-slate-200/60 print:bg-transparent print:border-none print:p-0">
+          <h3 className="font-bold text-slate-950">
+            CLÁUSULA 2ª — DA ADESÃO IRREVOGÁVEL E DO CONSENTIMENTO EXPRESSO À VENDA EM QUAISQUER
+            OCASIÕES POSTERIORES
+          </h3>
           <p className="indent-8 leading-relaxed">
-            <strong>2.1.</strong> As partes reconhecem que a PROPRIETÁRIA é interditada e que a
+            <strong>2.1.</strong> A PROPRIETÁRIA (neste ato representada por sua curadora/curador),
+            TODOS os GARANTIDORES SOLIDÁRIOS e demais herdeiros e sucessores manifestam
+            expressamente seu consentimento{' '}
+            <strong>LIVRE, ESPONTÂNEO, IRREVOGÁVEL E IRRENUNCIÁVEL</strong> com a venda integral do
+            apartamento residencial objeto deste instrumento ao COMPRADOR, nos exatos termos,
+            valores e condições da proposta aceita.
+          </p>
+          <p className="indent-8 leading-relaxed">
+            <strong>2.2.</strong> As partes, herdeiros e GARANTIDORES SOLIDÁRIOS convencionam de
+            forma inequívoca que o consentimento aqui prestado{' '}
+            <strong>
+              permanece plenamente válido, eficaz e vinculante em quaisquer ocasiões posteriores
+            </strong>
+            , aplicando-se integralmente a:
+          </p>
+          <p className="indent-12 leading-relaxed">
+            <strong>a) No âmbito do Processo de Interdição e Expedição de Alvará:</strong>{' '}
+            obrigam-se a PROPRIETÁRIA, por sua curadora/curador, e todos os GARANTIDORES a instruir,
+            requerer, emendar e peticionar perante o Juízo competente tudo o que for juridicamente
+            hábil e indispensável para a homologação da venda e a expedição do alvará judicial,
+            corroborando perante o Ministério Público e o Magistrado a conveniência e a manifesta
+            vantagem patrimonial do negócio em favor da PROPRIETÁRIA;
+          </p>
+          <p className="indent-12 leading-relaxed">
+            <strong>b) No âmbito de Eventual Sucessão e Inventário da PROPRIETÁRIA:</strong> na
+            hipótese de falecimento da PROPRIETÁRIA antes ou no curso da escrituração definitiva, o
+            consentimento dado neste ato subsiste íntegro e vincula plena e diretamente todos os
+            GARANTIDORES e demais herdeiros, os quais{' '}
+            <strong>renunciam de forma expressa e irretratável</strong> a qualquer impugnação da
+            venda, dos valores e condições nela pactuados, bem como dos pagamentos já efetuados pelo
+            COMPRADOR de boa-fé, comprometendo-se a adjudicar, colacionar e formalizar a outorga da
+            escritura pública de compra e venda nos autos do inventário sem qualquer oposição;
+          </p>
+          <p className="indent-12 leading-relaxed">
+            <strong>c) Em Disputas Futuras entre Herdeiros ou Perante Terceiros:</strong> obriga-se
+            cada um dos GARANTIDORES, por si e por seus herdeiros e sucessores a qualquer título, a
+            não apresentar qualquer objeção, embargo, ação judicial, protesto ou reclamação contra a
+            venda ou contra o COMPRADOR de boa-fé, defendendo a higidez do negócio jurídico pactuado
+            perante quaisquer terceiros, credores ou herdeiros supervenientes.
+          </p>
+          <p className="indent-8 leading-relaxed">
+            <strong>2.3.</strong> Os GARANTIDORES declaram sob as penas da lei que o consentimento e
+            a adesão aqui firmados são definitivos, operando efeitos imediatos e sucessórios
+            perpétuos, constituindo obrigação de fazer e de não fazer líquida, certa e exigível.
+          </p>
+        </div>
+
+        {/* NOVA CLÁUSULA: DA FORMA DE PAGAMENTO E DAS PARCELAS DE QUITAÇÃO DO BEM IMÓVEL */}
+        <div className="reembolso-clausula-block mb-5 space-y-3">
+          <h3 className="font-bold text-slate-950">
+            CLÁUSULA 3ª — DA FORMA DE PAGAMENTO E DAS PARCELAS DE QUITAÇÃO DO BEM IMÓVEL
+          </h3>
+          <p className="indent-8 leading-relaxed">
+            <strong>3.1.</strong> O preço global acordado para a aquisição do imóvel será quitado
+            pelo COMPRADOR em estrita observância ao cronograma financeiro da proposta aprovada,
+            composto pela ENTRADA e pelo saldo parcelado, conforme a seguinte discriminação:
+          </p>
+          <p className="indent-12 leading-relaxed">
+            <strong>a) ENTRADA:</strong> R$ {current.operacao.valorEntrada || '45.000,00'} (quarenta
+            e cinco mil reais), a ser quitada até{' '}
+            <strong>
+              {renderField(
+                current.operacao.prazoLimiteEntrada || 'dezembro de 2025',
+                'dezembro de 2025',
+                'Prazo Limite da Entrada',
+              )}
+            </strong>
+            , diretamente às credoras pelo adquirente mediante recibo circunstanciado e petição de
+            quitação judicial da dívida homologada, valor este que integra e é integralmente abatido
+            do montante total de aquisição;
+          </p>
+          <p className="indent-12 leading-relaxed">
+            <strong>b) SALDO REMANESCENTE E PARCELAMENTO:</strong> R${' '}
+            {renderField(
+              current.operacao.saldoRestante || '200.000,00',
+              '200.000,00',
+              'Saldo Remanescente',
+            )}{' '}
+            ( duzentos mil reais), quitado diretamente à PROPRIETÁRIA/família através de{' '}
+            <strong>
+              {current.operacao.parcelasQuitacao?.length ||
+                current.operacao.saldoTotalParcelas ||
+                29}{' '}
+              parcelas mensais e sucessivas
+            </strong>
+            , com primeiro vencimento no mês subsequente à formalização da autorização, nos exatos
+            termos detalhados na tabela oficial de quitação a seguir discriminada:
+          </p>
+
+          {/* TABELA DE PARCELAS DE QUITAÇÃO DO BEM IMÓVEL */}
+          <div className="my-4 overflow-x-auto">
+            <table className="w-full text-left text-xs font-sans border-collapse border border-slate-300">
+              <thead>
+                <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300">
+                  <th className="p-2 border-r border-slate-300 w-12 text-center">Nº</th>
+                  <th className="p-2 border-r border-slate-300">Descrição da Parcela</th>
+                  <th className="p-2 border-r border-slate-300 w-28 text-right">Valor (R$)</th>
+                  <th className="p-2 border-r border-slate-300 w-36 text-center">Vencimento</th>
+                  <th className="p-2">Condição / Observação</th>
+                </tr>
+              </thead>
+              <tbody>
+                {/* Linha da Entrada em destaque */}
+                <tr className="bg-emerald-50/60 font-semibold border-b border-slate-200 reembolso-table-row">
+                  <td className="p-2 border-r border-slate-200 text-center text-emerald-800">00</td>
+                  <td className="p-2 border-r border-slate-200 text-emerald-950">
+                    Entrada / Liquidação de Dívida Judicial
+                  </td>
+                  <td className="p-2 border-r border-slate-200 text-right font-mono text-emerald-900 font-bold">
+                    R$ {current.operacao.valorEntrada || '45.000,00'}
+                  </td>
+                  <td className="p-2 border-r border-slate-200 text-center font-mono">
+                    {renderField(
+                      current.operacao.prazoLimiteEntrada || 'dezembro de 2025',
+                      'dezembro de 2025',
+                      'Prazo Entrada',
+                    )}
+                  </td>
+                  <td className="p-2 text-slate-700 text-[11px]">
+                    Até dez/2025 c/ recibo de quitação judicial abatido da compra
+                  </td>
+                </tr>
+
+                {/* Linhas das parcelas sucessivas de saldo */}
+                {(current.operacao.parcelasQuitacao || []).map((parc, pIdx) => (
+                  <tr
+                    key={parc.id || pIdx}
+                    className={`border-b border-slate-200 reembolso-table-row ${
+                      pIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'
+                    }`}
+                  >
+                    <td className="p-2 border-r border-slate-200 text-center font-mono text-slate-600">
+                      {String(parc.numero || pIdx + 1).padStart(2, '0')}
+                    </td>
+                    <td className="p-2 border-r border-slate-200 font-medium text-slate-900">
+                      {parc.descricao ||
+                        `Parcela ${String(pIdx + 1).padStart(2, '0')}/${current.operacao.parcelasQuitacao.length}`}
+                    </td>
+                    <td className="p-2 border-r border-slate-200 text-right font-mono text-slate-900 font-semibold">
+                      R$ {parc.valor || '7.000,00'}
+                    </td>
+                    <td className="p-2 border-r border-slate-200 text-center font-mono text-slate-700">
+                      {renderField(
+                        parc.vencimento,
+                        `Mês ${String(pIdx + 1).padStart(2, '0')}`,
+                        `Vencimento Parcela ${pIdx + 1}`,
+                      )}
+                    </td>
+                    <td className="p-2 text-slate-600 text-[11px]">
+                      {parc.observacao ||
+                        (pIdx === (current.operacao.parcelasQuitacao?.length || 29) - 1
+                          ? 'Parcela de quitação final integral'
+                          : 'Parcela mensal sucessiva pós-autorização')}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="bg-slate-100 font-bold border-t-2 border-slate-400 text-slate-950">
+                  <td colSpan={2} className="p-2 border-r border-slate-300 text-right">
+                    TOTAL DA OPERAÇÃO DE QUITAÇÃO:
+                  </td>
+                  <td className="p-2 border-r border-slate-300 text-right font-mono text-emerald-800 text-[13px]">
+                    R${' '}
+                    {renderField(
+                      current.operacao.valorTotal || '245.000,00',
+                      '245.000,00',
+                      'Total Quitação',
+                    )}
+                  </td>
+                  <td colSpan={2} className="p-2 text-slate-600 text-[11px] italic">
+                    Entrada de R$ 45.000,00 + {current.operacao.parcelasQuitacao?.length || 29}{' '}
+                    parcelas (quitação integral do bem imóvel)
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          <p className="indent-8 leading-relaxed">
+            <strong>3.2.</strong> O adimplemento das parcelas nos moldes e valores acima
+            estabelecidos confere ao COMPRADOR a mais ampla, geral e irrestrita quitação com relação
+            ao saldo do imóvel, exonerando-o de qualquer outra cobrança ou pleito patrimonial por
+            parte da PROPRIETÁRIA, seus herdeiros ou sucessores.
+          </p>
+        </div>
+
+        {/* CLÁUSULA 4ª (Antiga Cláusula 2ª renumerada): DA AUTORIZAÇÃO JUDICIAL */}
+        <div className="reembolso-clausula-block mb-5 space-y-2">
+          <h3 className="font-bold text-slate-950">CLÁUSULA 4ª — DA AUTORIZAÇÃO JUDICIAL</h3>
+          <p className="indent-8 leading-relaxed">
+            <strong>4.1.</strong> As partes reconhecem que a PROPRIETÁRIA é interditada e que a
             venda do imóvel depende de autorização do Juízo encarregado da interdição (autos nº{' '}
             {renderField(
               current.operacao.processoAutosNumero || current.proprietaria.processoNumero,
@@ -979,6 +1378,82 @@ export const TermoReembolso: React.FC = () => {
             )}
             ), nos termos dos arts. 1.748 e 1.774 do Código Civil, somente se consumando mediante
             alvará/autorização judicial.
+          </p>
+        </div>
+
+        {/* CLÁUSULA 5ª (Antiga Cláusula 3ª renumerada): DA OBRIGAÇÃO DE REEMBOLSO */}
+        <div className="reembolso-clausula-block mb-5 space-y-2">
+          <h3 className="font-bold text-slate-950">
+            CLÁUSULA 5ª — DA OBRIGAÇÃO DE REEMBOLSO (EVENTO RESOLUTIVO)
+          </h3>
+          <p className="indent-8 leading-relaxed">
+            <strong>5.1.</strong> Caso a venda NÃO seja autorizada pelo Juízo encarregado da
+            interdição — decisão definitiva, transitada em julgado ou da qual não caiba mais recurso
+            — ou, autorizada, não se consume por fato não imputável ao COMPRADOR, a PROPRIETÁRIA e
+            os GARANTIDORES obrigam-se a reembolsar ao COMPRADOR, integralmente e de forma
+            SOLIDÁRIA:
+          </p>
+          <p className="indent-12 leading-relaxed">
+            a) a ENTRADA de R$ {current.operacao.valorEntrada || '45.000,00'} paga ou por pagar (a
+            ser quitada até {current.operacao.prazoLimiteEntrada || 'dezembro de 2025'});
+          </p>
+          <p className="indent-12 leading-relaxed">
+            b) todas as despesas comprovadamente realizadas pelo COMPRADOR em razão da operação —
+            incluindo, sem limitação, quaisquer parcelas já pagas do preço, custas e emolumentos,
+            honorários advocatícios, laudos, vistorias, deslocamentos e taxas — mediante simples
+            apresentação de comprovantes;
+          </p>
+          <p className="indent-12 leading-relaxed">
+            c) tudo com CORREÇÃO MONETÁRIA pelo índice [
+            {renderField(current.operacao.correcaoIndice, 'IPCA/IBGE', 'Índice de Correção')}], a
+            contar da data de cada desembolso até a efetiva restituição.
+          </p>
+
+          {current.operacao.multaJurosAtivo && (
+            <p className="indent-8 leading-relaxed">
+              <strong>5.2.</strong> [Opcional] Não ocorrendo o reembolso em até [
+              {renderField(current.operacao.multaJurosPrazoDias, '15/30', 'Prazo em dias')}] dias do
+              evento resolutivo, acrescer-se-ão juros de{' '}
+              {current.operacao.multaJurosTaxaJuros || '1% ao mês'} e multa de{' '}
+              {current.operacao.multaJurosTaxaMulta || '2% sobre o total devido'}.
+            </p>
+          )}
+
+          <p className="indent-8 leading-relaxed">
+            <strong>5.3.</strong> O reembolso será pago em{' '}
+            {current.operacao.formaPagamento || 'dinheiro/PIX/transferência bancária'} no prazo de [
+            {renderField(current.operacao.prazoReembolsoDias, '15/30', 'Prazo em dias')}] dias
+            contados do evento resolutivo.
+          </p>
+        </div>
+
+        {/* CLÁUSULA 6ª (Antiga Cláusula 4ª renumerada): DA SOLIDARIEDADE */}
+        <div className="reembolso-clausula-block mb-5 space-y-2">
+          <h3 className="font-bold text-slate-950">CLÁUSULA 6ª — DA SOLIDARIEDADE</h3>
+          <p className="indent-8 leading-relaxed">
+            <strong>6.1.</strong> Os GARANTIDORES respondem solidariamente entre si e com a
+            PROPRIETÁRIA pelo cumprimento de todas as obrigações deste instrumento, de consentimento
+            à venda e de reembolso em caso de não concretização do negócio, renunciando
+            expressamente ao benefício de ordem (art. 828 do Código Civil).
+          </p>
+        </div>
+
+        {/* CLÁUSULA 7ª (Antiga Cláusula 5ª renumerada): DA INDEPENDÊNCIA */}
+        <div className="reembolso-clausula-block mb-5 space-y-2">
+          <h3 className="font-bold text-slate-950">CLÁUSULA 7ª — DA INDEPENDÊNCIA</h3>
+          <p className="indent-8 leading-relaxed">
+            <strong>7.1.</strong> A obrigação deste instrumento é autônoma e subsiste
+            independentemente de qualquer outro contrato ou instrumento firmado entre as partes.
+          </p>
+        </div>
+
+        {/* CLÁUSULA 8ª (Antiga Cláusula 6ª renumerada): DO FORO */}
+        <div className="reembolso-clausula-block mb-6 space-y-2">
+          <h3 className="font-bold text-slate-950">CLÁUSULA 8ª — DO FORO</h3>
+          <p className="indent-8 leading-relaxed">
+            <strong>8.1.</strong> Fica eleito o foro da Comarca de{' '}
+            {renderField(current.operacao.comarcaForo, '___', 'Comarca do Foro')} para dirimir
+            quaisquer dúvidas relativas ao presente instrumento.
           </p>
         </div>
 

@@ -112,6 +112,7 @@ export async function downloadReembolsoPdf(
           '.break-inside-avoid',
           '.reembolso-signature-block',
           '.reembolso-clausula-block',
+          '.reembolso-table-row',
           'footer',
         ],
       },

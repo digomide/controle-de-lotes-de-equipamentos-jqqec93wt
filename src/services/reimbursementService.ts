@@ -33,17 +33,31 @@ export interface GarantidorData {
   qualificacao: string
 }
 
+export interface ParcelaQuitacaoData {
+  id: string
+  numero: number // 1, 2, ..., 29
+  descricao?: string // ex: "Parcela 01/29"
+  valor: string // ex: "7.000,00"
+  vencimento: string // ex: "Mês 01 após formalização" ou data
+  observacao?: string // ex: "Parcela padrão" ou "Última parcela de ajuste"
+}
+
 export interface ReembolsoOperacaoData {
   valorTotal: string
   valorExtenso: string
   valorEntrada: string
+  prazoLimiteEntrada: string // "até dezembro de 2025"
   entradaObservacao: string // ex: 'ajustar se os "45" forem percentual' ou 'paga ou por pagar'
+  saldoRestante: string // "200.000,00"
+  saldoTotalParcelas: number // 29
+  detalhesCondicoesPagamento: string
+  parcelasQuitacao: ParcelaQuitacaoData[]
   valoresPendentesEspecificacao: string
   processoAutosNumero: string
   correcaoIndice: string // ex: 'IPCA/IBGE'
   prazoReembolsoDias: string // '15', '30' ou livre
   formaPagamento: string // 'dinheiro/PIX/transferência bancária'
-  multaJurosAtivo: boolean // Cláusula 3.2 opcional
+  multaJurosAtivo: boolean // Cláusula opcional
   multaJurosPrazoDias: string // '15', '30'
   multaJurosTaxaJuros: string // '1% ao mês'
   multaJurosTaxaMulta: string // '2% sobre o total devido'
@@ -126,7 +140,30 @@ export const DEFAULT_REEMBOLSO_CONFIG: ReembolsoConfig = {
     valorTotal: '',
     valorExtenso: '',
     valorEntrada: '45.000,00',
+    prazoLimiteEntrada: 'dezembro de 2025',
     entradaObservacao: '', // Se preenchido, pode adicionar anotação ou manter o padrão
+    saldoRestante: '200.000,00',
+    saldoTotalParcelas: 29,
+    detalhesCondicoesPagamento:
+      'Saldo de R$ 200.000,00 (duzentos mil reais) a ser quitado diretamente à família/proprietária em 29 (vinte e nove) parcelas mensais e sucessivas: 28 (vinte e oito) parcelas fixas de R$ 7.000,00 e a 29ª parcela no valor de R$ 6.000,00 (28 × R$ 7.000,00 = R$ 196.000,00 + R$ 6.000,00 = R$ 200.000,00 exatos), com vencimento da primeira parcela no mês subsequente à formalização/autorização.',
+    parcelasQuitacao: [
+      ...Array.from({ length: 28 }, (_, i) => ({
+        id: `parc-${i + 1}`,
+        numero: i + 1,
+        descricao: `Parcela ${(i + 1).toString().padStart(2, '0')}/29`,
+        valor: '7.000,00',
+        vencimento: '',
+        observacao: 'Parcela mensal fixa sucessiva',
+      })),
+      {
+        id: 'parc-29',
+        numero: 29,
+        descricao: 'Parcela 29/29',
+        valor: '6.000,00',
+        vencimento: '',
+        observacao: 'Parcela final de ajuste e quitação integral',
+      },
+    ],
     valoresPendentesEspecificacao: 'dívidas de IPTU, condomínio, dívida sub-rogada etc.',
     processoAutosNumero: '',
     correcaoIndice: 'IPCA/IBGE',
@@ -147,7 +184,7 @@ export const DEFAULT_REEMBOLSO_CONFIG: ReembolsoConfig = {
   },
 }
 
-export const REEMBOLSO_STORAGE_KEY = 'termo-reembolso-v1'
+export const REEMBOLSO_STORAGE_KEY = 'termo-reembolso-v2'
 
 export const reimbursementService = {
   /**
@@ -181,6 +218,11 @@ export const reimbursementService = {
           operacao: {
             ...DEFAULT_REEMBOLSO_CONFIG.operacao,
             ...(parsed.operacao || {}),
+            parcelasQuitacao:
+              Array.isArray(parsed.operacao?.parcelasQuitacao) &&
+              parsed.operacao.parcelasQuitacao.length > 0
+                ? parsed.operacao.parcelasQuitacao
+                : DEFAULT_REEMBOLSO_CONFIG.operacao.parcelasQuitacao,
           },
           testemunhas: {
             ...DEFAULT_REEMBOLSO_CONFIG.testemunhas,
