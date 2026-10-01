@@ -15,13 +15,7 @@
 try {
   if (typeof onRecordCreateRequest === 'function') {
     onRecordCreateRequest((e) => {
-      // Ignora para superusers
-      try {
-        if (e.hasSuperuserAuth && e.hasSuperuserAuth()) {
-          return e.next()
-        }
-      } catch (_) {}
-
+      console.log('[ml_collector_ingest] onRecordCreateRequest acionado!')
       var reqInfo = null
       try {
         reqInfo = e.requestInfo ? e.requestInfo() : null
@@ -30,6 +24,29 @@ try {
       var headers = (reqInfo && reqInfo.headers) || {}
       var query = (reqInfo && reqInfo.query) || {}
       var body = (reqInfo && reqInfo.body) || {}
+
+      console.log(
+        '[ml_collector_ingest] Body recebido chaves: ' +
+          Object.keys(body).join(', ') +
+          ' | search_term: ' +
+          body.search_term +
+          ' | tenant_id: ' +
+          body.tenant_id +
+          ' | imported_at: ' +
+          body.imported_at +
+          ' | results_count: ' +
+          body.results_count +
+          ' | with_sales_count: ' +
+          body.with_sales_count,
+      )
+
+      // Ignora para superusers
+      try {
+        if (e.hasSuperuserAuth && e.hasSuperuserAuth()) {
+          console.log('[ml_collector_ingest] Superuser auth detectado')
+          return e.next()
+        }
+      } catch (_) {}
 
       var collectorKey = (
         headers['x-collector-key'] ||
@@ -189,13 +206,17 @@ try {
       try {
         return e.next()
       } catch (nextErr) {
+        var errData = {}
+        try {
+          errData = nextErr.data || {}
+        } catch (_) {}
         console.log(
           '[ml_collector_ingest] ERRO DETALHADO em onRecordCreateRequest e.next(): ' +
             (nextErr && nextErr.message ? nextErr.message : nextErr) +
+            ' | Status: ' +
+            (nextErr && nextErr.status) +
             ' | Data: ' +
-            JSON.stringify(nextErr && nextErr.data ? nextErr.data : {}) +
-            ' | Raw: ' +
-            JSON.stringify(nextErr),
+            JSON.stringify(errData),
         )
         throw nextErr
       }
