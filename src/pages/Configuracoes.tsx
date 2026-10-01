@@ -28,6 +28,8 @@ import {
   BookOpen,
   FileText,
   Printer,
+  Scale,
+  Building2,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { MercadoLivreConfigCard } from '@/components/MercadoLivreConfigCard'
@@ -601,6 +603,89 @@ export default function Configuracoes() {
               Campos editáveis salvos no seu navegador com exportação em PDF de alta qualidade e
               impressão direta.
             </span>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Documentos Imobiliários & Jurídicos Especiais */}
+      <Card className="border-indigo-200 shadow-xs bg-gradient-to-b from-indigo-50/30 to-white">
+        <CardHeader className="border-b border-indigo-100 pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center shadow-xs font-bold">
+              <Scale className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-base font-bold text-slate-900">
+                  Documentos Imobiliários & Jurídicos
+                </CardTitle>
+                <Badge
+                  variant="outline"
+                  className="bg-indigo-50 text-indigo-800 border-indigo-300 text-[10px] font-semibold"
+                >
+                  Modelos Formais A4
+                </Badge>
+              </div>
+              <CardDescription className="text-xs">
+                Apresentação formal da proposta de imóvel e instrumento de obrigação de reembolso
+                com garantia solidária
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="p-4 space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Atalho Proposta do Imóvel */}
+            <div className="p-3.5 rounded-xl border border-slate-200 bg-white hover:border-indigo-300 transition-colors flex flex-col justify-between gap-3 shadow-xs">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Building2 className="w-4 h-4 text-indigo-600" />
+                  <h4 className="font-semibold text-xs text-slate-900">Proposta do Imóvel</h4>
+                </div>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  Proposta de compra e venda de imóvel residencial (Francisco Sales, 40 / Apto 905),
+                  cálculo de parcelas, comparativos de mercado e condições.
+                </p>
+              </div>
+              <Link to="/proposta-imovel">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full text-xs h-8 border-indigo-200 text-indigo-700 hover:bg-indigo-50 font-medium gap-1.5"
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  Abrir Proposta do Imóvel
+                </Button>
+              </Link>
+            </div>
+
+            {/* Atalho Instrumento de Reembolso */}
+            <div className="p-3.5 rounded-xl border border-indigo-200 bg-indigo-50/40 hover:border-indigo-400 transition-colors flex flex-col justify-between gap-3 shadow-xs">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Scale className="w-4 h-4 text-indigo-700" />
+                  <h4 className="font-semibold text-xs text-indigo-950">
+                    Instrumento de Reembolso
+                  </h4>
+                  <Badge className="bg-indigo-600 text-white text-[9px] py-0 px-1.5 h-4">
+                    Novo
+                  </Badge>
+                </div>
+                <p className="text-[11px] text-slate-600 leading-relaxed">
+                  Instrumento de obrigação de reembolso com garantia solidária (interdição judicial
+                  da proprietária, 5 garantidores, devolução de entrada e correção).
+                </p>
+              </div>
+              <Link to="/termo-reembolso">
+                <Button
+                  size="sm"
+                  className="w-full text-xs h-8 bg-indigo-700 hover:bg-indigo-800 text-white font-semibold gap-1.5 shadow-xs"
+                >
+                  <Scale className="w-3.5 h-3.5" />
+                  Abrir Instrumento de Reembolso
+                </Button>
+              </Link>
+            </div>
           </div>
         </CardContent>
       </Card>

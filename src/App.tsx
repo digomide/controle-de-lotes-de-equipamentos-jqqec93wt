@@ -33,6 +33,7 @@ import CotacoesCorporativas from './pages/CotacoesCorporativas'
 import Marketing from './pages/Marketing'
 import Pedido6849 from './pages/Pedido6849'
 import PropostaImovel from './pages/PropostaImovel'
+import TermoReembolso from './pages/TermoReembolso'
 import CartaoPosVenda from './pages/CartaoPosVenda'
 import Clientes from './pages/Clientes'
 import NotasFiscais from './pages/NotasFiscais'
@@ -75,6 +76,16 @@ const App = () => (
               element={
                 <ProtectedRoute>
                   <PropostaImovel />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Rota Utilitária de Instrumento de Obrigação de Reembolso (apenas autenticado, fora do layout/menu) */}
+            <Route
+              path="/termo-reembolso"
+              element={
+                <ProtectedRoute>
+                  <TermoReembolso />
                 </ProtectedRoute>
               }
             />

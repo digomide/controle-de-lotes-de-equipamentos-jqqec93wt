@@ -228,6 +228,7 @@ export function getModuleIdByPath(pathname: string): AppModuleId | null {
   if (pathname.startsWith('/loja')) return 'loja'
   if (pathname === '/pedido-6849') return 'vendas'
   if (pathname === '/proposta-imovel') return null
+  if (pathname === '/termo-reembolso') return null
 
   // Rotas diretas ou prefixadas
   if (pathname === '/') return 'dashboard'

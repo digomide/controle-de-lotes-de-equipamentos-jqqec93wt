@@ -316,7 +316,8 @@
   body:has(#printable-etiqueta-root),
   body:has(#printable-checklist-root),
   body:has(#printable-batch-report-root),
-  body:has(#proposta-imovel-container) {
+  body:has(#proposta-imovel-container),
+  body:has(#termo-reembolso-container) {
     background: #ffffff !important;
     overflow: visible !important;
     position: static !important;
@@ -363,13 +364,15 @@
     visibility: visible !important;
   }
 
-  /* Regras de impressão específicas para a rota de Proposta de Imóvel */
-  .proposta-no-print {
+  /* Regras de impressão específicas para a rota de Proposta de Imóvel e Termo de Reembolso */
+  .proposta-no-print,
+  .reembolso-no-print {
     display: none !important;
     visibility: hidden !important;
   }
 
-  #proposta-imovel-container {
+  #proposta-imovel-container,
+  #termo-reembolso-container {
     padding: 0 !important;
     margin: 0 !important;
     background: #ffffff !important;
@@ -392,6 +395,28 @@
   }
 
   #proposta-imovel-doc * {
+    visibility: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  #termo-reembolso-doc {
+    display: block !important;
+    position: static !important;
+    width: 210mm !important;
+    max-width: 210mm !important;
+    margin: 0 auto !important;
+    padding: 12mm 15mm !important;
+    border: none !important;
+    box-shadow: none !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    visibility: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  #termo-reembolso-doc * {
     visibility: visible !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
@@ -561,27 +586,32 @@
   }
 
   /*
-   * Estilo de impressão dedicado para Proposta de Imóvel (/proposta-imovel)
+   * Estilo de impressão dedicado para Proposta de Imóvel (/proposta-imovel) e Termo de Reembolso (/termo-reembolso)
    * Garante folha A4 limpa, sem cabeçalhos de sistema ou botões, fundo branco puro
    */
-  body:has(#proposta-imovel-doc) {
+  body:has(#proposta-imovel-doc),
+  body:has(#termo-reembolso-doc) {
     background: #ffffff !important;
     padding: 0 !important;
     margin: 0 !important;
   }
 
-  /* Oculta tudo fora do container de proposta quando na rota de proposta */
-  body:has(#proposta-imovel-doc) > *:not(#root) {
+  /* Oculta tudo fora do container quando na rota de proposta ou termo de reembolso */
+  body:has(#proposta-imovel-doc) > *:not(#root),
+  body:has(#termo-reembolso-doc) > *:not(#root) {
     display: none !important;
   }
 
   .proposta-no-print,
-  #proposta-imovel-container .proposta-no-print {
+  .reembolso-no-print,
+  #proposta-imovel-container .proposta-no-print,
+  #termo-reembolso-container .reembolso-no-print {
     display: none !important;
     visibility: hidden !important;
   }
 
-  #proposta-imovel-container {
+  #proposta-imovel-container,
+  #termo-reembolso-container {
     background: #ffffff !important;
     padding: 0 !important;
     margin: 0 !important;
@@ -601,13 +631,29 @@
     color: #0f172a !important;
   }
 
-  #proposta-imovel-doc input {
+  #termo-reembolso-doc {
+    display: block !important;
+    position: static !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 10mm 14mm !important;
+    margin: 0 auto !important;
+    max-width: 210mm !important;
+    width: 100% !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+  }
+
+  #proposta-imovel-doc input,
+  #termo-reembolso-doc input {
     border: none !important;
     background: transparent !important;
     box-shadow: none !important;
   }
 
-  .proposta-section-block {
+  .proposta-section-block,
+  .reembolso-clausula-block,
+  .reembolso-signature-block {
     page-break-inside: avoid !important;
     break-inside: avoid !important;
   }
