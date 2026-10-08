@@ -42,6 +42,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { Checkbox } from '@/components/ui/checkbox'
 import { toast } from '@/hooks/use-toast'
 import { reputationDisputesService } from '@/services/reputationDisputesService'
 import type {
@@ -49,6 +50,7 @@ import type {
   DisputeStatus,
   DisputeExclusionStatus,
 } from '@/types/reputationDisputes'
+import { RelatorioContestacaoModal } from '@/components/RelatorioContestacaoModal'
 
 export default function ContestacaoReputacao() {
   const [disputes, setDisputes] = useState<MLReputationDispute[]>([])
@@ -56,6 +58,10 @@ export default function ContestacaoReputacao() {
   const [syncing, setSyncing] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
+
+  // Estado da Seleção Múltipla
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false)
 
   // Estado do Modal de Edição / Defesa
   const [selectedDispute, setSelectedDispute] = useState<MLReputationDispute | null>(null)
@@ -338,6 +344,67 @@ export default function ContestacaoReputacao() {
         (d.defense_text && d.defense_text.toLowerCase().includes(q)),
     )
   }, [disputes, searchQuery])
+
+  // Casos selecionados a partir dos IDs
+  const selectedDisputesList = useMemo(() => {
+    const idSet = new Set(selectedIds)
+    return disputes.filter((d) => idSet.has(d.id))
+  }, [disputes, selectedIds])
+
+  // Verificações do Master Checkbox (todos visíveis / filtrados)
+  const isAllFilteredSelected = useMemo(() => {
+    if (filteredDisputes.length === 0) return false
+    return filteredDisputes.every((d) => selectedIds.includes(d.id))
+  }, [filteredDisputes, selectedIds])
+
+  const isSomeFilteredSelected = useMemo(() => {
+    if (filteredDisputes.length === 0) return false
+    const count = filteredDisputes.filter((d) => selectedIds.includes(d.id)).length
+    return count > 0 && count < filteredDisputes.length
+  }, [filteredDisputes, selectedIds])
+
+  // Casos selecionados sem defesa redigida
+  const selectedWithoutDefenseCount = useMemo(() => {
+    return selectedDisputesList.filter((d) => !d.defense_text?.trim()).length
+  }, [selectedDisputesList])
+
+  // Alternar seleção de um item individual
+  const toggleSelectOne = (id: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id],
+    )
+  }
+
+  // Alternar seleção de todos os itens filtrados (Master Checkbox)
+  const toggleSelectAllFiltered = () => {
+    if (isAllFilteredSelected) {
+      // Desmarca todos os filtrados
+      const filteredSet = new Set(filteredDisputes.map((d) => d.id))
+      setSelectedIds((prev) => prev.filter((id) => !filteredSet.has(id)))
+    } else {
+      // Marca todos os filtrados
+      const combined = new Set([...selectedIds, ...filteredDisputes.map((d) => d.id)])
+      setSelectedIds(Array.from(combined))
+    }
+  }
+
+  // Limpar toda a seleção
+  const handleClearSelection = () => {
+    setSelectedIds([])
+  }
+
+  // Abrir Modal de Geração de Relatório
+  const handleOpenReportModal = () => {
+    if (selectedDisputesList.length === 0) {
+      toast({
+        title: 'Nenhum caso selecionado',
+        description: 'Selecione ao menos uma venda para gerar o relatório de contestação.',
+        variant: 'destructive',
+      })
+      return
+    }
+    setIsReportModalOpen(true)
+  }
 
   // Cores de Badge de Exclusão (fiel ao ML)
   const getExclusionBadge = (status?: DisputeExclusionStatus) => {
@@ -658,6 +725,47 @@ export default function ContestacaoReputacao() {
           </div>
         </CardHeader>
 
+        {/* Barra de Ações em Lote quando há seleção */}
+        {selectedIds.length > 0 && (
+          <div className="bg-orange-50/90 border-b border-orange-200 px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3 animate-in fade-in duration-200">
+            <div className="flex items-center gap-2.5">
+              <span className="inline-flex items-center justify-center bg-orange-600 text-white font-bold text-xs rounded-full h-6 px-2.5">
+                {selectedIds.length} selecionada{selectedIds.length !== 1 ? 's' : ''}
+              </span>
+              <span className="text-xs text-orange-950 font-medium">
+                Venda{selectedIds.length !== 1 ? 's' : ''} pronta
+                {selectedIds.length !== 1 ? 's' : ''} para inclusão no relatório ao atendente do ML
+              </span>
+              {selectedWithoutDefenseCount > 0 && (
+                <span className="text-[11px] bg-amber-100 text-amber-800 border border-amber-300 rounded px-2 py-0.5 inline-flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3 text-amber-600" />
+                  {selectedWithoutDefenseCount} sem defesa preenchida
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleClearSelection}
+                className="text-xs text-orange-800 hover:text-orange-950 hover:bg-orange-100/80 h-8"
+              >
+                Limpar seleção
+              </Button>
+
+              <Button
+                size="sm"
+                onClick={handleOpenReportModal}
+                className="bg-orange-600 hover:bg-orange-700 text-white text-xs h-8 gap-1.5 shadow-sm"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                Gerar Relatório ({selectedIds.length})
+              </Button>
+            </div>
+          </div>
+        )}
+
         <CardContent className="p-0">
           {loading ? (
             <div className="p-8 text-center text-sm text-slate-500 flex flex-col items-center justify-center gap-2">
@@ -690,6 +798,22 @@ export default function ContestacaoReputacao() {
               <table className="w-full text-left border-collapse text-xs sm:text-sm">
                 <thead>
                   <tr className="bg-slate-100/70 border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider text-[11px]">
+                    <th className="py-3 px-3 sm:px-4 w-10 text-center">
+                      <div className="flex items-center justify-center">
+                        <Checkbox
+                          checked={
+                            isAllFilteredSelected
+                              ? true
+                              : isSomeFilteredSelected
+                                ? 'indeterminate'
+                                : false
+                          }
+                          onCheckedChange={toggleSelectAllFiltered}
+                          aria-label="Selecionar todas as vendas filtradas"
+                          className="data-[state=checked]:bg-orange-600 data-[state=checked]:border-orange-600"
+                        />
+                      </div>
+                    </th>
                     <th className="py-3 px-3 sm:px-4">Venda & Data</th>
                     <th className="py-3 px-3 sm:px-4">Produto</th>
                     <th className="py-3 px-3 sm:px-4">Cliente</th>
@@ -704,9 +828,29 @@ export default function ContestacaoReputacao() {
                   {filteredDisputes.map((dispute) => {
                     const hasDefense = Boolean(dispute.defense_text?.trim())
                     const isCopied = copiedId === dispute.id
+                    const isSelected = selectedIds.includes(dispute.id)
 
                     return (
-                      <tr key={dispute.id} className="hover:bg-slate-50/80 transition-colors group">
+                      <tr
+                        key={dispute.id}
+                        className={`transition-colors group ${
+                          isSelected
+                            ? 'bg-orange-50/40 hover:bg-orange-50/70'
+                            : 'hover:bg-slate-50/80'
+                        }`}
+                      >
+                        {/* Checkbox de Seleção */}
+                        <td className="py-3.5 px-3 sm:px-4 align-top text-center">
+                          <div className="flex items-center justify-center pt-1">
+                            <Checkbox
+                              checked={isSelected}
+                              onCheckedChange={() => toggleSelectOne(dispute.id)}
+                              aria-label={`Selecionar venda #${dispute.sale_id_ml}`}
+                              className="data-[state=checked]:bg-orange-600 data-[state=checked]:border-orange-600"
+                            />
+                          </div>
+                        </td>
+
                         {/* Venda & Data */}
                         <td className="py-3.5 px-3 sm:px-4 align-top">
                           <div className="flex flex-col">
@@ -720,6 +864,11 @@ export default function ContestacaoReputacao() {
                               <span className="text-[11px] text-slate-600 font-medium mt-1 inline-flex items-center gap-1">
                                 <span className="text-slate-400">Reclamação:</span> #
                                 {dispute.claim_id}
+                              </span>
+                            )}
+                            {!hasDefense && isSelected && (
+                              <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.2 mt-1.5 inline-block w-fit">
+                                sem defesa preenchida
                               </span>
                             )}
                           </div>
@@ -925,6 +1074,14 @@ export default function ContestacaoReputacao() {
           )}
         </CardContent>
       </Card>
+
+      {/* Modal / Dialog do Relatório de Contestação Selecionado */}
+      <RelatorioContestacaoModal
+        open={isReportModalOpen}
+        onOpenChange={setIsReportModalOpen}
+        disputes={selectedDisputesList}
+        storeName="INFOPRECOBAIXO"
+      />
 
       {/* Modal / Dialog de Edição da Defesa e Status */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
