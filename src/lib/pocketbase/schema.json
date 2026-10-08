@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-01T20:01:24.569Z",
+  "generatedAt": "2026-10-08T04:53:41.504Z",
   "collections": [
     {
       "name": "users",
@@ -6111,6 +6111,148 @@
         }
       ],
       "indexes": ["CREATE INDEX idx_magalu_orders_sync_status ON magalu_orders_sync_jobs (status)"]
+    },
+    {
+      "name": "ml_reputation_disputes",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "sale_id_ml",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "sale_date",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "product_title",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "problems_count",
+          "type": "number",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "reputation_impact",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "exclusion_status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["Nao solicitada", "Solicitada", "Recusada", "Mediacao", "Nao se aplica"]
+        },
+        {
+          "name": "exclusion_detail",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "claim_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "customer_name",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "customer_nickname",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "customer_phone",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "claim_reason",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "defense_text",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "dispute_status",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": [
+            "Para redigir",
+            "Pronto para contato",
+            "Contato feito",
+            "Enviado ao ML",
+            "Resolvido",
+            "Recusado"
+          ]
+        },
+        {
+          "name": "contact_history",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ml_order_ref",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "tenant_id",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE UNIQUE INDEX idx_ml_rep_disputes_sale ON ml_reputation_disputes (sale_id_ml)",
+        "CREATE INDEX idx_ml_rep_disputes_status ON ml_reputation_disputes (dispute_status)"
+      ]
     }
   ]
 }

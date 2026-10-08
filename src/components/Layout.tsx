@@ -104,6 +104,12 @@ export default function Layout() {
     { title: 'Post TikTok', path: '/post-tiktok', icon: Video, moduleId: 'post_tiktok' },
     { title: 'Cotações Corporativas', path: '/cotacoes', icon: Building2, moduleId: 'cotacoes' },
     { title: 'Vendas', path: '/vendas', icon: ShoppingCart, moduleId: 'vendas' },
+    {
+      title: 'Contestação de Reputação',
+      path: '/contesta-reputacao',
+      icon: ShieldAlert,
+      moduleId: 'contesta_reputacao',
+    },
     { title: 'Notas Fiscais', path: '/notas-fiscais', icon: FileCheck, moduleId: 'notas_fiscais' },
     { title: 'Estoque Geral', path: '/estoque-geral', icon: Boxes, moduleId: 'estoque_geral' },
     { title: 'Estoque / Lotes', path: '/estoque', icon: Layers, moduleId: 'estoque_lotes' },
@@ -134,6 +140,7 @@ export default function Layout() {
     if (p.startsWith('/lotes-entrada')) return 'Compra de Lotes'
     if (p.startsWith('/explorador-catalogo')) return 'Explorador de Catálogo Mercado Livre'
     if (p.startsWith('/anuncios-ml')) return 'Gestor de Marketplaces (Mercado Livre & Magalu)'
+    if (p.startsWith('/contesta-reputacao')) return 'Contestação de Reputação (Exclusões ML)'
     if (p.startsWith('/vendas')) return 'Gestão de Vendas'
     if (p.startsWith('/clientes')) return 'Clientes & Pós-Venda'
     if (p.startsWith('/marketing')) return 'Módulo de Marketing Automatizado'

@@ -37,6 +37,7 @@ import TermoReembolso from './pages/TermoReembolso'
 import CartaoPosVenda from './pages/CartaoPosVenda'
 import Clientes from './pages/Clientes'
 import NotasFiscais from './pages/NotasFiscais'
+import ContestacaoReputacao from './pages/ContestacaoReputacao'
 import LogoPage from './pages/LogoPage'
 import Tenants from './pages/Tenants'
 import { AuthProvider } from './contexts/AuthContext'
@@ -135,6 +136,16 @@ const App = () => (
                 element={
                   <ProtectedRoute requiredModule="vendas">
                     <Vendas />
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Contestação de Reputação (Exclusões ML) */}
+              <Route
+                path="/contesta-reputacao"
+                element={
+                  <ProtectedRoute requiredModule="contesta_reputacao">
+                    <ContestacaoReputacao />
                   </ProtectedRoute>
                 }
               />

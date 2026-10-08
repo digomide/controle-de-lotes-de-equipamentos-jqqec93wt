@@ -16,6 +16,7 @@ import {
   Compass,
   Store,
   FileCheck,
+  ShieldAlert,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -37,6 +38,7 @@ export type AppModuleId =
   | 'estoque_lotes'
   | 'ajustes'
   | 'notas_fiscais'
+  | 'contesta_reputacao'
   | 'usuarios'
   | 'configuracoes'
   | 'loja'
@@ -67,6 +69,14 @@ export const APP_MODULES: AppModuleDefinition[] = [
     category: 'operacao',
     icon: ShoppingCart,
     paths: ['/vendas', '/pedido-6849'],
+  },
+  {
+    id: 'contesta_reputacao',
+    label: 'Contestação de Reputação',
+    description: 'Gestão de exclusões de reputação do Mercado Livre e defesas para atendimento',
+    category: 'operacao',
+    icon: ShieldAlert,
+    paths: ['/contesta-reputacao'],
   },
   {
     id: 'clientes',
@@ -232,6 +242,7 @@ export function getModuleIdByPath(pathname: string): AppModuleId | null {
 
   // Rotas diretas ou prefixadas
   if (pathname === '/') return 'dashboard'
+  if (pathname.startsWith('/contesta-reputacao')) return 'contesta_reputacao'
   if (pathname.startsWith('/vendas')) return 'vendas'
   if (pathname.startsWith('/lucratividade')) return 'lucratividade'
   if (pathname.startsWith('/produtos') || pathname.startsWith('/catalogo')) return 'produtos'
