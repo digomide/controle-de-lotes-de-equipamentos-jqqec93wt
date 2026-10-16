@@ -21,13 +21,17 @@ import {
   AlertTriangle,
   ExternalLink,
   Copy,
+  Check,
   KeyRound,
   Unplug,
   Loader2,
   HelpCircle,
   Sparkles,
   BookOpen,
+  QrCode,
+  Smartphone,
 } from 'lucide-react'
+import { QRCodeSVG } from 'qrcode.react'
 import { ManualMLModal } from '@/components/ManualMLModal'
 
 export function MercadoLivreConfigCard() {
@@ -45,6 +49,7 @@ export function MercadoLivreConfigCard() {
   const [showInstructions, setShowInstructions] = useState(false)
   const [showManualModal, setShowManualModal] = useState(false)
   const [authErrorDetails, setAuthErrorDetails] = useState<string | null>(null)
+  const [copiedLink, setCopiedLink] = useState(false)
 
   const isCurrentOriginPreview =
     typeof window !== 'undefined' &&
@@ -55,6 +60,11 @@ export function MercadoLivreConfigCard() {
   // Client ID ativo (prioriza status salvo no backend se preenchido, com fallback para o input local)
   const effectiveClientId = (status?.client_id || clientId).trim()
   const hasCredentialsAvailable = Boolean(effectiveClientId)
+
+  // URL canônica de autorização completa — calculada de forma estável para ser a MESMA no botão, QR Code e cópia
+  const authorizationUrl = effectiveClientId
+    ? buildMLAuthUrl(effectiveClientId, CANONICAL_ML_REDIRECT_URI)
+    : ''
 
   // Verificação de escopo de escrita de anúncios/ofertas
   const currentScopes = (status?.scopes || '').toLowerCase()
@@ -273,9 +283,53 @@ export function MercadoLivreConfigCard() {
       })
       return
     }
-    // Sempre usa rigorosamente a URI canônica homologada no portal de Developers do ML
-    const authUrl = buildMLAuthUrl(activeClientId, CANONICAL_ML_REDIRECT_URI)
+    // Sempre usa rigorosamente a mesma URL de autorização da URI canônica homologada no portal de Developers do ML
+    const authUrl = authorizationUrl || buildMLAuthUrl(activeClientId, CANONICAL_ML_REDIRECT_URI)
     window.location.href = authUrl
+  }
+
+  const handleCopyAuthUrl = async () => {
+    if (!authorizationUrl) {
+      toast({
+        title: 'Client ID não configurado',
+        description: 'Preencha ou salve o Client ID antes de copiar o link.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(authorizationUrl)
+      } else {
+        // Fallback textarea para ambientes restritos
+        const textArea = document.createElement('textarea')
+        textArea.value = authorizationUrl
+        textArea.style.position = 'fixed'
+        textArea.style.left = '-999999px'
+        textArea.style.top = '-999999px'
+        document.body.appendChild(textArea)
+        textArea.focus()
+        textArea.select()
+        document.execCommand('copy')
+        document.body.removeChild(textArea)
+      }
+
+      setCopiedLink(true)
+      setTimeout(() => setCopiedLink(false), 3000)
+      toast({
+        title: 'Link copiado!',
+        description:
+          'Link de autorização completo copiado para a área de transferência. Envie para o celular e abra lá!',
+      })
+    } catch (err) {
+      console.error('Erro ao copiar URL de autorização:', err)
+      toast({
+        title: 'Não foi possível copiar',
+        description: 'Selecione e copie manualmente o link de autorização.',
+        variant: 'destructive',
+      })
+    }
   }
 
   const handleDisconnect = async () => {
@@ -557,6 +611,26 @@ export function MercadoLivreConfigCard() {
                     type="button"
                     variant="outline"
                     size="sm"
+                    onClick={handleCopyAuthUrl}
+                    className="text-xs h-8 border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-950 font-medium gap-1"
+                    title="Copiar URL completa de autorização para conectar pelo celular"
+                  >
+                    {copiedLink ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-600" />
+                        <span className="text-emerald-700">Link copiado!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5 text-amber-700" />
+                        <span>Copiar link</span>
+                      </>
+                    )}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
                     onClick={handleConnectOAuth}
                     className="text-xs h-8 border-slate-300 text-slate-700 hover:bg-slate-100"
                     title="Renovar autorização no Mercado Livre"
@@ -581,35 +655,112 @@ export function MercadoLivreConfigCard() {
                 </div>
               </div>
             ) : hasCredentialsAvailable ? (
-              <div className="p-4 bg-amber-50/90 rounded-xl border-2 border-amber-300 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 text-xs shadow-xs">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <p className="font-bold text-amber-950 text-sm flex items-center gap-1.5">
-                      <Sparkles className="w-4 h-4 text-amber-600 shrink-0" />
-                      Pronto para conectar ao Mercado Livre
+              <div className="p-4 bg-amber-50/90 rounded-xl border-2 border-amber-300 space-y-4 text-xs shadow-xs">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <p className="font-bold text-amber-950 text-sm flex items-center gap-1.5">
+                        <Sparkles className="w-4 h-4 text-amber-600 shrink-0" />
+                        Pronto para conectar ao Mercado Livre
+                      </p>
+                      <Badge className="bg-emerald-600 text-white text-[10px] font-semibold">
+                        Credenciais salvas no sistema
+                      </Badge>
+                    </div>
+                    <p className="text-amber-900 text-xs leading-relaxed">
+                      App ID ativo:{' '}
+                      <strong className="font-mono font-bold text-slate-900 bg-amber-100/80 px-1.5 py-0.5 rounded">
+                        {effectiveClientId}
+                      </strong>
+                      . Toque no botão amarelo abaixo para iniciar a autorização OAuth oficial. Não
+                      é necessário redigitar nada.
                     </p>
-                    <Badge className="bg-emerald-600 text-white text-[10px] font-semibold">
-                      Credenciais salvas no sistema
-                    </Badge>
                   </div>
-                  <p className="text-amber-900 text-xs leading-relaxed">
-                    App ID ativo:{' '}
-                    <strong className="font-mono font-bold text-slate-900 bg-amber-100/80 px-1.5 py-0.5 rounded">
-                      {effectiveClientId}
-                    </strong>
-                    . Toque no botão amarelo abaixo para iniciar a autorização OAuth oficial. Não é
-                    necessário redigitar nada.
-                  </p>
+
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto shrink-0">
+                    <Button
+                      type="button"
+                      onClick={handleConnectOAuth}
+                      className="bg-[#ffe600] hover:bg-[#ebd300] active:scale-[0.98] text-slate-950 font-bold text-xs h-11 sm:h-9 shadow-md w-full sm:w-auto gap-2 justify-center"
+                    >
+                      <ShoppingBag className="w-4 h-4 shrink-0 text-slate-900" />
+                      Iniciar Conexão OAuth com Mercado Livre
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleCopyAuthUrl}
+                      className="border-amber-400 bg-white hover:bg-amber-100/70 text-amber-950 font-bold text-xs h-11 sm:h-9 gap-1.5 w-full sm:w-auto shadow-2xs"
+                    >
+                      {copiedLink ? (
+                        <>
+                          <Check className="w-4 h-4 text-emerald-600" />
+                          <span className="text-emerald-700 font-bold">Link copiado!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-4 h-4 text-amber-800" />
+                          <span>Copiar link de conexão</span>
+                        </>
+                      )}
+                    </Button>
+                  </div>
                 </div>
 
-                <Button
-                  type="button"
-                  onClick={handleConnectOAuth}
-                  className="bg-[#ffe600] hover:bg-[#ebd300] active:scale-[0.98] text-slate-950 font-bold text-xs h-11 sm:h-9 shadow-md shrink-0 w-full sm:w-auto gap-2 justify-center"
-                >
-                  <ShoppingBag className="w-4 h-4 shrink-0 text-slate-900" />
-                  Iniciar Conexão OAuth com Mercado Livre
-                </Button>
+                {/* Painel com QR Code e instrução para levar ao celular */}
+                <div className="bg-white/95 rounded-xl border border-amber-200/90 p-3.5 shadow-2xs">
+                  <div className="flex flex-col md:flex-row items-start md:items-center gap-4">
+                    <div className="p-2 bg-white rounded-lg border border-slate-200 shrink-0 shadow-2xs flex flex-col items-center">
+                      <QRCodeSVG value={authorizationUrl} size={128} level="M" marginSize={2} />
+                      <span className="text-[10px] text-slate-500 font-medium mt-1.5 flex items-center gap-1">
+                        <QrCode className="w-3 h-3 text-slate-400" />
+                        QR Code de Autorização
+                      </span>
+                    </div>
+
+                    <div className="space-y-2 flex-1">
+                      <div className="flex items-center gap-2 text-slate-900 font-bold text-xs sm:text-sm">
+                        <Smartphone className="w-4 h-4 text-amber-600 shrink-0" />
+                        <span>
+                          Escaneie com a câmera do celular para conectar por lá — o token fica salvo
+                          no sistema
+                        </span>
+                      </div>
+
+                      <p className="text-slate-600 text-[11.5px] leading-relaxed">
+                        Se o seu computador não abre a tela do Mercado Livre, escaneie o código ou
+                        envie o link copiado para o seu celular (ex.: por WhatsApp para você mesmo)
+                        e conclua a conexão por lá. A conexão vale para a conta inteira.
+                      </p>
+
+                      <div className="pt-1 flex items-center gap-2 flex-wrap">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          onClick={handleCopyAuthUrl}
+                          className="h-7 text-[11px] gap-1.5 bg-amber-100/80 hover:bg-amber-200 text-amber-950 font-medium border border-amber-300"
+                        >
+                          {copiedLink ? (
+                            <>
+                              <Check className="w-3 h-3 text-emerald-600" />
+                              Link copiado!
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3 h-3 text-amber-800" />
+                              Copiar URL completa de autorização
+                            </>
+                          )}
+                        </Button>
+                        <span className="text-[10.5px] text-slate-500 font-mono select-all truncate max-w-xs sm:max-w-md">
+                          {authorizationUrl}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             ) : (
               <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
@@ -801,15 +952,36 @@ export function MercadoLivreConfigCard() {
 
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between pt-2 border-t border-slate-100 gap-2.5">
                 {!status?.connected && hasCredentialsAvailable ? (
-                  <Button
-                    type="button"
-                    id="btn-conectar-ml"
-                    onClick={handleConnectOAuth}
-                    className="bg-[#ffe600] hover:bg-[#ebd300] active:scale-[0.98] text-slate-950 font-bold text-xs sm:text-xs h-12 sm:h-10 shadow-md gap-2 w-full sm:w-auto text-center justify-center transition-all order-1"
-                  >
-                    <ShoppingBag className="w-4 h-4 shrink-0 text-slate-900" />
-                    <span>Iniciar Conexão OAuth com Mercado Livre</span>
-                  </Button>
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 order-1 w-full sm:w-auto">
+                    <Button
+                      type="button"
+                      id="btn-conectar-ml"
+                      onClick={handleConnectOAuth}
+                      className="bg-[#ffe600] hover:bg-[#ebd300] active:scale-[0.98] text-slate-950 font-bold text-xs sm:text-xs h-12 sm:h-10 shadow-md gap-2 w-full sm:w-auto text-center justify-center transition-all"
+                    >
+                      <ShoppingBag className="w-4 h-4 shrink-0 text-slate-900" />
+                      <span>Iniciar Conexão OAuth com Mercado Livre</span>
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleCopyAuthUrl}
+                      className="border-amber-400 bg-white hover:bg-amber-100/70 text-amber-950 font-bold text-xs h-12 sm:h-10 gap-1.5 w-full sm:w-auto shadow-2xs"
+                    >
+                      {copiedLink ? (
+                        <>
+                          <Check className="w-4 h-4 text-emerald-600" />
+                          <span className="text-emerald-700 font-bold">Link copiado!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-4 h-4 text-amber-800" />
+                          <span>Copiar link de conexão</span>
+                        </>
+                      )}
+                    </Button>
+                  </div>
                 ) : null}
 
                 <Button
