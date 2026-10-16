@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTenant } from '@/contexts/TenantContext'
@@ -39,17 +39,46 @@ export default function Login() {
   const fromSearch = fromState?.search || ''
   const targetDestination = fromSearch ? `${fromPathname}${fromSearch}` : fromPathname
 
+  // Capturar parâmetros de OAuth do Mercado Livre caso o usuário tenha chegado em /login diretamente com ?code=...
+  useEffect(() => {
+    try {
+      const searchStr =
+        location.search || (typeof window !== 'undefined' ? window.location.search : '')
+      if (searchStr) {
+        const sp = new URLSearchParams(searchStr)
+        const code = sp.get('code')
+        const state = sp.get('state')
+        const error = sp.get('error')
+        const errorDesc = sp.get('error_description')
+        if (code) sessionStorage.setItem('ml_pending_oauth_code', code)
+        if (state) sessionStorage.setItem('ml_pending_oauth_state', state)
+        if (error) sessionStorage.setItem('ml_pending_oauth_error', error)
+        if (errorDesc) sessionStorage.setItem('ml_pending_oauth_error_desc', errorDesc)
+      }
+    } catch (_) {
+      /* intentionally ignored */
+    }
+  }, [location.search])
+
   const handleSuccessfulAuth = () => {
-    // Se temos um code salvo em sessionStorage e o destino não inclui /configuracoes,
-    // direcionar para /configuracoes preservando o code para o exchange imediato acontecer.
+    // Se temos um code salvo em sessionStorage ou na URL original,
+    // direcionar para /configuracoes para o exchange imediato acontecer.
     let pendingCode: string | null = null
     try {
       pendingCode = sessionStorage.getItem('ml_pending_oauth_code')
+      if (!pendingCode) {
+        const currentSearch =
+          location.search || (typeof window !== 'undefined' ? window.location.search : '')
+        if (currentSearch) {
+          const sp = new URLSearchParams(currentSearch)
+          pendingCode = sp.get('code')
+        }
+      }
     } catch {
       /* intentionally ignored */
     }
 
-    if (pendingCode && !targetDestination.includes('/configuracoes')) {
+    if (pendingCode) {
       navigate('/configuracoes', { replace: true })
     } else {
       navigate(targetDestination, { replace: true })
