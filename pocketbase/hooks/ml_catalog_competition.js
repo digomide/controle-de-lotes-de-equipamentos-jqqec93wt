@@ -500,3 +500,311 @@ routerAdd('GET', '/backend/v1/ml/catalog-competition/{catalog_product_id}', (e) 
     },
   })
 })
+
+// Endpoint de diagnóstico para validar capacidade de publicação de catálogo no ML
+// Route: GET /backend/v1/ml/catalog-diagnose
+routerAdd('GET', '/backend/v1/ml/catalog-diagnose', (e) => {
+  let catalogProductId = 'MLB49831008'
+  if (e.request && e.request.url) {
+    catalogProductId = e.request.url.query().get('catalog_product_id') || catalogProductId
+  }
+  const price = 699
+  const quantity = 1
+  const condition = 'new'
+
+  const sRecords = $app.findRecordsByFilter(
+    'ml_settings',
+    'tenant_id = "ambicorpmestre1" || tenant_id = "ambicorp"',
+    '-created',
+    1,
+    0,
+  )
+  if (!sRecords || sRecords.length === 0) {
+    return e.json(404, { error: 'ml_settings não encontrado' })
+  }
+  const s = sRecords[0]
+  const token = s.getString('access_token')
+  const clientId = s.getString('client_id')
+  const userId = s.getString('user_id_ml')
+
+  const diag = {
+    catalog_product_id: catalogProductId,
+    user_id_ml: userId,
+    client_id: clientId,
+    token_prefix: token ? token.substring(0, 15) : '',
+    steps: {},
+  }
+
+  // 1. GET /products/{id}
+  let catDetails = null
+  try {
+    const pRes = $http.send({
+      url: 'https://api.mercadolibre.com/products/' + catalogProductId,
+      method: 'GET',
+      headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+      timeout: 10,
+    })
+    catDetails = pRes.json || {}
+    diag.steps.get_product = {
+      status: pRes.statusCode,
+      name: catDetails.name,
+      category_id: catDetails.category_id,
+      domain_id: catDetails.domain_id,
+      status_cat: catDetails.status,
+    }
+  } catch (e1) {
+    diag.steps.get_product = { error: String(e1) }
+  }
+
+  const categoryId = (catDetails && catDetails.category_id) || 'MLB1692'
+
+  // 2. GET /users/me
+  try {
+    const meRes = $http.send({
+      url: 'https://api.mercadolibre.com/users/me',
+      method: 'GET',
+      headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+      timeout: 8,
+    })
+    diag.steps.users_me = {
+      status: meRes.statusCode,
+      id: meRes.json ? meRes.json.id : null,
+      nickname: meRes.json ? meRes.json.nickname : null,
+      user_type: meRes.json ? meRes.json.user_type : null,
+      site_status: meRes.json ? meRes.json.site_status : null,
+    }
+  } catch (e2) {
+    diag.steps.users_me = { error: String(e2) }
+  }
+
+  // 2.5 Inspecionar /users/626774396/applications/253167816099623
+  try {
+    const grantRes = $http.send({
+      url: 'https://api.mercadolibre.com/users/' + userId + '/applications/' + clientId,
+      method: 'GET',
+      headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+      timeout: 8,
+    })
+    diag.steps.app_grant = {
+      status: grantRes.statusCode,
+      body: grantRes.json || grantRes.raw,
+    }
+  } catch (eg) {
+    diag.steps.app_grant = { error: String(eg) }
+  }
+
+  // 2.6 Inspecionar /applications/253167816099623
+  try {
+    const appRes = $http.send({
+      url: 'https://api.mercadolibre.com/applications/' + clientId,
+      method: 'GET',
+      headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+      timeout: 8,
+    })
+    diag.steps.app_info = {
+      status: appRes.statusCode,
+      scopes: appRes.json ? appRes.json.scopes : null,
+      name: appRes.json ? appRes.json.name : null,
+    }
+  } catch (ea) {
+    diag.steps.app_info = { error: String(ea) }
+  }
+
+  // 2.65 Testar POST /items de catálogo COM title incluído
+  const payloadWithTitle = {
+    title: (catDetails && catDetails.name) || 'Placa Mae Dell Optiplex Sff 3020 4yp6j Dih81r',
+    catalog_product_id: catalogProductId,
+    catalog_listing: true,
+    category_id: categoryId,
+    price: price,
+    currency_id: 'BRL',
+    available_quantity: quantity,
+    buying_mode: 'buy_it_now',
+    listing_type_id: 'gold_special',
+    condition: condition,
+    shipping: { mode: 'me2', local_pick_up: true, free_shipping: price >= 79 },
+    sale_terms: [
+      { id: 'WARRANTY_TYPE', value_name: 'Garantia do vendedor' },
+      { id: 'WARRANTY_TIME', value_name: '90 dias' },
+    ],
+    attributes: [{ id: 'ITEM_CONDITION', value_id: condition === 'new' ? '2230284' : '2230581' }],
+  }
+  try {
+    const valWithTitleRes = $http.send({
+      url: 'https://api.mercadolibre.com/items/validate',
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer ' + token,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(payloadWithTitle),
+      timeout: 8,
+    })
+    diag.steps.validate_with_title = {
+      status: valWithTitleRes.statusCode,
+      body: valWithTitleRes.json || valWithTitleRes.raw,
+    }
+  } catch (eWithTitle) {
+    diag.steps.validate_with_title = { error: String(eWithTitle) }
+  }
+
+  // 2.7 Buscar um item NÃO-CATÁLOGO (catalog_listing == false) e testar PUT inofensivo nele
+  let nonCatalogItemId = ''
+  try {
+    const uItemsRes = $http.send({
+      url: 'https://api.mercadolibre.com/users/' + userId + '/items/search?limit=50&status=active',
+      method: 'GET',
+      headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+      timeout: 8,
+    })
+    if (uItemsRes.statusCode === 200 && uItemsRes.json && uItemsRes.json.results) {
+      const ids = uItemsRes.json.results
+      // Multiget dos primeiros 10 para achar um non-catalog
+      const mgRes = $http.send({
+        url: 'https://api.mercadolibre.com/items?ids=' + ids.slice(0, 10).join(','),
+        method: 'GET',
+        headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+        timeout: 8,
+      })
+      if (mgRes.statusCode === 200 && Array.isArray(mgRes.json)) {
+        for (let m = 0; m < mgRes.json.length; m++) {
+          const itB = mgRes.json[m].body
+          if (itB && itB.id && !itB.catalog_listing) {
+            nonCatalogItemId = itB.id
+            break
+          }
+        }
+      }
+    }
+  } catch (_) {}
+
+  if (nonCatalogItemId) {
+    try {
+      const itemGet = $http.send({
+        url: 'https://api.mercadolibre.com/items/' + nonCatalogItemId,
+        method: 'GET',
+        headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+        timeout: 8,
+      })
+      const curStock = (itemGet.json && itemGet.json.available_quantity) || 1
+      const putRes = $http.send({
+        url: 'https://api.mercadolibre.com/items/' + nonCatalogItemId,
+        method: 'PUT',
+        headers: {
+          Authorization: 'Bearer ' + token,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({ available_quantity: curStock }),
+        timeout: 8,
+      })
+      diag.steps.test_non_catalog_put = {
+        item_id: nonCatalogItemId,
+        put_status: putRes.statusCode,
+        put_body: putRes.json || putRes.raw,
+      }
+    } catch (ePutNc) {
+      diag.steps.test_non_catalog_put = { error: String(ePutNc) }
+    }
+  }
+
+  // 2.8 Testar POST /items NÃO-CATÁLOGO (anúncio tradicional na mesma categoria) via validate
+  const nonCatPayload = {
+    title: 'Item Teste Validacao Diagnostico Nao Publicar',
+    category_id: 'MLB1692',
+    price: 699,
+    currency_id: 'BRL',
+    available_quantity: 1,
+    buying_mode: 'buy_it_now',
+    listing_type_id: 'gold_special',
+    condition: 'used',
+    pictures: [{ source: 'https://http2.mlstatic.com/D_NQ_NP_609309-MLB7566367408_042024-O.webp' }],
+    attributes: [{ id: 'ITEM_CONDITION', value_id: '2230581' }],
+  }
+  try {
+    const valNcRes = $http.send({
+      url: 'https://api.mercadolibre.com/items/validate',
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer ' + token,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(nonCatPayload),
+      timeout: 8,
+    })
+    diag.steps.validate_non_catalog = {
+      status: valNcRes.statusCode,
+      headers: valNcRes.headers,
+      body: valNcRes.json || valNcRes.raw,
+    }
+  } catch (eValNc) {
+    diag.steps.validate_non_catalog = { error: String(eValNc) }
+  }
+
+  // 3. Montar payload do anúncio
+  const payload = {
+    catalog_product_id: catalogProductId,
+    catalog_listing: true,
+    category_id: categoryId,
+    price: price,
+    currency_id: 'BRL',
+    available_quantity: quantity,
+    buying_mode: 'buy_it_now',
+    listing_type_id: 'gold_special',
+    condition: condition,
+    shipping: { mode: 'me2', local_pick_up: true, free_shipping: price >= 79 },
+    sale_terms: [
+      { id: 'WARRANTY_TYPE', value_name: 'Garantia do vendedor' },
+      { id: 'WARRANTY_TIME', value_name: '90 dias' },
+    ],
+    attributes: [{ id: 'ITEM_CONDITION', value_id: condition === 'new' ? '2230284' : '2230581' }],
+  }
+
+  // 4. POST /items/validate
+  try {
+    const vRes = $http.send({
+      url: 'https://api.mercadolibre.com/items/validate',
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer ' + token,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(payload),
+      timeout: 10,
+    })
+    diag.steps.validate = {
+      status: vRes.statusCode,
+      headers: vRes.headers,
+      body: vRes.json || vRes.raw,
+    }
+  } catch (e3) {
+    diag.steps.validate = { error: String(e3) }
+  }
+
+  // 5. Testar POST /items direto e inspecionar headers x-policy-agent-action, etc.
+  try {
+    const postRes = $http.send({
+      url: 'https://api.mercadolibre.com/items',
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer ' + token,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(payload),
+      timeout: 12,
+    })
+    diag.steps.post_items = {
+      status: postRes.statusCode,
+      headers: postRes.headers,
+      body: postRes.json || postRes.raw,
+    }
+  } catch (e4) {
+    diag.steps.post_items = { error: String(e4) }
+  }
+
+  return e.json(200, diag)
+})

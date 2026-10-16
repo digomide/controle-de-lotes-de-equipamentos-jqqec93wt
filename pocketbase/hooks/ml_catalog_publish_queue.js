@@ -315,6 +315,7 @@ onRecordAfterCreateSuccess((e) => {
   // Montar payload específico para cada uma das 4 condições
   function buildPayloadForCondition(condKey, variantStyle) {
     const p = {
+      title: titleFromCat || 'Notebook ' + catalogProductId,
       catalog_product_id: catalogProductId,
       catalog_listing: true,
       category_id: categoryId,
@@ -389,8 +390,7 @@ onRecordAfterCreateSuccess((e) => {
     const curVar = variationsToTry[vIdx]
     const payloadToSend = curVar.payload
 
-    // Garante que campos proibidos pelo catálogo NÃO sejam enviados
-    delete payloadToSend.title
+    // Garante que fotos e descrição proibidos pelo catálogo não sejam enviados
     delete payloadToSend.pictures
     delete payloadToSend.description
 
@@ -609,7 +609,8 @@ onRecordAfterCreateSuccess((e) => {
     const errBody = lastErrorData || {}
     const rawErrorStr = JSON.stringify(errBody)
 
-    // Verificação de bloqueio por PolicyAgent (403) nas políticas de catálogo do ML
+    // Verificação de bloqueio por PolicyAgent (403) nas políticas do ML
+    // IMPORTANTE: Distinguir 403 de escopo/permissão OAuth vs 403 de política de catálogo vs erro de token
     const isPolicyAgent =
       lastStatusCode === 403 ||
       errBody.code === 'PA_UNAUTHORIZED_RESULT_FROM_POLICIES' ||
@@ -617,9 +618,32 @@ onRecordAfterCreateSuccess((e) => {
       rawErrorStr.indexOf('PA_UNAUTHORIZED_RESULT_FROM_POLICIES') !== -1 ||
       rawErrorStr.indexOf('PolicyAgent') !== -1
 
+    // Verificar se a conta está sem o escopo granular de ofertas ou escrita
+    let isMissingOfferScope = false
+    try {
+      const activeTenant = rec.getString('tenant_id') || 'ambicorpmestre1'
+      const sRec = appId.findFirstRecordByFilter(
+        'ml_settings',
+        'tenant_id = "' + activeTenant + '"',
+      )
+      if (sRec) {
+        const sc = (sRec.getString('scopes') || '').toLowerCase()
+        if (
+          sc &&
+          !sc.includes('offers:/read-write') &&
+          (!sc.includes('write') || sc.includes('offers:/read-only'))
+        ) {
+          isMissingOfferScope = true
+        }
+      }
+    } catch (_) {}
+
     let userMsg = ''
 
-    if (isPolicyAgent) {
+    if (isMissingOfferScope && isPolicyAgent) {
+      userMsg =
+        'O token OAuth do Mercado Livre está sem permissão de escrita/ofertas (escopo offers:/read-only ativo). Reconecte a conta do Mercado Livre em Configurações para liberar a criação de anúncios.'
+    } else if (isPolicyAgent) {
       userMsg =
         'Mercado Livre bloqueia criação/oferta de catálogo via API para esta conta/anúncio (Política de Catálogo ML). Crie a oferta diretamente pelo painel do Mercado Livre ou Ideris.'
     } else if (
