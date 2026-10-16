@@ -1516,22 +1516,31 @@ export const mlService = {
     redirectUri?: string,
     onProgress?: (message: string) => void,
   ): Promise<{ success: boolean; nickname?: string; user_id_ml?: string }> {
+    // 0. Validar autenticação no sistema antes de prosseguir
+    if (!pb.authStore.isValid || !pb.authStore.model) {
+      throw new Error(
+        'Sua sessão no AmbicorpFlow expirou. Faça login no sistema primeiro para concluir a vinculação do Mercado Livre.',
+      )
+    }
+
     const cleanCode = code.trim()
     if (!cleanCode) {
       throw new Error('Código de autorização não informado.')
     }
 
     const targetRedirect = redirectUri?.trim() || ''
+    const currentTenantId = getActiveTenantId()
 
     if (onProgress) {
       onProgress('Registrando solicitação de autorização...')
     }
 
-    // 1. Criar registro na coleção ml_oauth_requests
+    // 1. Criar registro na coleção ml_oauth_requests com tenant_id explícito
     const requestRecord = await pb.collection('ml_oauth_requests').create({
       code: cleanCode,
       redirect_uri: targetRedirect,
       status: 'pending',
+      tenant_id: currentTenantId || null,
       requested_by: pb.authStore.model?.id || null,
     })
 

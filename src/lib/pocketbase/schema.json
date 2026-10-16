@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-16T10:38:20.904Z",
+  "generatedAt": "2026-10-16T11:01:05.869Z",
   "collections": [
     {
       "name": "users",
@@ -972,10 +972,10 @@
       "name": "ml_oauth_requests",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
-        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
-        "create": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
-        "update": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || tenant_id = @request.auth.tenant_id)",
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
         "delete": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || (@request.auth.role = 'admin' && tenant_id = @request.auth.tenant_id))"
       },
       "fields": [

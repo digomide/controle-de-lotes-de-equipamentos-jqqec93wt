@@ -28,6 +28,13 @@ onRecordAfterCreateSuccess((e) => {
         settings = sRecords[0]
       }
     }
+    // Fallback: se não encontrou por tenant_id ou não foi passado, busca o registro mestre/geral
+    if (!settings) {
+      const anyRecords = $app.findRecordsByFilter('ml_settings', '1=1', '-created', 1, 0)
+      if (anyRecords && anyRecords.length > 0) {
+        settings = anyRecords[0]
+      }
+    }
   } catch (err) {
     console.log(
       '[ml_oauth_hook] Erro ao carregar ml_settings para tenant ' + reqTenantId + ': ' + err,

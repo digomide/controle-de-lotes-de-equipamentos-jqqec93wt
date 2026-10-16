@@ -22,7 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Boxes, Lock, Mail, Loader2, CheckCircle2, Building, Globe } from 'lucide-react'
+import { Boxes, Lock, Mail, Loader2, CheckCircle2, Building, Globe, Info } from 'lucide-react'
 
 export default function Login() {
   const [email, setEmail] = useState('rodrigoifgx@gmail.com')
@@ -190,6 +190,21 @@ export default function Login() {
                     required
                   />
                 </div>
+              </div>
+
+              {/* Esclarecimento sobre Login do Sistema vs Conexão Mercado Livre */}
+              <div className="p-3 bg-amber-50/90 border border-amber-200/90 rounded-lg text-xs text-amber-950 space-y-1.5">
+                <div className="font-bold flex items-center gap-1.5 text-amber-900">
+                  <Info className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>Acesso ao sistema AmbicorpFlow</span>
+                </div>
+                <p className="text-[11.5px] leading-relaxed text-amber-900">
+                  Este login é exclusivo para acessar o painel do sistema{' '}
+                  <strong>AmbicorpFlow</strong>. A conexão com a sua conta do{' '}
+                  <strong>Mercado Livre (INFOPRECOBAIXO)</strong> é feita após entrar no sistema, em{' '}
+                  <strong>Configurações &rarr; Integração Mercado Livre</strong>, na tela de
+                  autorização oficial do próprio Mercado Livre.
+                </p>
               </div>
 
               <div className="p-3 bg-slate-100 rounded-lg text-xs text-slate-600 space-y-2">

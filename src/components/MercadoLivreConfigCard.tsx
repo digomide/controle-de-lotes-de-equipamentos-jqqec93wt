@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { useToast } from '@/hooks/use-toast'
 import { useTenant } from '@/contexts/TenantContext'
+import { useAuth } from '@/contexts/AuthContext'
 import {
   mlService,
   getDefaultMLRedirectUri,
@@ -32,6 +33,7 @@ import { ManualMLModal } from '@/components/ManualMLModal'
 export function MercadoLivreConfigCard() {
   const { toast } = useToast()
   const { currentTenant } = useTenant()
+  const { user } = useAuth()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
@@ -48,7 +50,10 @@ export function MercadoLivreConfigCard() {
   const defaultRedirect = getDefaultMLRedirectUri()
 
   const isCurrentOriginPreview =
-    typeof window !== 'undefined' && window.location.hostname.includes('--preview')
+    typeof window !== 'undefined' &&
+    (window.location.hostname.includes('--preview') ||
+      window.location.hostname.includes('localhost') ||
+      window.location.hostname.includes('127.0.0.1'))
 
   // Verificação de escopo de escrita de anúncios/ofertas
   const currentScopes = (status?.scopes || '').toLowerCase()
@@ -222,7 +227,17 @@ export function MercadoLivreConfigCard() {
   }
 
   const handleConnectOAuth = () => {
-    if (!clientId.trim()) {
+    if (!user) {
+      toast({
+        title: 'Sessão do sistema necessária',
+        description:
+          'Sua sessão no AmbicorpFlow expirou ou você não está logado. Faça login no sistema antes de conectar ao Mercado Livre.',
+        variant: 'destructive',
+      })
+      return
+    }
+    const activeClientId = clientId.trim() || status?.client_id?.trim()
+    if (!activeClientId) {
       toast({
         title: 'Client ID não configurado',
         description: 'Preencha e salve o Client ID antes de iniciar a conexão.',
@@ -230,8 +245,15 @@ export function MercadoLivreConfigCard() {
       })
       return
     }
-    const finalRedirect = redirectUri.trim() || defaultRedirect
-    const authUrl = buildMLAuthUrl(clientId.trim(), finalRedirect)
+    // Sempre prioriza a URI cadastrada no banco ou a canônica de produção para o Mercado Livre
+    const finalRedirect =
+      status?.redirect_uri && !status.redirect_uri.includes('--preview')
+        ? status.redirect_uri
+        : redirectUri.trim() && !redirectUri.includes('--preview')
+          ? redirectUri.trim()
+          : defaultRedirect
+
+    const authUrl = buildMLAuthUrl(activeClientId, finalRedirect)
     window.location.href = authUrl
   }
 
