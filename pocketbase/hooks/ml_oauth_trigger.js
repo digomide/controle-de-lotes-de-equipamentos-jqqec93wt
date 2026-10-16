@@ -114,7 +114,12 @@ onRecordAfterCreateSuccess((e) => {
   const userId = (tokenData.user_id || '').toString()
   const returnedScope = tokenData.scope || ''
 
-  console.log('[ml_oauth_hook] Token obtido com sucesso! Escopos retornados: ' + returnedScope)
+  console.log(
+    '[ml_oauth_hook] Token obtido com sucesso! user_id: ' +
+      userId +
+      ' | Escopos retornados: ' +
+      returnedScope,
+  )
 
   if (!accessToken) {
     req.set('status', 'error')
@@ -140,6 +145,8 @@ onRecordAfterCreateSuccess((e) => {
     if (userRes.statusCode === 200 && userRes.json) {
       nickname = userRes.json.nickname || ''
       permalink = userRes.json.permalink || ''
+    } else {
+      console.log('[ml_oauth_hook] Consulta a /users/me retornou status ' + userRes.statusCode)
     }
   } catch (uErr) {
     console.log('[ml_oauth_hook] Erro ao buscar dados do perfil do ML: ' + uErr)
@@ -149,8 +156,12 @@ onRecordAfterCreateSuccess((e) => {
   settings.set('refresh_token', refreshToken)
   settings.set('token_expires_at', expiresAt)
   settings.set('user_id_ml', userId)
-  settings.set('nickname', nickname)
-  settings.set('permalink_seller', permalink)
+  if (nickname) {
+    settings.set('nickname', nickname)
+  }
+  if (permalink) {
+    settings.set('permalink_seller', permalink)
+  }
   if (returnedScope) {
     settings.set('scopes', returnedScope)
   }
@@ -165,7 +176,7 @@ onRecordAfterCreateSuccess((e) => {
   req.set('status', 'done')
   req.set('error_message', '')
   $app.save(req)
-  console.log('[ml_oauth_hook] OAuth finalizado com sucesso para vendedor: ' + nickname)
+  console.log('[ml_oauth_hook] OAuth finalizado com sucesso para vendedor: ' + (nickname || userId))
 
   e.next()
 }, 'ml_oauth_requests')

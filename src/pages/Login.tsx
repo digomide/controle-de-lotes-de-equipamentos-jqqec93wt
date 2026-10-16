@@ -34,7 +34,27 @@ export default function Login() {
   const navigate = useNavigate()
   const location = useLocation()
 
-  const from = (location.state as { from?: { pathname: string } })?.from?.pathname || '/'
+  const fromState = (location.state as { from?: { pathname?: string; search?: string } })?.from
+  const fromPathname = fromState?.pathname || '/'
+  const fromSearch = fromState?.search || ''
+  const targetDestination = fromSearch ? `${fromPathname}${fromSearch}` : fromPathname
+
+  const handleSuccessfulAuth = () => {
+    // Se temos um code salvo em sessionStorage e o destino não inclui /configuracoes,
+    // direcionar para /configuracoes preservando o code para o exchange imediato acontecer.
+    let pendingCode: string | null = null
+    try {
+      pendingCode = sessionStorage.getItem('ml_pending_oauth_code')
+    } catch {
+      /* intentionally ignored */
+    }
+
+    if (pendingCode && !targetDestination.includes('/configuracoes')) {
+      navigate('/configuracoes', { replace: true })
+    } else {
+      navigate(targetDestination, { replace: true })
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -43,7 +63,7 @@ export default function Login() {
 
     try {
       await login(email, password, currentTenant?.id)
-      navigate(from, { replace: true })
+      handleSuccessfulAuth()
     } catch (err: any) {
       console.error(err)
       const msg = err?.message || 'Credenciais inválidas. Verifique seu e-mail e senha.'
@@ -60,7 +80,7 @@ export default function Login() {
     setIsLoading(true)
     try {
       await login(quickEmail, 'Skip@Pass')
-      navigate(from, { replace: true })
+      handleSuccessfulAuth()
     } catch (err: any) {
       console.error(err)
       const msg = err?.message || 'Falha ao autenticar com as credenciais rápidas.'

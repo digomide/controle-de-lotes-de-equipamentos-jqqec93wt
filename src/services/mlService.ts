@@ -1530,13 +1530,23 @@ export const mlService = {
     }
 
     // 1. Criar registro na coleção ml_oauth_requests com tenant_id explícito
-    const requestRecord = await pb.collection('ml_oauth_requests').create({
-      code: cleanCode,
-      redirect_uri: targetRedirect,
-      status: 'pending',
-      tenant_id: currentTenantId || null,
-      requested_by: pb.authStore.model?.id || null,
-    })
+    let requestRecord: any
+    try {
+      requestRecord = await pb.collection('ml_oauth_requests').create({
+        code: cleanCode,
+        redirect_uri: targetRedirect,
+        status: 'pending',
+        tenant_id: currentTenantId || null,
+        requested_by: pb.authStore.model?.id || null,
+      })
+    } catch (createErr: any) {
+      console.error('Falha ao criar registro em ml_oauth_requests:', createErr)
+      const errDetail =
+        createErr?.data?.message ||
+        createErr?.message ||
+        'Não foi possível registrar o código de autorização no backend.'
+      throw new Error(`Erro ao iniciar solicitação de autorização: ${errDetail}`)
+    }
 
     const requestId = requestRecord.id
 

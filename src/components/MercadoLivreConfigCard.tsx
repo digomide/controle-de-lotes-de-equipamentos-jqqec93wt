@@ -115,14 +115,40 @@ export function MercadoLivreConfigCard() {
       }
 
       // 2. Verificar se a página recebeu ?code= ou ?error= do callback OAuth do Mercado Livre
+      // ou se havia um pendente salvo no sessionStorage antes do redirecionamento do login
       const urlParams = new URLSearchParams(window.location.search)
-      const authCode = urlParams.get('code')
-      const oauthError = urlParams.get('error')
-      const oauthErrorDescription = urlParams.get('error_description')
+      let authCode = urlParams.get('code')
+      let oauthError = urlParams.get('error')
+      let oauthErrorDescription = urlParams.get('error_description')
+
+      // Se não veio na URL direta, verificar sessionStorage
+      try {
+        if (!authCode) {
+          authCode = sessionStorage.getItem('ml_pending_oauth_code')
+        }
+        if (!oauthError) {
+          oauthError = sessionStorage.getItem('ml_pending_oauth_error')
+          oauthErrorDescription = sessionStorage.getItem('ml_pending_oauth_error_desc')
+        }
+      } catch {
+        /* intentionally ignored */
+      }
+
+      // Limpar sessionStorage e URL para não duplicar chamadas
+      try {
+        sessionStorage.removeItem('ml_pending_oauth_code')
+        sessionStorage.removeItem('ml_pending_oauth_state')
+        sessionStorage.removeItem('ml_pending_oauth_error')
+        sessionStorage.removeItem('ml_pending_oauth_error_desc')
+      } catch {
+        /* intentionally ignored */
+      }
+
+      if (window.location.search) {
+        window.history.replaceState({}, document.title, window.location.pathname)
+      }
 
       if (oauthError) {
-        // Limpar URL
-        window.history.replaceState({}, document.title, window.location.pathname)
         const errMsg = oauthErrorDescription
           ? `${oauthError}: ${oauthErrorDescription}`
           : `O Mercado Livre recusou a autorização (${oauthError}).`
@@ -136,8 +162,6 @@ export function MercadoLivreConfigCard() {
       }
 
       if (authCode) {
-        // Limpar da URL para não reenviar em F5
-        window.history.replaceState({}, document.title, window.location.pathname)
         await handleExchangeCode(authCode)
       }
     }
@@ -170,13 +194,27 @@ export function MercadoLivreConfigCard() {
       await loadStatus()
     } catch (err: any) {
       console.error('Erro detalhado no callback OAuth ML:', err)
-      const message = err?.message || 'Código de autorização inválido ou expirado.'
+      let message = err?.message || 'Código de autorização inválido ou expirado.'
+      if (err?.data && typeof err.data === 'object') {
+        const detailParts = Object.entries(err.data)
+          .map(([k, v]: [string, any]) => `${k}: ${v?.message || JSON.stringify(v)}`)
+          .join('; ')
+        if (detailParts) {
+          message += ` (${detailParts})`
+        }
+      }
       setAuthErrorDetails(message)
       toast({
         title: 'Falha na conexão com Mercado Livre',
         description: message,
         variant: 'destructive',
       })
+      // Recarrega o status atual para manter a interface consistente
+      try {
+        await loadStatus()
+      } catch {
+        /* intentionally ignored */
+      }
     } finally {
       setExchangeProgress(null)
       setLoading(false)

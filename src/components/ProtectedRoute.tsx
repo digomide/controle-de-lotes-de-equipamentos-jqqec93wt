@@ -33,6 +33,25 @@ export const ProtectedRoute: React.FC<{
   }
 
   if (!user) {
+    // Preservar parâmetros OAuth (Mercado Livre) em sessionStorage se retornou sem sessão
+    try {
+      const searchStr =
+        location.search || (typeof window !== 'undefined' ? window.location.search : '')
+      if (searchStr) {
+        const sp = new URLSearchParams(searchStr)
+        const code = sp.get('code')
+        const state = sp.get('state')
+        const error = sp.get('error')
+        const errorDesc = sp.get('error_description')
+        if (code) sessionStorage.setItem('ml_pending_oauth_code', code)
+        if (state) sessionStorage.setItem('ml_pending_oauth_state', state)
+        if (error) sessionStorage.setItem('ml_pending_oauth_error', error)
+        if (errorDesc) sessionStorage.setItem('ml_pending_oauth_error_desc', errorDesc)
+      }
+    } catch (_) {
+      // Ignora falhas pontuais de sessionStorage em modo privado restrito
+    }
+
     return <Navigate to="/login" state={{ from: location }} replace />
   }
 
