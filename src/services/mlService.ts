@@ -1259,40 +1259,40 @@ export function getDefaultMLRedirectUri(): string {
 }
 
 /**
- * Escopos padrão necessários para a integração completa do Mercado Livre.
- * Inclui offline_access, leitura e escrita granulares (offers, publish-sync, orders-shipments, etc.)
- * e os escopos tradicionais 'read' e 'write'.
+ * URI canônica oficial homologada no Mercado Livre Developers (ambiente de produção)
  */
-export const REQUIRED_ML_SCOPES = [
-  'offline_access',
-  'read',
-  'write',
-  'urn:ml:mktp:offers:/read-write',
-  'urn:ml:mktp:publish-sync:/read-write',
-  'urn:ml:mktp:orders-shipments:/read-write',
-  'urn:ml:mktp:comunication:/read-write',
-  'urn:ml:mktp:invoices:/read-write',
-  'urn:ml:mktp:metrics:/read-only',
-  'urn:ml:mktp:ads:/read-write',
-].join(' ')
+export const CANONICAL_ML_REDIRECT_URI =
+  'https://controle-de-lotes-de-equipamentos-25024.goskip.app/configuracoes'
 
 /**
- * Monta URL de autorização OAuth do Mercado Livre solicitando o conjunto completo de escopos.
+ * Monta a URL oficial de autorização OAuth do Mercado Livre (Brasil: MLB).
+ * Segundo a documentação oficial do Mercado Livre Developers (OAuth 2.0 Server Side):
+ *   https://auth.mercadolibre.com.br/authorization?response_type=code&client_id=$APP_ID&redirect_uri=$YOUR_URL
+ *
+ * REGRA CRÍTICA DO MERCADO LIVRE:
+ * - Parâmetros permitidos no endpoint de autorização: `response_type=code`, `client_id`, `redirect_uri` e opcionalmente `state`.
+ * - NÃO enviar `scope` na query string: no ML, os escopos e permissões são configurados no painel do aplicativo (Developers > Minhas Aplicações > Escopos/Permissões) ou concedidos via tela de consentimento. Se enviado na URL de autorização, valores desconhecidos ou inválidos (ex.: URNs granulares) fazem o Mercado Livre REJEITAR imediatamente com a tela azul de erro oficial: "Desculpe, não foi possível conectar o aplicativo à sua conta".
+ * - A `redirect_uri` DEVE ser exatamente a canônica cadastrada no portal do ML Developers (https://controle-de-lotes-de-equipamentos-25024.goskip.app/configuracoes), sem espaços, sem trailing slashes discrepantes.
  */
 export function buildMLAuthUrl(
   clientId: string,
-  redirectUri: string,
-  scopes: string = REQUIRED_ML_SCOPES,
+  redirectUri: string = CANONICAL_ML_REDIRECT_URI,
+  state?: string,
 ): string {
-  const base = 'https://auth.mercadolivre.com.br/authorization'
+  const base = 'https://auth.mercadolibre.com.br/authorization'
+  const cleanClientId = clientId.trim()
+  const cleanRedirectUri = (redirectUri || CANONICAL_ML_REDIRECT_URI).trim()
+
   const params = new URLSearchParams({
     response_type: 'code',
-    client_id: clientId.trim(),
-    redirect_uri: redirectUri.trim(),
+    client_id: cleanClientId,
+    redirect_uri: cleanRedirectUri,
   })
-  if (scopes && scopes.trim()) {
-    params.set('scope', scopes.trim())
+
+  if (state && state.trim()) {
+    params.set('state', state.trim())
   }
+
   return `${base}?${params.toString()}`
 }
 

@@ -245,13 +245,11 @@ export function MercadoLivreConfigCard() {
       })
       return
     }
-    // Sempre prioriza a URI cadastrada no banco ou a canônica de produção para o Mercado Livre
+    // Sempre usa rigorosamente a URI canônica homologada no portal de Developers do ML
     const finalRedirect =
       status?.redirect_uri && !status.redirect_uri.includes('--preview')
-        ? status.redirect_uri
-        : redirectUri.trim() && !redirectUri.includes('--preview')
-          ? redirectUri.trim()
-          : defaultRedirect
+        ? status.redirect_uri.trim()
+        : defaultRedirect
 
     const authUrl = buildMLAuthUrl(activeClientId, finalRedirect)
     window.location.href = authUrl
