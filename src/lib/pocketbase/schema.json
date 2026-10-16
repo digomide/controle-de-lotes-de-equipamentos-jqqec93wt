@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-16T08:40:18.215Z",
+  "generatedAt": "2026-10-16T10:38:20.904Z",
   "collections": [
     {
       "name": "users",
@@ -5458,8 +5458,8 @@
       "name": "tenants",
       "type": "base",
       "apiRules": {
-        "list": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || @request.auth.tenant_id = id || id = 'ambicorpmestre1')",
-        "view": "@request.auth.id != '' && (@request.auth.role = 'super_admin' || @request.auth.tenant_id = id || id = 'ambicorpmestre1')",
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
         "create": "@request.auth.id != '' && @request.auth.role = 'super_admin'",
         "update": "@request.auth.id != '' && @request.auth.role = 'super_admin'",
         "delete": "@request.auth.id != '' && @request.auth.role = 'super_admin' && id != 'ambicorpmestre1'"
