@@ -1261,10 +1261,12 @@ export function getDefaultMLRedirectUri(): string {
 /**
  * Monta a URL oficial de autorização OAuth do Mercado Livre (Brasil: MLB).
  * Segundo a documentação oficial do Mercado Livre Developers (OAuth 2.0 Server Side):
- *   https://auth.mercadolibre.com.br/authorization?response_type=code&client_id=$APP_ID&redirect_uri=$YOUR_URL
+ *   https://auth.mercadolibre.com/authorization?response_type=code&client_id=$APP_ID&redirect_uri=$YOUR_URL
  *
  * REGRA CRÍTICA DO MERCADO LIVRE:
  * - Parâmetros permitidos no endpoint de autorização: `response_type=code`, `client_id`, `redirect_uri` e opcionalmente `state`.
+ * - Endpoint canônico histórico: https://auth.mercadolibre.com/authorization (sem ".br", grafia "libre"),
+ *   compatível universalmente com todos os provedores DNS e redes móveis.
  * - NÃO enviar `scope` na query string: no ML, os escopos e permissões são configurados no painel do aplicativo (Developers > Minhas Aplicações > Escopos/Permissões) ou concedidos via tela de consentimento. Se enviado na URL de autorização, valores desconhecidos ou inválidos (ex.: URNs granulares) fazem o Mercado Livre REJEITAR imediatamente com a tela azul de erro oficial: "Desculpe, não foi possível conectar o aplicativo à sua conta".
  * - A `redirect_uri` DEVE ser exatamente a canônica cadastrada no portal do ML Developers (https://controle-de-lotes-de-equipamentos-25024.goskip.app/configuracoes), sem espaços, sem trailing slashes discrepantes.
  */
@@ -1273,7 +1275,7 @@ export function buildMLAuthUrl(
   redirectUri: string = CANONICAL_ML_REDIRECT_URI,
   state?: string,
 ): string {
-  const base = 'https://auth.mercadolibre.com.br/authorization'
+  const base = 'https://auth.mercadolibre.com/authorization'
   const cleanClientId = clientId.trim()
   const cleanRedirectUri = (redirectUri || CANONICAL_ML_REDIRECT_URI).trim()
 
