@@ -48,7 +48,7 @@ export default function Layout() {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const { user, logout, isSuperAdmin, isAdmin, hasModule } = useAuth()
+  const { user, logout, isSuperAdmin, isAdmin } = useAuth()
   const {
     currentTenant,
     masterTenant,
@@ -242,7 +242,20 @@ export default function Layout() {
         </div>
 
         {/* Navigation items */}
-        <div className="flex-1 py-4 overflow-y-auto">{renderNavLinks()}</div>
+        <div className="flex-1 py-4 overflow-y-auto">
+          {renderNavLinks()}
+          {isAdmin && (
+            <div className="mt-4 px-3 pt-3 border-t border-slate-800">
+              <NavLink
+                to="/configuracoes#mercado-livre"
+                className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold bg-[#ffe600]/10 text-[#ffe600] hover:bg-[#ffe600]/20 transition-colors border border-[#ffe600]/30"
+              >
+                <ShoppingBag className="w-4 h-4 shrink-0 text-[#ffe600]" />
+                {!collapsed && <span>Conectar Mercado Livre</span>}
+              </NavLink>
+            </div>
+          )}
+        </div>
 
         {/* User preview bottom sidebar */}
         <div className="p-3 border-t border-slate-800">
@@ -307,7 +320,30 @@ export default function Layout() {
                     <p className="text-xs text-slate-400">Controle de Lotes</p>
                   </div>
                 </div>
-                <div className="py-6">{renderNavLinks(() => setMobileOpen(false))}</div>
+                {/* Destaque Conectar ML no menu lateral Mobile */}
+                <div className="px-4 pt-4">
+                  <NavLink
+                    to="/configuracoes#mercado-livre"
+                    onClick={() => {
+                      setMobileOpen(false)
+                      // Se já estiver em /configuracoes, força scroll suave
+                      const el = document.getElementById('mercado-livre')
+                      if (el) {
+                        el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                      }
+                    }}
+                    className="flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold bg-[#ffe600] text-slate-950 shadow-md active:scale-[0.98] transition-all"
+                  >
+                    <div className="flex items-center gap-2">
+                      <ShoppingBag className="w-4 h-4 shrink-0 text-slate-950" />
+                      <span>Conectar Mercado Livre</span>
+                    </div>
+                    <span className="text-[10px] bg-slate-950 text-[#ffe600] px-1.5 py-0.5 rounded font-mono">
+                      OAuth
+                    </span>
+                  </NavLink>
+                </div>
+                <div className="py-4">{renderNavLinks(() => setMobileOpen(false))}</div>
                 <div className="absolute bottom-4 left-4 right-4 p-3 bg-slate-800 rounded-lg">
                   <div className="text-xs font-semibold text-white truncate">{user?.name}</div>
                   <div className="text-[11px] text-slate-400 truncate">{user?.email}</div>
@@ -442,26 +478,89 @@ export default function Layout() {
           <Outlet />
         </main>
 
-        {/* Mobile Bottom Navigation for quick access — exibe apenas módulos permitidos */}
-        <div className="md:hidden flex items-center justify-around bg-white border-t border-slate-200 py-2 px-1 z-30 overflow-x-auto">
-          {visibleNavItems.slice(0, 5).map((item) => {
-            const Icon = item.icon
-            return (
-              <NavLink
-                key={item.path}
-                to={item.path}
-                className={({ isActive }) =>
-                  cn(
-                    'flex flex-col items-center gap-1 text-[10px] font-medium py-1 px-2 rounded min-w-[50px] text-center',
-                    isActive ? 'text-orange-600 font-bold' : 'text-slate-500',
-                  )
-                }
-              >
-                <Icon className="w-4 h-4" />
-                <span className="truncate max-w-[64px]">{item.title}</span>
-              </NavLink>
-            )
-          })}
+        {/* Mobile Bottom Navigation for quick access — exibe módulos principais + atalho ML */}
+        <div className="md:hidden flex items-center justify-around bg-white border-t border-slate-200 py-1.5 px-1 z-30 overflow-x-auto shadow-lg">
+          <NavLink
+            to="/"
+            className={({ isActive }) =>
+              cn(
+                'flex flex-col items-center gap-0.5 text-[10px] font-medium py-1 px-1.5 rounded min-w-[48px] text-center shrink-0',
+                isActive ? 'text-orange-600 font-bold' : 'text-slate-500',
+              )
+            }
+          >
+            <LayoutDashboard className="w-4 h-4" />
+            <span className="truncate max-w-[56px]">Início</span>
+          </NavLink>
+
+          <NavLink
+            to="/anuncios-ml"
+            className={({ isActive }) =>
+              cn(
+                'flex flex-col items-center gap-0.5 text-[10px] font-medium py-1 px-1.5 rounded min-w-[48px] text-center shrink-0',
+                isActive ? 'text-orange-600 font-bold' : 'text-slate-500',
+              )
+            }
+          >
+            <ShoppingBag className="w-4 h-4" />
+            <span className="truncate max-w-[56px]">Marketplace</span>
+          </NavLink>
+
+          {/* Botão em Destaque: Conectar ML */}
+          <NavLink
+            to="/configuracoes#mercado-livre"
+            onClick={() => {
+              const el = document.getElementById('mercado-livre')
+              if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+              }
+            }}
+            className="flex flex-col items-center gap-0.5 text-[10px] font-bold py-1 px-2 rounded-lg bg-[#ffe600] text-slate-950 shadow-xs shrink-0 active:scale-95 transition-transform"
+          >
+            <ShoppingBag className="w-4 h-4 text-slate-950" />
+            <span className="truncate max-w-[68px]">Conectar ML</span>
+          </NavLink>
+
+          <NavLink
+            to="/estoque"
+            className={({ isActive }) =>
+              cn(
+                'flex flex-col items-center gap-0.5 text-[10px] font-medium py-1 px-1.5 rounded min-w-[48px] text-center shrink-0',
+                isActive ? 'text-orange-600 font-bold' : 'text-slate-500',
+              )
+            }
+          >
+            <Layers className="w-4 h-4" />
+            <span className="truncate max-w-[56px]">Estoque</span>
+          </NavLink>
+
+          {isAdmin ? (
+            <NavLink
+              to="/configuracoes"
+              className={({ isActive }) =>
+                cn(
+                  'flex flex-col items-center gap-0.5 text-[10px] font-medium py-1 px-1.5 rounded min-w-[48px] text-center shrink-0',
+                  isActive ? 'text-orange-600 font-bold' : 'text-slate-500',
+                )
+              }
+            >
+              <Settings className="w-4 h-4" />
+              <span className="truncate max-w-[56px]">Ajustes</span>
+            </NavLink>
+          ) : (
+            <NavLink
+              to="/vendas"
+              className={({ isActive }) =>
+                cn(
+                  'flex flex-col items-center gap-0.5 text-[10px] font-medium py-1 px-1.5 rounded min-w-[48px] text-center shrink-0',
+                  isActive ? 'text-orange-600 font-bold' : 'text-slate-500',
+                )
+              }
+            >
+              <ShoppingCart className="w-4 h-4" />
+              <span className="truncate max-w-[56px]">Vendas</span>
+            </NavLink>
+          )}
         </div>
       </div>
     </div>

@@ -44,6 +44,23 @@ export default function Configuracoes() {
   const { currentTenant } = useTenant()
   const [showManualModal, setShowManualModal] = useState(false)
 
+  // Rolagem suave automática caso acesse via âncora (#mercado-livre ou ?focus=ml)
+  React.useEffect(() => {
+    const shouldScrollToML =
+      window.location.hash === '#mercado-livre' ||
+      new URLSearchParams(window.location.search).get('focus') === 'ml'
+
+    if (shouldScrollToML) {
+      const timer = setTimeout(() => {
+        const el = document.getElementById('mercado-livre')
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }
+      }, 250)
+      return () => clearTimeout(timer)
+    }
+  }, [])
+
   // Estados do formulário de troca de senha
   const [oldPassword, setOldPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -446,6 +463,11 @@ export default function Configuracoes() {
         </CardContent>
       </Card>
 
+      {/* Integração Mercado Livre — Destaque Prioritário no topo para facilitar conexão no celular */}
+      <div id="mercado-livre" className="scroll-mt-6">
+        <MercadoLivreConfigCard />
+      </div>
+
       {/* Integração Mercado Pago Checkout Pro */}
       <MercadoPagoConfigCard />
 
@@ -454,9 +476,6 @@ export default function Configuracoes() {
 
       {/* Integração Kabum Marketplace (Mirakl) */}
       <KabumConfigCard />
-
-      {/* Integração Mercado Livre */}
-      <MercadoLivreConfigCard />
 
       {/* Central de Perguntas ML & Auto-Resposta */}
       <Card className="border-yellow-200 shadow-xs bg-gradient-to-b from-yellow-50/30 to-white">

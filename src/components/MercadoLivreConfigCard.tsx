@@ -535,24 +535,26 @@ export function MercadoLivreConfigCard() {
                 </div>
               </div>
             ) : (
-              <div className="p-4 bg-amber-50/80 rounded-xl border border-amber-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+              <div className="p-4 bg-amber-50/80 rounded-xl border-2 border-amber-300 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs shadow-xs">
                 <div>
-                  <p className="font-bold text-amber-950 flex items-center gap-1.5">
-                    <Sparkles className="w-4 h-4 text-amber-600" />
+                  <p className="font-bold text-amber-950 text-sm sm:text-xs flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4 text-amber-600 shrink-0" />
                     Pronto para conectar ao Mercado Livre
                   </p>
-                  <p className="text-amber-800 text-[11px] mt-0.5">
-                    Após cadastrar suas credenciais abaixo, clique no botão Conectar para autorizar
-                    o envio de anúncios.
+                  <p className="text-amber-800 text-xs sm:text-[11px] mt-0.5">
+                    {status?.configured || clientId.trim()
+                      ? 'Credenciais registradas. Toque no botão amarelo abaixo para autorizar no Mercado Livre.'
+                      : 'Após cadastrar suas credenciais abaixo, toque no botão para autorizar o envio de anúncios.'}
                   </p>
                 </div>
 
-                {status?.configured && (
+                {(status?.configured || Boolean(clientId.trim())) && (
                   <Button
                     type="button"
                     onClick={handleConnectOAuth}
-                    className="bg-[#ffe600] hover:bg-[#ebd300] text-slate-950 font-bold text-xs h-9 shadow-sm shrink-0"
+                    className="bg-[#ffe600] hover:bg-[#ebd300] active:scale-[0.98] text-slate-950 font-bold text-xs h-10 sm:h-9 shadow-md shrink-0 w-full sm:w-auto gap-2"
                   >
+                    <ShoppingBag className="w-4 h-4 shrink-0 text-slate-900" />
                     Conectar Mercado Livre
                   </Button>
                 )}
@@ -723,24 +725,25 @@ export function MercadoLivreConfigCard() {
                 </div>
               </div>
 
-              <div className="flex items-center justify-between pt-2 border-t border-slate-100 flex-wrap gap-2">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between pt-2 border-t border-slate-100 gap-2.5">
                 <Button
                   type="submit"
                   disabled={saving}
-                  className="bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs h-9 gap-1.5"
+                  className="bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs h-10 sm:h-9 gap-1.5 order-2 sm:order-1"
                 >
                   {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
                   Salvar Credenciais
                 </Button>
 
-                {!status?.connected && clientId.trim() && (
+                {!status?.connected && (clientId.trim() || status?.client_id?.trim()) && (
                   <Button
                     type="button"
+                    id="btn-conectar-ml"
                     onClick={handleConnectOAuth}
-                    className="bg-[#ffe600] hover:bg-[#ebd300] text-slate-950 font-bold text-xs h-9 shadow-sm gap-2"
+                    className="bg-[#ffe600] hover:bg-[#ebd300] active:scale-[0.98] text-slate-950 font-bold text-xs sm:text-xs h-11 sm:h-9 shadow-md gap-2 order-1 sm:order-2 w-full sm:w-auto text-center justify-center transition-all"
                   >
-                    <ShoppingBag className="w-3.5 h-3.5" />
-                    Iniciar Conexão OAuth com Mercado Livre
+                    <ShoppingBag className="w-4 h-4 shrink-0 text-slate-900" />
+                    <span>Iniciar Conexão OAuth com Mercado Livre</span>
                   </Button>
                 )}
               </div>
