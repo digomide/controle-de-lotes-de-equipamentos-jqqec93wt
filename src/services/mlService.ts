@@ -1259,12 +1259,6 @@ export function getDefaultMLRedirectUri(): string {
 }
 
 /**
- * URI canônica oficial homologada no Mercado Livre Developers (ambiente de produção)
- */
-export const CANONICAL_ML_REDIRECT_URI =
-  'https://controle-de-lotes-de-equipamentos-25024.goskip.app/configuracoes'
-
-/**
  * Monta a URL oficial de autorização OAuth do Mercado Livre (Brasil: MLB).
  * Segundo a documentação oficial do Mercado Livre Developers (OAuth 2.0 Server Side):
  *   https://auth.mercadolibre.com.br/authorization?response_type=code&client_id=$APP_ID&redirect_uri=$YOUR_URL

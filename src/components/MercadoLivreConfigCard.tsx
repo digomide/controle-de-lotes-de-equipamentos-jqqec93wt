@@ -10,7 +10,7 @@ import { useTenant } from '@/contexts/TenantContext'
 import { useAuth } from '@/contexts/AuthContext'
 import {
   mlService,
-  getDefaultMLRedirectUri,
+  CANONICAL_ML_REDIRECT_URI,
   buildMLAuthUrl,
   type MLStatusResponse,
 } from '@/services/mlService'
@@ -42,12 +42,9 @@ export function MercadoLivreConfigCard() {
 
   const [clientId, setClientId] = useState('')
   const [clientSecret, setClientSecret] = useState('')
-  const [redirectUri, setRedirectUri] = useState('')
   const [showInstructions, setShowInstructions] = useState(false)
   const [showManualModal, setShowManualModal] = useState(false)
   const [authErrorDetails, setAuthErrorDetails] = useState<string | null>(null)
-
-  const defaultRedirect = getDefaultMLRedirectUri()
 
   const isCurrentOriginPreview =
     typeof window !== 'undefined' &&
@@ -86,12 +83,6 @@ export function MercadoLivreConfigCard() {
       if (data.client_id) {
         setClientId(data.client_id)
       }
-      // Sempre prioriza a URI gravada no banco como canônica (ou defaultRedirect)
-      const finalUri =
-        data.redirect_uri && !data.redirect_uri.includes('--preview')
-          ? data.redirect_uri
-          : defaultRedirect
-      setRedirectUri(finalUri)
     } catch (err: any) {
       console.error('Erro ao consultar status ML:', err)
     } finally {
@@ -107,23 +98,15 @@ export function MercadoLivreConfigCard() {
     setLoading(true)
 
     const init = async () => {
-      // 1. Carrega dados salvos primeiro para ter certeza do redirect_uri canônico gravado no banco
-      let currentRedirect = defaultRedirect
+      // 1. Carrega dados salvos da integração
       try {
         const data = await mlService.getStatus()
         setStatus(data)
         if (data.client_id) {
           setClientId(data.client_id)
         }
-        if (data.redirect_uri && !data.redirect_uri.includes('--preview')) {
-          currentRedirect = data.redirect_uri
-          setRedirectUri(data.redirect_uri)
-        } else {
-          setRedirectUri(defaultRedirect)
-        }
       } catch (err) {
         console.error('Erro ao consultar status ML inicial:', err)
-        setRedirectUri(defaultRedirect)
       } finally {
         setLoading(false)
       }
@@ -152,22 +135,25 @@ export function MercadoLivreConfigCard() {
       if (authCode) {
         // Limpar da URL para não reenviar em F5
         window.history.replaceState({}, document.title, window.location.pathname)
-        await handleExchangeCode(authCode, currentRedirect)
+        await handleExchangeCode(authCode)
       }
     }
 
     init()
   }, [currentTenant?.id, currentTenant?.slug])
 
-  const handleExchangeCode = async (code: string, explicitRedirect?: string) => {
+  const handleExchangeCode = async (code: string) => {
     setLoading(true)
     setAuthErrorDetails(null)
     setExchangeProgress('Iniciando processamento da autorização...')
     try {
-      const targetRedirect = explicitRedirect || redirectUri || defaultRedirect
-      const res = await mlService.exchangeAuthCode(code, targetRedirect, (progressMsg) => {
-        setExchangeProgress(progressMsg)
-      })
+      const res = await mlService.exchangeAuthCode(
+        code,
+        CANONICAL_ML_REDIRECT_URI,
+        (progressMsg) => {
+          setExchangeProgress(progressMsg)
+        },
+      )
       toast({
         title: 'Mercado Livre conectado com sucesso!',
         description: res.nickname
@@ -203,11 +189,7 @@ export function MercadoLivreConfigCard() {
 
     setSaving(true)
     try {
-      await mlService.saveConfig(
-        clientId.trim(),
-        clientSecret.trim(),
-        redirectUri.trim() || defaultRedirect,
-      )
+      await mlService.saveConfig(clientId.trim(), clientSecret.trim(), CANONICAL_ML_REDIRECT_URI)
       toast({
         title: 'Configurações salvas!',
         description: 'Credenciais da aplicação Mercado Livre armazenadas com sucesso.',
@@ -246,12 +228,7 @@ export function MercadoLivreConfigCard() {
       return
     }
     // Sempre usa rigorosamente a URI canônica homologada no portal de Developers do ML
-    const finalRedirect =
-      status?.redirect_uri && !status.redirect_uri.includes('--preview')
-        ? status.redirect_uri.trim()
-        : defaultRedirect
-
-    const authUrl = buildMLAuthUrl(activeClientId, finalRedirect)
+    const authUrl = buildMLAuthUrl(activeClientId, CANONICAL_ML_REDIRECT_URI)
     window.location.href = authUrl
   }
 
@@ -283,7 +260,7 @@ export function MercadoLivreConfigCard() {
   }
 
   const handleCopyUri = () => {
-    navigator.clipboard.writeText(redirectUri || defaultRedirect)
+    navigator.clipboard.writeText(CANONICAL_ML_REDIRECT_URI)
     toast({
       title: 'Redirect URI copiada!',
       description:
@@ -614,7 +591,7 @@ export function MercadoLivreConfigCard() {
                     exatamente a URL abaixo:
                     <div className="mt-1 flex items-center gap-2">
                       <code className="bg-white px-2 py-1 rounded border border-slate-300 font-mono text-[11px] text-slate-800 select-all break-all">
-                        {redirectUri || defaultRedirect}
+                        {CANONICAL_ML_REDIRECT_URI}
                       </code>
                       <Button
                         type="button"
@@ -713,13 +690,13 @@ export function MercadoLivreConfigCard() {
                     </button>
                   </Label>
                   <Input
-                    value={redirectUri}
-                    onChange={(e) => setRedirectUri(e.target.value)}
-                    className="font-mono bg-slate-50 text-xs h-9 text-slate-700"
+                    value={CANONICAL_ML_REDIRECT_URI}
+                    readOnly
+                    className="font-mono bg-slate-100/80 text-xs h-9 text-slate-700 cursor-default select-all"
                   />
-                  <p className="text-[11px] text-slate-400">
-                    Esta mesma URL deve ser cadastrada nas configurações do seu app no portal do
-                    Mercado Livre.
+                  <p className="text-[11px] text-slate-500">
+                    URI canônica única cadastrada na sua aplicação no portal Mercado Livre
+                    Developers.
                   </p>
 
                   {/* Aviso contextual quando acessando pelo domínio de preview */}
@@ -735,9 +712,7 @@ export function MercadoLivreConfigCard() {
                         Mercado Livre Developers está configurada para a URI canônica de produção:
                       </p>
                       <p className="font-mono font-medium text-blue-950 bg-white/80 p-1.5 rounded border border-blue-200 select-all break-all">
-                        {status?.redirect_uri && !status.redirect_uri.includes('--preview')
-                          ? status.redirect_uri
-                          : defaultRedirect}
+                        {CANONICAL_ML_REDIRECT_URI}
                       </p>
                       <p className="text-blue-700 text-[10.5px]">
                         As operações de anúncios, perguntas e pedidos operam normalmente em todos os
